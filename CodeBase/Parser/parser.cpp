@@ -3,8 +3,8 @@
 //
 
 #include <iostream>
-#include <southampton_wln.h>
-#include <wln_nextmove.h>
+#include "southampton-wln.h"
+#include "wln-nextmove.h"
 #include <string>
 #include <cstring>
 #include <algorithm>

@@ -30,7 +30,7 @@ GNU General Public License for more details.
 #include <openbabel/obmolecformat.h>
 
 //testing header
-#include "southampton_wln.h"
+#include "southampton-wln.h"
 
 ////////////////////////////////////////////////////////////////////////
 // Utility Classes

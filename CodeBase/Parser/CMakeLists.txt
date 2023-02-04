@@ -13,16 +13,6 @@ include_directories("${CMAKE_SOURCE_DIR}/../openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
 
 
-file(GLOB EXEC_SRCS
-        "${PROJECT_SOURCE_DIR}/include/*.h"
-        "${PROJECT_SOURCE_DIR}/include/*.hpp"
-        "${PROJECT_SOURCE_DIR}/src/*.cpp"
-        "${PROJECT_SOURCE_DIR}/src/*.c"
-        )
-set(EXEC_SOURCES ${EXEC_SRCS})
-
-
-add_executable(wisswesser ${EXEC_SOURCES})
-
+add_executable(wisswesser parser.cpp southampton-wln.cpp wln-nextmove.cpp)
 
 target_link_libraries(wisswesser "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.0.0.dylib")

@@ -48,10 +48,10 @@ Mandatory arguments include \<input\> followed by **--i\<format\>** to specify i
 | inckey| inchi key |
 
 
-###Output
+### Output
 By default conversion will be piped to stdout, if converting files, its recommended piping the output to a file with '>'. 
 
-###Example 
+### Example 
 
 ```
 wisswesser input_wln.txt --iwln --osmi > converted_smiles.txt
