@@ -13,6 +13,6 @@ include_directories("${CMAKE_SOURCE_DIR}/../openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
 
 
-add_executable(wisswesser parser.cpp southampton-wln.cpp wln-nextmove.cpp)
+add_executable(wisswesser parser.cpp readwln.cpp writewln.cpp)
 
 target_link_libraries(wisswesser "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.0.0.dylib")

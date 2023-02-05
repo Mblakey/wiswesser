@@ -2,12 +2,13 @@
 // Created by Michael Blakey on 04/07/2022.
 //
 
+#include <stdlib.h>
+#include <stdio.h>
+
 #include <iostream>
-#include "southampton-wln.h"
-#include "wln-nextmove.h"
 #include <string>
-#include <cstring>
-#include <algorithm>
+
+#include "parsefunctions.h"
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -15,15 +16,6 @@
 #include <openbabel/obconversion.h>
 #include <openbabel/obiter.h>
 #include <openbabel/ring.h>
-#include <iterator>
-#include <openbabel/mol.h>
-#include <openbabel/atom.h>
-#include <openbabel/bond.h>
-#include <openbabel/obconversion.h>
-#include <openbabel/obiter.h>
-#include <openbabel/ring.h>
-#include <iterator>
-
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 #include <openbabel/babelconfig.h>
@@ -33,8 +25,6 @@
 #define BUFFER_SIZE 8*4096
 const char *filename; 
 const char *wln;
-
-
 
 
 static bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n){

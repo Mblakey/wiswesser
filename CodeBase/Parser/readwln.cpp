@@ -18,20 +18,22 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
-#include "wln-nextmove.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <vector>
+#include <numeric>
+#include <algorithm>
+
+#include "parsefunctions.h"
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/kekulize.h>
-
-#include <openbabel/obconversion.h>
-
-#include <vector>
-#include <numeric>
 #include <openbabel/obiter.h>
-#include <algorithm>
-
+#include <openbabel/obconversion.h>
 
 #define PENDING_NONE   0
 #define PENDING_DEPROT 1

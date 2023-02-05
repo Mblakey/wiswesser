@@ -14,23 +14,27 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "parsefunctions.h"
+
 #include <vector>
 #include <iostream>
-#include <cmath>
 #include <stack>
+#include <iterator>
+
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/obconversion.h>
 #include <openbabel/obiter.h>
 #include <openbabel/ring.h>
-#include <iterator>
-
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
 //testing header
-#include "southampton-wln.h"
+
 
 ////////////////////////////////////////////////////////////////////////
 // Utility Classes
