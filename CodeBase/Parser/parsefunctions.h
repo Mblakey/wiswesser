@@ -19,7 +19,12 @@ bool MBWLNMurckoScaffold(const char *ptr, OpenBabel::OBMol* mol);
 bool MBWLNRGroupDecomp(const char *ptr, OpenBabel::OBMol* mol);
 bool MBWLNGraphScaffold(const char *ptr, OpenBabel::OBMol* mol);
 
-const char* WLNToSmiles(const char *test_string, const char *format);
+
+// conversion functions
+void ConvertWLN(const char *input_string, const char *format, OpenBabel::OBMol *Mol);
+const char* ConvertSMI(const char *input_string, const char *format); 
+
+
 const char*  MurckoScaffold(const char *test_string, const char *format);
 const char*  GraphScaffold(const char *test_string, const char *format);
 const char*  RGroupDecomp(const char *test_string, const char *format);

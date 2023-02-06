@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "parsefunctions.h"
 
@@ -24,7 +25,8 @@
 
 #define BUFFER_SIZE 8*4096
 
-const char *inpname; 
+
+std::vector<const char *> file_queue;
 const char *inpformat; 
 const char *outformat; 
 
@@ -71,35 +73,30 @@ static bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n){
   return false;
 }
 
-
-// returns the number of matches in a file from a file pointer
-unsigned int WLNReadFilePointer(FILE *ifp){
-  fprintf(stderr,"matching on disc file\n");
-  // arbituary values; 
-  char buffer[BUFFER_SIZE];
-  unsigned int match_count = 0; 
-  // this now processes a file and returns the match_count
-
-  while (ReadLineFromFile(ifp,buffer,BUFFER_SIZE-1)) {
-    std::string str = std::string(buffer);
-    std::transform(str.begin(), str.end(),str.begin(), ::toupper);
-    const char *smiles = WLNToSmiles(str.c_str(),"smi");
-    if (strcmp(smiles,"NULL") != 0){
-      fprintf(stdout,"%s\t%s\t%d\n",str.c_str(),smiles,strlen(str.c_str()));
-      match_count++;
-    }
-  }
-
-  fprintf(stdout,"Valid WLN: %d\n",match_count);
-  return match_count;
-}
-
-
 // access global strings for type def 
 static bool ParseChemicalNotation(){
 
-  fprintf(stderr,"input is: %s\n",inpname);
-  
+  //fprintf(stderr,"input is: %s\n",inpname);
+
+  // smiles input block
+  if (!strcmp(inpformat,"smi")){
+
+    //for (const char * str : file_queue)
+      //ConvertSMI(str, outformat);
+
+  }
+
+  // wln input block
+  else if (!strcmp(inpformat,"wln")){
+
+    for (const char * str : file_queue){
+      OpenBabel::OBMol *Mol = new OpenBabel::OBMol; 
+      ConvertWLN(str, outformat, Mol);
+      delete Mol;
+      Mol = 0;
+    }
+      
+  }
 
 }
 
@@ -163,7 +160,6 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
 
   inpformat = (const char*)0; 
   outformat = (const char*)0;
-  inpname = (const char*)0; 
 
   if (argc < 2)
    DisplayUsage();
@@ -190,15 +186,15 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
       
     }
     else switch(j++){
-      case 0: inpname = ptr; break;
+      case 0: file_queue.push_back(ptr); break;
       default: break;
     }
       
     // end argc loop
   }
 
-  if (!inpname){
-    fprintf(stderr,"Error: no input string | file given for parsing\n");
+  if (file_queue.empty()){
+    fprintf(stderr,"Error: no input string(s) | file(sß) given for parsing\n");
     DisplayUsage();
   }
 
@@ -210,7 +206,7 @@ int main(int argc, char *argv[]){
 
   
   // file check in here
-  ParseChemicalNotation(inpname);
+  ParseChemicalNotation();
 
 
   return 0;

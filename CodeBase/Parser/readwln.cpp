@@ -2980,6 +2980,24 @@ bool NMReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     return NMOBSanitizeMol(mol);
 }
 
+
+/* assume openbabel mol is passed into the function, handled by user at API level */
+void ConvertWLN(const char *input_string, const char *format, OpenBabel::OBMol *Mol)
+{
+  OpenBabel::OBConversion conv;
+  conv.SetOutFormat(format);
+  if (NMReadWLN(input_string, Mol)){
+    std::string res = conv.WriteString(Mol, true);
+    fprintf(stderr,"%s: %s\n",format,res.c_str());
+  }
+  else 
+    fprintf(stderr,"Error: no converison possible\n");
+}
+
+
+
+#ifdef REFACTORED
+
 bool MBWLNMurckoScaffold(const char *ptr, OpenBabel::OBMol* mol)
 {
     if (ptr[0] == 'L' || ptr[0] == 'T'){
@@ -3097,54 +3115,13 @@ bool MBWLNGraphScaffold(const char *ptr, OpenBabel::OBMol* mol){
     }
 }
 
-bool FormatCheck(const char *format){
-    // not sure why std::string needs to be used for equality checking, but hey, its a python problem, works perfectly well in C.
-    std::vector<std::string> accepted {"smi", "can", "inchi","inchikey"};
-    if ( (std::find( accepted.begin(), accepted.end(), std::string(format) ) != accepted.end()) ==0)
-    {
-        fprintf(stderr,"incorrect format chosen, please choose: 'smi' , 'can' , 'inchi' or 'inchikey'\n");
-        fprintf(stderr, "babel format inputted: %s \n", format);
-        fprintf(stderr, "variable format supplied: %s \n", typeid(format).name());
-        return false;
-    }
-    else
-        return true;
-}
 
-const char* Error(){
-    char* null = new char[4];
-    std::string error = "NULL";
-    strcpy(null, error.c_str());
-    return null;
-};
+#endif
 
-const char* WLNToSmiles(const char *test_string, const char *format)
-{
-    if (!FormatCheck(format)){
-       return Error();
-    }
-    OpenBabel::OBMol *wlnMol = new OpenBabel::OBMol;
-    OpenBabel::OBConversion conv;
-    conv.SetOutFormat(format);
-    if (NMReadWLN(test_string, wlnMol)){
-        std::string res = conv.WriteString(wlnMol, true);
-        if(wlnMol){
-          delete wlnMol;
-          wlnMol = nullptr;
-        }
 
-        char* wln = new char[res.length()+1];
-        strcpy(wln, res.c_str());
-        return wln;
-    }
-    else {
-      if (wlnMol){
-        delete wlnMol;
-        wlnMol = nullptr;
-      }
-    return Error();
-    }
-}
+
+
+#ifdef REFACTORED
 
 const char*  MurckoScaffold(const char *test_string, const char *format)
 {
@@ -3222,3 +3199,6 @@ const char*  RGroupDecomp(const char *test_string, const char *format)
 
         return Error();}
 }
+
+
+#endif
