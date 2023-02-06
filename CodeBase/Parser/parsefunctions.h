@@ -19,11 +19,12 @@ bool MBWLNMurckoScaffold(const char *ptr, OpenBabel::OBMol* mol);
 bool MBWLNRGroupDecomp(const char *ptr, OpenBabel::OBMol* mol);
 bool MBWLNGraphScaffold(const char *ptr, OpenBabel::OBMol* mol);
 
-
-// --- Standard Functions ---
 const char* WLNToSmiles(const char *test_string, const char *format);
 const char*  MurckoScaffold(const char *test_string, const char *format);
 const char*  GraphScaffold(const char *test_string, const char *format);
 const char*  RGroupDecomp(const char *test_string, const char *format);
+
+
+bool MBWriterWLN(OpenBabel::OBMol *mol, std::string &buffer);
 
 #endif //READERLIB_WLN_NEXTMOVE_H

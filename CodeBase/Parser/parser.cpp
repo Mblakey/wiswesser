@@ -23,9 +23,8 @@
 
 
 #define BUFFER_SIZE 8*4096
-const char *filename; 
-const char *wln;
 
+const char *inpname; 
 const char *inpformat; 
 const char *outformat; 
 
@@ -96,15 +95,63 @@ unsigned int WLNReadFilePointer(FILE *ifp){
 }
 
 
-static bool ReadFormat(const char *ptr){
+// access global strings for type def 
+static bool ParseChemicalNotation(){
 
-  fprintf(stderr,"format being read is: %s\n",ptr);ß
+  fprintf(stderr,"input is: %s\n",inpname);
+  
 
+}
+
+
+static bool ReadInpFormat(const char *ptr){
+  ptr+=2; 
+  
+  if (!strcmp(ptr,"wln") || !strcmp(ptr,"WLN")){
+    fprintf(stderr,"Runtime: setting wln as input format\n");
+    inpformat = "wln"; 
+    return true;
+  }
+  else if (!strcmp(ptr,"smi") || !strcmp(ptr,"smiles") || !strcmp(ptr,"SMI")){
+    fprintf(stderr,"Runtime: setting smiles as input format\n");
+    inpformat = "smi"; 
+    return true;
+  }
+  else {
+    fprintf(stderr,"Runtime: unrecognised format entered for input format - %s\n",ptr);
+    return false;
+  }
+
+
+  return false;
+}
+
+
+static bool ReadOutFormat(const char *ptr){
+  ptr+=2; 
+  
+  if (!strcmp(ptr,"wln") || !strcmp(ptr,"WLN")){
+    fprintf(stderr,"Runtime: setting wln as output format\n");
+    outformat = "wln"; 
+    return true;
+  }
+  else if (!strcmp(ptr,"smi") || !strcmp(ptr,"smiles") || !strcmp(ptr,"SMI")){
+    fprintf(stderr,"Runtime: setting smiles as output format\n");
+    outformat = "smi"; 
+    return true;
+  }
+  else {
+    fprintf(stderr,"Runtime: unrecognised format entered for output format - %s\n",ptr);
+    return false;
+  }
+
+  return false;
 }
 
 
 static void DisplayUsage(){
   fprintf(stderr,"wiswesser -i<format> -o<format> <input>\n");
+  exit(1);
 }
 
 
@@ -115,10 +162,11 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
   int i,j; 
 
   inpformat = (const char*)0; 
-  outformat = (const char*)0; 
+  outformat = (const char*)0;
+  inpname = (const char*)0; 
 
   if (argc < 2)
-    DisplayUsage();
+   DisplayUsage();
 
   j=0; 
   for (i=1;i<argc;i++){
@@ -127,104 +175,42 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
 
     if (ptr[0]=='-' && ptr[1]){
       switch (ptr[1]){
-
-
         case 'i':
-          
-
-
-
+          if(!ReadInpFormat(ptr))
+            DisplayUsage();
+          break;
+        case 'o':
+          if(!ReadOutFormat(ptr))
+            DisplayUsage();
+          break;
         default:
           fprintf(stderr,"Error: Unrecognised letter option - %c\n",ptr[1]);
           break;
       }
       
-
-
+    }
+    else switch(j++){
+      case 0: inpname = ptr; break;
+      default: break;
     }
       
-
-
     // end argc loop
   }
 
-  // check cfx file
-  const char *cfx_ext = strrchr(cfxname, '.');
-  if (!cfx_ext) {
-    fprintf(stderr,"ERROR: Could not recognise .cfx(2) file extension %s\n",cfxname);
-    exit(1);
-  }
-  else{
-    if(strcmp(cfx_ext+1,"cfx2")==0)
-      twolevel = 1;
-  }
-
-  if (j < 2)
-    DisplayUsage();
-  
-  if (isDirectory(inpname))
-    dflag = 1;
-
-  if (rflag && !dflag){
-    fprintf(stderr, "ERROR: Recursive search cannot be enabled for a non-dir\n");
+  if (!inpname){
+    fprintf(stderr,"Error: no input string | file given for parsing\n");
     DisplayUsage();
   }
 
-  // stdin linux
-  if (!isatty(1))
-    hflag = false; 
-
-  // precedence flags
-  if (oflag && hflag){
-    fprintf(stderr,"WARNING: -o and -h are incompatible, proceeding with -o\n");
-    hflag = 0;
-  }
-
-  if (cflag && hflag){
-    fprintf(stderr,"WARNING: -c and -h are incompatible, proceeding with -c\n");
-    hflag = 0;
-  }
-
-  // incompatable flags
-  if (!twolevel && dfsflag){
-    fprintf(stderr,"ERROR: -dfs is not a valid mode for one-level matching\n");
-    DisplayUsage();
-  }
 }
 
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc,argv);
 
-
-#ifdef WORK
-
-  if (wln && *wln && strcmp(wln,"-")) {
-    const char *smiles = WLNToSmiles(wln,"smi");
-    fprintf(stderr,"%s    %s\n",wln,smiles);
-    if (smiles){
-      delete [] smiles; 
-      smiles = 0;
-    }
-      
-    return 0;
-  }
-
-
-  FILE *ifp =0;
-  if (filename && *filename && strcmp(filename,"-")) {
-    ifp = fopen(filename,"r");
-    if (!ifp) {
-      fprintf(stderr,"Error: Cannot read input file: %s\n",filename);
-      return 1;
-    }
-    WLNReadFilePointer(ifp);
-    return 0;
-  } 
-
-
-#endif
-
+  
+  // file check in here
+  ParseChemicalNotation(inpname);
 
 
   return 0;
