@@ -22,7 +22,7 @@ bool MBWLNGraphScaffold(const char *ptr, OpenBabel::OBMol* mol);
 
 // conversion functions
 void ConvertWLN(const char *input_string, const char *format, OpenBabel::OBMol *Mol);
-const char* ConvertSMI(const char *input_string, const char *format); 
+void ConvertSMI(const char *input_string, const char *format, OpenBabel::OBMol *Mol);
 
 
 const char*  MurckoScaffold(const char *test_string, const char *format);

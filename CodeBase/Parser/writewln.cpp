@@ -1727,6 +1727,8 @@ bool WriteWLN::CreateString(std::vector<char> &wln_string){
 
     return true;
 }
+
+
 bool WriteWLN::Error(const char* type){
     fprintf(stderr, "Error in wln write\n");
     fprintf(stderr, "Type: %s \n", type);
@@ -2906,34 +2908,29 @@ bool WriteWLN::CloneRingData(WLNSymbol &merged_ring, WLNSymbol &subject ,WLNSymb
 }
 
 
-// Working Function for executable testing
-std::string TranslateToWLN(const char* smiles_string){
-    OpenBabel::OBMol *Mol = new OpenBabel::OBMol;
-    OpenBabel::OBConversion conv;
-    conv.SetInFormat("smi");
-    if(!conv.ReadString(Mol, smiles_string))
-        return "NULL - SMILES READ ERROR";
-    Mol->DeleteHydrogens();
 
-    WriteWLN bond_engine{Mol};
-    std::vector<char> wln_out;
-    bond_engine.CreateString(wln_out);
-    std::string res(begin(wln_out), end(wln_out));
-    return res;
-};
+/* assume user control over heap Mol object*/
+void ConvertSMI(const char *input_string, const char *format, OpenBabel::OBMol *Mol){
+  OpenBabel::OBConversion conv;
+  conv.SetInFormat("smi");
+  if(!conv.ReadString(Mol, input_string))
+    fprintf(stdout,"Error: obabel smiles read error\n");
+  Mol->DeleteHydrogens();
 
-
-bool MBWriterWLN(OpenBabel::OBMol *mol, std::string &buffer){
-    // converts wln to a given buffer
-    WriteWLN wr{mol};
-    std::vector<char> wln_string;
-    if (!wr.CreateString(wln_string))
-        return wr.Error("read");
-
-    // this should return the wln string
-    std::string res(begin(wln_string), end(wln_string));
-    buffer = res;
-    return true;
+  WriteWLN wln_engine{Mol};
+  std::vector<char> wln_out;
+  wln_engine.CreateString(wln_out);
+  
+  if (wln_out.empty())
+    fprintf(stdout,"Error: no conversion possible - %s\n",input_string);
+  else{
+    fprintf(stdout,"wln: ");
+    for (char ch : wln_out)
+      fprintf(stdout,"%c",ch);
+    fprintf(stdout,"\n");
+  }
 }
+
+
 
 

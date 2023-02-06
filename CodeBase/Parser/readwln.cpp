@@ -2988,10 +2988,10 @@ void ConvertWLN(const char *input_string, const char *format, OpenBabel::OBMol *
   conv.SetOutFormat(format);
   if (NMReadWLN(input_string, Mol)){
     std::string res = conv.WriteString(Mol, true);
-    fprintf(stderr,"%s: %s\n",format,res.c_str());
+    fprintf(stdout,"%s: %s\n",format,res.c_str());
   }
   else 
-    fprintf(stderr,"Error: no converison possible\n");
+    fprintf(stdout,"Error: no conversion possible - %s\n",input_string);
 }
 
 

@@ -76,26 +76,24 @@ static bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n){
 // access global strings for type def 
 static bool ParseChemicalNotation(){
 
-  //fprintf(stderr,"input is: %s\n",inpname);
-
   // smiles input block
   if (!strcmp(inpformat,"smi")){
-
-    //for (const char * str : file_queue)
-      //ConvertSMI(str, outformat);
-
+    for (const char * str : file_queue){
+      OpenBabel::OBMol *Mol = new OpenBabel::OBMol; 
+      ConvertSMI(str, outformat,Mol);
+      delete Mol;
+      Mol = 0;
+    }
   }
 
   // wln input block
   else if (!strcmp(inpformat,"wln")){
-
     for (const char * str : file_queue){
       OpenBabel::OBMol *Mol = new OpenBabel::OBMol; 
       ConvertWLN(str, outformat, Mol);
       delete Mol;
       Mol = 0;
     }
-      
   }
 
 }
@@ -191,6 +189,11 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
     }
       
     // end argc loop
+  }
+
+  if (!inpformat || !outformat){
+    fprintf(stderr,"Error: no -i | -o flags received, please specify formats for parser\n");
+    DisplayUsage();
   }
 
   if (file_queue.empty()){
