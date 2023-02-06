@@ -26,6 +26,9 @@
 const char *filename; 
 const char *wln;
 
+const char *inpformat; 
+const char *outformat; 
+
 
 static bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n){
   char *end = buffer+n;
@@ -70,51 +73,6 @@ static bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n){
 }
 
 
-static void ProcessCommandLine(int argc, char *argv[]){
-
-  const char *ptr=0; 
-  int i,j; 
-
-  filename = (const char*)0;
-  wln = (const char*)0;
-
-  
-
-  j=0; 
-  for (i=1;i<argc;i++){
-    ptr = argv[i];
-
-    if (ptr[0]=='-' && ptr[1]){
-      // bracket flag
-      if (!strcmp(ptr,"-r") || !strcmp(ptr,"--read")){ 
-        // expects a folder following a space
-        if (i == argc-1){
-          fprintf(stderr,"ERROR: Provide a valid wln after -r\n");
-          exit(1);
-        }
-        else{
-          ptr = argv[i+1];
-          if (!ptr[0] || ptr[0] == '-'){
-            fprintf(stderr,"ERROR: Provide a valid wln after -r\n");
-            exit(1);
-          }else {
-            wln = ptr;
-            i++;
-          } 
-        } 
-      }
-        
-    }
-    else switch(j++){
-      case 0: filename = ptr; break; 
-      default:
-        fprintf(stderr,"No options\n");
-        exit(1);
-    }
-  }    
-}
-
-
 // returns the number of matches in a file from a file pointer
 unsigned int WLNReadFilePointer(FILE *ifp){
   fprintf(stderr,"matching on disc file\n");
@@ -137,8 +95,109 @@ unsigned int WLNReadFilePointer(FILE *ifp){
   return match_count;
 }
 
+
+static bool ReadFormat(const char *ptr){
+
+  fprintf(stderr,"format being read is: %s\n",ptr);ß
+
+}
+
+
+static void DisplayUsage(){
+  fprintf(stderr,"wiswesser -i<format> -o<format> <input>\n");
+}
+
+
+
+static unsigned int ProcessCommandLine(int argc, char *argv[]){
+
+  const char *ptr=0; 
+  int i,j; 
+
+  inpformat = (const char*)0; 
+  outformat = (const char*)0; 
+
+  if (argc < 2)
+    DisplayUsage();
+
+  j=0; 
+  for (i=1;i<argc;i++){
+
+    ptr = argv[i];
+
+    if (ptr[0]=='-' && ptr[1]){
+      switch (ptr[1]){
+
+
+        case 'i':
+          
+
+
+
+        default:
+          fprintf(stderr,"Error: Unrecognised letter option - %c\n",ptr[1]);
+          break;
+      }
+      
+
+
+    }
+      
+
+
+    // end argc loop
+  }
+
+  // check cfx file
+  const char *cfx_ext = strrchr(cfxname, '.');
+  if (!cfx_ext) {
+    fprintf(stderr,"ERROR: Could not recognise .cfx(2) file extension %s\n",cfxname);
+    exit(1);
+  }
+  else{
+    if(strcmp(cfx_ext+1,"cfx2")==0)
+      twolevel = 1;
+  }
+
+  if (j < 2)
+    DisplayUsage();
+  
+  if (isDirectory(inpname))
+    dflag = 1;
+
+  if (rflag && !dflag){
+    fprintf(stderr, "ERROR: Recursive search cannot be enabled for a non-dir\n");
+    DisplayUsage();
+  }
+
+  // stdin linux
+  if (!isatty(1))
+    hflag = false; 
+
+  // precedence flags
+  if (oflag && hflag){
+    fprintf(stderr,"WARNING: -o and -h are incompatible, proceeding with -o\n");
+    hflag = 0;
+  }
+
+  if (cflag && hflag){
+    fprintf(stderr,"WARNING: -c and -h are incompatible, proceeding with -c\n");
+    hflag = 0;
+  }
+
+  // incompatable flags
+  if (!twolevel && dfsflag){
+    fprintf(stderr,"ERROR: -dfs is not a valid mode for one-level matching\n");
+    DisplayUsage();
+  }
+}
+
+
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc,argv);
+
+
+#ifdef WORK
 
   if (wln && *wln && strcmp(wln,"-")) {
     const char *smiles = WLNToSmiles(wln,"smi");
@@ -162,6 +221,9 @@ int main(int argc, char *argv[]){
     WLNReadFilePointer(ifp);
     return 0;
   } 
+
+
+#endif
 
 
 
