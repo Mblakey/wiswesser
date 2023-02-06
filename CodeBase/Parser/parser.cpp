@@ -211,6 +211,5 @@ int main(int argc, char *argv[]){
   // file check in here
   ParseChemicalNotation();
 
-
   return 0;
 }
