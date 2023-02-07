@@ -183,7 +183,7 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
       }
       
     }
-    else switch(j++){
+    else switch(j){
       case 0: file_queue.push_back(ptr); break;
       default: break;
     }
@@ -197,7 +197,7 @@ static unsigned int ProcessCommandLine(int argc, char *argv[]){
   }
 
   if (file_queue.empty()){
-    fprintf(stderr,"Error: no input string(s) | file(sß) given for parsing\n");
+    fprintf(stderr,"Error: no input string(s) | file(s) given for parsing\n");
     DisplayUsage();
   }
 

@@ -476,6 +476,9 @@ public:
     unsigned int ScoreLists(std::vector<AtomContainer> list_1, std::vector<AtomContainer> list_2);
 
 };
+
+
+// this is made for look ahead type def? 
 std::string TranslateToWLN(const char* smiles_string);
 
 
@@ -572,6 +575,7 @@ bool WriteWLN::BuildGlobalStacks(OpenBabel::OBMol *Mol) {
     // Mol deletion checked
     return true;
 }
+
 bool WriteWLN::SegmentAtomStack(std::vector<WLNSymbol> &wln_vector){
     if (global_atom_stack.empty())
         return false;
