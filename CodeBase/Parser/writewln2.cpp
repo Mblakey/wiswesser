@@ -49,7 +49,8 @@ struct WLNSymbol{
   enum WLNType { UNRESOLVED = 0, CARBON = 1, ATOM = 2, FRAGMENT = 3, LINKER = 4, LOCANT = 5}; 
 
   unsigned char ch; 
-  unsigned int type;  
+  unsigned int type; 
+  unsigned int max_next_size;  
 
   WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
   std::vector<WLNSymbol*> next; // linked list of next terms chains 
@@ -70,31 +71,45 @@ struct WLNSymbol{
       case '8':
       case '9':
         type = CARBON; 
+        max_next_size = 1;
         break;
       
       case 'A':
         type = LOCANT; 
+        max_next_size = 1;
         break;
 
-      case 'B':
-      case 'C':
-        type = ATOM; 
+      case 'B':   // boron
+        type = ATOM;
+        max_next_size = 2;
+        break;
+      
+       case 'C':  // shortcut carbon atom
+        type = ATOM;
+        max_next_size = 3;
         break;
       
       case 'D': 
-        type = LOCANT; 
+        type = LOCANT;
+        max_next_size = 1; 
         break;
       
-      case 'E':
+      case 'E':  // halogens
       case 'F':
       case 'G': 
-      case 'H': 
       case 'I': 
         type = ATOM; 
+        max_next_size = 2;
+        break;
+      
+      case 'H': // closing hydrogen
+        type = ATOM; 
+        max_next_size = 0;
         break;
 
-      case 'J':
-        type = FRAGMENT; // generic symbol for halogen 
+      case 'J': // generic symbol for halogen 
+        type = ATOM; 
+        max_next_size = 2;
         break;
       
       case 'K': 
@@ -102,49 +117,81 @@ struct WLNSymbol{
         break;
 
       case 'L':
-        type = LINKER; 
+        type = LINKER;
+        max_next_size = 1; 
         break;
       
       case 'M':
+        type = ATOM; 
+        max_next_size = 1;
+        break;
+
       case 'N': 
+        type = ATOM; 
+        max_next_size = 2;
+        break; 
+
       case 'O':
+        type = ATOM; 
+        max_next_size = 1;
+        break;
+
       case 'P':
         type = ATOM; 
+        max_next_size = 4;
         break;
 
       case 'Q': 
+        type = FRAGMENT; 
+        max_next_size = 1;
+        break;
+
       case 'R':
         type = FRAGMENT; 
+        max_next_size = 0; 
         break;
 
       case 'S': 
         type = ATOM;
+        max_next_size = 5;
         break;
 
       case 'T':
       case 'U': 
         type = LINKER;
+        max_next_size = 1;
         break; 
 
       case 'V': 
         type = FRAGMENT; 
+        max_next_size = 1;
         break;
 
-      
       case 'W':
+        type = LINKER; 
+        max_next_size = 1;
+        break;
+
       case 'X':
+        type = LINKER; 
+        max_next_size = 4;
+        break;
+
       case 'Y':
         type = LINKER; 
+        max_next_size = 3;
         break;
 
       case 'Z': 
-        type = FRAGMENT; 
+        type = ATOM;
+        max_next_size = 0; 
         break;
 
       case '&':
       case '-':
       case '/': 
         type = LINKER; 
+        max_next_size = 1; 
         break;
 
     
@@ -173,24 +220,68 @@ WLNSymbol* AllocateWLNSymbol(unsigned char ch){
 }
 
 
+/* create the functions used for adding the WLN tree */
+
+
+
+/* add src to the next vector of trg */
+void add_symbol(WLNSymbol* src, WLNSymbol *trg){
+
+#ifdef DEBUGWLN
+  if (trg->next.size() < trg->max_next_size){
+    fprintf(stderr,"adding symbol %c to bonds of %c\n",src->ch, trg->ch);
+    trg->next.push_back(src);
+  }
+  else {
+    fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
+    trg->next.push_back(src);
+  }   
+
+#else
+  if (trg->next.size() < trg->max_next_size){
+    trg->next.push_back(src);
+  }
+  else {
+    fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
+    trg->next.push_back(src);
+  }   
+#endif
+
+}
+
+
+
 /* parses input string, mallocs graph nodes and sets up graph based on symbol */
 bool ParseWLN(const char *wln, unsigned int len, WLNGraph *symbol_tree){
 
-  WLNSymbol *prev_seen = 0;
+
+  std::stack <WLNSymbol*> wln_stack; 
+  WLNSymbol *top = 0; 
   for (unsigned int i = 0; i<len; i++){
+
     WLNSymbol* created_wln = AllocateWLNSymbol(wln[i]);
     if (!created_wln)
       return false; 
 
     if(!symbol_tree->head){
       symbol_tree->head = created_wln; // set up the first access point
-      prev_seen = created_wln;
-      continue;
+      wln_stack.push(created_wln);
     }
+    else {
+      
+      top = wln_stack.top(); 
+      
+      // we always add into the graph node of top, and we move top around instead
 
-    created_wln->prev = prev_seen; // update previous (this is simple)
+      add_symbol(created_wln,top);
+
+      if (top->next.size() < top->max_next_size)
+        wln_stack.pop();
+
+      wln_stack.push(created_wln);
 
 
+    }
     
   }
 
