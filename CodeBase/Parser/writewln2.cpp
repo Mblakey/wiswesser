@@ -234,9 +234,9 @@ void add_symbol(WLNSymbol* src, WLNSymbol *trg){
   }
   else {
     fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
+    fprintf(stderr,"adding symbol %c to bonds of %c\n",src->ch, trg->ch);
     trg->next.push_back(src);
   }   
-
 #else
   if (trg->next.size() < trg->max_next_size){
     trg->next.push_back(src);
