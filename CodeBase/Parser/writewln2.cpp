@@ -17,27 +17,22 @@
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
+// forward dec
+struct WLNSymbol; 
 
-struct WLNSymbol;  
-struct WLNGraph; 
-
+// --- inputs ---  
 const char *wln; 
+const char *dotfile; 
+
+
+// --- options --- 
+bool opt_wln2dot = false;
+
+
+
+
+// --- memory --- 
 std::vector<WLNSymbol*> mempool; 
-enum WLNType { UNRESOLVED = 0, SINGLETON = 1, BRANCH = 2, LINKER = 3, TERMINATOR = 4}; 
-
-
-struct WLNGraph{
-  WLNSymbol *head; // linked list beg
-  WLNSymbol *tail; // linked list end
-  unsigned int count; 
-
-  WLNGraph(){
-    head = (WLNSymbol*)0;
-    tail = (WLNSymbol*)0;
-    count = 0; 
-  }
-
-}; 
 
 static void empty_mempool(){
   for (WLNSymbol* allocedwln : mempool){  // if error free all the mempool --> stop leak 
@@ -45,6 +40,12 @@ static void empty_mempool(){
     allocedwln = 0;
   }
 }
+
+
+
+
+
+enum WLNType { UNRESOLVED = 0, SINGLETON = 1, BRANCH = 2, LINKER = 3, TERMINATOR = 4}; 
 
 struct WLNSymbol{
 
@@ -199,7 +200,6 @@ struct WLNSymbol{
         num_childs = 1; 
         break;
 
-    
       default:
         fprintf(stderr,"Error: invalid wln symbol parsed: %c\n",ch);
         return false; 
@@ -209,8 +209,7 @@ struct WLNSymbol{
     return true; 
   } 
 
-}; 
-
+};
 
 
 WLNSymbol* AllocateWLNSymbol(unsigned char ch){
@@ -223,10 +222,6 @@ WLNSymbol* AllocateWLNSymbol(unsigned char ch){
   
   return wln; 
 }
-
-
-/* create the functions used for adding the WLN tree */
-
 
 
 /* add src to the children vector of trg */
@@ -257,7 +252,7 @@ void add_symbol(WLNSymbol* src, WLNSymbol *trg){
 
 
 /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
-bool ParseNonCyclic(const char *wln, unsigned int len, WLNGraph *symbol_tree){
+bool ParseNonCyclic(const char *wln, unsigned int len){
   
   WLNSymbol *prev = 0; // hold previous term for single linear adding 
   std::stack <WLNSymbol*> wln_stack; 
@@ -268,8 +263,7 @@ bool ParseNonCyclic(const char *wln, unsigned int len, WLNGraph *symbol_tree){
     if (!created_wln)
       return false; 
 
-    if(!symbol_tree->head){
-      symbol_tree->head = created_wln; // set up the first access point
+    if(!prev){
       if (created_wln->type == BRANCH)
         wln_stack.push(created_wln);
       prev = created_wln; 
@@ -317,7 +311,7 @@ void WLNDumpToDot(FILE *fp){
 static void DisplayUsage(){
   fprintf(stderr,"wln-writer <input> (escaped)\n");
   fprintf(stderr,"<options>\n");
-  fprintf(stderr,"--wln2dot <dotfile.dot>       dump wln tree to dot file\n")
+  fprintf(stderr,"  --wln2dot <dotfile.dot>       dump wln tree to dot file\n");
   exit(1);
 }
 
@@ -326,7 +320,8 @@ static void ProcessCommandLine(int argc, char *argv[]){
   const char *ptr=0; 
   int i,j; 
 
-  wln = (const char*)0; 
+  wln     = (const char*)0;
+  dotfile = (const char*)0;
   
   if (argc < 2)
    DisplayUsage();
@@ -337,7 +332,29 @@ static void ProcessCommandLine(int argc, char *argv[]){
     ptr = argv[i];
 
     if (ptr[0]=='-' && ptr[1])
-      fprintf(stderr,"Error: writer only takes in single strings, option detected!\n");
+      switch (ptr[1]){
+
+        case '-':
+          if (!strcmp(ptr, "--wln2dot")){
+            opt_wln2dot = true; 
+            if (i == argc - 1){
+              fprintf(stderr,"Error: --wlndot requires a <file>.dot as next arguement\n");
+              DisplayUsage();
+            }
+            i++; // increment argv
+            if (argv[i][0] != '-')
+              dotfile = argv[i];
+            else{
+              fprintf(stderr,"Error: --wlndot requires a <file>.dot as next arguement\n");
+              DisplayUsage();
+            } 
+            break;
+          }
+
+        default:
+          fprintf(stderr,"Error: unrecognised input %s\n",ptr);
+          break;
+      }
     
     else switch(j++){
       case 0: wln = ptr; break;
@@ -355,18 +372,20 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   fprintf(stderr,"Parsing: %s\n",wln);
 
-  WLNGraph *symbol_tree = new WLNGraph();  // defaults set
-
-  
-  if(!ParseNonCyclic(wln, strlen(wln), symbol_tree)){
+  if(!ParseNonCyclic(wln, strlen(wln))){
     empty_mempool();
-    delete symbol_tree; 
     return 1; 
   }
 
-  WLNDumpToDot(stdout);
-
+  if (opt_wln2dot){
+    FILE *fp = 0; 
+    fp = fopen(dotfile, "w");
+    if (!fp)
+      fprintf(stderr,"Error: could not write %s as .dot file - skipping\n",dotfile);
+    else
+      WLNDumpToDot(fp);
+  }
+  
   empty_mempool();
-  delete symbol_tree; 
   return 0;
 }
