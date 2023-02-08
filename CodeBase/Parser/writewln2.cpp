@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <stack>
+#include <map>
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -22,11 +23,12 @@ struct WLNGraph;
 
 const char *wln; 
 std::vector<WLNSymbol*> mempool; 
+enum WLNType { UNRESOLVED = 0, SINGLETON = 1, BRANCH = 2, LINKER = 3, TERMINATOR = 4}; 
+
 
 struct WLNGraph{
   WLNSymbol *head; // linked list beg
   WLNSymbol *tail; // linked list end
-
   unsigned int count; 
 
   WLNGraph(){
@@ -46,14 +48,12 @@ static void empty_mempool(){
 
 struct WLNSymbol{
 
-  enum WLNType { UNRESOLVED = 0, CARBON = 1, ATOM = 2, FRAGMENT = 3, LINKER = 4, LOCANT = 5}; 
-
   unsigned char ch; 
   unsigned int type; 
-  unsigned int max_next_size;  
+  unsigned int num_childs;  
 
   WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
-  std::vector<WLNSymbol*> next; // linked list of next terms chains 
+  std::vector<WLNSymbol*> children; // linked list of next terms chains 
 
   bool init(unsigned char inp_char){
     ch = inp_char;
@@ -70,128 +70,133 @@ struct WLNSymbol{
       case '7': 
       case '8':
       case '9':
-        type = CARBON; 
-        max_next_size = 1;
+        type = SINGLETON; 
+        num_childs = 1;
         break;
       
       case 'A':
-        type = LOCANT; 
-        max_next_size = 1;
+        type = SINGLETON;
+        num_childs = 1;
         break;
 
       case 'B':   // boron
-        type = ATOM;
-        max_next_size = 2;
+        type = BRANCH;
+        num_childs = 2; 
         break;
       
        case 'C':  // shortcut carbon atom
-        type = ATOM;
-        max_next_size = 3;
+        type = BRANCH;
+        num_childs = 3;
         break;
       
       case 'D': 
-        type = LOCANT;
-        max_next_size = 1; 
+        type = SINGLETON; 
+        num_childs = 1;
         break;
       
       case 'E':  // halogens
       case 'F':
       case 'G': 
       case 'I': 
-        type = ATOM; 
-        max_next_size = 2;
+        type = BRANCH; 
+        num_childs = 2; 
         break;
       
       case 'H': // closing hydrogen
-        type = ATOM; 
-        max_next_size = 0;
+        type = TERMINATOR; 
+        num_childs = 0; 
         break;
 
       case 'J': // generic symbol for halogen 
-        type = ATOM; 
-        max_next_size = 2;
+        type = BRANCH; 
+        num_childs = 2; 
         break;
       
       case 'K': 
-        type = ATOM; 
+        type = BRANCH; 
+        num_childs = 3; 
         break;
 
       case 'L':
         type = LINKER;
-        max_next_size = 1; 
+        num_childs = 1; 
         break;
       
       case 'M':
-        type = ATOM; 
-        max_next_size = 1;
+        type = BRANCH; 
+        num_childs = 1; 
         break;
 
       case 'N': 
-        type = ATOM; 
-        max_next_size = 2;
+        type = BRANCH; 
+        num_childs = 2;
         break; 
 
       case 'O':
-        type = ATOM; 
-        max_next_size = 1;
+        type = BRANCH; 
+        num_childs = 1;
         break;
 
       case 'P':
-        type = ATOM; 
-        max_next_size = 4;
+        type = BRANCH; 
+        num_childs = 4;
         break;
 
       case 'Q': 
-        type = FRAGMENT; 
-        max_next_size = 1;
+        type = TERMINATOR; 
+        num_childs = 0;
         break;
 
       case 'R':
-        type = FRAGMENT; 
-        max_next_size = 0; 
+        type = SINGLETON; 
+        num_childs = 0; 
         break;
 
       case 'S': 
-        type = ATOM;
-        max_next_size = 5;
+        type = BRANCH;
+        num_childs = 5;
         break;
 
       case 'T':
       case 'U': 
         type = LINKER;
-        max_next_size = 1;
+        num_childs = 1;
         break; 
 
       case 'V': 
-        type = FRAGMENT; 
-        max_next_size = 1;
+        type = SINGLETON; 
+        num_childs = 1;
         break;
 
       case 'W':
         type = LINKER; 
-        max_next_size = 1;
+        num_childs = 1;
         break;
 
       case 'X':
-        type = LINKER; 
-        max_next_size = 4;
+        type = BRANCH; 
+        num_childs = 4;
         break;
 
       case 'Y':
-        type = LINKER; 
-        max_next_size = 3;
+        type = BRANCH; 
+        num_childs = 3;
         break;
 
       case 'Z': 
-        type = ATOM;
-        max_next_size = 0; 
+        type = TERMINATOR;
+        num_childs = 0; 
         break;
 
       case '&':
+        type = TERMINATOR;
+        num_childs = 0; 
+        break;
+
       case '-':
       case '/': 
         type = LINKER; 
-        max_next_size = 1; 
+        num_childs = 1; 
         break;
 
     
@@ -224,26 +229,26 @@ WLNSymbol* AllocateWLNSymbol(unsigned char ch){
 
 
 
-/* add src to the next vector of trg */
+/* add src to the children vector of trg */
 void add_symbol(WLNSymbol* src, WLNSymbol *trg){
 
 #ifdef DEBUGWLN
-  if (trg->next.size() < trg->max_next_size){
+  if (trg->children.size() < trg->num_childs){
     fprintf(stderr,"adding symbol %c to bonds of %c\n",src->ch, trg->ch);
-    trg->next.push_back(src);
+    trg->children.push_back(src);
   }
   else {
     fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
     fprintf(stderr,"adding symbol %c to bonds of %c\n",src->ch, trg->ch);
-    trg->next.push_back(src);
+    trg->children.push_back(src);
   }   
 #else
-  if (trg->next.size() < trg->max_next_size){
-    trg->next.push_back(src);
+  if (trg->children.size() < trg->num_childs){
+    trg->children.push_back(src);
   }
   else {
     fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
-    trg->next.push_back(src);
+    trg->children.push_back(src);
   }   
 #endif
 
@@ -251,12 +256,12 @@ void add_symbol(WLNSymbol* src, WLNSymbol *trg){
 
 
 
-/* parses input string, mallocs graph nodes and sets up graph based on symbol */
-bool ParseWLN(const char *wln, unsigned int len, WLNGraph *symbol_tree){
-
-
+/* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
+bool ParseNonCyclic(const char *wln, unsigned int len, WLNGraph *symbol_tree){
+  
+  WLNSymbol *prev = 0; // hold previous term for single linear adding 
   std::stack <WLNSymbol*> wln_stack; 
-  WLNSymbol *top = 0; 
+
   for (unsigned int i = 0; i<len; i++){
 
     WLNSymbol* created_wln = AllocateWLNSymbol(wln[i]);
@@ -265,34 +270,54 @@ bool ParseWLN(const char *wln, unsigned int len, WLNGraph *symbol_tree){
 
     if(!symbol_tree->head){
       symbol_tree->head = created_wln; // set up the first access point
-      wln_stack.push(created_wln);
+      if (created_wln->type == BRANCH)
+        wln_stack.push(created_wln);
+      prev = created_wln; 
     }
     else {
-      
-      top = wln_stack.top(); 
-      
-      // we always add into the graph node of top, and we move top around instead
-
-      add_symbol(created_wln,top);
-
-      if (top->next.size() < top->max_next_size)
-        wln_stack.pop();
-
-      wln_stack.push(created_wln);
-
-
+      add_symbol(created_wln,prev);
+      if (created_wln->type == TERMINATOR && !wln_stack.empty())
+        prev = wln_stack.top();
+      else if (created_wln->type == BRANCH){
+        wln_stack.push(created_wln);
+        prev = created_wln;
+      }else
+        prev = created_wln; 
     }
-    
   }
-
   return true;
 }
 
 
+/* dump wln tree to a dotvis file */
+void WLNDumpToDot(FILE *fp){
 
+  // set up index map for node creation
+  std::map <WLNSymbol*, unsigned int> index_map; 
+  unsigned int glob_index = 0;
+  for (WLNSymbol *node : mempool){
+    index_map[node] = glob_index; 
+    glob_index++;
+  }
+    
+  fprintf(fp,"digraph WLNdigraph {\n");
+  fprintf(fp,"  rankdir = LR;\n");
+  for (WLNSymbol *node : mempool){
+    fprintf(fp,"  %d",index_map[node]);
+    fprintf(fp, "[shape=circle,label=\"%c\"];\n",node->ch);
+    for (WLNSymbol *child : node->children){
+      fprintf(fp,"  %d", index_map[node]);
+      fprintf(fp," -> ");
+      fprintf(fp,"%d\n",index_map[child]);
+    }
+  } 
+  fprintf(fp,"}\n");
+}
 
 static void DisplayUsage(){
   fprintf(stderr,"wln-writer <input> (escaped)\n");
+  fprintf(stderr,"<options>\n");
+  fprintf(stderr,"--wln2dot <dotfile.dot>       dump wln tree to dot file\n")
   exit(1);
 }
 
@@ -333,14 +358,13 @@ int main(int argc, char *argv[]){
   WLNGraph *symbol_tree = new WLNGraph();  // defaults set
 
   
-  if(!ParseWLN(wln, strlen(wln), symbol_tree)){
+  if(!ParseNonCyclic(wln, strlen(wln), symbol_tree)){
     empty_mempool();
     delete symbol_tree; 
     return 1; 
   }
 
-
-  
+  WLNDumpToDot(stdout);
 
   empty_mempool();
   delete symbol_tree; 
