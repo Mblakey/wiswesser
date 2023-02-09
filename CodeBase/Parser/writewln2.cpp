@@ -33,7 +33,9 @@ bool opt_verbose = false;
 bool opt_canonical = false; 
 bool opt_returnwln = false;
 
+// macros 
 
+#define REASONABLE 1024
 
 // --- memory --- 
 std::vector<WLNSymbol*> mempool; 
@@ -284,7 +286,6 @@ bool handle_hypervalence(WLNSymbol *problem){
 }
 
 
-
 /* add src to the children vector of trg, handle hypervalent bonds if possible */
 bool add_symbol(WLNSymbol* src, WLNSymbol *trg){
 
@@ -396,8 +397,7 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
   
   prev = created_wln; // last created 
   created_wln = AllocateWLNSymbol('&');
-  if(!add_symbol(created_wln,prev))
-    return (WLNSymbol*)0;
+  prev->children.push_back(created_wln);
 
   return root; // return start of the tree
 }
@@ -413,6 +413,30 @@ bool CanonicoliseNonCyclic(WLNSymbol *root){
 }
 
 
+WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
+  WLNSymbol *branch_root = 0;
+
+  unsigned char substr[REASONABLE] = {'\0'}; 
+  unsigned int arr_len = locant_end - locant_start;
+
+  if (arr_len > REASONABLE){
+    fprintf(stderr,"Error: branch in ring system exceeds 1024 characters - termination\n");
+    return (WLNSymbol*)0;
+  }
+
+  unsigned int access = 0;  // we dont include the locant symbol - shift by 1
+  for (unsigned int tmp = locant_start+1; tmp<locant_end+1; tmp++)
+    substr[access++] = wln[tmp];
+
+
+  if (opt_verbose)
+    fprintf(stderr,"   bonding %s to locant %c\n",substr,wln[locant_start]);
+
+  branch_root = ParseNonCyclic((const char*)substr, arr_len);
+
+  return branch_root;
+} 
+
 
 /* parse a CYCLIC wln species */
 WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
@@ -421,24 +445,64 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
   
   WLNSymbol *prev = 0;
   WLNSymbol *root = 0;
+  WLNSymbol *jsymbol = 0;
   WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
   root = prev = created_wln; 
 
-  bool closed = false; 
+  unsigned int j_pos = 0; 
   for(unsigned int i = 1; i< len; i++){
 
     created_wln = AllocateWLNSymbol(wln[i]); 
     prev->children.push_back(created_wln);
     prev = created_wln; 
     if(wln[i] == 'J'){
-      closed = true;
+      j_pos = i;
+      jsymbol = created_wln;
       break; 
     }
   }
 
-  if(!closed){
+  // looks for J ring closure 
+  if(!j_pos || !jsymbol){ 
     fprintf(stderr,"Error: ring system not closed with a J\n");
     return (WLNSymbol *)0;
+  }
+
+  // current i position on J, therefore add 1, should be on space, add 2 get the first locant letter
+  unsigned int locant_start = j_pos+2; 
+  unsigned int locant_end = 0; 
+  for (unsigned int i=j_pos+2;i<len;i++){
+    
+    if(wln[i] == ' '){
+      locant_end = i-1; // zero indexed
+        
+      WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
+      if (!branch_root)
+        return (WLNSymbol *)0;
+
+      // create a locant node and bind branch
+      WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
+      locant_node->children.push_back(branch_root);
+
+      // bind the locant to the 'J' value of the ring --> evaluation to smiles later
+      jsymbol->children.push_back(locant_node);
+      locant_start = i+1;
+    }
+    else if (i == len -1){     // on notation end, last locant
+
+      locant_end = i; // zero indexed
+      WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
+      if (!branch_root)
+        return (WLNSymbol *)0;
+
+      // create a locant node and bind branch
+      WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
+      locant_node->children.push_back(branch_root);
+
+      // bind the locant to the 'J' value of the ring --> evaluation to smiles later
+      jsymbol->children.push_back(locant_node);
+    }
+    
   }
   
 
