@@ -18,8 +18,10 @@
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
-// forward dec
+// --- forward declarations --- (functions can have indirect recursion)
 struct WLNSymbol; 
+WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len); 
+WLNSymbol* ParseCyclic(const char *wln, unsigned int len);
 
 // --- inputs ---  
 const char *wln; 
@@ -27,15 +29,18 @@ const char *dotfile;
 
 
 // --- options --- 
-bool opt_wln2dot = false;
-bool opt_valstrict = false; 
-bool opt_verbose = false;
-bool opt_canonical = false; 
-bool opt_returnwln = false;
+static bool opt_wln2dot = false;
+static bool opt_valstrict = false; 
+static bool opt_verbose = false;
+static bool opt_canonical = false; 
+static bool opt_returnwln = false;
 
 // macros 
-
 #define REASONABLE 1024
+
+// pending notation
+
+bool pending_ring = false; 
 
 // --- memory --- 
 std::vector<WLNSymbol*> mempool; 
@@ -50,7 +55,6 @@ static void empty_mempool(){
 
 // character type
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
-
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char
 std::map<unsigned char,unsigned int> char_hierarchy = 
@@ -208,11 +212,11 @@ struct WLNSymbol{
         break;
 
       case '&':
-      case ' ':
         type = TERMINATOR;
         allowed_edges = 1;
         break;
 
+      case ' ':
       case '-':
       case '/': 
         type = LINKER; 
@@ -330,6 +334,39 @@ bool add_symbol(WLNSymbol* src, WLNSymbol *trg){
   return true;
 }
 
+
+/* handles special symbol combinations to enter main subroutines */
+unsigned int pending_states(unsigned char ch){
+
+  switch(ch){
+
+    case '-':
+      if (pending_ring)
+        pending_ring = false; 
+      else 
+        pending_ring = true;
+      break;
+
+    case ' ':
+      if(pending_ring){
+        if (opt_verbose)
+          fprintf(stderr,"   ring system detected in branch\n");
+        
+        pending_ring = false; // we handle it here
+        return 1;
+      }
+      break;
+
+
+    default:
+      if(pending_ring)
+        pending_ring = false; 
+      break; 
+  }
+  
+  return 0;
+}
+
 /* this can perform the normal backtrack, excluding  '&' closure */ 
 WLNSymbol* backtrack_stack(std::stack<WLNSymbol*> &wln_stack){
   WLNSymbol *tmp = 0; 
@@ -339,7 +376,8 @@ WLNSymbol* backtrack_stack(std::stack<WLNSymbol*> &wln_stack){
       return tmp;
     wln_stack.pop();
   }
-  fprintf(stderr,"Error: returning nullptr from stack backtrack\n");
+  
+  // if it goes all the way that string complete
   return (WLNSymbol*)0;  
 }
 
@@ -354,7 +392,8 @@ WLNSymbol *force_closure(std::stack<WLNSymbol*> &wln_stack){
     wln_stack.pop();
     popped++; 
   }
-  fprintf(stderr,"Error: returning nullptr from force closure\n");
+
+  // if it goes all the way that string complete
   return (WLNSymbol*)0;
 }
 
@@ -378,6 +417,8 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
     if (!created_wln)
       return (WLNSymbol*)0; 
 
+    unsigned int special = pending_states(created_wln->ch);
+    
     prev = wln_stack.top();
     wln_stack.push(created_wln); // push all of them
 
@@ -403,13 +444,26 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
 }
 
 
-/* uses a character sorting method to arrange the WLN symbols according to rule 2 */
+/* uses a character sorting method to arrange the WLN symbols according to rule 2
+BFS ensures a starting position */
 bool CanonicoliseNonCyclic(WLNSymbol *root){
-  for (WLNSymbol *node : mempool){
-    if (node->children.size() > 1)
-      std::sort(node->children.begin(),node->children.end(), char_comp);
+  std::deque<WLNSymbol*> wln_queue; 
+  wln_queue.push_back(root);
+  
+  WLNSymbol *top = 0;
+  while(!wln_queue.empty()){
+    top = wln_queue.front();
+    wln_queue.pop_front();
+
+    if (top->children.size() > 1)
+      std::sort(top->children.begin(),top->children.end(),char_comp);
+    
+    for (WLNSymbol* child : top->children){
+      wln_queue.push_back(child);
+    }
   }
-  return false; 
+
+  return true; 
 }
 
 
@@ -433,7 +487,6 @@ WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
     fprintf(stderr,"   bonding %s to locant %c\n",substr,wln[locant_start]);
 
   branch_root = ParseNonCyclic((const char*)substr, arr_len);
-
   return branch_root;
 } 
 
@@ -441,8 +494,6 @@ WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
 /* parse a CYCLIC wln species */
 WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
 
-  // first need to close standard ring notation
-  
   WLNSymbol *prev = 0;
   WLNSymbol *root = 0;
   WLNSymbol *jsymbol = 0;
@@ -480,6 +531,9 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       if (!branch_root)
         return (WLNSymbol *)0;
 
+      if (opt_canonical)
+        CanonicoliseNonCyclic(branch_root);
+
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
       locant_node->children.push_back(branch_root);
@@ -494,6 +548,9 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
       if (!branch_root)
         return (WLNSymbol *)0;
+      
+      if (opt_canonical)
+        CanonicoliseNonCyclic(branch_root);
 
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
@@ -503,6 +560,7 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       jsymbol->children.push_back(locant_node);
     }
     
+
   }
   
 
@@ -675,13 +733,13 @@ int main(int argc, char *argv[]){
   
   if (!root){
     if(opt_verbose)
-      fprintf(stderr,"   failed\n");
+      fprintf(stderr,"   failed parse\n");
     empty_mempool();
     return 1; 
   }
 
   if(opt_verbose)
-    fprintf(stderr,"   success\n");
+    fprintf(stderr,"\n");
 
   if (opt_canonical){
     if(opt_verbose)
@@ -690,7 +748,7 @@ int main(int argc, char *argv[]){
     CanonicoliseNonCyclic(root);
 
     if(opt_verbose)
-      fprintf(stderr,"   success\n");
+      fprintf(stderr,"\n");
   }
 
   if (opt_wln2dot){
@@ -704,7 +762,7 @@ int main(int argc, char *argv[]){
       WLNDumpToDot(fp);
 
     if(opt_verbose)
-      fprintf(stderr,"   success\n");
+      fprintf(stderr,"\n");
   }
 
   if(opt_returnwln){
@@ -715,7 +773,7 @@ int main(int argc, char *argv[]){
     
     if(opt_verbose){
       fprintf(stderr,"   %s\n",res.c_str());
-      fprintf(stderr,"   success\n");
+      fprintf(stderr,"\n");
     }
     else
       fprintf(stderr,"%s\n",res.c_str()); 
