@@ -1,5 +1,4 @@
 
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,7 +26,8 @@ const char *dotfile;
 
 // --- options --- 
 bool opt_wln2dot = false;
-
+bool opt_valstrict = false; 
+bool opt_verbose = false; 
 
 
 
@@ -42,16 +42,15 @@ static void empty_mempool(){
 }
 
 
-
-
-
-enum WLNType { UNRESOLVED = 0, SINGLETON = 1, BRANCH = 2, LINKER = 3, TERMINATOR = 4}; 
+enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
 
 struct WLNSymbol{
 
   unsigned char ch; 
   unsigned int type; 
-  unsigned int num_childs;  
+
+  unsigned int allowed_edges;
+  unsigned int num_edges;  
 
   WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
   std::vector<WLNSymbol*> children; // linked list of next terms chains 
@@ -72,27 +71,27 @@ struct WLNSymbol{
       case '8':
       case '9':
         type = SINGLETON; 
-        num_childs = 1;
+        allowed_edges = 2;
         break;
       
       case 'A':
         type = SINGLETON;
-        num_childs = 1;
+        allowed_edges = 2;
         break;
 
       case 'B':   // boron
         type = BRANCH;
-        num_childs = 2; 
+        allowed_edges = 3; 
         break;
       
        case 'C':  // shortcut carbon atom
         type = BRANCH;
-        num_childs = 3;
+        allowed_edges = 4;
         break;
       
       case 'D': 
         type = SINGLETON; 
-        num_childs = 1;
+        allowed_edges = 2;
         break;
       
       case 'E':  // halogens
@@ -100,104 +99,105 @@ struct WLNSymbol{
       case 'G': 
       case 'I': 
         type = BRANCH; 
-        num_childs = 2; 
+        allowed_edges = 3;
         break;
       
       case 'H': // closing hydrogen
         type = TERMINATOR; 
-        num_childs = 0; 
+        allowed_edges = 1;
         break;
 
       case 'J': // generic symbol for halogen 
         type = BRANCH; 
-        num_childs = 2; 
+        allowed_edges = 3;
         break;
       
       case 'K': 
         type = BRANCH; 
-        num_childs = 3; 
+        allowed_edges = 4;
         break;
 
       case 'L':
         type = LINKER;
-        num_childs = 1; 
+        allowed_edges = 2;
         break;
       
       case 'M':
         type = BRANCH; 
-        num_childs = 1; 
+        allowed_edges = 2; 
         break;
 
       case 'N': 
         type = BRANCH; 
-        num_childs = 2;
+        allowed_edges = 3;
         break; 
 
       case 'O':
-        type = BRANCH; 
-        num_childs = 1;
+        type = SINGLETON; 
+        allowed_edges = 2;
         break;
 
       case 'P':
         type = BRANCH; 
-        num_childs = 4;
+        allowed_edges = 5;
         break;
 
       case 'Q': 
         type = TERMINATOR; 
-        num_childs = 0;
+        allowed_edges = 1;
         break;
 
       case 'R':
         type = SINGLETON; 
-        num_childs = 0; 
+        allowed_edges = 2;
         break;
 
       case 'S': 
         type = BRANCH;
-        num_childs = 5;
+        allowed_edges = 6;
         break;
 
       case 'T':
       case 'U': 
         type = LINKER;
-        num_childs = 1;
+        allowed_edges = 2;
         break; 
 
       case 'V': 
         type = SINGLETON; 
-        num_childs = 1;
+        allowed_edges = 2;
         break;
 
       case 'W':
         type = LINKER; 
-        num_childs = 1;
+        allowed_edges = 2;
         break;
 
       case 'X':
         type = BRANCH; 
-        num_childs = 4;
+        allowed_edges = 4;
         break;
 
       case 'Y':
         type = BRANCH; 
-        num_childs = 3;
+        allowed_edges = 3;
         break;
 
       case 'Z': 
         type = TERMINATOR;
-        num_childs = 0; 
+        allowed_edges = 1;
         break;
 
       case '&':
+      case ' ':
         type = TERMINATOR;
-        num_childs = 0; 
+        allowed_edges = 1;
         break;
 
       case '-':
       case '/': 
         type = LINKER; 
-        num_childs = 1; 
+        allowed_edges = 2;
         break;
 
       default:
@@ -224,62 +224,151 @@ WLNSymbol* AllocateWLNSymbol(unsigned char ch){
 }
 
 
-/* add src to the children vector of trg */
-void add_symbol(WLNSymbol* src, WLNSymbol *trg){
+bool handle_hypervalence(WLNSymbol *problem){
 
-#ifdef DEBUGWLN
-  if (trg->children.size() < trg->num_childs){
-    fprintf(stderr,"adding symbol %c to bonds of %c\n",src->ch, trg->ch);
-    trg->children.push_back(src);
-  }
-  else {
-    fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
-    fprintf(stderr,"adding symbol %c to bonds of %c\n",src->ch, trg->ch);
-    trg->children.push_back(src);
-  }   
-#else
-  if (trg->children.size() < trg->num_childs){
-    trg->children.push_back(src);
-  }
-  else {
-    fprintf(stderr,"Warning: allowing hypervalence on WLN character %c\n",trg->ch);
-    trg->children.push_back(src);
-  }   
-#endif
+  // this will always lead to a positive ion species 
+  switch(problem->ch){
 
+
+    case 'M':   // tranforming this to a N is an easy solve
+      if(opt_verbose)
+        fprintf(stderr,"Status: transforming hypervalent M --> N\n");
+      
+      problem->ch = 'N';
+      break; 
+
+    case 'Y':  // can go to an X
+      if (opt_verbose)
+        fprintf(stderr,"Status: transforming hypervalent Y --> X\n");
+      
+      problem->ch = 'X';
+      break; 
+
+    default:
+      if (opt_verbose) 
+        fprintf(stderr,"Error: cannot handle hypervalent symbol: %c\n",problem->ch);
+      return false;
+  }
+
+  return true; 
 }
 
 
 
-/* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
-bool ParseNonCyclic(const char *wln, unsigned int len){
-  
-  WLNSymbol *prev = 0; // hold previous term for single linear adding 
-  std::stack <WLNSymbol*> wln_stack; 
+/* add src to the children vector of trg, handle hypervalent bonds if possible */
+bool add_symbol(WLNSymbol* src, WLNSymbol *trg){
 
-  for (unsigned int i = 0; i<len; i++){
+  // handle exotic bonding - lookback 
+  if (trg->ch == 'U'){
+    if (trg->prev && trg->prev->ch == 'U')
+      src->num_edges+=3;
+    else
+      src->num_edges+=2;
+  }
+  else
+    src->num_edges++;
 
-    WLNSymbol* created_wln = AllocateWLNSymbol(wln[i]);
-    if (!created_wln)
-      return false; 
-
-    if(!prev){
-      if (created_wln->type == BRANCH)
-        wln_stack.push(created_wln);
-      prev = created_wln; 
+  if (src->num_edges > src->allowed_edges){
+    if(!opt_valstrict){
+      if(!handle_hypervalence(src))
+        return false;
     }
     else {
-      add_symbol(created_wln,prev);
-      if (created_wln->type == TERMINATOR && !wln_stack.empty())
-        prev = wln_stack.top();
-      else if (created_wln->type == BRANCH){
-        wln_stack.push(created_wln);
-        prev = created_wln;
-      }else
-        prev = created_wln; 
+      fprintf(stderr,"Error: (strict mode) hypervalence on WLN character %c\n",src->ch);
+      return false; 
     }
   }
+  
+  if (trg->num_edges < trg->allowed_edges){
+    trg->children.push_back(src);
+    trg->num_edges++;
+  }
+  else {
+    if(!opt_valstrict){
+      if(!handle_hypervalence(trg))
+        return false;
+      else
+        trg->children.push_back(src);
+    }
+    else {
+      fprintf(stderr,"Error: (strict mode) hypervalence on WLN character %c\n",trg->ch);
+      return false; 
+    }
+  }   
+
   return true;
+}
+
+/* this can perform the normal backtrack, excluding  '&' closure */ 
+WLNSymbol* backtrack_stack(std::stack<WLNSymbol*> &wln_stack){
+  WLNSymbol *tmp = 0; 
+  while(!wln_stack.empty()){
+    tmp = wln_stack.top();
+    if (tmp->type == BRANCH)  
+      return tmp;
+    wln_stack.pop();
+  }
+  fprintf(stderr,"Error: returning nullptr from stack backtrack\n");
+  return (WLNSymbol*)0;  
+}
+
+/* forces both the '&' closure and its parents branch to come off stack */
+WLNSymbol *force_closure(std::stack<WLNSymbol*> &wln_stack){
+  WLNSymbol *tmp = 0; 
+  unsigned int popped = 0;
+  while(!wln_stack.empty()){
+    tmp = wln_stack.top();
+    if (tmp->type == BRANCH && popped > 1)  
+      return tmp;
+    wln_stack.pop();
+    popped++; 
+  }
+  fprintf(stderr,"Error: returning nullptr from force closure\n");
+  return (WLNSymbol*)0;
+}
+
+
+/* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
+WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
+  
+  std::stack <WLNSymbol*> wln_stack; 
+  WLNSymbol *prev = 0;
+  WLNSymbol *root = 0;
+
+  WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
+  if (!created_wln)
+    return (WLNSymbol*)0;
+  wln_stack.push(created_wln);
+  
+  root = created_wln; 
+  
+  for (unsigned int i = 1; i<len; i++){
+
+    created_wln = AllocateWLNSymbol(wln[i]);
+    if (!created_wln)
+      return (WLNSymbol*)0; 
+
+    prev = wln_stack.top();
+    wln_stack.push(created_wln); // push all of them
+
+    add_symbol(created_wln,prev);
+
+    // options here depending on the forced closure of '&'
+    if (created_wln->type == TERMINATOR){
+      if (created_wln->ch == '&' && prev->type == BRANCH)
+        prev = force_closure(wln_stack);
+      else
+        prev = backtrack_stack(wln_stack);
+    }   
+  }
+
+  // for aid with tree reordering, a '&' can be used to close all wln notation
+  
+  prev = created_wln; // last created 
+  created_wln = AllocateWLNSymbol('&');
+  add_symbol(created_wln,prev);
+
+  return root; // return start of the tree
 }
 
 
@@ -311,6 +400,8 @@ void WLNDumpToDot(FILE *fp){
 static void DisplayUsage(){
   fprintf(stderr,"wln-writer <input> (escaped)\n");
   fprintf(stderr,"<options>\n");
+  fprintf(stderr,"  -v | --verbose                print messages to stdout\n");
+  fprintf(stderr,"  -s | --strict                 fail on hypervalence, no symbol correction\n");
   fprintf(stderr,"  --wln2dot <dotfile.dot>       dump wln tree to dot file\n");
   exit(1);
 }
@@ -334,6 +425,14 @@ static void ProcessCommandLine(int argc, char *argv[]){
     if (ptr[0]=='-' && ptr[1])
       switch (ptr[1]){
 
+        case 's':
+          opt_valstrict = true; 
+          break;
+
+        case 'v':
+          opt_verbose = true; 
+          break; 
+
         case '-':
           if (!strcmp(ptr, "--wln2dot")){
             opt_wln2dot = true; 
@@ -348,6 +447,16 @@ static void ProcessCommandLine(int argc, char *argv[]){
               fprintf(stderr,"Error: --wlndot requires a <file>.dot as next arguement\n");
               DisplayUsage();
             } 
+            break;
+          }
+
+          if (!strcmp(ptr, "--strict")){
+            opt_valstrict = true; 
+            break;
+          }
+          
+          if (!strcmp(ptr, "--verbose")){
+            opt_verbose = true; 
             break;
           }
 
@@ -372,7 +481,8 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   fprintf(stderr,"Parsing: %s\n",wln);
 
-  if(!ParseNonCyclic(wln, strlen(wln))){
+  WLNSymbol *root = ParseNonCyclic(wln, strlen(wln));
+  if (!root){
     empty_mempool();
     return 1; 
   }
