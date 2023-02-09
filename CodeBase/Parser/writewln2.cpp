@@ -6,6 +6,8 @@
 #include <vector>
 #include <stack>
 #include <map>
+#include <deque>
+#include <algorithm> // std::sort
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -27,7 +29,9 @@ const char *dotfile;
 // --- options --- 
 bool opt_wln2dot = false;
 bool opt_valstrict = false; 
-bool opt_verbose = false; 
+bool opt_verbose = false;
+bool opt_canonical = false; 
+bool opt_returnwln = false;
 
 
 
@@ -42,7 +46,20 @@ static void empty_mempool(){
 }
 
 
+// character type
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
+
+
+// rule 2 - hierarchy - rules have diverged due to end terminator char
+std::map<unsigned char,unsigned int> char_hierarchy = 
+{
+  {' ',0}, {'-',2}, {'/',3}, 
+  {'0',4},{'1',5},{'2',6},{'3',7},{'4',8},{'5',9},{'6',10},{'7',11},{'8',12},{'9',13},
+  {'A',14},{'B',15},{'C',16},{'D',17},{'E',18},{'F',19},{'G',20},{'H',21},{'I',22},
+  {'J',23},{'K',24},{'L',25},{'M',26},{'N',27},{'O',28},{'P',29},{'Q',30},{'R',31},
+  {'S',32},{'T',33},{'U',34},{'V',35},{'W',36},{'X',37},{'Y',38},{'Z',40},{'&',41}
+};
+
 
 struct WLNSymbol{
 
@@ -211,6 +228,11 @@ struct WLNSymbol{
 
 };
 
+/* for std::sort on canonicalise */
+bool char_comp(const WLNSymbol* a, const WLNSymbol* b){
+  return char_hierarchy[a->ch] > char_hierarchy[b->ch]; 
+}
+
 
 WLNSymbol* AllocateWLNSymbol(unsigned char ch){
 
@@ -232,14 +254,22 @@ bool handle_hypervalence(WLNSymbol *problem){
 
     case 'M':   // tranforming this to a N is an easy solve
       if(opt_verbose)
-        fprintf(stderr,"Status: transforming hypervalent M --> N\n");
+        fprintf(stderr,"   transforming hypervalent M --> N\n");
       
       problem->ch = 'N';
       break; 
 
+    case 'N':
+      if(opt_verbose)
+        fprintf(stderr,"   transforming hypervalent N --> K\n");
+      
+      problem->ch = 'N';
+      break;
+
+
     case 'Y':  // can go to an X
       if (opt_verbose)
-        fprintf(stderr,"Status: transforming hypervalent Y --> X\n");
+        fprintf(stderr,"   transforming hypervalent Y --> X\n");
       
       problem->ch = 'X';
       break; 
@@ -327,7 +357,6 @@ WLNSymbol *force_closure(std::stack<WLNSymbol*> &wln_stack){
   return (WLNSymbol*)0;
 }
 
-
 /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
 WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
   
@@ -351,7 +380,8 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
     prev = wln_stack.top();
     wln_stack.push(created_wln); // push all of them
 
-    add_symbol(created_wln,prev);
+    if(!add_symbol(created_wln,prev))
+      return (WLNSymbol*)0; 
 
     // options here depending on the forced closure of '&'
     if (created_wln->type == TERMINATOR){
@@ -366,11 +396,83 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
   
   prev = created_wln; // last created 
   created_wln = AllocateWLNSymbol('&');
-  add_symbol(created_wln,prev);
+  if(!add_symbol(created_wln,prev))
+    return (WLNSymbol*)0;
 
   return root; // return start of the tree
 }
 
+
+/* uses a character sorting method to arrange the WLN symbols according to rule 2 */
+bool CanonicoliseNonCyclic(WLNSymbol *root){
+  for (WLNSymbol *node : mempool){
+    if (node->children.size() > 1)
+      std::sort(node->children.begin(),node->children.end(), char_comp);
+  }
+  return false; 
+}
+
+
+
+/* parse a CYCLIC wln species */
+WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
+
+  // first need to close standard ring notation
+  
+  WLNSymbol *prev = 0;
+  WLNSymbol *root = 0;
+  WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
+  root = prev = created_wln; 
+
+  bool closed = false; 
+  for(unsigned int i = 1; i< len; i++){
+
+    created_wln = AllocateWLNSymbol(wln[i]); 
+    prev->children.push_back(created_wln);
+    prev = created_wln; 
+    if(wln[i] == 'J'){
+      closed = true;
+      break; 
+    }
+  }
+
+  if(!closed){
+    fprintf(stderr,"Error: ring system not closed with a J\n");
+    return (WLNSymbol *)0;
+  }
+  
+
+  return root; 
+}
+
+
+
+
+/* reforms WLN string with DFS ordering */
+std::string ReformWLNString(WLNSymbol *root){
+  std::string res; 
+
+  std::stack<WLNSymbol*> wln_stack; 
+  std::map<WLNSymbol*,bool> visit_map; 
+  wln_stack.push(root);
+
+  WLNSymbol *top = 0;
+  while(!wln_stack.empty()){
+    top = wln_stack.top(); 
+    wln_stack.pop();
+    visit_map[top] = true; 
+
+    res.push_back(top->ch);
+
+    for (WLNSymbol *child: top->children){
+      if (!visit_map[child]){
+        wln_stack.push(child);
+      }
+    }
+  }
+
+  return res; 
+}
 
 /* dump wln tree to a dotvis file */
 void WLNDumpToDot(FILE *fp){
@@ -398,10 +500,12 @@ void WLNDumpToDot(FILE *fp){
 }
 
 static void DisplayUsage(){
-  fprintf(stderr,"wln-writer <input> (escaped)\n");
+  fprintf(stderr,"wln-writer <options> < input (escaped) >\n");
   fprintf(stderr,"<options>\n");
   fprintf(stderr,"  -v | --verbose                print messages to stdout\n");
   fprintf(stderr,"  -s | --strict                 fail on hypervalence, no symbol correction\n");
+  fprintf(stderr,"  -c | --canonical              perform wln canonicalise procedure\n");
+  fprintf(stderr,"  -r | --return-wln             return wln after altering procedure(s)\n");
   fprintf(stderr,"  --wln2dot <dotfile.dot>       dump wln tree to dot file\n");
   exit(1);
 }
@@ -424,6 +528,14 @@ static void ProcessCommandLine(int argc, char *argv[]){
 
     if (ptr[0]=='-' && ptr[1])
       switch (ptr[1]){
+
+        case 'c':
+          opt_canonical = true;
+          break; 
+
+        case 'r':
+          opt_returnwln = true;
+          break; 
 
         case 's':
           opt_valstrict = true; 
@@ -449,14 +561,20 @@ static void ProcessCommandLine(int argc, char *argv[]){
             } 
             break;
           }
-
-          if (!strcmp(ptr, "--strict")){
+          else if (!strcmp(ptr, "--strict")){
             opt_valstrict = true; 
             break;
           }
-          
-          if (!strcmp(ptr, "--verbose")){
+          else if (!strcmp(ptr, "--verbose")){
             opt_verbose = true; 
+            break;
+          }
+          else if (!strcmp(ptr, "--canonical")){
+            opt_canonical = true; 
+            break;
+          }
+          else if (!strcmp(ptr, "--return-wln")){
+            opt_returnwln = true; 
             break;
           }
 
@@ -470,7 +588,6 @@ static void ProcessCommandLine(int argc, char *argv[]){
       default: break;
     }
       
-    // end argc loop
   }
 
   return;
@@ -479,21 +596,65 @@ static void ProcessCommandLine(int argc, char *argv[]){
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
-  fprintf(stderr,"Parsing: %s\n",wln);
+  if(!wln)
+    return 1;
+  
+  WLNSymbol *root = 0;
 
-  WLNSymbol *root = ParseNonCyclic(wln, strlen(wln));
+  if(opt_verbose)
+    fprintf(stderr,"-- parsing input: %s\n",wln);
+
+  if(wln[0] == 'L' || wln[0] == 'T')
+    root = ParseCyclic(wln, strlen(wln));
+  else
+    root = ParseNonCyclic(wln, strlen(wln));
+  
   if (!root){
+    if(opt_verbose)
+      fprintf(stderr,"   failed\n");
     empty_mempool();
     return 1; 
   }
 
+  if(opt_verbose)
+    fprintf(stderr,"   success\n");
+
+  if (opt_canonical){
+    if(opt_verbose)
+      fprintf(stderr,"-- canonicaling wln...\n");
+
+    CanonicoliseNonCyclic(root);
+
+    if(opt_verbose)
+      fprintf(stderr,"   success\n");
+  }
+
   if (opt_wln2dot){
+    if(opt_verbose)
+      fprintf(stderr,"-- dumping wln to dot file...\n");
     FILE *fp = 0; 
     fp = fopen(dotfile, "w");
     if (!fp)
       fprintf(stderr,"Error: could not write %s as .dot file - skipping\n",dotfile);
     else
       WLNDumpToDot(fp);
+
+    if(opt_verbose)
+      fprintf(stderr,"   success\n");
+  }
+
+  if(opt_returnwln){
+    if(opt_verbose)
+      fprintf(stderr,"-- reforming wln string...\n");
+    
+    std::string res = ReformWLNString(root);
+    
+    if(opt_verbose){
+      fprintf(stderr,"   %s\n",res.c_str());
+      fprintf(stderr,"   success\n");
+    }
+    else
+      fprintf(stderr,"%s\n",res.c_str()); 
   }
   
   empty_mempool();
