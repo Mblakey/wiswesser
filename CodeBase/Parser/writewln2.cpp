@@ -26,7 +26,8 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len);
 // --- inputs ---  
 const char *wln; 
 const char *dotfile; 
-
+unsigned int pos;   // global track of where we are in the wln string
+unsigned int glob_len;   // total length of the wln string
 
 // --- options --- 
 static bool opt_wln2dot = false;
@@ -54,7 +55,7 @@ static void empty_mempool(){
 
 // character type and pending state types
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
-enum WLNState{NONCYCLIC = 0, CYCLIC = 1, POLYCYCLIC=2, PERICYCLIC=3, BRIDGED=4, SPIRO=5};
+enum WLNState{PASS = 0, NONCYCLIC = 1, CYCLIC = 2, POLYCYCLIC=3, PERICYCLIC=4, BRIDGED=5, SPIRO=6};
 
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char
@@ -235,6 +236,10 @@ struct WLNSymbol{
         allowed_edges = 2;
         break;
 
+      case '\0':
+        fprintf(stderr,"Error: end of string null char accessed!\n");
+        return false;
+
       default:
         fprintf(stderr,"Error: invalid wln symbol parsed: %c\n",ch);
         return false; 
@@ -363,9 +368,8 @@ unsigned int pending_states(unsigned char ch){
       if(pending_ring){
         if (opt_verbose)
           fprintf(stderr,"   ring system detected in branch\n");
-        
         pending_ring = false; // we handle it here
-        return 1;
+        return CYCLIC;
       }
       break;
 
@@ -427,11 +431,21 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
     
     // this can detect based on the char, and then change created_wln as per given special
     unsigned int special = pending_states(wln[i]);
+    switch(special){
 
-    created_wln = AllocateWLNSymbol(wln[i]);
+      case WLNState::CYCLIC: 
+        created_wln = ParseCyclic(wln+=i,len);
+        break;
+
+
+
+      default:
+        created_wln = AllocateWLNSymbol(wln[i]);
+        break;
+    }
+
     if (!created_wln)
       return (WLNSymbol*)0; 
-
     
     
     prev = wln_stack.top();
@@ -495,7 +509,7 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
   root = prev = created_wln; 
 
   unsigned int j_pos = 0; 
-  for(unsigned int i = 1; i< len; i++){
+  for(unsigned int i = 1; i < len; i++){
 
     created_wln = AllocateWLNSymbol(wln[i]); 
     prev->children.push_back(created_wln);
@@ -513,11 +527,13 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
     return (WLNSymbol *)0;
   }
 
-  // look for immediate ring exit <-- important for joined cyclics  'L6TJ&' or 'L6TJ'
-  if (j_pos+1 < len && wln[j_pos+1] == '&')
-    return root; 
-
-
+  // look for immediate ring exit <-- important for joined cyclics  'L6TJ&'
+  if (j_pos+1 < len && wln[j_pos+1] == '&'){
+    if(opt_verbose)
+      fprintf(stderr,"   forced '&' ring closure detected\n");
+    return root;
+  }
+     
   // current i position on J, therefore add 1, should be on space, add 2 get the first locant letter
   unsigned int locant_start = j_pos+2; 
   unsigned int locant_end = 0; 
@@ -527,8 +543,10 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       locant_end = i-1; // zero indexed
         
       WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
-      if (!branch_root)
+      if (!branch_root){
+        fprintf(stderr,"Error: could not parse locant - return nullptr\n");
         return (WLNSymbol *)0;
+      }
 
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
@@ -542,8 +560,11 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
 
       locant_end = i; // zero indexed
       WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
-      if (!branch_root)
+      if (!branch_root){
+        fprintf(stderr,"Error: could not parse locant - return nullptr\n");
         return (WLNSymbol *)0;
+      }
+        
 
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
@@ -553,10 +574,8 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       jsymbol->children.push_back(locant_node);
     }
     
-
   }
   
-
   return root; 
 }
 
@@ -736,7 +755,12 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   if(!wln)
     return 1;
-  if(!ValidCharParse(wln, strlen(wln))) // quick check the wln formula 
+  else{
+    pos = 0; 
+    glob_len = strlen(wln);
+  }
+
+  if(!ValidCharParse(wln, glob_len)) // quick check the wln formula 
     return 1;
   
   WLNSymbol *root = 0;
@@ -745,9 +769,9 @@ int main(int argc, char *argv[]){
     fprintf(stderr,"-- parsing input: %s\n",wln);
 
   if(wln[0] == 'L' || wln[0] == 'T')
-    root = ParseCyclic(wln, strlen(wln));
+    root = ParseCyclic(wln, glob_len);
   else
-    root = ParseNonCyclic(wln, strlen(wln));
+    root = ParseNonCyclic(wln, glob_len);
   
   if (!root){
     if(opt_verbose)
