@@ -39,7 +39,6 @@ static bool opt_returnwln = false;
 #define REASONABLE 1024
 
 // pending notation
-
 bool pending_ring = false; 
 
 // --- memory --- 
@@ -53,18 +52,31 @@ static void empty_mempool(){
 }
 
 
-// character type
+// character type and pending state types
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
+enum WLNState{NONCYCLIC = 0, CYCLIC = 1, POLYCYCLIC=2, PERICYCLIC=3, BRIDGED=4, SPIRO=5};
+
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char
 std::map<unsigned char,unsigned int> char_hierarchy = 
 {
-  {' ',0}, {'-',2}, {'/',3}, 
+  {' ',1}, {'-',2}, {'/',3}, 
   {'0',4},{'1',5},{'2',6},{'3',7},{'4',8},{'5',9},{'6',10},{'7',11},{'8',12},{'9',13},
   {'A',14},{'B',15},{'C',16},{'D',17},{'E',18},{'F',19},{'G',20},{'H',21},{'I',22},
   {'J',23},{'K',24},{'L',25},{'M',26},{'N',27},{'O',28},{'P',29},{'Q',30},{'R',31},
   {'S',32},{'T',33},{'U',34},{'V',35},{'W',36},{'X',37},{'Y',38},{'Z',40},{'&',41}
 };
+
+// quick validity checker 
+bool ValidCharParse(const char *wln, unsigned int len){
+  for (unsigned int i=0;i<len;i++){
+    if (!char_hierarchy[wln[i]]){
+      fprintf(stderr,"Error: invalid wln character %c in string\n",wln[i]);
+      return false;
+    }
+  }
+  return true; 
+}
 
 
 struct WLNSymbol{
@@ -412,12 +424,15 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
   root = created_wln; 
   
   for (unsigned int i = 1; i<len; i++){
+    
+    // this can detect based on the char, and then change created_wln as per given special
+    unsigned int special = pending_states(wln[i]);
 
     created_wln = AllocateWLNSymbol(wln[i]);
     if (!created_wln)
       return (WLNSymbol*)0; 
 
-    unsigned int special = pending_states(created_wln->ch);
+    
     
     prev = wln_stack.top();
     wln_stack.push(created_wln); // push all of them
@@ -444,27 +459,6 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
 }
 
 
-/* uses a character sorting method to arrange the WLN symbols according to rule 2
-BFS ensures a starting position */
-bool CanonicoliseNonCyclic(WLNSymbol *root){
-  std::deque<WLNSymbol*> wln_queue; 
-  wln_queue.push_back(root);
-  
-  WLNSymbol *top = 0;
-  while(!wln_queue.empty()){
-    top = wln_queue.front();
-    wln_queue.pop_front();
-
-    if (top->children.size() > 1)
-      std::sort(top->children.begin(),top->children.end(),char_comp);
-    
-    for (WLNSymbol* child : top->children){
-      wln_queue.push_back(child);
-    }
-  }
-
-  return true; 
-}
 
 
 WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
@@ -491,7 +485,7 @@ WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
 } 
 
 
-/* parse a CYCLIC wln species */
+/* parse the 'first' CYCLIC wln species */
 WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
 
   WLNSymbol *prev = 0;
@@ -519,6 +513,11 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
     return (WLNSymbol *)0;
   }
 
+  // look for immediate ring exit <-- important for joined cyclics  'L6TJ&' or 'L6TJ'
+  if (j_pos+1 < len && wln[j_pos+1] == '&')
+    return root; 
+
+
   // current i position on J, therefore add 1, should be on space, add 2 get the first locant letter
   unsigned int locant_start = j_pos+2; 
   unsigned int locant_end = 0; 
@@ -530,9 +529,6 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
       if (!branch_root)
         return (WLNSymbol *)0;
-
-      if (opt_canonical)
-        CanonicoliseNonCyclic(branch_root);
 
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
@@ -548,9 +544,6 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
       if (!branch_root)
         return (WLNSymbol *)0;
-      
-      if (opt_canonical)
-        CanonicoliseNonCyclic(branch_root);
 
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
@@ -568,6 +561,29 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
 }
 
 
+
+
+/* uses a character sorting method to arrange the WLN symbols according to rule 2
+BFS ensures a starting position */
+bool CanonicoliseWLN(WLNSymbol *root){
+  std::deque<WLNSymbol*> wln_queue; 
+  wln_queue.push_back(root);
+  
+  WLNSymbol *top = 0;
+  while(!wln_queue.empty()){
+    top = wln_queue.front();
+    wln_queue.pop_front();
+
+    if (top->children.size() > 1)
+      std::sort(top->children.begin(),top->children.end(),char_comp);
+    
+    for (WLNSymbol* child : top->children){
+      wln_queue.push_back(child);
+    }
+  }
+
+  return true; 
+}
 
 
 /* reforms WLN string with DFS ordering */
@@ -720,6 +736,8 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   if(!wln)
     return 1;
+  if(!ValidCharParse(wln, strlen(wln))) // quick check the wln formula 
+    return 1;
   
   WLNSymbol *root = 0;
 
@@ -745,7 +763,7 @@ int main(int argc, char *argv[]){
     if(opt_verbose)
       fprintf(stderr,"-- canonicaling wln...\n");
 
-    CanonicoliseNonCyclic(root);
+    CanonicoliseWLN(root);
 
     if(opt_verbose)
       fprintf(stderr,"\n");
