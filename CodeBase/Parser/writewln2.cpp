@@ -50,7 +50,7 @@ static void empty_mempool(){
 
 // character type and instruction types
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
-enum WLNCode {ROOT = 0, STANDARD = 1, LOCANT = 2, CYCLIC = 3, POLYCYCLIC = 4, PERICYCLIC = 5, BRIDGED = 6, SPIRO = 7, IONIC = 8};
+enum WLNCode {ROOT = 0, STANDARD = 1, LOCANT = 2, CYCLIC = 3, BRIDGED = 4, SPIRO = 5, IONIC = 6};
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char
 std::map<unsigned char,unsigned int> char_hierarchy = 
@@ -62,7 +62,7 @@ std::map<unsigned char,unsigned int> char_hierarchy =
   {'S',32},{'T',33},{'U',34},{'V',35},{'W',36},{'X',37},{'Y',38},{'Z',40},{'&',41}
 };
 
-const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","POLYCYCLIC", "PERICYCLIC", "BRIDGED", "SPIRO", "IONIC"};
+const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED", "SPIRO", "IONIC"};
 
 
 struct WLNInstruction{
@@ -128,6 +128,8 @@ struct InstructionGraph{
 
     std::stack<WLNInstruction*> ring_stack; 
 
+    bool state_in_ring = false; 
+    
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
       switch(ch){
@@ -155,31 +157,67 @@ struct InstructionGraph{
           if(state == ROOT){
             state = CYCLIC; 
             current = add_instruction(CYCLIC,i);
+            ring_stack.push(current); // for back tracking if needed
+            // update internal tracking
+            state_in_ring = true;
           }
 
           else if (state == LOCANT){  // can only be a pending ring
             state = CYCLIC; 
+            
             current->add_end(i); // add the end and then update current
+
             current = add_instruction(CYCLIC,i);
+            ring_stack.push(current); // for back tracking if needed
+            state_in_ring = true;
           }
           break; 
 
         case 'J': // pass 
+          if (state == CYCLIC){
+            state_in_ring = false;  // allows internal atom positions to be passed
+          }
+          break;
+
+        case 'D':
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'H':
+        case 'I':
+        case 'K':
+        case 'M':
+        case 'N':
+        case 'O':
+        case 'P':
+        case 'Q':
+        case 'R':
+        case 'S':
+        case 'U':
+        case 'V':
+        case 'W':
+        case 'X':
+        case 'Y':
+        case 'Z':
           break;
 
         
         case ' ':
-          if (state == CYCLIC || state == STANDARD){
+          if ( (state == CYCLIC || state == STANDARD) && !state_in_ring){
             state = LOCANT; 
             current->add_end(i); // add the end and then update current
             current = add_instruction(LOCANT,i);
           }
-
           break;
 
         
-        case '-': // this starts a new ring notation, embeded
+        case '-': // this starts a new ring notation, embeded, direct
           if (state == LOCANT){
+            state = LOCANT; 
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(LOCANT,i);
+          }
+          if ( (state == STANDARD) && (i+1 < len && wln[i+1] == ' ')){ // if coming from a branch
             state = LOCANT; 
             current->add_end(i); // add the end and then update current
             current = add_instruction(LOCANT,i);
@@ -190,13 +228,18 @@ struct InstructionGraph{
           if (state == LOCANT){
             state = IONIC; 
             current->add_end(i); // add the end and then update current
-            current = add_instruction(LOCANT,i);
+            current = add_instruction(IONIC,i);
           }
           else if (state == CYCLIC){
             // terminates the ring notation, so will depend on if there a stack or not, put back to root for now
-            state = ROOT;
-            current->add_end(i); // add the end and then update current
-            current = add_instruction(ROOT,i);
+            if(ring_stack.size() > 1){
+              ring_stack.pop(); // pop off the ring stack as permantly closed
+              current = ring_stack.top();
+              fprintf(stderr,"   returning to instruction %s\n",code_hierarchy[current->code]);
+            }
+
+            
+              
           }
           break;
 
