@@ -20,14 +20,14 @@
 
 // --- forward declarations --- (functions can have indirect recursion)
 struct WLNSymbol; 
-WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len); 
-WLNSymbol* ParseCyclic(const char *wln, unsigned int len);
+
+// --- macros --- 
+#define REASONABLE 1024
 
 // --- inputs ---  
 const char *wln; 
 const char *dotfile; 
-unsigned int pos;   // global track of where we are in the wln string
-unsigned int glob_len;   // total length of the wln string
+unsigned consumed; 
 
 // --- options --- 
 static bool opt_wln2dot = false;
@@ -36,27 +36,21 @@ static bool opt_verbose = false;
 static bool opt_canonical = false; 
 static bool opt_returnwln = false;
 
-// macros 
-#define REASONABLE 1024
 
-// pending notation
-bool pending_ring = false; 
 
 // --- memory --- 
-std::vector<WLNSymbol*> mempool; 
+std::vector<WLNSymbol*> symbol_mempool; 
 
 static void empty_mempool(){
-  for (WLNSymbol* allocedwln : mempool){  // if error free all the mempool --> stop leak 
+  for (WLNSymbol* allocedwln : symbol_mempool){  // if error free all the symbol_mempool --> stop leak 
     free(allocedwln); 
     allocedwln = 0;
   }
 }
 
-
-// character type and pending state types
+// character type and instruction types
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
-enum WLNState{PASS = 0, NONCYCLIC = 1, CYCLIC = 2, POLYCYCLIC=3, PERICYCLIC=4, BRIDGED=5, SPIRO=6};
-
+enum WLNCode {ROOT = 0, STANDARD = 1, LOCANT = 2, CYCLIC = 3, POLYCYCLIC = 4, PERICYCLIC = 5, BRIDGED = 6, SPIRO = 7, IONIC = 8};
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char
 std::map<unsigned char,unsigned int> char_hierarchy = 
@@ -68,16 +62,181 @@ std::map<unsigned char,unsigned int> char_hierarchy =
   {'S',32},{'T',33},{'U',34},{'V',35},{'W',36},{'X',37},{'Y',38},{'Z',40},{'&',41}
 };
 
-// quick validity checker 
-bool ValidCharParse(const char *wln, unsigned int len){
-  for (unsigned int i=0;i<len;i++){
-    if (!char_hierarchy[wln[i]]){
-      fprintf(stderr,"Error: invalid wln character %c in string\n",wln[i]);
-      return false;
-    }
+const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","POLYCYCLIC", "PERICYCLIC", "BRIDGED", "SPIRO", "IONIC"};
+
+
+struct WLNInstruction{
+
+  unsigned int code; 
+  unsigned int start_ch; 
+  unsigned int end_ch; 
+  
+  WLNInstruction *prev_instruction; 
+  std::vector<WLNInstruction*> next_instructions; 
+
+
+  void init(unsigned int c, unsigned int s){
+    code = c;
+    start_ch = s;
   }
-  return true; 
-}
+
+  void add_end(unsigned int e){
+    end_ch = e; 
+  }
+
+  void display(){
+    fprintf(stderr,"instruction: %s on ",code_hierarchy[code]);
+    for (unsigned int i=start_ch; i<end_ch; i++)
+      fprintf(stderr,"%c", wln[i]); 
+    fprintf(stderr,"\n");
+  }
+
+}; 
+
+
+/* make a graph, split the string, call the subroutines - easy right? */
+struct InstructionGraph{
+
+  WLNInstruction *root; 
+  unsigned int num_instructions; 
+  std::vector<WLNInstruction*> instruction_pool; 
+
+  InstructionGraph()
+    :root{(WLNInstruction*)0},num_instructions{0}{};
+  ~InstructionGraph(){
+    for (WLNInstruction* instruction : instruction_pool)
+      free(instruction);
+  }
+
+  WLNInstruction* add_instruction(unsigned int int_code, unsigned int s){
+    WLNInstruction *instruction = (WLNInstruction*)malloc(sizeof(WLNInstruction)); 
+    instruction->init(int_code,s);
+    instruction_pool.push_back(instruction);
+    num_instructions++; 
+
+    if (opt_verbose)
+      fprintf(stderr,"   adding instruction: %s\n",code_hierarchy[int_code]);
+
+    return instruction;
+  }
+
+
+  bool CreateInstructionSet(const char *wln, unsigned int len){
+
+    unsigned int state = 0;   // current state we are in 
+    WLNInstruction* current = 0; // current instruction 
+
+    std::stack<WLNInstruction*> ring_stack; 
+
+    for (unsigned int i=0;i<len;i++){
+      char ch = wln[i];
+      switch(ch){
+        
+        case 'A':
+          if (state == LOCANT){
+            current->add_end(i); 
+          }
+          break;
+        
+        case 'B':
+          if (state == LOCANT){
+            current->add_end(i); 
+          }
+          break;
+
+        case 'C':
+          if (state == LOCANT){
+            current->add_end(i); 
+          }
+          break;
+        
+        case 'L':
+        case 'T':
+          if(state == ROOT){
+            state = CYCLIC; 
+            current = add_instruction(CYCLIC,i);
+          }
+
+          else if (state == LOCANT){  // can only be a pending ring
+            state = CYCLIC; 
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(CYCLIC,i);
+          }
+          break; 
+
+        case 'J': // pass 
+          break;
+
+        
+        case ' ':
+          if (state == CYCLIC || state == STANDARD){
+            state = LOCANT; 
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(LOCANT,i);
+          }
+
+          break;
+
+        
+        case '-': // this starts a new ring notation, embeded
+          if (state == LOCANT){
+            state = LOCANT; 
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(LOCANT,i);
+          }
+          break;
+
+        case '&':
+          if (state == LOCANT){
+            state = IONIC; 
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(LOCANT,i);
+          }
+          else if (state == CYCLIC){
+            // terminates the ring notation, so will depend on if there a stack or not, put back to root for now
+            state = ROOT;
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(ROOT,i);
+          }
+          break;
+
+
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          if (state == LOCANT){
+            state = STANDARD; 
+            current->add_end(i); // add the end and then update current
+            current = add_instruction(STANDARD,i);
+          }
+          
+          break; 
+
+
+
+          
+        default:
+          fprintf(stderr,"Error: unrecognised symbol: %c\n",ch);
+          return false; 
+      }
+
+    }
+
+    return true; 
+  }
+
+};
+
+
+
+
 
 
 struct WLNSymbol{
@@ -259,9 +418,10 @@ bool char_comp(const WLNSymbol* a, const WLNSymbol* b){
 
 WLNSymbol* AllocateWLNSymbol(unsigned char ch){
 
+  consumed++; // globally consumed position
   WLNSymbol *wln = (WLNSymbol*)malloc( sizeof(WLNSymbol) ); 
   if(wln->init(ch)) 
-    mempool.push_back(wln);
+    symbol_mempool.push_back(wln);
   else 
     return (WLNSymbol *)0;
   
@@ -352,37 +512,6 @@ bool add_symbol(WLNSymbol* src, WLNSymbol *trg){
 }
 
 
-/* handles special symbol combinations to enter main subroutines */
-unsigned int pending_states(unsigned char ch){
-
-  switch(ch){
-
-    case '-':
-      if (pending_ring)
-        pending_ring = false; 
-      else 
-        pending_ring = true;
-      break;
-
-    case ' ':
-      if(pending_ring){
-        if (opt_verbose)
-          fprintf(stderr,"   ring system detected in branch\n");
-        pending_ring = false; // we handle it here
-        return CYCLIC;
-      }
-      break;
-
-
-    default:
-      if(pending_ring)
-        pending_ring = false; 
-      break; 
-  }
-  
-  return 0;
-}
-
 /* this can perform the normal backtrack, excluding  '&' closure */ 
 WLNSymbol* backtrack_stack(std::stack<WLNSymbol*> &wln_stack){
   WLNSymbol *tmp = 0; 
@@ -414,8 +543,11 @@ WLNSymbol *force_closure(std::stack<WLNSymbol*> &wln_stack){
 }
 
 /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
+
 WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
-  
+  if(opt_verbose)
+    fprintf(stderr,"   evaluating standard notation\n");
+
   std::stack <WLNSymbol*> wln_stack; 
   WLNSymbol *prev = 0;
   WLNSymbol *root = 0;
@@ -429,21 +561,7 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
   
   for (unsigned int i = 1; i<len; i++){
     
-    // this can detect based on the char, and then change created_wln as per given special
-    unsigned int special = pending_states(wln[i]);
-    switch(special){
-
-      case WLNState::CYCLIC: 
-        created_wln = ParseCyclic(wln+=i,len);
-        break;
-
-
-
-      default:
-        created_wln = AllocateWLNSymbol(wln[i]);
-        break;
-    }
-
+    created_wln = AllocateWLNSymbol(wln[i]);
     if (!created_wln)
       return (WLNSymbol*)0; 
     
@@ -463,16 +581,8 @@ WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
     }   
   }
 
-  // for aid with tree reordering, a '&' can be used to close all wln notation
-  
-  prev = created_wln; // last created 
-  created_wln = AllocateWLNSymbol('&');
-  prev->children.push_back(created_wln);
-
   return root; // return start of the tree
 }
-
-
 
 
 WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
@@ -490,7 +600,6 @@ WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
   for (unsigned int tmp = locant_start+1; tmp<locant_end+1; tmp++)
     substr[access++] = wln[tmp];
 
-
   if (opt_verbose)
     fprintf(stderr,"   bonding %s to locant %c\n",substr,wln[locant_start]);
 
@@ -501,6 +610,9 @@ WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
 
 /* parse the 'first' CYCLIC wln species */
 WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
+
+  if(opt_verbose)
+    fprintf(stderr,"   evaluating cyclic notation\n");
 
   WLNSymbol *prev = 0;
   WLNSymbol *root = 0;
@@ -527,10 +639,11 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
     return (WLNSymbol *)0;
   }
 
-  // look for immediate ring exit <-- important for joined cyclics  'L6TJ&'
+  // look for immediate ring exit --> saves an instruction cycle
   if (j_pos+1 < len && wln[j_pos+1] == '&'){
     if(opt_verbose)
-      fprintf(stderr,"   forced '&' ring closure detected\n");
+      fprintf(stderr,"   forced immediate '&' ring closure detected\n");
+    
     return root;
   }
      
@@ -565,7 +678,6 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
         return (WLNSymbol *)0;
       }
         
-
       // create a locant node and bind branch
       WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
       locant_node->children.push_back(branch_root);
@@ -574,17 +686,22 @@ WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
       jsymbol->children.push_back(locant_node);
     }
     
+    
   }
   
   return root; 
 }
 
 
-
-
-/* uses a character sorting method to arrange the WLN symbols according to rule 2
-BFS ensures a starting position */
+/* 
+uses a character sorting method to arrange the WLN symbols according to rule 2 BFS ensures a starting position */
 bool CanonicoliseWLN(WLNSymbol *root){
+
+
+  fprintf(stderr,"CANONICOLISE NEEDS REWORKING -- SKIPPING\n");
+  return true;
+
+
   std::deque<WLNSymbol*> wln_queue; 
   wln_queue.push_back(root);
   
@@ -637,14 +754,14 @@ void WLNDumpToDot(FILE *fp){
   // set up index map for node creation
   std::map <WLNSymbol*, unsigned int> index_map; 
   unsigned int glob_index = 0;
-  for (WLNSymbol *node : mempool){
+  for (WLNSymbol *node : symbol_mempool){
     index_map[node] = glob_index; 
     glob_index++;
   }
     
   fprintf(fp,"digraph WLNdigraph {\n");
   fprintf(fp,"  rankdir = LR;\n");
-  for (WLNSymbol *node : mempool){
+  for (WLNSymbol *node : symbol_mempool){
     fprintf(fp,"  %d",index_map[node]);
     fprintf(fp, "[shape=circle,label=\"%c\"];\n",node->ch);
     for (WLNSymbol *child : node->children){
@@ -755,43 +872,15 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   if(!wln)
     return 1;
-  else{
-    pos = 0; 
-    glob_len = strlen(wln);
-  }
-
-  if(!ValidCharParse(wln, glob_len)) // quick check the wln formula 
-    return 1;
-  
-  WLNSymbol *root = 0;
-
-  if(opt_verbose)
-    fprintf(stderr,"-- parsing input: %s\n",wln);
-
-  if(wln[0] == 'L' || wln[0] == 'T')
-    root = ParseCyclic(wln, glob_len);
   else
-    root = ParseNonCyclic(wln, glob_len);
+    consumed = 0; 
   
-  if (!root){
-    if(opt_verbose)
-      fprintf(stderr,"   failed parse\n");
-    empty_mempool();
-    return 1; 
-  }
+  InstructionGraph parse_instructions; 
 
-  if(opt_verbose)
-    fprintf(stderr,"\n");
+  parse_instructions.CreateInstructionSet(wln,strlen(wln));
 
-  if (opt_canonical){
-    if(opt_verbose)
-      fprintf(stderr,"-- canonicaling wln...\n");
 
-    CanonicoliseWLN(root);
-
-    if(opt_verbose)
-      fprintf(stderr,"\n");
-  }
+#ifdef DEPRECATED
 
   if (opt_wln2dot){
     if(opt_verbose)
@@ -820,7 +909,9 @@ int main(int argc, char *argv[]){
     else
       fprintf(stderr,"%s\n",res.c_str()); 
   }
-  
+
+#endif 
+
   empty_mempool();
   return 0;
 }
