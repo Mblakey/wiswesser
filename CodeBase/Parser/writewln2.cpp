@@ -67,28 +67,37 @@ const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED",
 
 struct WLNInstruction{
 
-  unsigned int code; 
+  unsigned int state; 
   unsigned int start_ch; 
   unsigned int end_ch; 
   
-  WLNInstruction *prev_instruction; 
   std::vector<WLNInstruction*> next_instructions; 
 
-
-  void init(unsigned int c, unsigned int s){
-    code = c;
-    start_ch = s;
+  void init_state(unsigned int c){
+    state = c;
+    start_ch = 0; 
+    end_ch = 0;
   }
 
-  void add_end(unsigned int e){
-    end_ch = e; 
+  void add_start(unsigned int pos){
+    start_ch = pos; 
+  }
+
+  void add_end(unsigned int pos){
+    end_ch = pos; 
   }
 
   void display(){
-    fprintf(stderr,"instruction: %s on ",code_hierarchy[code]);
-    for (unsigned int i=start_ch; i<end_ch; i++)
-      fprintf(stderr,"%c", wln[i]); 
-    fprintf(stderr,"\n");
+    if(state == ROOT)
+      fprintf(stderr,"instruction: %10s\n", "ROOT");
+    else if (state == LOCANT)
+      fprintf(stderr,"instruction: %10s contains: %c\n",code_hierarchy[state],wln[start_ch]);
+    else{
+      fprintf(stderr,"instruction: %10s contains: ",code_hierarchy[state]);
+      for (unsigned int i=start_ch; i<=end_ch; i++)
+        fprintf(stderr,"%c", wln[i]); 
+      fprintf(stderr,"\n");
+    }
   }
 
 }; 
@@ -108,74 +117,90 @@ struct InstructionGraph{
       free(instruction);
   }
 
-  WLNInstruction* add_instruction(unsigned int int_code, unsigned int s){
+  WLNInstruction* add_instruction(unsigned int int_code, unsigned int i){
     WLNInstruction *instruction = (WLNInstruction*)malloc(sizeof(WLNInstruction)); 
-    instruction->init(int_code,s);
+    instruction->init_state(int_code);
+    instruction->add_start(i);
+
     instruction_pool.push_back(instruction);
     num_instructions++; 
-
-    if (opt_verbose)
-      fprintf(stderr,"   adding instruction: %s\n",code_hierarchy[int_code]);
-
     return instruction;
   }
 
+  void display_instructions(){
+    for (WLNInstruction *instruction : instruction_pool)
+      instruction->display();
+  }
 
+  /* parse the wln string and create instruction set
+  see CreateInstructionSet2 for inplace one parse handling */
   bool CreateInstructionSet(const char *wln, unsigned int len){
 
-    unsigned int state = 0;   // current state we are in 
-    WLNInstruction* current = 0; // current instruction 
+    // convention for ending the char set
+    // we end on the last character WE WANT TO SEE i.e 'J' for ring closure
+    // going backwards in the string is always allowed --> implied char array access implied
+
+    WLNInstruction *prev = 0; 
+    WLNInstruction *current = add_instruction(ROOT,0); 
 
     std::stack<WLNInstruction*> ring_stack; 
 
-    bool state_in_ring = false; 
+    bool pending_closure  = false; 
+    bool pending_locant   = false;    // much better way of doing this
     
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
       switch(ch){
         
         case 'A':
-          if (state == LOCANT){
-            current->add_end(i); 
+          // this block repeats for all characters
+          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            pending_locant = false;
           }
           break;
         
         case 'B':
-          if (state == LOCANT){
-            current->add_end(i); 
+          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            pending_locant = false;
           }
           break;
 
         case 'C':
-          if (state == LOCANT){
-            current->add_end(i); 
+          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            pending_locant = false;
           }
           break;
         
         case 'L':
         case 'T':
-          if(state == ROOT){
-            state = CYCLIC; 
-            current = add_instruction(CYCLIC,i);
-            ring_stack.push(current); // for back tracking if needed
-            // update internal tracking
-            state_in_ring = true;
+          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            pending_locant = false;
           }
-
-          else if (state == LOCANT){  // can only be a pending ring
-            state = CYCLIC; 
-            
-            current->add_end(i); // add the end and then update current
+          else if(current->state == ROOT || current->state == LOCANT){
 
             current = add_instruction(CYCLIC,i);
             ring_stack.push(current); // for back tracking if needed
-            state_in_ring = true;
+            
+            // update internal tracking
+            pending_closure = true;
           }
           break; 
 
         case 'J': // pass 
-          if (state == CYCLIC){
-            state_in_ring = false;  // allows internal atom positions to be passed
+          if (current->state == CYCLIC){
+            current->add_end(i); // add the end and then update created
+            pending_closure = false;  // allows internal atom positions to be passed
+          }
+          else if (current->state == LOCANT){
+            current = add_instruction(STANDARD,i);
           }
           break;
 
@@ -199,50 +224,53 @@ struct InstructionGraph{
         case 'X':
         case 'Y':
         case 'Z':
+          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            pending_locant = false;
+          }
+          else if (current->state == LOCANT){
+            current = add_instruction(STANDARD,i);
+          } 
           break;
 
-        
-        case ' ':
-          if ( (state == CYCLIC || state == STANDARD) && !state_in_ring){
-            state = LOCANT; 
-            current->add_end(i); // add the end and then update current
-            current = add_instruction(LOCANT,i);
+
+        case ' ':  // keep this simple, a '&' locant means ionic branch out
+          if (current->state == CYCLIC && !pending_closure)
+            pending_locant = true;
+          else if (current->state == STANDARD){
+            current->add_end(i-1); // implied end of standard notation block
+            pending_locant = true;
           }
           break;
 
         
-        case '-': // this starts a new ring notation, embeded, direct
-          if (state == LOCANT){
-            state = LOCANT; 
-            current->add_end(i); // add the end and then update current
-            current = add_instruction(LOCANT,i);
+        case '-': 
+          if (current->state == LOCANT && !ring_stack.empty()){
+            // this starts a new ring notation, embeded without side chain, direct
+            current = ring_stack.top();
           }
-          if ( (state == STANDARD) && (i+1 < len && wln[i+1] == ' ')){ // if coming from a branch
-            state = LOCANT; 
-            current->add_end(i); // add the end and then update current
-            current = add_instruction(LOCANT,i);
+          else if (current->state == STANDARD && !ring_stack.empty()){
+            // starts an embedded ring thats come from a chain
+            current->add_end(i-1);
+            current = ring_stack.top();
           }
           break;
 
         case '&':
-          if (state == LOCANT){
-            state = IONIC; 
-            current->add_end(i); // add the end and then update current
+          if (current->state == LOCANT){
+            // this now must be ionic 
             current = add_instruction(IONIC,i);
           }
-          else if (state == CYCLIC){
-            // terminates the ring notation, so will depend on if there a stack or not, put back to root for now
+          else if (current->state == CYCLIC){
+            // terminates the ring notation immediately 
             if(ring_stack.size() > 1){
               ring_stack.pop(); // pop off the ring stack as permantly closed
               current = ring_stack.top();
-              fprintf(stderr,"   returning to instruction %s\n",code_hierarchy[current->code]);
+              fprintf(stderr,"   returning to instruction %s\n",code_hierarchy[current->state]);
             }
-
-            
-              
           }
           break;
-
 
         case '0':
         case '1':
@@ -254,17 +282,11 @@ struct InstructionGraph{
         case '7':
         case '8':
         case '9':
-          if (state == LOCANT){
-            state = STANDARD; 
-            current->add_end(i); // add the end and then update current
+          if (current->state == ROOT || current->state == LOCANT)
             current = add_instruction(STANDARD,i);
-          }
-          
+                  
           break; 
 
-
-
-          
         default:
           fprintf(stderr,"Error: unrecognised symbol: %c\n",ch);
           return false; 
@@ -272,14 +294,12 @@ struct InstructionGraph{
 
     }
 
+    // whatever the last instruction was, add len-1 as the end    
+    current->add_end(len-1);
     return true; 
   }
 
 };
-
-
-
-
 
 
 struct WLNSymbol{
@@ -921,7 +941,9 @@ int main(int argc, char *argv[]){
   InstructionGraph parse_instructions; 
 
   parse_instructions.CreateInstructionSet(wln,strlen(wln));
-
+  
+  if(opt_verbose)
+    parse_instructions.display_instructions();
 
 #ifdef DEPRECATED
 
