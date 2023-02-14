@@ -141,12 +141,21 @@ struct InstructionGraph{
         
         case 'L':
         case 'T':
-          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+          if(current->state == ROOT){
+            current = add_instruction(CYCLIC,i);
+            ring_stack.push(current); // for back tracking if needed
+            
+            root = current; // set the root of the WLNGraph
+
+            // update internal tracking
+            pending_closure = true;
+          }
+          else if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
             current = add_instruction(LOCANT,i);
             current->add_end(i); // all locants terminate on one char
             pending_locant = false;
           }
-          else if(current->state == ROOT || current->state == LOCANT){
+          else if(current->state == LOCANT){
 
             current = add_instruction(CYCLIC,i);
             ring_stack.push(current); // for back tracking if needed
@@ -190,7 +199,11 @@ struct InstructionGraph{
         case 'X':
         case 'Y':
         case 'Z':
-          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+          if (current->state == ROOT){
+            current = add_instruction(STANDARD,i);
+            root = current; 
+          }
+          else if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
             current = add_instruction(LOCANT,i);
             current->add_end(i); // all locants terminate on one char
             pending_locant = false;
@@ -200,6 +213,25 @@ struct InstructionGraph{
           } 
           break;
 
+
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          if (current->state == ROOT){
+            current = add_instruction(STANDARD,i);
+            root = current; 
+          }
+          else if (current->state == LOCANT || current->state == IONIC)
+            current = add_instruction(STANDARD,i);
+                  
+          break; 
 
         case ' ':  // keep this simple, a '&' locant means ionic branch out
           if (current->state == CYCLIC && !pending_closure)
@@ -251,20 +283,6 @@ struct InstructionGraph{
           }
           break;
 
-        case '0':
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          if (current->state == ROOT || current->state == LOCANT || current->state == IONIC)
-            current = add_instruction(STANDARD,i);
-                  
-          break; 
 
         default:
           fprintf(stderr,"Error: unrecognised symbol: %c\n",ch);
@@ -655,111 +673,6 @@ struct WLNGraph{
   }
 
 
-  WLNSymbol* parse_locant(unsigned int locant_start, unsigned int locant_end){
-    WLNSymbol *branch_root = 0;
-
-    unsigned char substr[REASONABLE] = {'\0'}; 
-    unsigned int arr_len = locant_end - locant_start;
-
-    if (arr_len > REASONABLE){
-      fprintf(stderr,"Error: branch in ring system exceeds 1024 characters - termination\n");
-      return (WLNSymbol*)0;
-    }
-
-    unsigned int access = 0;  // we dont include the locant symbol - shift by 1
-    for (unsigned int tmp = locant_start+1; tmp<locant_end+1; tmp++)
-      substr[access++] = wln[tmp];
-
-    if (opt_verbose)
-      fprintf(stderr,"   bonding %s to locant %c\n",substr,wln[locant_start]);
-
-    branch_root = ParseNonCyclic((const char*)substr, arr_len);
-    return branch_root;
-  } 
-
-  /* parse the 'first' CYCLIC wln species */
-  WLNSymbol* ParseCyclic(const char *wln, unsigned int len){
-
-    if(opt_verbose)
-      fprintf(stderr,"   evaluating cyclic notation\n");
-
-    WLNSymbol *prev = 0;
-    WLNSymbol *root = 0;
-    WLNSymbol *jsymbol = 0;
-    WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
-    root = prev = created_wln; 
-
-    unsigned int j_pos = 0; 
-    for(unsigned int i = 1; i < len; i++){
-
-      created_wln = AllocateWLNSymbol(wln[i]); 
-      prev->children.push_back(created_wln);
-      prev = created_wln; 
-      if(wln[i] == 'J'){
-        j_pos = i;
-        jsymbol = created_wln;
-        break; 
-      }
-    }
-
-    // looks for J ring closure 
-    if(!j_pos || !jsymbol){ 
-      fprintf(stderr,"Error: ring system not closed with a J\n");
-      return (WLNSymbol *)0;
-    }
-
-    // look for immediate ring exit --> saves an instruction cycle
-    if (j_pos+1 < len && wln[j_pos+1] == '&'){
-      if(opt_verbose)
-        fprintf(stderr,"   forced immediate '&' ring closure detected\n");
-      
-      return root;
-    }
-      
-    // current i position on J, therefore add 1, should be on space, add 2 get the first locant letter
-    unsigned int locant_start = j_pos+2; 
-    unsigned int locant_end = 0; 
-    for (unsigned int i=j_pos+2;i<len;i++){
-      
-      if(wln[i] == ' '){
-        locant_end = i-1; // zero indexed
-          
-        WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
-        if (!branch_root){
-          fprintf(stderr,"Error: could not parse locant - return nullptr\n");
-          return (WLNSymbol *)0;
-        }
-
-        // create a locant node and bind branch
-        WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
-        locant_node->children.push_back(branch_root);
-
-        // bind the locant to the 'J' value of the ring --> evaluation to smiles later
-        jsymbol->children.push_back(locant_node);
-        locant_start = i+1;
-      }
-      else if (i == len -1){     // on notation end, last locant
-
-        locant_end = i; // zero indexed
-        WLNSymbol *branch_root = parse_locant(locant_start,locant_end);
-        if (!branch_root){
-          fprintf(stderr,"Error: could not parse locant - return nullptr\n");
-          return (WLNSymbol *)0;
-        }
-          
-        // create a locant node and bind branch
-        WLNSymbol *locant_node = AllocateWLNSymbol(wln[locant_start]);
-        locant_node->children.push_back(branch_root);
-
-        // bind the locant to the 'J' value of the ring --> evaluation to smiles later
-        jsymbol->children.push_back(locant_node);
-      }
-      
-      
-    }
-    
-    return root; 
-  }
 
   /* reforms WLN string with DFS ordering */
   std::string ReformWLNString(WLNSymbol *root){
