@@ -127,13 +127,15 @@ struct InstructionGraph{
     // we end on the last character WE WANT TO SEE i.e 'J' for ring closure
     // going backwards in the string is always allowed --> implied char array access implied
 
-    //WLNInstruction *prev = 0; 
+    WLNInstruction *prev = 0; // use to add children for graph construct
     WLNInstruction *current = add_instruction(ROOT,0); 
+    root = current;
 
     std::stack<WLNInstruction*> ring_stack; 
 
     bool pending_closure  = false; 
     bool pending_locant   = false;    // much better way of doing this
+    bool pending_term     = false;    // used for '&' ring burn
     
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
@@ -142,36 +144,85 @@ struct InstructionGraph{
         case 'L':
         case 'T':
           if(current->state == ROOT){
+            prev = current;
             current = add_instruction(CYCLIC,i);
             ring_stack.push(current); // for back tracking if needed
             
-            root = current; // set the root of the WLNGraph
-
             // update internal tracking
             pending_closure = true;
+
+            prev->next_instructions.push_back(current);
           }
-          else if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+          else if (current->state == CYCLIC && pending_locant){
+            prev = current; 
+
             current = add_instruction(LOCANT,i);
             current->add_end(i); // all locants terminate on one char
+            
             pending_locant = false;
+
+            prev->next_instructions.push_back(current);
+          }
+          else if (current->state == STANDARD && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            
+            pending_locant = false;
+
+            if (!ring_stack.empty())
+              ring_stack.top()->next_instructions.push_back(current);
+            else{
+              // start some notation ending criteria
+              fprintf(stderr,"Error: no ring species to attach locant\n");
+              return false;
+            }   
           }
           else if(current->state == LOCANT){
-
+            prev = current; 
             current = add_instruction(CYCLIC,i);
             ring_stack.push(current); // for back tracking if needed
-            
-            // update internal tracking
+          
             pending_closure = true;
+
+            prev->next_instructions.push_back(current);
           }
           break; 
 
         case 'J': // pass 
-          if (current->state == CYCLIC){
+          if (current->state == CYCLIC && pending_closure){
             current->add_end(i); // add the end and then update created
             pending_closure = false;  // allows internal atom positions to be passed
           }
-          else if (current->state == LOCANT){
+          else if (current->state == CYCLIC && pending_locant){
+            prev = current; 
+
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            
+            pending_locant = false;
+
+            prev->next_instructions.push_back(current);
+          }
+          else if (current->state == STANDARD && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            
+            pending_locant = false;
+
+            if (!ring_stack.empty())
+              ring_stack.top()->next_instructions.push_back(current);
+            else{
+              // start some notation ending criteria
+              fprintf(stderr,"Error: no ring species to attach locant\n");
+              return false;
+            }   
+          }
+          else if (current->state == LOCANT || current->state == IONIC){
+            prev = current; 
+
             current = add_instruction(STANDARD,i);
+
+            prev->next_instructions.push_back(current); 
           }
           break;
 
@@ -199,17 +250,36 @@ struct InstructionGraph{
         case 'X':
         case 'Y':
         case 'Z':
-          if (current->state == ROOT){
-            current = add_instruction(STANDARD,i);
-            root = current; 
-          }
-          else if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
+          if (current->state == CYCLIC && pending_locant){
+            prev = current; 
+
             current = add_instruction(LOCANT,i);
             current->add_end(i); // all locants terminate on one char
+            
             pending_locant = false;
+
+            prev->next_instructions.push_back(current);
+          }
+          else if (current->state == STANDARD && pending_locant){
+            current = add_instruction(LOCANT,i);
+            current->add_end(i); // all locants terminate on one char
+            
+            pending_locant = false;
+
+            if (!ring_stack.empty())
+              ring_stack.top()->next_instructions.push_back(current);
+            else{
+              // start some notation ending criteria
+              fprintf(stderr,"Error: no ring species to attach locant\n");
+              return false;
+            }   
           }
           else if (current->state == LOCANT || current->state == IONIC){
+            prev = current; 
+
             current = add_instruction(STANDARD,i);
+            
+            prev->next_instructions.push_back(current); 
           } 
           break;
 
@@ -225,19 +295,38 @@ struct InstructionGraph{
         case '8':
         case '9':
           if (current->state == ROOT){
+            prev = current; 
+
             current = add_instruction(STANDARD,i);
-            root = current; 
+             
+            prev->next_instructions.push_back(current);
           }
-          else if (current->state == LOCANT || current->state == IONIC)
+          else if (current->state == LOCANT || current->state == IONIC){
+            prev = current; 
             current = add_instruction(STANDARD,i);
-                  
+            prev->next_instructions.push_back(current);
+          }
           break; 
+
+
 
         case ' ':  // keep this simple, a '&' locant means ionic branch out
           if (current->state == CYCLIC && !pending_closure)
             pending_locant = true;
           else if (current->state == STANDARD){
             current->add_end(i-1); // implied end of standard notation block
+
+            // perform a check for '&' to look for ring burn condition
+            if (wln[i-1] == '&'){
+              if(!ring_stack.empty()){
+                ring_stack.pop();
+                if (!ring_stack.empty())
+                  current = ring_stack.top();
+                else
+                  ; // the only thing possible here is an ionic next space, can add rules
+              }
+            }
+            
             pending_locant = true;
           }
           break;
@@ -254,14 +343,17 @@ struct InstructionGraph{
             current = ring_stack.top();
           }
           else if (current->state == IONIC){
+            prev = current; 
             current = add_instruction(STANDARD,i);
+            prev->next_instructions.push_back(current);
           }
           break;
 
         case '&':
           if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
             // this now must be ionic 
-            current = add_instruction(IONIC,i);
+            
+            current = add_instruction(IONIC,i); // ionic is always seperate in the graph
             current->add_end(i);
 
             // an ionic species means a complete blow through of the ring stack
@@ -296,7 +388,7 @@ struct InstructionGraph{
     return true; 
   }
 
-  void DumpInstruction2Dot(FILE *fp){
+  void DumpInstruction2Dot(FILE *fp, bool segment_string = false){
     // set up index map for node creation
     std::map <WLNInstruction*, unsigned int> index_map; 
     unsigned int glob_index = 0;
@@ -309,7 +401,14 @@ struct InstructionGraph{
     fprintf(fp,"  rankdir = LR;\n");
     for (WLNInstruction *node : instruction_pool){
       fprintf(fp,"  %d",index_map[node]);
-      fprintf(fp, "[shape=circle,label=\"%s\"];\n",code_hierarchy[node->state]);
+      if (segment_string){
+        fprintf(fp, "[shape=circle,label=\"");
+        for (unsigned int i=node->start_ch; i<=node->end_ch;i++)
+          fprintf(fp,"%c",wln[i]);
+        fprintf(fp,"\"];\n");
+      }
+      else
+        fprintf(fp, "[shape=circle,label=\"%s\"];\n",code_hierarchy[node->state]);
       for (WLNInstruction *child : node->next_instructions){
         fprintf(fp,"  %d", index_map[node]);
         fprintf(fp," -> ");
@@ -866,6 +965,15 @@ int main(int argc, char *argv[]){
   
   if(opt_verbose)
     parse_instructions.display_instructions();
+
+  FILE *fp = 0;
+  fp = fopen("instruction.dot","w");
+  if(!fp){
+    fprintf(stderr,"Error: coould not open compiler dump file\n");
+    return 1;
+  }
+  else
+    parse_instructions.DumpInstruction2Dot(fp,false);
 
   return 0;
 }
