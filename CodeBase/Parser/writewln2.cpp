@@ -24,7 +24,6 @@
 // --- inputs ---  
 const char *wln; 
 const char *dotfile; 
-unsigned consumed; 
 
 // --- options --- 
 static bool opt_wln2dot = false;
@@ -119,13 +118,15 @@ struct InstructionGraph{
       instruction->display();
   }
 
-  /* parse the wln string and create instruction set
-  see CreateInstructionSet2 for inplace one parse handling */
+  /* parse the wln string and create instruction set,
+  I think its reasonable to have two parses for this */
   bool CreateInstructionSet(const char *wln, unsigned int len){
 
-    // convention for ending the char set
-    // we end on the last character WE WANT TO SEE i.e 'J' for ring closure
-    // going backwards in the string is always allowed --> implied char array access implied
+    /* 
+    convention for ending the char set
+    we end on the last character WE WANT TO SEE i.e 'J' for ring closure
+    going backwards in the string is always allowed --> implied char array access implied
+    */
 
     WLNInstruction *prev = 0; // use to add children for graph construct
     WLNInstruction *current = add_instruction(ROOT,0); 
@@ -134,9 +135,8 @@ struct InstructionGraph{
     std::stack<WLNInstruction*> ring_stack; 
 
     bool pending_closure  = false; 
-    bool pending_locant   = false;    // much better way of doing this
-    bool pending_term     = false;    // used for '&' ring burn
-    
+    bool pending_locant   = false;   
+  
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
       switch(ch){
@@ -388,6 +388,8 @@ struct InstructionGraph{
     return true; 
   }
 
+  
+
   void DumpInstruction2Dot(FILE *fp, bool segment_string = false){
     // set up index map for node creation
     std::map <WLNInstruction*, unsigned int> index_map; 
@@ -594,8 +596,11 @@ struct WLNSymbol{
 
 struct WLNGraph{
 
-  std::vector<WLNSymbol*> symbol_mempool; 
-
+  WLNSymbol *root; 
+  unsigned int wln_nodes = 0; 
+  std::vector<WLNSymbol*> symbol_mempool;
+  
+  WLNGraph(): root{(WLNSymbol*)0},wln_nodes{0}{};
   ~WLNGraph(){
     for (WLNSymbol* allocedwln : symbol_mempool){  // if error free all the symbol_mempool --> stop leak 
       free(allocedwln); 
@@ -609,7 +614,7 @@ struct WLNGraph{
   }
 
   WLNSymbol* AllocateWLNSymbol(unsigned char ch){
-    consumed++; // globally consumed position
+    wln_nodes++; 
     WLNSymbol *wln = (WLNSymbol*)malloc( sizeof(WLNSymbol) ); 
     if(wln->init(ch)) 
       symbol_mempool.push_back(wln);
@@ -954,26 +959,34 @@ static void ProcessCommandLine(int argc, char *argv[]){
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
-  if(!wln)
+  if(!wln){
+    fprintf(stderr,"Error: no wln string - nullptr\n");
     return 1;
-  else
-    consumed = 0; 
-  
-  InstructionGraph parse_instructions; 
+  } 
+    
+
+  InstructionGraph parse_instructions;
+  WLNGraph wln_graph;  
 
   parse_instructions.CreateInstructionSet(wln,strlen(wln));
   
   if(opt_verbose)
     parse_instructions.display_instructions();
 
-  FILE *fp = 0;
-  fp = fopen("instruction.dot","w");
-  if(!fp){
-    fprintf(stderr,"Error: coould not open compiler dump file\n");
-    return 1;
+  
+  // create the instruction graph
+  if (opt_wln2dot){
+    FILE *fp = 0;
+    fp = fopen("instruction.dot","w");
+    if(!fp){
+      fprintf(stderr,"Error: coould not open compiler dump file\n");
+      return 1;
+    }
+    else
+      parse_instructions.DumpInstruction2Dot(fp,false);
   }
-  else
-    parse_instructions.DumpInstruction2Dot(fp,false);
+
+  
 
   return 0;
 }
