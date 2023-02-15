@@ -963,7 +963,8 @@ int main(int argc, char *argv[]){
     fprintf(stderr,"Error: no wln string - nullptr\n");
     return 1;
   } 
-    
+  
+  fprintf(stderr,"mikey");
 
   InstructionGraph parse_instructions;
   WLNGraph wln_graph;  
