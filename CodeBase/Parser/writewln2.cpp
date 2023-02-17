@@ -57,7 +57,7 @@ struct WLNInstruction{
   unsigned int start_ch; 
   unsigned int end_ch; 
 
-  bool contains_branch; 
+  bool ring_linker; 
   
   WLNInstruction* parent; 
   std::vector<WLNInstruction*> next_instructions; 
@@ -67,7 +67,7 @@ struct WLNInstruction{
     start_ch = 0; 
     end_ch = 0;
     parent = (WLNInstruction*)0; 
-    contains_branch = false; 
+    ring_linker = false; 
   }
 
   void add_start(unsigned int pos){
@@ -133,6 +133,23 @@ struct InstructionGraph{
     child->parent = parent; 
   }
 
+  /* pops a number of rings off the stack */
+  WLNInstruction* popdown_ringstack(std::stack<WLNInstruction*> &ring_stack, unsigned int terms){
+
+    unsigned int popped = 0; 
+    while(!ring_stack.empty()){
+      ring_stack.pop();
+      popped++; 
+
+      if (terms == popped && !ring_stack.empty())
+        return ring_stack.top();
+    }
+
+    return (WLNInstruction*)0;
+  }
+
+
+
   /* parse the wln string and create instruction set,
   I think its reasonable to have two parses for this */
   bool CreateInstructionSet(const char *wln, unsigned int len){
@@ -147,12 +164,17 @@ struct InstructionGraph{
     WLNInstruction *current = add_instruction(ROOT,0); 
     root = current;
 
-    std::stack<WLNInstruction*> ring_stack; 
+    std::stack<WLNInstruction*> ring_stack; // keep
 
-    bool pending_closure  = false; 
-    bool pending_locant   = false; 
-    bool pending_revert   = false; // handle the inter chain branching  
-  
+    bool pending_closure    = false; 
+    bool pending_locant     = false; 
+    bool pending_ring       = false; 
+    
+    unsigned int pending_revert  = 0; 
+    // should be all we need, pop down as many & we detect before the space 
+
+    // two combos to handle:  '&<&> ' and '<&>&-'
+
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
       switch(ch){
@@ -168,30 +190,25 @@ struct InstructionGraph{
             pending_closure = true;
 
             connect_instruction(prev,current);
+            break;
           }
-          else if (current->state == CYCLIC && pending_locant){
-            prev = current; 
-
-            current = add_instruction(LOCANT,i);
-            current->add_end(i); // all locants terminate on one char
+          else if (current->state == STANDARD){
             
-            pending_locant = false;
-
-            connect_instruction(prev,current);
-          }
-          else if (current->state == STANDARD && pending_locant){
-            current = add_instruction(LOCANT,i);
-            current->add_end(i); // all locants terminate on one char
+            if(pending_locant){
+              current = add_instruction(LOCANT,i);
+              current->add_end(i); // all locants terminate on one char
             
-            pending_locant = false;
+              pending_locant = false;
 
-            if (!ring_stack.empty())
-              ring_stack.top()->next_instructions.push_back(current);
-            else{
-              // start some notation ending criteria
-              fprintf(stderr,"Error: no ring species to attach locant\n");
-              return false;
-            }   
+              if (!ring_stack.empty())
+                ring_stack.top()->next_instructions.push_back(current);
+              else{
+                fprintf(stderr,"Error: no ring species to attach locant\n");
+                return false;
+              }  
+            }
+            
+            break;              
           }
           else if(current->state == LOCANT){
             prev = current; 
@@ -201,46 +218,73 @@ struct InstructionGraph{
             pending_closure = true;
 
             connect_instruction(prev,current);
+            break;
           }
-          break; 
+          else if (current->state == CYCLIC){
+            
+            if(pending_locant){
+              prev = current; 
+
+              current = add_instruction(LOCANT,i);
+              current->add_end(i); // all locants terminate on one char
+            
+              pending_locant = false;
+
+              connect_instruction(prev,current);
+            }
+            
+            break;
+          }
+         
 
         case 'J': // pass 
-          if (current->state == CYCLIC && pending_closure){
-            current->add_end(i); // add the end and then update created
-            pending_closure = false;  // allows internal atom positions to be passed
-          }
-          else if (current->state == CYCLIC && pending_locant){
-            prev = current; 
+          if (current->state == STANDARD){
 
-            current = add_instruction(LOCANT,i);
-            current->add_end(i); // all locants terminate on one char
-            
-            pending_locant = false;
+            if(pending_locant){
+              current = add_instruction(LOCANT,i);
+              current->add_end(i); // all locants terminate on one char
+              
+              pending_locant = false;
 
-            connect_instruction(prev,current);
-          }
-          else if (current->state == STANDARD && pending_locant){
-            current = add_instruction(LOCANT,i);
-            current->add_end(i); // all locants terminate on one char
-            
-            pending_locant = false;
+              if (!ring_stack.empty())
+                ring_stack.top()->next_instructions.push_back(current);
+              else{
+                // start some notation ending criteria
+                fprintf(stderr,"Error: no ring species to attach locant\n");
+                return false;
+              }
+            }
 
-            if (!ring_stack.empty())
-              ring_stack.top()->next_instructions.push_back(current);
-            else{
-              // start some notation ending criteria
-              fprintf(stderr,"Error: no ring species to attach locant\n");
-              return false;
-            }   
+            break; 
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
-
             current = add_instruction(STANDARD,i);
-
             connect_instruction(prev,current); 
+
+            break;
           }
-          break;
+          else if (current->state == CYCLIC){
+            
+            if(pending_closure){
+              current->add_end(i); // add the end and then update created
+              pending_closure = false;  // allows internal atom positions to be passed
+            }
+            else if(pending_locant){
+              prev = current; 
+
+              current = add_instruction(LOCANT,i);
+              current->add_end(i); // all locants terminate on one char
+              
+              pending_locant = false;
+
+              connect_instruction(prev,current);
+            }
+            
+            break;
+          }
+        
+      
 
         // non specials 
         case 'A':
@@ -266,39 +310,53 @@ struct InstructionGraph{
         case 'X':
         case 'Y':
         case 'Z':
-          if (current->state == CYCLIC && pending_locant){
-            prev = current; 
+          pending_ring = false; 
 
-            current = add_instruction(LOCANT,i);
-            current->add_end(i); // all locants terminate on one char
+          if (current->state == STANDARD){
             
-            pending_locant = false;
+            if(pending_locant){
 
-            connect_instruction(prev,current);
-          }
-          else if (current->state == STANDARD && pending_locant){
-            current = add_instruction(LOCANT,i);
-            current->add_end(i); // all locants terminate on one char
+              current = add_instruction(LOCANT,i);
+              current->add_end(i); // all locants terminate on one char
             
-            pending_locant = false;
+              pending_locant = false;
 
-            if (!ring_stack.empty())
-              ring_stack.top()->next_instructions.push_back(current);
-            else{
-              // start some notation ending criteria
-              fprintf(stderr,"Error: no ring species to attach locant\n");
-              return false;
-            }   
+              if (!ring_stack.empty())
+                ring_stack.top()->next_instructions.push_back(current);
+              else{
+                fprintf(stderr,"Error: no ring species to attach locant\n");
+                return false;
+              }
+            }
+
+            break;
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
-
             current = add_instruction(STANDARD,i);
-            
             connect_instruction(prev,current); 
+            break;
           } 
-          break;
+          else if (current->state == CYCLIC){
 
+            if (pending_locant){
+              prev = current; 
+
+              current = add_instruction(LOCANT,i);
+              current->add_end(i); // all locants terminate on one char
+              
+              pending_locant = false;
+
+              connect_instruction(prev,current);
+            }
+            else if(pending_revert){
+              fprintf(stderr,"revert condition hit!\n");
+              pending_revert = false;
+            }
+            
+            break;
+          }
+        
 
         case '0':
         case '1':
@@ -310,99 +368,150 @@ struct InstructionGraph{
         case '7':
         case '8':
         case '9':
+          pending_ring = false; 
+
           if (current->state == ROOT){
             prev = current; 
 
             current = add_instruction(STANDARD,i);
              
             connect_instruction(prev,current);
+
+            break;
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current);;
+            connect_instruction(prev,current);
+            
+            break;
           }
-          break; 
-
-
-
-        case ' ':  // keep this simple, a '&' locant means ionic branch out
-          if (current->state == CYCLIC && !pending_closure)
-            pending_locant = true;
-          else if (current->state == STANDARD){
-            current->add_end(i-1); // implied end of standard notation block
-
-            // perform a check for '&' to look for ring burn condition
-            if (wln[i-1] == '&'){
-              if(!ring_stack.empty()){
-                ring_stack.pop();
-                if (!ring_stack.empty())
-                  current = ring_stack.top();
-                else
-                  ; // the only thing possible here is an ionic next space, can add rules
-              }
+          else if(current->state == CYCLIC){
+            
+            if(pending_revert){
+              fprintf(stderr,"revert condition hit!\n");
+              pending_revert = false;
             }
             
-            pending_locant = true;
+            break;
           }
-          break;
+          
+         
 
-        
-        case '-': 
-          if (current->state == LOCANT && !ring_stack.empty()){
-            // this starts a new ring notation, embeded without side chain, direct
-            current = ring_stack.top();
+        case ' ':  // keep this simple, a '&' locant means ionic branch out
+          if (current->state == STANDARD){
+            
+            if (pending_ring){
+              current->add_end(i-1);
+              current->ring_linker = true; // use this for backtrack
+
+              current = ring_stack.top();
+
+              pending_ring = false; 
+              pending_locant = true;
+
+            }
+            else{
+              current->add_end(i-1); // implied end of standard notation block
+
+              // perform a check for '&' to look for ring burn condition
+              if (wln[i-1] == '&'){
+                // check how many rings are present behind
+                unsigned int k=i-1; 
+                unsigned int terms = 0; 
+                while(wln[k] == '&'){
+                  terms++; 
+                  k--;
+                }
+                current = popdown_ringstack(ring_stack,terms);
+                if (!current){
+                  fprintf(stderr,"Error: notation contains too many '&', all rings popped\n");
+                  return false; 
+                }
+              }
+              pending_locant = true;
+            }
+            
+            break;
           }
-          else if (current->state == STANDARD && !ring_stack.empty()){
-            // starts an embedded ring thats come from a chain
-            current->add_end(i-1);
-            current = ring_stack.top();
+          
+          else if (current->state == LOCANT){
+            
+            if(pending_ring){
+              current = ring_stack.top();
+              pending_ring = false; 
+              pending_locant = true; 
+            }
+            
+
+            break;
+          }
+
+          else if (current->state == CYCLIC){
+            
+            if(!pending_closure)
+              pending_locant = true;
+
+            break;
+          }
+            
+        
+        case '-':
+          if(current->state == STANDARD){
+
+            if (!ring_stack.empty())
+              pending_ring = true; 
+            
+            break; 
+          }
+          if (current->state == LOCANT){
+            
+            if (!ring_stack.empty())
+              pending_ring = true;
+
+            break;  
           }
           else if (current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current);;
+            connect_instruction(prev,current);
+
+            break; 
           }
-          break;
 
         case '&':
-          if ( (current->state == CYCLIC || current->state == STANDARD) && pending_locant){
-            // this now must be ionic 
+          if(current->state == STANDARD){
             
-            current = add_instruction(IONIC,i); // ionic is always seperate in the graph
-            current->add_end(i);
+            if(pending_locant){
+              current = add_instruction(IONIC,i); // ionic is always seperate in the graph
+              current->add_end(i);
 
-            // an ionic species means a complete blow through of the ring stack
-            while(!ring_stack.empty())
-              ring_stack.pop();
+              // an ionic species means a complete blow through of the ring stack
+              while(!ring_stack.empty())
+                ring_stack.pop();
 
-            pending_locant = false;
+              pending_locant = false;
+            }
+
+            break;
           }
           else if (current->state == CYCLIC){
-            // terminates the ring notation immediately, but dont set until the space 
-            // as a inter branch is possible here, look for another '&' or space
+            
+            
+            if(pending_locant){
+              current = add_instruction(IONIC,i); // ionic is always seperate in the graph
+              current->add_end(i);
 
-            if (pending_revert){
-              // reset to the last branching standard
-              pending_revert  = false; 
+              // an ionic species means a complete blow through of the ring stack
+              while(!ring_stack.empty())
+                ring_stack.pop();
+
+              pending_locant = false;
             }
 
-
-
-            pending_revert = true; 
-
-            if(current == ring_stack.top()){
-              ring_stack.pop(); // pop off the ring stack as permantly closed
-              
-              if (!ring_stack.empty())
-                current = ring_stack.top();
-              else
-                ; // the only thing possible here is an ionic next space, can add rules
-            }
+            break;
           }
-          break;
-
-
+        
         default:
           fprintf(stderr,"Error: unrecognised symbol: %c\n",ch);
           return false; 
@@ -983,7 +1092,8 @@ int main(int argc, char *argv[]){
   InstructionGraph parse_instructions;
   WLNGraph wln_graph;  
 
-  parse_instructions.CreateInstructionSet(wln,strlen(wln));
+  if(!parse_instructions.CreateInstructionSet(wln,strlen(wln)))
+    return 1; 
   
   if(opt_verbose)
     parse_instructions.display_instructions();
