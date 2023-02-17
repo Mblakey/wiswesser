@@ -869,7 +869,7 @@ static void DisplayUsage(){
   fprintf(stderr,"  -s | --strict                 fail on hypervalence, no symbol correction\n");
   fprintf(stderr,"  -c | --canonical              perform wln canonicalise procedure\n");
   fprintf(stderr,"  -r | --return-wln             return wln after altering procedure(s)\n");
-  fprintf(stderr,"  --wln2dot <dotfile.dot>       dump wln tree to dot file\n");
+  fprintf(stderr,"  --wln2dot                     dump wln trees to dot file\n");
   exit(1);
 }
 
@@ -911,17 +911,6 @@ static void ProcessCommandLine(int argc, char *argv[]){
         case '-':
           if (!strcmp(ptr, "--wln2dot")){
             opt_wln2dot = true; 
-            if (i == argc - 1){
-              fprintf(stderr,"Error: --wlndot requires a <file>.dot as next arguement\n");
-              DisplayUsage();
-            }
-            i++; // increment argv
-            if (argv[i][0] != '-')
-              dotfile = argv[i];
-            else{
-              fprintf(stderr,"Error: --wlndot requires a <file>.dot as next arguement\n");
-              DisplayUsage();
-            } 
             break;
           }
           else if (!strcmp(ptr, "--strict")){
@@ -964,8 +953,6 @@ int main(int argc, char *argv[]){
     return 1;
   } 
   
-  fprintf(stderr,"mikey");
-
   InstructionGraph parse_instructions;
   WLNGraph wln_graph;  
 
