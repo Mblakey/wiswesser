@@ -56,13 +56,18 @@ struct WLNInstruction{
   unsigned int state; 
   unsigned int start_ch; 
   unsigned int end_ch; 
+
+  bool contains_branch; 
   
+  WLNInstruction* parent; 
   std::vector<WLNInstruction*> next_instructions; 
 
   void init_state(unsigned int c){
     state = c;
     start_ch = 0; 
     end_ch = 0;
+    parent = (WLNInstruction*)0; 
+    contains_branch = false; 
   }
 
   void add_start(unsigned int pos){
@@ -71,6 +76,10 @@ struct WLNInstruction{
 
   void add_end(unsigned int pos){
     end_ch = pos; 
+  }
+
+  void add_prev(WLNInstruction *src){
+    parent = src; 
   }
 
   void display(){
@@ -118,6 +127,12 @@ struct InstructionGraph{
       instruction->display();
   }
 
+  /* gives linked list backtrack ability */
+  void connect_instruction(WLNInstruction* parent, WLNInstruction *child){
+    parent->next_instructions.push_back(child);
+    child->parent = parent; 
+  }
+
   /* parse the wln string and create instruction set,
   I think its reasonable to have two parses for this */
   bool CreateInstructionSet(const char *wln, unsigned int len){
@@ -135,7 +150,8 @@ struct InstructionGraph{
     std::stack<WLNInstruction*> ring_stack; 
 
     bool pending_closure  = false; 
-    bool pending_locant   = false;   
+    bool pending_locant   = false; 
+    bool pending_revert   = false; // handle the inter chain branching  
   
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
@@ -151,7 +167,7 @@ struct InstructionGraph{
             // update internal tracking
             pending_closure = true;
 
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);
           }
           else if (current->state == CYCLIC && pending_locant){
             prev = current; 
@@ -161,7 +177,7 @@ struct InstructionGraph{
             
             pending_locant = false;
 
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);
           }
           else if (current->state == STANDARD && pending_locant){
             current = add_instruction(LOCANT,i);
@@ -184,7 +200,7 @@ struct InstructionGraph{
           
             pending_closure = true;
 
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);
           }
           break; 
 
@@ -201,7 +217,7 @@ struct InstructionGraph{
             
             pending_locant = false;
 
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);
           }
           else if (current->state == STANDARD && pending_locant){
             current = add_instruction(LOCANT,i);
@@ -222,7 +238,7 @@ struct InstructionGraph{
 
             current = add_instruction(STANDARD,i);
 
-            prev->next_instructions.push_back(current); 
+            connect_instruction(prev,current); 
           }
           break;
 
@@ -258,7 +274,7 @@ struct InstructionGraph{
             
             pending_locant = false;
 
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);
           }
           else if (current->state == STANDARD && pending_locant){
             current = add_instruction(LOCANT,i);
@@ -279,7 +295,7 @@ struct InstructionGraph{
 
             current = add_instruction(STANDARD,i);
             
-            prev->next_instructions.push_back(current); 
+            connect_instruction(prev,current); 
           } 
           break;
 
@@ -299,12 +315,12 @@ struct InstructionGraph{
 
             current = add_instruction(STANDARD,i);
              
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);;
           }
           break; 
 
@@ -345,7 +361,7 @@ struct InstructionGraph{
           else if (current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            prev->next_instructions.push_back(current);
+            connect_instruction(prev,current);;
           }
           break;
 
@@ -363,7 +379,18 @@ struct InstructionGraph{
             pending_locant = false;
           }
           else if (current->state == CYCLIC){
-            // terminates the ring notation immediately 
+            // terminates the ring notation immediately, but dont set until the space 
+            // as a inter branch is possible here, look for another '&' or space
+
+            if (pending_revert){
+              // reset to the last branching standard
+              pending_revert  = false; 
+            }
+
+
+
+            pending_revert = true; 
+
             if(current == ring_stack.top()){
               ring_stack.pop(); // pop off the ring stack as permantly closed
               
