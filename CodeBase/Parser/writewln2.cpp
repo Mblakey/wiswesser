@@ -112,7 +112,8 @@ struct InstructionGraph{
       free(instruction);
   }
 
-  WLNInstruction* add_instruction(unsigned int int_code, unsigned int i){
+  WLNInstruction* add_instruction(unsigned int int_code, unsigned int i)
+  {
     WLNInstruction *instruction = (WLNInstruction*)malloc(sizeof(WLNInstruction)); 
     instruction->init_state(int_code);
     instruction->add_start(i);
@@ -122,20 +123,22 @@ struct InstructionGraph{
     return instruction;
   }
 
-  void display_instructions(){
+  void display_instructions()
+  {
     for (WLNInstruction *instruction : instruction_pool)
       instruction->display();
   }
 
   /* gives linked list backtrack ability */
-  void connect_instruction(WLNInstruction* parent, WLNInstruction *child){
+  void connect_instruction(WLNInstruction* parent, WLNInstruction *child)
+  {
     parent->next_instructions.push_back(child);
     child->parent = parent; 
   }
 
+
   /* pops a number of rings off the stack */
   WLNInstruction* popdown_ringstack(std::stack<WLNInstruction*> &ring_stack, unsigned int terms){
-
     unsigned int popped = 0; 
     while(!ring_stack.empty()){
       ring_stack.pop();
@@ -144,21 +147,28 @@ struct InstructionGraph{
       if (terms == popped && !ring_stack.empty())
         return ring_stack.top();
     }
+    return (WLNInstruction*)0;
+  }
+
+
+  WLNInstruction* backtrack_ringlinker(WLNInstruction* current)
+  {
+    // use the linked list
+    while(current->parent){
+      current = current->parent; 
+
+      fprintf(stderr,"%s: %d\n",code_hierarchy[current->state],current->ring_linker);
+      if(current->ring_linker)
+        return current; 
+    }
 
     return (WLNInstruction*)0;
   }
 
 
-
   /* parse the wln string and create instruction set,
   I think its reasonable to have two parses for this */
   bool CreateInstructionSet(const char *wln, unsigned int len){
-
-    /* 
-    convention for ending the char set
-    we end on the last character WE WANT TO SEE i.e 'J' for ring closure
-    going backwards in the string is always allowed --> implied char array access implied
-    */
 
     WLNInstruction *prev = 0; // use to add children for graph construct
     WLNInstruction *current = add_instruction(ROOT,0); 
@@ -170,9 +180,6 @@ struct InstructionGraph{
     bool pending_locant     = false; 
     bool pending_ring       = false; 
     
-    unsigned int pending_revert  = 0; 
-    // should be all we need, pop down as many & we detect before the space 
-
     // two combos to handle:  '&<&> ' and '<&>&-'
 
     for (unsigned int i=0;i<len;i++){
@@ -181,6 +188,7 @@ struct InstructionGraph{
         
         case 'L':
         case 'T':
+          pending_ring = false; // only stop pending once handled
           if(current->state == ROOT){
             prev = current;
             current = add_instruction(CYCLIC,i);
@@ -203,7 +211,7 @@ struct InstructionGraph{
               if (!ring_stack.empty())
                 ring_stack.top()->next_instructions.push_back(current);
               else{
-                fprintf(stderr,"Error: no ring species to attach locant\n");
+                fprintf(stderr,"Error: no ring species to attach locant - terminating parse\n");
                 return false;
               }  
             }
@@ -250,7 +258,7 @@ struct InstructionGraph{
                 ring_stack.top()->next_instructions.push_back(current);
               else{
                 // start some notation ending criteria
-                fprintf(stderr,"Error: no ring species to attach locant\n");
+                fprintf(stderr,"Error: no ring species to attach locant - terminating parse\n");
                 return false;
               }
             }
@@ -284,9 +292,6 @@ struct InstructionGraph{
             break;
           }
         
-      
-
-        // non specials 
         case 'A':
         case 'B':
         case 'C':
@@ -310,22 +315,27 @@ struct InstructionGraph{
         case 'X':
         case 'Y':
         case 'Z':
-          pending_ring = false; 
-
+          
           if (current->state == STANDARD){
             
             if(pending_locant){
-
+              prev = current; 
               current = add_instruction(LOCANT,i);
               current->add_end(i); // all locants terminate on one char
             
               pending_locant = false;
 
-              if (!ring_stack.empty())
-                ring_stack.top()->next_instructions.push_back(current);
+              if(pending_ring){
+                connect_instruction(prev,current);
+                pending_ring = false; 
+              }
               else{
-                fprintf(stderr,"Error: no ring species to attach locant\n");
-                return false;
+                if (!ring_stack.empty())
+                  ring_stack.top()->next_instructions.push_back(current);
+                else{
+                  fprintf(stderr,"Error: no ring species to attach locant - terminating parse\n");
+                  return false;
+                }
               }
             }
 
@@ -348,10 +358,6 @@ struct InstructionGraph{
               pending_locant = false;
 
               connect_instruction(prev,current);
-            }
-            else if(pending_revert){
-              fprintf(stderr,"revert condition hit!\n");
-              pending_revert = false;
             }
             
             break;
@@ -388,15 +394,9 @@ struct InstructionGraph{
           }
           else if(current->state == CYCLIC){
             
-            if(pending_revert){
-              fprintf(stderr,"revert condition hit!\n");
-              pending_revert = false;
-            }
             
             break;
           }
-          
-         
 
         case ' ':  // keep this simple, a '&' locant means ionic branch out
           if (current->state == STANDARD){
@@ -404,12 +404,8 @@ struct InstructionGraph{
             if (pending_ring){
               current->add_end(i-1);
               current->ring_linker = true; // use this for backtrack
-
-              current = ring_stack.top();
-
-              pending_ring = false; 
+        
               pending_locant = true;
-
             }
             else{
               current->add_end(i-1); // implied end of standard notation block
@@ -425,7 +421,7 @@ struct InstructionGraph{
                 }
                 current = popdown_ringstack(ring_stack,terms);
                 if (!current){
-                  fprintf(stderr,"Error: notation contains too many '&', all rings popped\n");
+                  fprintf(stderr,"Error: notation contains too many '&', all rings popped - terminating parse\n");
                   return false; 
                 }
               }
@@ -439,11 +435,9 @@ struct InstructionGraph{
             
             if(pending_ring){
               current = ring_stack.top();
-              pending_ring = false; 
               pending_locant = true; 
             }
             
-
             break;
           }
 
@@ -457,19 +451,48 @@ struct InstructionGraph{
             
         
         case '-':
-          if(current->state == STANDARD){
+          if (current->state == ROOT){
+            prev = current;
+            current = add_instruction(STANDARD,i);
+            connect_instruction(prev,current);
+            break; 
+          }
+          else if(current->state == STANDARD){
 
             if (!ring_stack.empty())
               pending_ring = true; 
             
             break; 
           }
-          if (current->state == LOCANT){
+          else if (current->state == LOCANT){
             
             if (!ring_stack.empty())
               pending_ring = true;
 
             break;  
+          }
+          else if (current->state == CYCLIC){
+
+            if(wln[i-1] == '&'){
+              // means a return to a branching linker - also pops off ring
+              unsigned int k=i-1; 
+              unsigned int terms = 0; 
+              while(wln[k] == '&'){
+                terms++; 
+                k--;
+              }
+              popdown_ringstack(ring_stack,terms); // we dont need current here;
+
+              current = backtrack_ringlinker(current);
+              if(!current){
+                fprintf(stderr,"Error: no ring linker to return to via '&<x>-' - terminating parse\n");
+                return false; 
+              }
+
+              pending_ring = true;               
+            }
+
+            break; 
           }
           else if (current->state == IONIC){
             prev = current; 
