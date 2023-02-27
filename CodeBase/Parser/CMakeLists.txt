@@ -28,5 +28,5 @@ include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
 add_executable(wisswesser parser.cpp readwln.cpp writewln.cpp)
 add_executable(wln-writer writewln2.cpp)
 
-target_link_libraries(wisswesser "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.0.0.dylib")
-target_link_libraries(wln-writer "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.0.0.dylib")
+target_link_libraries(wisswesser "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
+target_link_libraries(wln-writer "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
