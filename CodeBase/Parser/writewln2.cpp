@@ -177,9 +177,6 @@ struct WLNInstruction{
 
         // refactor the ring size based on shared bonds
         ring_size = calculate_ring_atoms(fuses,ring_size);
-
-        fprintf(stderr,"ring size: %d\n",ring_size);
-
         ring_set = true; 
         continue; 
       }
@@ -915,11 +912,23 @@ struct WLNSymbol{
 
 };
 
+
+/* struct to hold pointers for the wln ring - only for stack return */ 
+struct WLNRing{
+  unsigned int ring_size; 
+  std::vector<WLNSymbol*> locants; 
+  std::map<unsigned char, WLNSymbol*> lookup; 
+};
+
 struct WLNGraph{
 
   WLNSymbol *root; 
   unsigned int wln_nodes = 0; 
+  unsigned int wln_rings = 0; 
   std::vector<WLNSymbol*> symbol_mempool;
+  std::vector<WLNRing*>   ring_mempool;
+
+  std::map<WLNRing*,WLNSymbol*> ring_access; // access the ring struct from locant A pointer
   
   WLNGraph(): root{(WLNSymbol*)0},wln_nodes{0}{};
   ~WLNGraph(){
@@ -943,6 +952,43 @@ struct WLNGraph{
       return (WLNSymbol *)0;
     
     return wln; 
+  }
+
+  WLNRing* AllocateWLNRing(){
+    wln_rings++; 
+    WLNRing *wln_ring = (WLNRing*)malloc(sizeof(WLNRing));
+    ring_mempool.push_back(wln_ring);
+
+    return wln_ring;
+  }
+
+
+  /* e.g creates a 6-6 ring from 10 atoms - binds to symbol if given, returns locant A */
+  WLNSymbol* create_ring( unsigned int atoms, 
+                          std::vector<unsigned int> fuses, 
+                          WLNSymbol *bind)
+  {
+
+    WLNRing *wln_ring = AllocateWLNRing();
+
+
+    WLNSymbol *rhead = AllocateWLNSymbol('C'); 
+    WLNSymbol *current = 0; 
+    
+    // 1) create a big ring
+    WLNSymbol *prev = rhead; 
+    for (unsigned int i=1; i<atoms; i++){
+      current = AllocateWLNSymbol('C');
+      add_symbol(current,prev);
+    }
+
+    // 2) loop back by adding to rhead; 
+    add_symbol(rhead,current); 
+    
+
+
+
+    return rhead; 
   }
 
   bool handle_hypervalence(WLNSymbol *problem){
