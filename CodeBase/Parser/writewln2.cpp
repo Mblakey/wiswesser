@@ -33,6 +33,9 @@ static bool opt_canonical = false;
 static bool opt_returnwln = false;
 
 
+// forward def 
+
+struct WLNSymbol; 
 
 // character type and instruction types
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
@@ -49,6 +52,16 @@ std::map<unsigned char,unsigned int> char_hierarchy =
 };
 
 const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED", "SPIRO", "IONIC"};
+
+
+/*  assumes a bi-atomic fuse, max = 6*6 for bicyclic */ 
+unsigned int calculate_ring_atoms(unsigned int rings, unsigned int max_atoms){
+  
+  unsigned int term = rings - 2; 
+  unsigned int shared_atoms = rings + term;
+
+  return max_atoms - shared_atoms;
+}
 
 
 struct WLNInstruction{
@@ -93,6 +106,92 @@ struct WLNInstruction{
         fprintf(stderr,"%c", wln[i]); 
       fprintf(stderr,"\n");
     }
+  }
+
+  /* handles single and bicyclic rings */
+  WLNSymbol* construct_standard_ring()
+  {
+
+    if (state != CYCLIC){
+      fprintf(stderr,"Error: constuct ring called on non-cyclic instruction\n");
+      return (WLNSymbol*)0; 
+    }
+
+    unsigned int pos = 0; 
+    unsigned char buffer[REASONABLE] = {'\0'};
+    
+    for (unsigned int i=start_ch; i<=end_ch; i++){
+      buffer[pos++] = wln[i];
+      if (pos == REASONABLE){
+        fprintf(stderr,"Error: cyclic system greater than 1024 characters, limit hit\n");
+        return (WLNSymbol*)0; 
+      }
+    }
+      
+    
+    if(opt_verbose)
+      fprintf(stderr,"constructing ring: %s\n",buffer);
+
+    // globals
+    bool ring_set     =   false; 
+    bool heterocyclic =   false; 
+    bool aromatic     =   false;
+
+    // counters
+    unsigned int ring_size = 0; 
+
+    
+    unsigned int it = 0; 
+    while(buffer[it] != '\0'){
+
+      // set the ring type
+      if(it == 0){
+        
+        switch(buffer[it]){
+
+          case 'L':
+            heterocyclic = false;
+            break;
+          
+          case 'T':
+            heterocyclic = true;
+            break; 
+
+          default:
+            fprintf(stderr,"Error: ring system starts with %c, must be L|T\n",buffer[it]);
+            return (WLNSymbol*)0; 
+        }
+        // jump it along manually, allows some clever things
+        it++;
+        continue;
+      }
+
+      // setting the ring size
+      if (!ring_set && (buffer[it] > '0' || buffer[it] < '9')){
+        unsigned int fuses = 0; 
+        while(std::isdigit(buffer[it]) && buffer[it] != '\0'){
+          ring_size += buffer[it] - '0';
+          fuses++; 
+          it++; 
+        }
+
+        // refactor the ring size based on shared bonds
+        ring_size = calculate_ring_atoms(fuses,ring_size);
+
+        fprintf(stderr,"ring size: %d\n",ring_size);
+
+        ring_set = true; 
+        continue; 
+      }
+
+
+
+      it++; // prevent hanging on system build;
+    }
+    
+
+
+    return (WLNSymbol*)0; 
   }
 
 }; 
@@ -276,6 +375,12 @@ struct InstructionGraph{
             if(pending_closure){
               current->add_end(i); // add the end and then update created
               pending_closure = false;  // allows internal atom positions to be passed
+              
+              // build the wln graph inline - greater flexibility for return backs
+              
+              // can do a ring check for poly - pericyclics (keep refactored)
+              
+              current->construct_standard_ring();
             }
             else if(pending_locant){
               prev = current; 
