@@ -37,7 +37,7 @@ static bool opt_returnwln = false;
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
 enum WLNCode {ROOT = 0, STANDARD = 1, LOCANT = 2, CYCLIC = 3, BRIDGED = 4, SPIRO = 5, IONIC = 6};
 
-// rule 2 - hierarchy - rules have diverged due to end terminator char
+// rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
 std::map<unsigned char,unsigned int> char_hierarchy = 
 {
   {' ',1}, {'-',2}, {'/',3}, 
@@ -45,6 +45,13 @@ std::map<unsigned char,unsigned int> char_hierarchy =
   {'A',14},{'B',15},{'C',16},{'D',17},{'E',18},{'F',19},{'G',20},{'H',21},{'I',22},
   {'J',23},{'K',24},{'L',25},{'M',26},{'N',27},{'O',28},{'P',29},{'Q',30},{'R',31},
   {'S',32},{'T',33},{'U',34},{'V',35},{'W',36},{'X',37},{'Y',38},{'Z',40},{'&',41}
+};
+
+std::map<unsigned int, unsigned char> locant_symbols = 
+{
+  {0,'A'},{1,'B'},{2,'C'},{3,'D'},{4,'E'},{5,'F'},{6,'G'},{7,'H'},{8,'I'},
+  {9,'J'},{10,'K'},{11,'L'},{12,'M'},{13,'N'},{14,'O'},{15,'P'},{16,'Q'},{17,'R'},
+  {18,'S'},{19,'T'},{20,'U'},{21,'V'},{22,'W'},{23,'X'},{24,'Y'},{25,'Z'}
 };
 
 const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED", "SPIRO", "IONIC"};
@@ -68,13 +75,23 @@ struct WLNSymbol{
 
   unsigned char ch; 
   unsigned int type; 
-  unsigned int bond;  // can take values 1-3 for '' 'U' 'UUU' 
+  unsigned int bond;  // can take values 1-3 for ['','U','UU'] 
 
   unsigned int allowed_edges;
   unsigned int num_edges;  
 
   WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
   std::vector<WLNSymbol*> children; // linked list of next terms chains 
+
+  // if default needed
+  WLNSymbol(){
+    ch = '\0';
+    type = 0; 
+    bond = 0; 
+    allowed_edges = 0; 
+    num_edges = 0; 
+    prev = 0;
+  }
 
   bool init(unsigned char inp_char){
     ch = inp_char;
@@ -246,9 +263,15 @@ struct WLNRing{
   bool aromatic; 
   bool heterocyclic; 
 
-  std::vector<WLNSymbol*> locants; 
-  std::map<unsigned char, WLNSymbol*> lookup; 
+  std::map<unsigned char, WLNSymbol*> locants; 
 
+
+  WLNRing(){
+    rhead = 0; 
+    ring_size = 0; 
+    aromatic = false; 
+    heterocyclic = false;
+  }
 
   void init(){
     rhead = 0; 
@@ -266,7 +289,6 @@ struct WLNGraph{
   unsigned int wln_rings = 0; 
   std::vector<WLNSymbol*> symbol_mempool;
   std::vector<WLNRing*>   ring_mempool;
-
   std::map<WLNRing*,WLNSymbol*> ring_access; // access the ring struct from locant A pointer
   
   WLNGraph(): root{(WLNSymbol*)0},wln_nodes{0}{};
@@ -308,6 +330,11 @@ struct WLNGraph{
   /* inplace function, should only edit the WLNRing pointer */
   bool create_standard_ring(unsigned int start, unsigned int end, WLNRing *ring)
   {
+
+    if (!ring){
+      fprintf(stderr,"Error: ring object incorrectly made!\n");
+      return false;
+    }
     
     unsigned int num_atoms = 0; 
     unsigned int num_rings = 0; 
@@ -327,20 +354,33 @@ struct WLNGraph{
     unsigned int ratoms = calculate_ring_atoms(num_rings,num_atoms);
 
 
-    // 2) start creating the symbols 
-    WLNSymbol *rhead = AllocateWLNSymbol('C'); 
-    WLNSymbol *current = 0; 
-    
     // 1) create a big ring
-    WLNSymbol *prev = rhead; 
+    WLNSymbol *rhead = AllocateWLNSymbol('C'); 
+    ring->rhead = rhead; // set the rings head
+
+    WLNSymbol *current = 0; 
+    WLNSymbol *prev = rhead;
+
+    unsigned int locant = 0; 
     for (unsigned int i=1; i<ratoms; i++){
       current = AllocateWLNSymbol('C');
+      
+
+      fprintf(stderr,"%c\n",locant_symbols[locant++]);
+
+      WLNSymbol* test = ring->locants[2]; 
+      //ring->locants[locant_symbols[locant]] = current;
+
       add_symbol(current,prev);
       prev = current; 
     }
 
-    // 2) loop back by adding to rhead; 
     add_symbol(rhead,current); 
+
+    if (num_rings > 1){
+      // handle bicyclic fuse patterns here
+    }
+    
     
 
     return true; 
