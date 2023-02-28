@@ -357,13 +357,14 @@ struct WLNGraph
     return sym;
   }
 
-  WLNSymbol *access_locant(unsigned char ch, WLNRing *ring)
+  WLNSymbol *access_locant(unsigned char ch, WLNRing *ring, bool strict=true)
   {
     WLNSymbol *locant = 0;
     locant = ring->locants[ch];
     if (!locant)
     {
-      fprintf(stderr, "Error: invalid locant access - %c\n", ch);
+      if(strict)
+        fprintf(stderr, "Error: invalid locant access - %c\n", ch);
       return 0;
     }
     return locant;
@@ -440,7 +441,7 @@ struct WLNGraph
         else
         {
           transform_symbol(atom, ch);
-          atom = access_locant(cur_locant + 1, ring);
+          atom = access_locant(cur_locant + 1, ring,false);
         }
 
         break;
@@ -464,7 +465,7 @@ struct WLNGraph
           WLNSymbol *oxy = AllocateWLNSymbol('O');
           oxy->inc_bond = 2;
           atom->children.push_back(oxy);
-          atom = access_locant(cur_locant + 1, ring);
+          atom = access_locant(cur_locant + 1, ring,false);
         }
 
         break;
@@ -488,7 +489,7 @@ struct WLNGraph
 
           atom->children.push_back(oxy_1);
           atom->children.push_back(oxy_2);
-          atom = access_locant(cur_locant + 1, ring);
+          atom = access_locant(cur_locant + 1, ring,false);
         }
         break;
 
