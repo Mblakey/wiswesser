@@ -463,7 +463,7 @@ struct WLNGraph
         else
         {
           WLNSymbol *oxy = AllocateWLNSymbol('O');
-          oxy->inc_bond = 2;
+          oxy->inc_bond = 1;
           atom->children.push_back(oxy);
           atom = access_locant(cur_locant + 1, ring,false);
         }
@@ -484,8 +484,8 @@ struct WLNGraph
         {
           WLNSymbol *oxy_1 = AllocateWLNSymbol('O');
           WLNSymbol *oxy_2 = AllocateWLNSymbol('O');
-          oxy_1->inc_bond = 2;
-          oxy_2->inc_bond = 2;
+          oxy_1->inc_bond = 1;
+          oxy_2->inc_bond = 1;
 
           atom->children.push_back(oxy_1);
           atom->children.push_back(oxy_2);
