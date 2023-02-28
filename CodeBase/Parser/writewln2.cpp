@@ -68,6 +68,7 @@ struct WLNSymbol{
 
   unsigned char ch; 
   unsigned int type; 
+  unsigned int bond;  // can take values 1-3 for '' 'U' 'UUU' 
 
   unsigned int allowed_edges;
   unsigned int num_edges;  
@@ -238,6 +239,8 @@ struct WLNSymbol{
 
 /* struct to hold pointers for the wln ring - only for stack return */ 
 struct WLNRing{
+  
+  WLNSymbol *rhead; 
   unsigned int ring_size;
   
   bool aromatic; 
@@ -248,6 +251,7 @@ struct WLNRing{
 
 
   void init(){
+    rhead = 0; 
     ring_size = 0; 
     aromatic = false; 
     heterocyclic = false;
@@ -301,34 +305,127 @@ struct WLNGraph{
     return wln_ring;
   }
 
-
-  /* e.g creates a 6-6 ring from 10 atoms - binds to symbol if given, returns locant A */
-  WLNSymbol* create_ring( unsigned int atoms, 
-                          std::vector<unsigned int> fuses, 
-                          WLNSymbol *bind)
+  /* inplace function, should only edit the WLNRing pointer */
+  bool create_standard_ring(unsigned int start, unsigned int end, WLNRing *ring)
   {
+    
+    unsigned int num_atoms = 0; 
+    unsigned int num_rings = 0; 
+    std::vector<unsigned int> fuse_pattern; 
 
-    WLNRing *wln_ring = AllocateWLNRing();
+    // 1) evaluate the number of rings
+
+    unsigned int it = start+1; // get the first num
+    while(std::isdigit(wln[it]) && wln[it] != '\0'){
+      unsigned int val = wln[it] - '0';
+      num_atoms += val; 
+      num_rings++; 
+      fuse_pattern.push_back(val);
+      it++; 
+    }
+
+    unsigned int ratoms = calculate_ring_atoms(num_rings,num_atoms);
 
 
+    // 2) start creating the symbols 
     WLNSymbol *rhead = AllocateWLNSymbol('C'); 
     WLNSymbol *current = 0; 
     
     // 1) create a big ring
     WLNSymbol *prev = rhead; 
-    for (unsigned int i=1; i<atoms; i++){
+    for (unsigned int i=1; i<ratoms; i++){
       current = AllocateWLNSymbol('C');
       add_symbol(current,prev);
+      prev = current; 
     }
 
     // 2) loop back by adding to rhead; 
     add_symbol(rhead,current); 
     
 
-
-
-    return rhead; 
+    return true; 
   }
+  
+  /* platform for launching ring notation build functions */
+  WLNRing* consume_ring_notation(unsigned int start, unsigned int end){
+
+
+    bool handle_advanced = false; 
+
+    // 1) allocate the blank ring object
+    WLNRing *wln_ring = AllocateWLNRing();
+
+    // 2) minimum symbols for a ring notation is 3 - allows safe lookback
+
+    if ( (end-start) < 3){
+      fprintf(stderr,"Error: minimum chars for ring notation is 3 - found: %d\n",end-start);
+      return (WLNRing*)0; 
+    }
+
+    // 3) evaluate start character
+    switch(wln[start]){
+
+      case 'L':
+        wln_ring->heterocyclic = false; 
+        break;
+
+      case 'T':
+        wln_ring->heterocyclic = true;
+        break; 
+
+      default:
+        fprintf(stderr,"Error: ring notation must start L|T ... not: %c\n",wln[start]);
+        return (WLNRing*)0;
+
+    }
+
+    // 3) advanced vs standard notation test on second char
+
+    switch(wln[start+1]){
+      
+      case '0':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+        break; 
+
+      case ' ':
+        handle_advanced = true; 
+        break; 
+      
+      default:
+        fprintf(stderr,"Error: unknown second char in ring notation: %c\n",wln[start+1]);
+        return (WLNRing*)0; 
+    }
+
+    // 4) aromatic testing on the second to last 'T' 
+
+    switch (wln[end-1]){
+      case 'T':
+        wln_ring->aromatic = false; 
+        break;
+      
+      default: 
+        wln_ring->aromatic = true; 
+    }
+
+
+    if (handle_advanced){
+      // create the poly cyclic functions here
+    }
+    else
+      create_standard_ring(start,end, wln_ring);
+    
+    return wln_ring; 
+  }
+
+  
 
   bool handle_hypervalence(WLNSymbol *problem){
 
@@ -618,16 +715,18 @@ struct WLNInstruction{
 }; 
 
 
+
+
 /* make a graph, split the string, call the subroutines - easy right? */
-struct InstructionGraph{
+struct WLNParser{
 
   WLNInstruction *root; 
   unsigned int num_instructions; 
   std::vector<WLNInstruction*> instruction_pool; 
 
-  InstructionGraph()
+  WLNParser()
     :root{(WLNInstruction*)0},num_instructions{0}{};
-  ~InstructionGraph(){
+  ~WLNParser(){
     for (WLNInstruction* instruction : instruction_pool)
       free(instruction);
   }
@@ -688,13 +787,16 @@ struct InstructionGraph{
 
   /* parse the wln string and create instruction set,
   I think its reasonable to have two parses for this */
-  bool CreateInstructionSet(const char *wln, unsigned int len, WLNGraph &graph){
+  bool CreateWLNGraph(const char *wln, unsigned int len, WLNGraph &graph){
 
     WLNInstruction *prev = 0; // use to add children for graph construct
     WLNInstruction *current = add_instruction(ROOT,0); 
     root = current;
 
-    std::stack<WLNInstruction*> ring_stack; // keep
+
+    // these are now global for inline graph creation 
+    std::stack<WLNRing*>    ring_stack;
+    std::stack<WLNSymbol*> branch_stack; 
 
     bool pending_closure    = false; 
     bool pending_locant     = false; 
@@ -707,12 +809,11 @@ struct InstructionGraph{
         
         case 'L':
         case 'T':
-          pending_ring = false; // only stop pending once handled
+          
           if(current->state == ROOT){
             prev = current;
             current = add_instruction(CYCLIC,i);
-            ring_stack.push(current); // for back tracking if needed
-            
+        
             // update internal tracking
             pending_closure = true;
 
@@ -727,12 +828,7 @@ struct InstructionGraph{
             
               pending_locant = false;
 
-              if (!ring_stack.empty())
-                ring_stack.top()->next_instructions.push_back(current);
-              else{
-                fprintf(stderr,"Error: no ring species to attach locant - terminating parse\n");
-                return false;
-              }  
+             
             }
             
             break;              
@@ -740,8 +836,7 @@ struct InstructionGraph{
           else if(current->state == LOCANT){
             prev = current; 
             current = add_instruction(CYCLIC,i);
-            ring_stack.push(current); // for back tracking if needed
-          
+            
             pending_closure = true;
 
             connect_instruction(prev,current);
@@ -773,13 +868,7 @@ struct InstructionGraph{
               
               pending_locant = false;
 
-              if (!ring_stack.empty())
-                ring_stack.top()->next_instructions.push_back(current);
-              else{
-                // start some notation ending criteria
-                fprintf(stderr,"Error: no ring species to attach locant - terminating parse\n");
-                return false;
-              }
+            
             }
 
             break; 
@@ -794,8 +883,12 @@ struct InstructionGraph{
           else if (current->state == CYCLIC){
             
             if(pending_closure){
-              current->add_end(i); // add the end and then update created
-              pending_closure = false;  // allows internal atom positions to be passed
+              current->add_end(i); 
+              // create the  the ring object
+              
+              graph.consume_ring_notation(current->start_ch,current->end_ch);
+
+              pending_closure = false;  
             }
             else if(pending_locant){
               prev = current; 
@@ -850,12 +943,7 @@ struct InstructionGraph{
               connect_instruction(prev,current);
             }
             else{
-              if (!ring_stack.empty())
-                ring_stack.top()->next_instructions.push_back(current);
-              else{
-                fprintf(stderr,"Error: no ring species to attach locant - terminating parse\n");
-                return false;
-              }
+              
             }
           
             break;
@@ -890,8 +978,8 @@ struct InstructionGraph{
                   terms++; 
                   k--;
                 }
-                // pop backs must be defined outer rule addition
-                popdown_ringstack(ring_stack,terms); 
+                
+
 
                 current = backtrack_ringlinker(current);
                 if(!current){
@@ -950,9 +1038,7 @@ struct InstructionGraph{
                 terms++; 
                 k--;
               }
-              // pop backs must be defined outer rule addition
-              popdown_ringstack(ring_stack,terms); 
-
+              
               current = backtrack_ringlinker(current);
               if(!current){
                 fprintf(stderr,"Error: no ring linker to return to via '&<x>-' - terminating parse\n");
@@ -990,7 +1076,8 @@ struct InstructionGraph{
                   terms++; 
                   k--;
                 }
-                current = popdown_ringstack(ring_stack,terms);
+                
+
                 if (!current){
                   fprintf(stderr,"Error: notation contains too many '&', all rings popped - terminating parse\n");
                   return false; 
@@ -1005,7 +1092,7 @@ struct InstructionGraph{
           else if (current->state == LOCANT){
             
             if(pending_ring){
-              current = ring_stack.top();
+              
               pending_locant = true; 
             }
             
@@ -1054,7 +1141,7 @@ struct InstructionGraph{
                 terms++; 
                 k--;
               }
-              popdown_ringstack(ring_stack,terms); // we dont need current here;
+              
 
               current = backtrack_ringlinker(current);
               if(!current){
@@ -1161,8 +1248,6 @@ struct InstructionGraph{
 
 
 
-
-
 static void DisplayUsage(){
   fprintf(stderr,"wln-writer <options> < input (escaped) >\n");
   fprintf(stderr,"<options>\n");
@@ -1257,29 +1342,25 @@ int main(int argc, char *argv[]){
   // two levels of abstraction allows proper flexibility
 
   WLNGraph wln_graph;  
-  InstructionGraph parse_instructions;
+  WLNParser parser;
   
 
-  if(!parse_instructions.CreateInstructionSet(wln,strlen(wln),wln_graph))
+  if(!parser.CreateWLNGraph(wln,strlen(wln),wln_graph))
     return 1; 
   
-  if(opt_verbose)
-    parse_instructions.display_instructions();
-
-  
-  // create the instruction graph
+ 
+  // create the wln dotfile
   if (opt_wln2dot){
     FILE *fp = 0;
-    fp = fopen("instruction.dot","w");
+    fp = fopen("wln-graph.dot","w");
     if(!fp){
       fprintf(stderr,"Error: coould not open compiler dump file\n");
       return 1;
     }
     else
-      parse_instructions.DumpInstruction2Dot(fp,false);
+      wln_graph.WLNDumpToDot(fp);
   }
 
   
-
   return 0;
 }
