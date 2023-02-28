@@ -26,11 +26,12 @@ const char *wln;
 const char *dotfile; 
 
 // --- options --- 
-static bool opt_wln2dot = false;
-static bool opt_valstrict = false; 
-static bool opt_verbose = false;
-static bool opt_canonical = false; 
-static bool opt_returnwln = false;
+static bool opt_wln2dot     = false;
+static bool opt_valstrict   = false; 
+static bool opt_verbose     = false;
+static bool opt_debug       = false;
+static bool opt_canonical   = false; 
+static bool opt_returnwln   = false;
 
 
 // character type and instruction types
@@ -382,9 +383,7 @@ struct WLNGraph{
     return true; 
   }
 
-  bool consume_standard_notation(unsigned int start, unsigned int end){
-
-  }
+ 
   
   /* platform for launching ring notation build functions */
   WLNRing* consume_ring_notation(unsigned int start, unsigned int end){
@@ -579,20 +578,20 @@ struct WLNGraph{
 
 
   /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
-  WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
+  WLNSymbol* consume_standard_notation(unsigned int start, unsigned int end){
     
     std::stack <WLNSymbol*> wln_stack; 
     WLNSymbol *prev = 0;
     WLNSymbol *root = 0;
 
-    WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
+    WLNSymbol* created_wln = AllocateWLNSymbol(wln[start]);
     if (!created_wln)
       return (WLNSymbol*)0;
     wln_stack.push(created_wln);
     
     root = created_wln; 
     
-    for (unsigned int i = 1; i<len; i++){
+    for (unsigned int i = start+1; i<end; i++){
       
       created_wln = AllocateWLNSymbol(wln[i]);
       if (!created_wln)
@@ -775,7 +774,7 @@ struct WLNParser{
 
     bool pending_closure    = false; 
     bool pending_locant     = false; 
-    bool pending_ring       = false;
+    //bool pending_ring       = false;
   
 
     WLNSymbol *binder = 0; // used to link the wln nodes to previous
@@ -794,7 +793,7 @@ struct WLNParser{
             // update internal tracking
             pending_closure = true;
 
-            break;
+           
           }
           else if (current->state == STANDARD){
             
@@ -804,7 +803,7 @@ struct WLNParser{
               pending_locant = false;
             }
             
-            break;              
+                   
           }
           else if(current->state == LOCANT){
             prev = current; 
@@ -813,7 +812,6 @@ struct WLNParser{
             pending_closure = true;
 
   
-            break;
           }
           else if (current->state == CYCLIC){
             
@@ -827,8 +825,10 @@ struct WLNParser{
 
             }
             
-            break;
+            
           }
+
+        break;
          
 
         case 'J': // pass 
@@ -839,18 +839,16 @@ struct WLNParser{
               current->add_end(i); // all locants terminate on one char
               
               pending_locant = false;
-
-            
             }
 
-            break; 
+      
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
  
 
-            break;
+         
           }
           else if (current->state == CYCLIC){
             
@@ -873,8 +871,10 @@ struct WLNParser{
 
             }
             
-            break;
+            
           }
+
+        break;
         
         case 'A':
         case 'B':
@@ -910,20 +910,11 @@ struct WLNParser{
               pending_locant = false;
             }
 
-            else if(pending_ring){
-              ;
-            }
-            else{
-              ;
-            }
-          
-            break;
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-
-            break;
+     
           } 
           else if (current->state == CYCLIC){
 
@@ -943,32 +934,11 @@ struct WLNParser{
 
               pending_locant = false;
             }
-            else{
-
-              if(wln[i-1] == '&'){
-                // attach a standard here, other rules handle ring, 
-                // match on no symbol for easy merge.
-
-                unsigned int k=i-1; 
-                unsigned int terms = 0; 
-                while(wln[k] == '&'){
-                  terms++; 
-                  k--;
-                }
-                
-
-                if(!current){
-                  fprintf(stderr,"Error: no ring linker to return to via '&<x>-' - terminating parse\n");
-                  return false; 
-                }
-                prev = current; 
-                current = add_instruction(STANDARD,i);
-              }
-
-            }
             
-            break;
+ 
           }
+
+        break;
         
 
         case '0':
@@ -981,21 +951,17 @@ struct WLNParser{
         case '7':
         case '8':
         case '9':
-          pending_ring = false; // be very specific with pending ring
-
+          
           if (current->state == ROOT){
             prev = current; 
 
             current = add_instruction(STANDARD,i);
              
-
-            break;
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-  
-            break;
+
           }
           else if(current->state == CYCLIC){
             
@@ -1019,54 +985,42 @@ struct WLNParser{
               current = add_instruction(STANDARD,i);
 
             }
-            
-            break;
+
           }
+
+        break;
 
         case ' ':  // keep this simple, a '&' locant means ionic branch out
           if (current->state == STANDARD){
             
-            if (pending_ring){
-              current->add_end(i-1);
-              current->ring_linker = true; // use this for backtrack
-        
-              pending_locant = true;
-            }
-            else{
-              current->add_end(i-1); // implied end of standard notation block
+            current->add_end(i-1); // implied end of standard notation block
 
-              // perform a check for '&' to look for ring burn condition
-              if (wln[i-1] == '&'){
-
-                fprintf(stderr,"char at pos: -%c-\n",wln[i]);
-                // check how many rings are present behind
-                unsigned int k=i-1; 
-                unsigned int terms = 0; 
-                while(wln[k] == '&'){
-                  terms++; 
-                  k--;
-                }
-                
-
-                if (!current){
-                  fprintf(stderr,"Error: notation contains too many '&', all rings popped - terminating parse\n");
-                  return false; 
-                }
+            // perform a check for '&' to look for ring burn condition
+            if (wln[i-1] == '&'){
+              fprintf(stderr,"char at pos: -%c-\n",wln[i]);
+              // check how many rings are present behind
+              unsigned int k=i-1; 
+              unsigned int terms = 0; 
+              while(wln[k] == '&'){
+                terms++; 
+                k--;
               }
-              pending_locant = true;
+              
+              if (!current){
+                fprintf(stderr,"Error: notation contains too many '&', all rings popped - terminating parse\n");
+                return false; 
+              }
             }
             
-            break;
+            pending_locant = true;
+            
           }
           
           else if (current->state == LOCANT){
             
-            if(pending_ring){
-              
-              pending_locant = true; 
-            }
             
-            break;
+            
+            ;
           }
 
           else if (current->state == CYCLIC){
@@ -1074,31 +1028,27 @@ struct WLNParser{
             if(!pending_closure)
               pending_locant = true;
 
-            break;
+            
           }
             
-        
-        case '-':
-          pending_ring = false; // be very specific with pending ring
+        break;
 
+
+        case '-':
+          
           if (current->state == ROOT){
             prev = current;
             current = add_instruction(STANDARD,i);
-            break; 
+       
           }
           else if(current->state == STANDARD){
 
-            if (!ring_stack.empty())
-              pending_ring = true; 
-            
-            break; 
+            ;
           }
           else if (current->state == LOCANT){
             
-            if (!ring_stack.empty())
-              pending_ring = true;
-
-            break;  
+            
+            ; 
           }
           else if (current->state == CYCLIC){
 
@@ -1119,19 +1069,17 @@ struct WLNParser{
               }
               prev = current; 
   
-
-              pending_ring = true;               
+              
             }
 
-            break; 
           }
 
           else if (current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-
-            break; 
           }
+        
+        break;
 
         case '&':
           if(current->state == STANDARD){
@@ -1146,11 +1094,8 @@ struct WLNParser{
 
               pending_locant = false;
             }
-
-            break;
           }
           else if (current->state == CYCLIC){
-            
             
             if(pending_locant){
               current = add_instruction(IONIC,i); // ionic is always seperate in the graph
@@ -1163,8 +1108,8 @@ struct WLNParser{
               pending_locant = false;
             }
 
-            break;
           }
+        break;
         
         default:
           fprintf(stderr,"Error: unrecognised symbol: %c\n",ch);
@@ -1175,40 +1120,22 @@ struct WLNParser{
 
     // whatever the last instruction was, add len-1 as the end    
     current->add_end(len-1);
+
+    if(current->state == STANDARD){
+      WLNSymbol* head = graph.consume_standard_notation(current->start_ch,current->end_ch);
+      
+      if(!head){
+        fprintf(stderr,"Error: could not consume standard wln branch\n");
+        return false;
+      }
+
+      binder->children.push_back(head);
+    }
+      
+
     return true; 
   }
 
-  
-
-  void DumpInstruction2Dot(FILE *fp, bool segment_string = false){
-    // set up index map for node creation
-    std::map <WLNInstruction*, unsigned int> index_map; 
-    unsigned int glob_index = 0;
-    for (WLNInstruction *node : instruction_pool){
-      index_map[node] = glob_index; 
-      glob_index++;
-    }
-      
-    fprintf(fp,"digraph WLNdigraph {\n");
-    fprintf(fp,"  rankdir = LR;\n");
-    for (WLNInstruction *node : instruction_pool){
-      fprintf(fp,"  %d",index_map[node]);
-      if (segment_string){
-        fprintf(fp, "[shape=circle,label=\"");
-        for (unsigned int i=node->start_ch; i<=node->end_ch;i++)
-          fprintf(fp,"%c",wln[i]);
-        fprintf(fp,"\"];\n");
-      }
-      else
-        fprintf(fp, "[shape=circle,label=\"%s\"];\n",code_hierarchy[node->state]);
-      for (WLNInstruction *child : node->next_instructions){
-        fprintf(fp,"  %d", index_map[node]);
-        fprintf(fp," -> ");
-        fprintf(fp,"%d\n",index_map[child]);
-      }
-    } 
-    fprintf(fp,"}\n");
-  }
 
 };
 
@@ -1218,7 +1145,8 @@ struct WLNParser{
 static void DisplayUsage(){
   fprintf(stderr,"wln-writer <options> < input (escaped) >\n");
   fprintf(stderr,"<options>\n");
-  fprintf(stderr,"  -v | --verbose                print messages to stdout\n");
+  fprintf(stderr,"  -d | --debug                  print debug messages to stderr\n");
+  fprintf(stderr,"  -v | --verbose                print runtime messages to stderr\n");
   fprintf(stderr,"  -s | --strict                 fail on hypervalence, no symbol correction\n");
   fprintf(stderr,"  -c | --canonical              perform wln canonicalise procedure\n");
   fprintf(stderr,"  -r | --return-wln             return wln after altering procedure(s)\n");
@@ -1245,6 +1173,10 @@ static void ProcessCommandLine(int argc, char *argv[]){
     if (ptr[0]=='-' && ptr[1])
       switch (ptr[1]){
 
+        case 'd':
+          opt_debug = true;
+          break;
+
         case 'c':
           opt_canonical = true;
           break; 
@@ -1262,7 +1194,11 @@ static void ProcessCommandLine(int argc, char *argv[]){
           break; 
 
         case '-':
-          if (!strcmp(ptr, "--wln2dot")){
+          if (!strcmp(ptr, "--debug")){
+            opt_debug = true; 
+            break;
+          }
+          else if (!strcmp(ptr, "--wln2dot")){
             opt_wln2dot = true; 
             break;
           }
@@ -1327,6 +1263,9 @@ int main(int argc, char *argv[]){
     else
       wln_graph.WLNDumpToDot(fp);
   }
+
+  if (opt_debug)
+    parser.display_instructions();
 
   
   return 0;
