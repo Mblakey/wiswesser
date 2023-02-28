@@ -37,6 +37,9 @@ static bool opt_returnwln = false;
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
 enum WLNCode {ROOT = 0, STANDARD = 1, LOCANT = 2, CYCLIC = 3, BRIDGED = 4, SPIRO = 5, IONIC = 6};
 
+const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED", "SPIRO", "IONIC"};
+
+
 // rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
 std::map<unsigned char,unsigned int> char_hierarchy = 
 {
@@ -54,9 +57,9 @@ std::map<unsigned int, unsigned char> locant_symbols =
   {18,'S'},{19,'T'},{20,'U'},{21,'V'},{22,'W'},{23,'X'},{24,'Y'},{25,'Z'}
 };
 
-const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED", "SPIRO", "IONIC"};
 
 
+/*--- worker functions ---*/
 
 
 /*  assumes a bi-atomic fuse, max = 6*6 for bicyclic */ 
@@ -294,11 +297,11 @@ struct WLNGraph{
   WLNGraph(): root{(WLNSymbol*)0},wln_nodes{0}{};
   ~WLNGraph(){
     for (WLNSymbol* allocedwln : symbol_mempool){  // if error free all the symbol_mempool --> stop leak 
-      free(allocedwln); 
+      delete allocedwln;
       allocedwln = 0;
     }
     for (WLNRing* allocedring : ring_mempool){  // if error free all the symbol_mempool --> stop leak 
-      free(allocedring); 
+      delete allocedring;
       allocedring = 0;
     }
   }
@@ -310,7 +313,7 @@ struct WLNGraph{
 
   WLNSymbol* AllocateWLNSymbol(unsigned char ch){
     wln_nodes++; 
-    WLNSymbol *wln = (WLNSymbol*)malloc( sizeof(WLNSymbol) ); 
+    WLNSymbol *wln = new WLNSymbol; 
     if(wln->init(ch)) 
       symbol_mempool.push_back(wln);
     else 
@@ -321,7 +324,7 @@ struct WLNGraph{
 
   WLNRing* AllocateWLNRing(){
     wln_rings++; 
-    WLNRing *wln_ring = (WLNRing*)malloc(sizeof(WLNRing));
+    WLNRing *wln_ring = new WLNRing; 
     wln_ring->init();
     ring_mempool.push_back(wln_ring);
     return wln_ring;
@@ -364,13 +367,7 @@ struct WLNGraph{
     unsigned int locant = 0; 
     for (unsigned int i=1; i<ratoms; i++){
       current = AllocateWLNSymbol('C');
-      
-
-      fprintf(stderr,"%c\n",locant_symbols[locant++]);
-
-      WLNSymbol* test = ring->locants[2]; 
-      //ring->locants[locant_symbols[locant]] = current;
-
+      ring->locants[locant_symbols[locant++]] = current; // add the locants
       add_symbol(current,prev);
       prev = current; 
     }
@@ -382,8 +379,11 @@ struct WLNGraph{
     }
     
     
-
     return true; 
+  }
+
+  bool consume_standard_notation(unsigned int start, unsigned int end){
+
   }
   
   /* platform for launching ring notation build functions */
@@ -580,9 +580,7 @@ struct WLNGraph{
 
   /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
   WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
-    if(opt_verbose)
-      fprintf(stderr,"   evaluating standard notation\n");
-
+    
     std::stack <WLNSymbol*> wln_stack; 
     WLNSymbol *prev = 0;
     WLNSymbol *root = 0;
@@ -647,33 +645,6 @@ struct WLNGraph{
     return res; 
   }
 
-#ifdef DEPRECATED
-  /* uses a character sorting method to arrange the WLN symbols according to rule 2 BFS ensures a starting position */
-  bool CanonicoliseWLN(WLNSymbol *root){
-
-    fprintf(stderr,"CANONICOLISE NEEDS REWORKING -- SKIPPING\n");
-    return true;
-
-    std::deque<WLNSymbol*> wln_queue; 
-    wln_queue.push_back(root);
-    
-    WLNSymbol *top = 0;
-    while(!wln_queue.empty()){
-      top = wln_queue.front();
-      wln_queue.pop_front();
-
-      if (top->children.size() > 1)
-        std::sort(top->children.begin(),top->children.end(),char_comp);
-      
-      for (WLNSymbol* child : top->children){
-        wln_queue.push_back(child);
-      }
-    }
-
-    return true; 
-  }
-
-#endif
 
   /* dump wln tree to a dotvis file */
   void WLNDumpToDot(FILE *fp){
@@ -768,12 +739,12 @@ struct WLNParser{
     :root{(WLNInstruction*)0},num_instructions{0}{};
   ~WLNParser(){
     for (WLNInstruction* instruction : instruction_pool)
-      free(instruction);
+      delete instruction; 
   }
 
   WLNInstruction* add_instruction(unsigned int int_code, unsigned int i)
   {
-    WLNInstruction *instruction = (WLNInstruction*)malloc(sizeof(WLNInstruction)); 
+    WLNInstruction *instruction = new WLNInstruction;  
     instruction->init_state(int_code);
     instruction->add_start(i);
 
@@ -788,42 +759,6 @@ struct WLNParser{
       instruction->display();
   }
 
-  /* gives linked list backtrack ability */
-  void connect_instruction(WLNInstruction* parent, WLNInstruction *child)
-  {
-    parent->next_instructions.push_back(child);
-    child->parent = parent; 
-  }
-
-
-  /* pops a number of rings off the stack */
-  WLNInstruction* popdown_ringstack(std::stack<WLNInstruction*> &ring_stack, unsigned int terms){
-    unsigned int popped = 0; 
-    while(!ring_stack.empty()){
-      ring_stack.pop();
-      popped++; 
-
-      if (terms == popped && !ring_stack.empty())
-        return ring_stack.top();
-    }
-    return (WLNInstruction*)0;
-  }
-
-
-  WLNInstruction* backtrack_ringlinker(WLNInstruction* current)
-  {
-    // use the linked list
-    while(current->parent){
-      current = current->parent; 
-
-      fprintf(stderr,"%s: %d\n",code_hierarchy[current->state],current->ring_linker);
-      if(current->ring_linker)
-        return current; 
-    }
-
-    return (WLNInstruction*)0;
-  }
-
 
   /* parse the wln string and create instruction set,
   I think its reasonable to have two parses for this */
@@ -835,14 +770,16 @@ struct WLNParser{
 
 
     // these are now global for inline graph creation 
-    std::stack<WLNRing*>    ring_stack;
-    std::stack<WLNSymbol*> branch_stack; 
+    std::stack<WLNRing*>    ring_stack; 
+    std::stack<WLNSymbol*>  rlinker_stack; // for XR&R style ring definition
 
     bool pending_closure    = false; 
     bool pending_locant     = false; 
     bool pending_ring       = false;
   
-  
+
+    WLNSymbol *binder = 0; // used to link the wln nodes to previous
+
     for (unsigned int i=0;i<len;i++){
       char ch = wln[i];
       switch(ch){
@@ -857,7 +794,6 @@ struct WLNParser{
             // update internal tracking
             pending_closure = true;
 
-            connect_instruction(prev,current);
             break;
           }
           else if (current->state == STANDARD){
@@ -865,10 +801,7 @@ struct WLNParser{
             if(pending_locant){
               current = add_instruction(LOCANT,i);
               current->add_end(i); // all locants terminate on one char
-            
               pending_locant = false;
-
-             
             }
             
             break;              
@@ -879,7 +812,7 @@ struct WLNParser{
             
             pending_closure = true;
 
-            connect_instruction(prev,current);
+  
             break;
           }
           else if (current->state == CYCLIC){
@@ -892,7 +825,6 @@ struct WLNParser{
             
               pending_locant = false;
 
-              connect_instruction(prev,current);
             }
             
             break;
@@ -916,7 +848,7 @@ struct WLNParser{
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current); 
+ 
 
             break;
           }
@@ -924,9 +856,10 @@ struct WLNParser{
             
             if(pending_closure){
               current->add_end(i); 
-              // create the  the ring object
+              // create the ring object
               
-              graph.consume_ring_notation(current->start_ch,current->end_ch);
+              WLNRing* ring = graph.consume_ring_notation(current->start_ch,current->end_ch);
+              ring_stack.push(ring);
 
               pending_closure = false;  
             }
@@ -938,7 +871,6 @@ struct WLNParser{
               
               pending_locant = false;
 
-              connect_instruction(prev,current);
             }
             
             break;
@@ -967,8 +899,7 @@ struct WLNParser{
         case 'X':
         case 'Y':
         case 'Z':
-          pending_ring = false; // be very specific with pending ring
-
+          
           if (current->state == STANDARD){
             
             if(pending_locant){
@@ -980,10 +911,10 @@ struct WLNParser{
             }
 
             else if(pending_ring){
-              connect_instruction(prev,current);
+              ;
             }
             else{
-              
+              ;
             }
           
             break;
@@ -991,7 +922,7 @@ struct WLNParser{
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current); 
+
             break;
           } 
           else if (current->state == CYCLIC){
@@ -1002,9 +933,15 @@ struct WLNParser{
               current = add_instruction(LOCANT,i);
               current->add_end(i); // all locants terminate on one char
               
-              pending_locant = false;
+              WLNRing *ring = ring_stack.top();
+              binder = ring->locants[wln[i]];
 
-              connect_instruction(prev,current);
+              if (!binder){
+                fprintf(stderr,"Error: accessed out of bound locant position\n");
+                return false;
+              }
+
+              pending_locant = false;
             }
             else{
 
@@ -1020,16 +957,12 @@ struct WLNParser{
                 }
                 
 
-
-                current = backtrack_ringlinker(current);
                 if(!current){
                   fprintf(stderr,"Error: no ring linker to return to via '&<x>-' - terminating parse\n");
                   return false; 
                 }
                 prev = current; 
                 current = add_instruction(STANDARD,i);
-
-                connect_instruction(prev,current);
               }
 
             }
@@ -1055,15 +988,13 @@ struct WLNParser{
 
             current = add_instruction(STANDARD,i);
              
-            connect_instruction(prev,current);
 
             break;
           }
           else if (current->state == LOCANT || current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current);
-            
+  
             break;
           }
           else if(current->state == CYCLIC){
@@ -1079,7 +1010,7 @@ struct WLNParser{
                 k--;
               }
               
-              current = backtrack_ringlinker(current);
+      
               if(!current){
                 fprintf(stderr,"Error: no ring linker to return to via '&<x>-' - terminating parse\n");
                 return false; 
@@ -1087,7 +1018,6 @@ struct WLNParser{
               prev = current; 
               current = add_instruction(STANDARD,i);
 
-              connect_instruction(prev,current);
             }
             
             break;
@@ -1154,7 +1084,6 @@ struct WLNParser{
           if (current->state == ROOT){
             prev = current;
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current);
             break; 
           }
           else if(current->state == STANDARD){
@@ -1183,14 +1112,13 @@ struct WLNParser{
               }
               
 
-              current = backtrack_ringlinker(current);
+      
               if(!current){
                 fprintf(stderr,"Error: no ring linker to return to via '&<x>-' - terminating parse\n");
                 return false; 
               }
               prev = current; 
-              current = add_instruction(STANDARD,i);
-              connect_instruction(prev,current);
+  
 
               pending_ring = true;               
             }
@@ -1201,7 +1129,6 @@ struct WLNParser{
           else if (current->state == IONIC){
             prev = current; 
             current = add_instruction(STANDARD,i);
-            connect_instruction(prev,current);
 
             break; 
           }
