@@ -33,10 +33,6 @@ static bool opt_canonical = false;
 static bool opt_returnwln = false;
 
 
-// forward def 
-
-struct WLNSymbol; 
-
 // character type and instruction types
 enum WLNType {SINGLETON = 0, BRANCH = 1, LINKER = 2, TERMINATOR = 3}; 
 enum WLNCode {ROOT = 0, STANDARD = 1, LOCANT = 2, CYCLIC = 3, BRIDGED = 4, SPIRO = 5, IONIC = 6};
@@ -52,6 +48,513 @@ std::map<unsigned char,unsigned int> char_hierarchy =
 };
 
 const char *code_hierarchy[] = {"ROOT","STANDARD", "LOCANT", "CYCLIC","BRIDGED", "SPIRO", "IONIC"};
+
+
+
+struct WLNSymbol{
+
+  unsigned char ch; 
+  unsigned int type; 
+
+  unsigned int allowed_edges;
+  unsigned int num_edges;  
+
+  WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
+  std::vector<WLNSymbol*> children; // linked list of next terms chains 
+
+  bool init(unsigned char inp_char){
+    ch = inp_char;
+
+    switch(ch){
+      
+      case '0':
+      case '1':
+      case '2':
+      case '3': 
+      case '4':
+      case '5': 
+      case '6': 
+      case '7': 
+      case '8':
+      case '9':
+        type = SINGLETON; 
+        allowed_edges = 2;
+        break;
+      
+      case 'A':
+        type = SINGLETON;
+        allowed_edges = 2;
+        break;
+
+      case 'B':   // boron
+        type = BRANCH;
+        allowed_edges = 3; 
+        break;
+      
+       case 'C':  // shortcut carbon atom
+        type = BRANCH;
+        allowed_edges = 4;
+        break;
+      
+      case 'D': 
+        type = SINGLETON; 
+        allowed_edges = 2;
+        break;
+      
+      case 'E':  // halogens
+      case 'F':
+      case 'G': 
+      case 'I': 
+        type = BRANCH; 
+        allowed_edges = 3;
+        break;
+      
+      case 'H': // closing hydrogen
+        type = TERMINATOR; 
+        allowed_edges = 1;
+        break;
+
+      case 'J': // generic symbol for halogen 
+        type = BRANCH; 
+        allowed_edges = 3;
+        break;
+      
+      case 'K': 
+        type = BRANCH; 
+        allowed_edges = 4;
+        break;
+
+      case 'L':
+        type = LINKER;
+        allowed_edges = 2;
+        break;
+      
+      case 'M':
+        type = BRANCH; 
+        allowed_edges = 2; 
+        break;
+
+      case 'N': 
+        type = BRANCH; 
+        allowed_edges = 3;
+        break; 
+
+      case 'O':
+        type = SINGLETON; 
+        allowed_edges = 2;
+        break;
+
+      case 'P':
+        type = BRANCH; 
+        allowed_edges = 5;
+        break;
+
+      case 'Q': 
+        type = TERMINATOR; 
+        allowed_edges = 1;
+        break;
+
+      case 'R':
+        type = SINGLETON; 
+        allowed_edges = 2;
+        break;
+
+      case 'S': 
+        type = BRANCH;
+        allowed_edges = 6;
+        break;
+
+      case 'T':
+      case 'U': 
+        type = LINKER;
+        allowed_edges = 2;
+        break; 
+
+      case 'V': 
+        type = SINGLETON; 
+        allowed_edges = 2;
+        break;
+
+      case 'W':
+        type = LINKER; 
+        allowed_edges = 2;
+        break;
+
+      case 'X':
+        type = BRANCH; 
+        allowed_edges = 4;
+        break;
+
+      case 'Y':
+        type = BRANCH; 
+        allowed_edges = 3;
+        break;
+
+      case 'Z': 
+        type = TERMINATOR;
+        allowed_edges = 1;
+        break;
+
+      case '&':
+        type = TERMINATOR;
+        allowed_edges = 1;
+        break;
+
+      case ' ':
+      case '-':
+      case '/': 
+        type = LINKER; 
+        allowed_edges = 2;
+        break;
+
+      case '\0':
+        fprintf(stderr,"Error: end of string null char accessed!\n");
+        return false;
+
+      default:
+        fprintf(stderr,"Error: invalid wln symbol parsed: %c\n",ch);
+        return false; 
+    }
+
+    prev = (WLNSymbol*)0;
+    return true; 
+  } 
+
+};
+
+
+/* struct to hold pointers for the wln ring - only for stack return */ 
+struct WLNRing{
+  unsigned int ring_size;
+  
+  bool aromatic; 
+  bool heterocyclic; 
+
+  std::vector<WLNSymbol*> locants; 
+  std::map<unsigned char, WLNSymbol*> lookup; 
+
+
+  void init(){
+    ring_size = 0; 
+    aromatic = false; 
+    heterocyclic = false;
+  }
+  
+};
+
+struct WLNGraph{
+
+  WLNSymbol *root; 
+  unsigned int wln_nodes = 0; 
+  unsigned int wln_rings = 0; 
+  std::vector<WLNSymbol*> symbol_mempool;
+  std::vector<WLNRing*>   ring_mempool;
+
+  std::map<WLNRing*,WLNSymbol*> ring_access; // access the ring struct from locant A pointer
+  
+  WLNGraph(): root{(WLNSymbol*)0},wln_nodes{0}{};
+  ~WLNGraph(){
+    for (WLNSymbol* allocedwln : symbol_mempool){  // if error free all the symbol_mempool --> stop leak 
+      free(allocedwln); 
+      allocedwln = 0;
+    }
+    for (WLNRing* allocedring : ring_mempool){  // if error free all the symbol_mempool --> stop leak 
+      free(allocedring); 
+      allocedring = 0;
+    }
+  }
+
+  /* for std::sort on canonicalise */
+  bool char_comp(const WLNSymbol* a, const WLNSymbol* b){
+    return char_hierarchy[a->ch] > char_hierarchy[b->ch]; 
+  }
+
+  WLNSymbol* AllocateWLNSymbol(unsigned char ch){
+    wln_nodes++; 
+    WLNSymbol *wln = (WLNSymbol*)malloc( sizeof(WLNSymbol) ); 
+    if(wln->init(ch)) 
+      symbol_mempool.push_back(wln);
+    else 
+      return (WLNSymbol *)0;
+    
+    return wln; 
+  }
+
+  WLNRing* AllocateWLNRing(){
+    wln_rings++; 
+    WLNRing *wln_ring = (WLNRing*)malloc(sizeof(WLNRing));
+    wln_ring->init();
+    ring_mempool.push_back(wln_ring);
+    return wln_ring;
+  }
+
+
+  /* e.g creates a 6-6 ring from 10 atoms - binds to symbol if given, returns locant A */
+  WLNSymbol* create_ring( unsigned int atoms, 
+                          std::vector<unsigned int> fuses, 
+                          WLNSymbol *bind)
+  {
+
+    WLNRing *wln_ring = AllocateWLNRing();
+
+
+    WLNSymbol *rhead = AllocateWLNSymbol('C'); 
+    WLNSymbol *current = 0; 
+    
+    // 1) create a big ring
+    WLNSymbol *prev = rhead; 
+    for (unsigned int i=1; i<atoms; i++){
+      current = AllocateWLNSymbol('C');
+      add_symbol(current,prev);
+    }
+
+    // 2) loop back by adding to rhead; 
+    add_symbol(rhead,current); 
+    
+
+
+
+    return rhead; 
+  }
+
+  bool handle_hypervalence(WLNSymbol *problem){
+
+    // this will always lead to a positive ion species 
+    switch(problem->ch){
+      case 'M':   // tranforming this to a N is an easy solve
+        if(opt_verbose)
+          fprintf(stderr,"   transforming hypervalent M --> N\n");
+        
+        problem->ch = 'N';
+        break; 
+
+      case 'N':
+        if(opt_verbose)
+          fprintf(stderr,"   transforming hypervalent N --> K\n");
+        
+        problem->ch = 'N';
+        break;
+
+
+      case 'Y':  // can go to an X
+        if (opt_verbose)
+          fprintf(stderr,"   transforming hypervalent Y --> X\n");
+        
+        problem->ch = 'X';
+        break; 
+
+      default:
+        if (opt_verbose) 
+          fprintf(stderr,"Error: cannot handle hypervalent symbol: %c\n",problem->ch);
+        return false;
+    }
+    return true; 
+  }
+
+
+  /* add src to the children vector of trg, handle hypervalent bonds if possible */
+  bool add_symbol(WLNSymbol* src, WLNSymbol *trg){
+
+    // handle exotic bonding - lookback 
+    if (trg->ch == 'U'){
+      if (trg->prev && trg->prev->ch == 'U')
+        src->num_edges+=3;
+      else
+        src->num_edges+=2;
+    }
+    else
+      src->num_edges++;
+
+    if (src->num_edges > src->allowed_edges){
+      if(!opt_valstrict){
+        if(!handle_hypervalence(src))
+          return false;
+      }
+      else {
+        fprintf(stderr,"Error: (strict mode) hypervalence on WLN character %c\n",src->ch);
+        return false; 
+      }
+    }
+    
+    if (trg->num_edges < trg->allowed_edges){
+      trg->children.push_back(src);
+      trg->num_edges++;
+    }
+    else {
+      if(!opt_valstrict){
+        if(!handle_hypervalence(trg))
+          return false;
+        else
+          trg->children.push_back(src);
+      }
+      else {
+        fprintf(stderr,"Error: (strict mode) hypervalence on WLN character %c\n",trg->ch);
+        return false; 
+      }
+    }   
+
+    return true;
+  }
+
+  /* this can perform the normal backtrack, excluding  '&' closure */ 
+  WLNSymbol* backtrack_stack(std::stack<WLNSymbol*> &wln_stack){
+    WLNSymbol *tmp = 0; 
+    while(!wln_stack.empty()){
+      tmp = wln_stack.top();
+      if (tmp->type == BRANCH)  
+        return tmp;
+      wln_stack.pop();
+    }
+    
+    // if it goes all the way that string complete
+    return (WLNSymbol*)0;  
+  }
+
+
+  /* forces both the '&' closure and its parents branch to come off stack */
+  WLNSymbol *force_closure(std::stack<WLNSymbol*> &wln_stack){
+    WLNSymbol *tmp = 0; 
+    unsigned int popped = 0;
+    while(!wln_stack.empty()){
+      tmp = wln_stack.top();
+      if (tmp->type == BRANCH && popped > 1)  
+        return tmp;
+      wln_stack.pop();
+      popped++; 
+    }
+
+    // if it goes all the way that string complete
+    return (WLNSymbol*)0;
+  }
+
+
+  /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
+  WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
+    if(opt_verbose)
+      fprintf(stderr,"   evaluating standard notation\n");
+
+    std::stack <WLNSymbol*> wln_stack; 
+    WLNSymbol *prev = 0;
+    WLNSymbol *root = 0;
+
+    WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
+    if (!created_wln)
+      return (WLNSymbol*)0;
+    wln_stack.push(created_wln);
+    
+    root = created_wln; 
+    
+    for (unsigned int i = 1; i<len; i++){
+      
+      created_wln = AllocateWLNSymbol(wln[i]);
+      if (!created_wln)
+        return (WLNSymbol*)0; 
+      
+      
+      prev = wln_stack.top();
+      wln_stack.push(created_wln); // push all of them
+
+      if(!add_symbol(created_wln,prev))
+        return (WLNSymbol*)0; 
+
+      // options here depending on the forced closure of '&'
+      if (created_wln->type == TERMINATOR){
+        if (created_wln->ch == '&' && prev->type == BRANCH)
+          prev = force_closure(wln_stack);
+        else
+          prev = backtrack_stack(wln_stack);
+      }   
+    }
+
+    return root; // return start of the tree
+  }
+
+
+
+  /* reforms WLN string with DFS ordering */
+  std::string ReformWLNString(WLNSymbol *root){
+    std::string res; 
+
+    std::stack<WLNSymbol*> wln_stack; 
+    std::map<WLNSymbol*,bool> visit_map; 
+    wln_stack.push(root);
+
+    WLNSymbol *top = 0;
+    while(!wln_stack.empty()){
+      top = wln_stack.top(); 
+      wln_stack.pop();
+      visit_map[top] = true; 
+
+      res.push_back(top->ch);
+
+      for (WLNSymbol *child: top->children){
+        if (!visit_map[child]){
+          wln_stack.push(child);
+        }
+      }
+    }
+
+    return res; 
+  }
+
+#ifdef DEPRECATED
+  /* uses a character sorting method to arrange the WLN symbols according to rule 2 BFS ensures a starting position */
+  bool CanonicoliseWLN(WLNSymbol *root){
+
+    fprintf(stderr,"CANONICOLISE NEEDS REWORKING -- SKIPPING\n");
+    return true;
+
+    std::deque<WLNSymbol*> wln_queue; 
+    wln_queue.push_back(root);
+    
+    WLNSymbol *top = 0;
+    while(!wln_queue.empty()){
+      top = wln_queue.front();
+      wln_queue.pop_front();
+
+      if (top->children.size() > 1)
+        std::sort(top->children.begin(),top->children.end(),char_comp);
+      
+      for (WLNSymbol* child : top->children){
+        wln_queue.push_back(child);
+      }
+    }
+
+    return true; 
+  }
+
+#endif
+
+  /* dump wln tree to a dotvis file */
+  void WLNDumpToDot(FILE *fp){
+
+    // set up index map for node creation
+    std::map <WLNSymbol*, unsigned int> index_map; 
+    unsigned int glob_index = 0;
+    for (WLNSymbol *node : symbol_mempool){
+      index_map[node] = glob_index; 
+      glob_index++;
+    }
+      
+    fprintf(fp,"digraph WLNdigraph {\n");
+    fprintf(fp,"  rankdir = LR;\n");
+    for (WLNSymbol *node : symbol_mempool){
+      fprintf(fp,"  %d",index_map[node]);
+      fprintf(fp, "[shape=circle,label=\"%c\"];\n",node->ch);
+      for (WLNSymbol *child : node->children){
+        fprintf(fp,"  %d", index_map[node]);
+        fprintf(fp," -> ");
+        fprintf(fp,"%d\n",index_map[child]);
+      }
+    } 
+    fprintf(fp,"}\n");
+  }
+
+
+};
+
+
+
 
 
 /*  assumes a bi-atomic fuse, max = 6*6 for bicyclic */ 
@@ -741,491 +1244,7 @@ struct InstructionGraph{
 };
 
 
-struct WLNSymbol{
 
-  unsigned char ch; 
-  unsigned int type; 
-
-  unsigned int allowed_edges;
-  unsigned int num_edges;  
-
-  WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
-  std::vector<WLNSymbol*> children; // linked list of next terms chains 
-
-  bool init(unsigned char inp_char){
-    ch = inp_char;
-
-    switch(ch){
-      
-      case '0':
-      case '1':
-      case '2':
-      case '3': 
-      case '4':
-      case '5': 
-      case '6': 
-      case '7': 
-      case '8':
-      case '9':
-        type = SINGLETON; 
-        allowed_edges = 2;
-        break;
-      
-      case 'A':
-        type = SINGLETON;
-        allowed_edges = 2;
-        break;
-
-      case 'B':   // boron
-        type = BRANCH;
-        allowed_edges = 3; 
-        break;
-      
-       case 'C':  // shortcut carbon atom
-        type = BRANCH;
-        allowed_edges = 4;
-        break;
-      
-      case 'D': 
-        type = SINGLETON; 
-        allowed_edges = 2;
-        break;
-      
-      case 'E':  // halogens
-      case 'F':
-      case 'G': 
-      case 'I': 
-        type = BRANCH; 
-        allowed_edges = 3;
-        break;
-      
-      case 'H': // closing hydrogen
-        type = TERMINATOR; 
-        allowed_edges = 1;
-        break;
-
-      case 'J': // generic symbol for halogen 
-        type = BRANCH; 
-        allowed_edges = 3;
-        break;
-      
-      case 'K': 
-        type = BRANCH; 
-        allowed_edges = 4;
-        break;
-
-      case 'L':
-        type = LINKER;
-        allowed_edges = 2;
-        break;
-      
-      case 'M':
-        type = BRANCH; 
-        allowed_edges = 2; 
-        break;
-
-      case 'N': 
-        type = BRANCH; 
-        allowed_edges = 3;
-        break; 
-
-      case 'O':
-        type = SINGLETON; 
-        allowed_edges = 2;
-        break;
-
-      case 'P':
-        type = BRANCH; 
-        allowed_edges = 5;
-        break;
-
-      case 'Q': 
-        type = TERMINATOR; 
-        allowed_edges = 1;
-        break;
-
-      case 'R':
-        type = SINGLETON; 
-        allowed_edges = 2;
-        break;
-
-      case 'S': 
-        type = BRANCH;
-        allowed_edges = 6;
-        break;
-
-      case 'T':
-      case 'U': 
-        type = LINKER;
-        allowed_edges = 2;
-        break; 
-
-      case 'V': 
-        type = SINGLETON; 
-        allowed_edges = 2;
-        break;
-
-      case 'W':
-        type = LINKER; 
-        allowed_edges = 2;
-        break;
-
-      case 'X':
-        type = BRANCH; 
-        allowed_edges = 4;
-        break;
-
-      case 'Y':
-        type = BRANCH; 
-        allowed_edges = 3;
-        break;
-
-      case 'Z': 
-        type = TERMINATOR;
-        allowed_edges = 1;
-        break;
-
-      case '&':
-        type = TERMINATOR;
-        allowed_edges = 1;
-        break;
-
-      case ' ':
-      case '-':
-      case '/': 
-        type = LINKER; 
-        allowed_edges = 2;
-        break;
-
-      case '\0':
-        fprintf(stderr,"Error: end of string null char accessed!\n");
-        return false;
-
-      default:
-        fprintf(stderr,"Error: invalid wln symbol parsed: %c\n",ch);
-        return false; 
-    }
-
-    prev = (WLNSymbol*)0;
-    return true; 
-  } 
-
-};
-
-
-/* struct to hold pointers for the wln ring - only for stack return */ 
-struct WLNRing{
-  unsigned int ring_size; 
-  std::vector<WLNSymbol*> locants; 
-  std::map<unsigned char, WLNSymbol*> lookup; 
-};
-
-struct WLNGraph{
-
-  WLNSymbol *root; 
-  unsigned int wln_nodes = 0; 
-  unsigned int wln_rings = 0; 
-  std::vector<WLNSymbol*> symbol_mempool;
-  std::vector<WLNRing*>   ring_mempool;
-
-  std::map<WLNRing*,WLNSymbol*> ring_access; // access the ring struct from locant A pointer
-  
-  WLNGraph(): root{(WLNSymbol*)0},wln_nodes{0}{};
-  ~WLNGraph(){
-    for (WLNSymbol* allocedwln : symbol_mempool){  // if error free all the symbol_mempool --> stop leak 
-      free(allocedwln); 
-      allocedwln = 0;
-    }
-  }
-
-  /* for std::sort on canonicalise */
-  bool char_comp(const WLNSymbol* a, const WLNSymbol* b){
-    return char_hierarchy[a->ch] > char_hierarchy[b->ch]; 
-  }
-
-  WLNSymbol* AllocateWLNSymbol(unsigned char ch){
-    wln_nodes++; 
-    WLNSymbol *wln = (WLNSymbol*)malloc( sizeof(WLNSymbol) ); 
-    if(wln->init(ch)) 
-      symbol_mempool.push_back(wln);
-    else 
-      return (WLNSymbol *)0;
-    
-    return wln; 
-  }
-
-  WLNRing* AllocateWLNRing(){
-    wln_rings++; 
-    WLNRing *wln_ring = (WLNRing*)malloc(sizeof(WLNRing));
-    ring_mempool.push_back(wln_ring);
-
-    return wln_ring;
-  }
-
-
-  /* e.g creates a 6-6 ring from 10 atoms - binds to symbol if given, returns locant A */
-  WLNSymbol* create_ring( unsigned int atoms, 
-                          std::vector<unsigned int> fuses, 
-                          WLNSymbol *bind)
-  {
-
-    WLNRing *wln_ring = AllocateWLNRing();
-
-
-    WLNSymbol *rhead = AllocateWLNSymbol('C'); 
-    WLNSymbol *current = 0; 
-    
-    // 1) create a big ring
-    WLNSymbol *prev = rhead; 
-    for (unsigned int i=1; i<atoms; i++){
-      current = AllocateWLNSymbol('C');
-      add_symbol(current,prev);
-    }
-
-    // 2) loop back by adding to rhead; 
-    add_symbol(rhead,current); 
-    
-
-
-
-    return rhead; 
-  }
-
-  bool handle_hypervalence(WLNSymbol *problem){
-
-    // this will always lead to a positive ion species 
-    switch(problem->ch){
-      case 'M':   // tranforming this to a N is an easy solve
-        if(opt_verbose)
-          fprintf(stderr,"   transforming hypervalent M --> N\n");
-        
-        problem->ch = 'N';
-        break; 
-
-      case 'N':
-        if(opt_verbose)
-          fprintf(stderr,"   transforming hypervalent N --> K\n");
-        
-        problem->ch = 'N';
-        break;
-
-
-      case 'Y':  // can go to an X
-        if (opt_verbose)
-          fprintf(stderr,"   transforming hypervalent Y --> X\n");
-        
-        problem->ch = 'X';
-        break; 
-
-      default:
-        if (opt_verbose) 
-          fprintf(stderr,"Error: cannot handle hypervalent symbol: %c\n",problem->ch);
-        return false;
-    }
-    return true; 
-  }
-
-
-  /* add src to the children vector of trg, handle hypervalent bonds if possible */
-  bool add_symbol(WLNSymbol* src, WLNSymbol *trg){
-
-    // handle exotic bonding - lookback 
-    if (trg->ch == 'U'){
-      if (trg->prev && trg->prev->ch == 'U')
-        src->num_edges+=3;
-      else
-        src->num_edges+=2;
-    }
-    else
-      src->num_edges++;
-
-    if (src->num_edges > src->allowed_edges){
-      if(!opt_valstrict){
-        if(!handle_hypervalence(src))
-          return false;
-      }
-      else {
-        fprintf(stderr,"Error: (strict mode) hypervalence on WLN character %c\n",src->ch);
-        return false; 
-      }
-    }
-    
-    if (trg->num_edges < trg->allowed_edges){
-      trg->children.push_back(src);
-      trg->num_edges++;
-    }
-    else {
-      if(!opt_valstrict){
-        if(!handle_hypervalence(trg))
-          return false;
-        else
-          trg->children.push_back(src);
-      }
-      else {
-        fprintf(stderr,"Error: (strict mode) hypervalence on WLN character %c\n",trg->ch);
-        return false; 
-      }
-    }   
-
-    return true;
-  }
-
-  /* this can perform the normal backtrack, excluding  '&' closure */ 
-  WLNSymbol* backtrack_stack(std::stack<WLNSymbol*> &wln_stack){
-    WLNSymbol *tmp = 0; 
-    while(!wln_stack.empty()){
-      tmp = wln_stack.top();
-      if (tmp->type == BRANCH)  
-        return tmp;
-      wln_stack.pop();
-    }
-    
-    // if it goes all the way that string complete
-    return (WLNSymbol*)0;  
-  }
-
-
-  /* forces both the '&' closure and its parents branch to come off stack */
-  WLNSymbol *force_closure(std::stack<WLNSymbol*> &wln_stack){
-    WLNSymbol *tmp = 0; 
-    unsigned int popped = 0;
-    while(!wln_stack.empty()){
-      tmp = wln_stack.top();
-      if (tmp->type == BRANCH && popped > 1)  
-        return tmp;
-      wln_stack.pop();
-      popped++; 
-    }
-
-    // if it goes all the way that string complete
-    return (WLNSymbol*)0;
-  }
-
-
-  /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
-  WLNSymbol* ParseNonCyclic(const char *wln, unsigned int len){
-    if(opt_verbose)
-      fprintf(stderr,"   evaluating standard notation\n");
-
-    std::stack <WLNSymbol*> wln_stack; 
-    WLNSymbol *prev = 0;
-    WLNSymbol *root = 0;
-
-    WLNSymbol* created_wln = AllocateWLNSymbol(wln[0]);
-    if (!created_wln)
-      return (WLNSymbol*)0;
-    wln_stack.push(created_wln);
-    
-    root = created_wln; 
-    
-    for (unsigned int i = 1; i<len; i++){
-      
-      created_wln = AllocateWLNSymbol(wln[i]);
-      if (!created_wln)
-        return (WLNSymbol*)0; 
-      
-      
-      prev = wln_stack.top();
-      wln_stack.push(created_wln); // push all of them
-
-      if(!add_symbol(created_wln,prev))
-        return (WLNSymbol*)0; 
-
-      // options here depending on the forced closure of '&'
-      if (created_wln->type == TERMINATOR){
-        if (created_wln->ch == '&' && prev->type == BRANCH)
-          prev = force_closure(wln_stack);
-        else
-          prev = backtrack_stack(wln_stack);
-      }   
-    }
-
-    return root; // return start of the tree
-  }
-
-
-
-  /* reforms WLN string with DFS ordering */
-  std::string ReformWLNString(WLNSymbol *root){
-    std::string res; 
-
-    std::stack<WLNSymbol*> wln_stack; 
-    std::map<WLNSymbol*,bool> visit_map; 
-    wln_stack.push(root);
-
-    WLNSymbol *top = 0;
-    while(!wln_stack.empty()){
-      top = wln_stack.top(); 
-      wln_stack.pop();
-      visit_map[top] = true; 
-
-      res.push_back(top->ch);
-
-      for (WLNSymbol *child: top->children){
-        if (!visit_map[child]){
-          wln_stack.push(child);
-        }
-      }
-    }
-
-    return res; 
-  }
-
-#ifdef DEPRECATED
-  /* uses a character sorting method to arrange the WLN symbols according to rule 2 BFS ensures a starting position */
-  bool CanonicoliseWLN(WLNSymbol *root){
-
-    fprintf(stderr,"CANONICOLISE NEEDS REWORKING -- SKIPPING\n");
-    return true;
-
-    std::deque<WLNSymbol*> wln_queue; 
-    wln_queue.push_back(root);
-    
-    WLNSymbol *top = 0;
-    while(!wln_queue.empty()){
-      top = wln_queue.front();
-      wln_queue.pop_front();
-
-      if (top->children.size() > 1)
-        std::sort(top->children.begin(),top->children.end(),char_comp);
-      
-      for (WLNSymbol* child : top->children){
-        wln_queue.push_back(child);
-      }
-    }
-
-    return true; 
-  }
-
-#endif
-
-  /* dump wln tree to a dotvis file */
-  void WLNDumpToDot(FILE *fp){
-
-    // set up index map for node creation
-    std::map <WLNSymbol*, unsigned int> index_map; 
-    unsigned int glob_index = 0;
-    for (WLNSymbol *node : symbol_mempool){
-      index_map[node] = glob_index; 
-      glob_index++;
-    }
-      
-    fprintf(fp,"digraph WLNdigraph {\n");
-    fprintf(fp,"  rankdir = LR;\n");
-    for (WLNSymbol *node : symbol_mempool){
-      fprintf(fp,"  %d",index_map[node]);
-      fprintf(fp, "[shape=circle,label=\"%c\"];\n",node->ch);
-      for (WLNSymbol *child : node->children){
-        fprintf(fp,"  %d", index_map[node]);
-        fprintf(fp," -> ");
-        fprintf(fp,"%d\n",index_map[child]);
-      }
-    } 
-    fprintf(fp,"}\n");
-  }
-
-
-};
 
 
 
