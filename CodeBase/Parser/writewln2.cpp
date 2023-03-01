@@ -54,6 +54,14 @@ enum WLNCode
   IONIC = 6
 };
 
+// follows connection table formats
+enum WLNBond{
+  SINGLE =    1, 
+  DOUBLE =    2,
+  TRIPLE =    3, 
+  AROMATIC =  4
+};
+
 const char *code_hierarchy[] = {"ROOT", "STANDARD", "LOCANT", "CYCLIC", "BRIDGED", "SPIRO", "IONIC"};
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
@@ -83,6 +91,8 @@ struct WLNSymbol
 
   unsigned char ch;
   unsigned int type;
+
+  int charge;
   unsigned int inc_bond; // can take values 1-3 for ['','U','UU']
 
   unsigned int allowed_edges;
@@ -96,7 +106,10 @@ struct WLNSymbol
   {
     ch = '\0';
     type = 0;
+
     inc_bond = 0;
+    charge = 0; 
+
     allowed_edges = 0;
     num_edges = 0;
     prev = 0;
@@ -120,7 +133,7 @@ struct WLNSymbol
     case '8':
     case '9':
       type = SINGLETON;
-      allowed_edges = 2;
+      allowed_edges = 4; // allows the U to be handled inline
       break;
 
     case 'A':
@@ -804,6 +817,47 @@ struct WLNGraph
     return res;
   }
 
+  /* the good stuff */
+  void WLNConnectionTable(FILE *fp){
+
+
+    /* 
+    --- SCT ish format --- 
+
+    -- atom table ---
+    |index| |type| |charge|
+
+    --- bond table --- 
+    |atom1| |atom2| |order| 
+    */
+
+    // set up index map for node creation, reverse needed as well here
+    std::map<WLNSymbol *, unsigned int> index_map;
+    std::map<unsigned int, WLNSymbol*> reverse_map;
+    unsigned int glob_index = 0;
+    for (WLNSymbol *node : symbol_mempool)
+    {
+      index_map[node] = glob_index;
+      reverse_map[glob_index] = node; 
+      glob_index++;
+    }
+
+    fprintf(fp, "---- atom table ----\n");
+    fprintf(fp,"|index|\t|type|\t|charge|\n");
+    for (WLNSymbol *node : symbol_mempool)
+      fprintf(fp, "%d\t%c\t%d\n", index_map[node], node->ch,node->charge);
+    fprintf(fp,"\n");
+    
+
+    fprintf(fp, "---- bond table ----\n");
+    fprintf(fp,"|atom 1|\t|atom 2|\t|order|\n");
+    for (WLNSymbol *node : symbol_mempool)
+      for (WLNSymbol *child : node->children)
+        fprintf(fp, "%d\t%d\t%d\n", index_map[node],index_map[child], child->inc_bond);
+
+    fprintf(fp,"\n");
+  }
+
   /* dump wln tree to a dotvis file */
   void WLNDumpToDot(FILE *fp)
   {
@@ -1465,6 +1519,8 @@ int main(int argc, char *argv[])
 
   if (opt_debug)
     parser.display_instructions();
+
+  wln_graph.WLNConnectionTable(stdout);
 
   return 0;
 }
