@@ -48,7 +48,8 @@ enum WLNType
   SINGLETON = 0,
   BRANCH = 1,
   LINKER = 2,
-  TERMINATOR = 3
+  TERMINATOR = 3,
+  SPECIAL = 4
 };
 
 enum WLNCode
@@ -109,6 +110,9 @@ struct WLNSymbol
 
   unsigned int allowed_edges;
   unsigned int num_edges;
+
+  std::string special; // if ch='\0' then a special string is denoted e.g Mg
+  // using string to maintain struct ownership
 
   WLNSymbol *prev;                   // should be a single term - wln symbol only has one incoming
   std::vector<WLNSymbol *> children; // linked list of next terms chains
@@ -278,6 +282,10 @@ struct WLNSymbol
       fprintf(stderr, "Error: end of string null char accessed!\n");
       return false;
 
+    case '*':
+      type = SPECIAL;
+      break;
+
     default:
       fprintf(stderr, "Error: invalid wln symbol parsed: %c\n", ch);
       return false; 
@@ -326,8 +334,7 @@ struct WLNRing
   }
 };
 
-struct WLNGraph
-{
+struct WLNGraph{
 
   WLNSymbol *root;
   unsigned int wln_nodes = 0;
@@ -779,7 +786,382 @@ struct WLNGraph
     return (WLNSymbol *)0;
   }
 
-  /* parses NON CYCLIC input string, mallocs graph nodes and sets up graph based on symbol read */
+  WLNSymbol* define_element(std::vector<unsigned char> &special){
+    
+    // allocate a special wln
+    WLNSymbol *created_wln = AllocateWLNSymbol('*');
+
+    // some fancy switching
+
+    switch(special[0]){
+
+      case 'A':
+        if(special[1] == 'C')
+          created_wln->special = "Ac";
+        else if (special[1] == 'G')
+          created_wln->special = "Ag";
+        else if (special[1] == 'L')
+          created_wln->special = "Al";
+        else if (special[1] == 'M')
+          created_wln->special = "Am";
+        else if (special[1] == 'R')
+          created_wln->special = "Ar";
+        else if (special[1] == 'S')
+          created_wln->special = "As";
+        else if (special[1] == 'T')
+          created_wln->special = "At";
+        else if (special[1] == 'U')
+          created_wln->special = "Au";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'B':
+        if(special[1] == 'A')
+          created_wln->special = "Ba";
+        else if (special[1] == 'E')
+          created_wln->special = "Be";
+        else if (special[1] == 'H')
+          created_wln->special = "Bh";
+        else if (special[1] == 'I')
+          created_wln->special = "Bi";
+        else if (special[1] == 'K')
+          created_wln->special = "Bk";
+        else if (special[1] == 'R')
+          created_wln->special = "Br";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'C':
+        if(special[1] == 'A')
+          created_wln->special = "Ca";
+        else if (special[1] == 'D')
+          created_wln->special = "Cd";
+        else if (special[1] == 'E')
+          created_wln->special = "Ce";
+        else if (special[1] == 'F')
+          created_wln->special = "Cf";
+        else if (special[1] == 'M')
+          created_wln->special = "Cm";
+        else if (special[1] == 'N')
+          created_wln->special = "Cn";
+        else if (special[1] == 'O')
+          created_wln->special = "Co";
+        else if (special[1] == 'R')
+          created_wln->special = "Cr";
+        else if (special[1] == 'S')
+          created_wln->special = "Cs";
+        else if (special[1] == 'U')
+          created_wln->special = "Cu";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'D':
+        if(special[1] == 'B')
+          created_wln->special = "Db";
+        else if (special[1] == 'S')
+          created_wln->special = "Ds";
+        else if (special[1] == 'Y')
+          created_wln->special = "Dy";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'E':
+        if(special[1] == 'R')
+          created_wln->special = "Er";
+        else if (special[1] == 'S')
+          created_wln->special = "Es";
+        else if (special[1] == 'U')
+          created_wln->special = "Eu";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'F':
+        if(special[1] == 'E')
+          created_wln->special = "Fe";
+        else if (special[1] == 'L')
+          created_wln->special = "Fl";
+        else if (special[1] == 'M')
+          created_wln->special = "Fm";
+        else if (special[1] == 'R')
+          created_wln->special = "Fr";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'G':
+        if(special[1] == 'A')
+          created_wln->special = "Ga";
+        else if (special[1] == 'D')
+          created_wln->special = "Gd";
+        else if (special[1] == 'E')
+          created_wln->special = "Ge";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'H':
+        if(special[1] == 'E')
+          created_wln->special = "Ha";
+        else if (special[1] == 'F')
+          created_wln->special = "Hf";
+        else if (special[1] == 'G')
+          created_wln->special = "Hg";
+        else if (special[1] == 'O')
+          created_wln->special = "Ho";
+        else if (special[1] == 'S')
+          created_wln->special = "Hs";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+
+      case 'I':
+        if(special[1] == 'N')
+          created_wln->special = "In";
+        else if (special[1] == 'R')
+          created_wln->special = "Ir";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'K':
+        if(special[1] == 'R')
+          created_wln->special = "Kr";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'L':
+        if(special[1] == 'A')
+          created_wln->special = "La";
+        else if (special[1] == 'I')
+          created_wln->special = "Li";
+        else if (special[1] == 'R')
+          created_wln->special = "Lr";
+        else if (special[1] == 'U')
+          created_wln->special = "Lu";
+        else if (special[1] == 'V')
+          created_wln->special = "Lv";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'M':
+        if(special[1] == 'C')
+          created_wln->special = "Mc";
+        else if (special[1] == 'D')
+          created_wln->special = "Md";
+        else if (special[1] == 'G')
+          created_wln->special = "Mg";
+        else if (special[1] == 'N')
+          created_wln->special = "Mn";
+        else if (special[1] == 'O')
+          created_wln->special = "Mo";
+        else if (special[1] == 'T')
+          created_wln->special = "Mt";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+
+      case 'N':
+        if(special[1] == 'A')
+          created_wln->special = "Na";
+        else if (special[1] == 'B')
+          created_wln->special = "Nb";
+        else if (special[1] == 'D')
+          created_wln->special = "Nd";
+        else if (special[1] == 'E')
+          created_wln->special = "Ne";
+        else if (special[1] == 'H')
+          created_wln->special = "Nh";
+        else if (special[1] == 'I')
+          created_wln->special = "Ni";
+        else if (special[1] == 'O')
+          created_wln->special = "No";
+        else if (special[1] == 'P')
+          created_wln->special = "Np";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+
+      case 'O':
+        if(special[1] == 'G')
+          created_wln->special = "Og";
+        else if(special[1] == 'S')
+          created_wln->special = "Os";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'P':
+        if(special[1] == 'A')
+          created_wln->special = "Pa";
+        else if(special[1] == 'B')
+          created_wln->special = "Pb";
+        else if(special[1] == 'D')
+          created_wln->special = "Pd";
+        else if(special[1] == 'M')
+          created_wln->special = "Pm";
+        else if(special[1] == 'O')
+          created_wln->special = "Po";
+        else if(special[1] == 'R')
+          created_wln->special = "Pr";
+        else if(special[1] == 'T')
+          created_wln->special = "Pt";
+        else if(special[1] == 'U')
+          created_wln->special = "Pu";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+      
+      case 'R':
+        if(special[1] == 'A')
+          created_wln->special = "Ra";
+        else if(special[1] == 'B')
+          created_wln->special = "Rb";
+        else if(special[1] == 'E')
+          created_wln->special = "Re";
+        else if(special[1] == 'F')
+          created_wln->special = "Rf";
+        else if(special[1] == 'G')
+          created_wln->special = "Rg";
+        else if(special[1] == 'H')
+          created_wln->special = "Rh";
+        else if(special[1] == 'N')
+          created_wln->special = "Rn";
+        else if(special[1] == 'U')
+          created_wln->special = "Ru";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+      
+      case 'S':
+        if(special[1] == 'B')
+          created_wln->special = "Sb";
+        else if(special[1] == 'C')
+          created_wln->special = "Sc";
+        else if(special[1] == 'E')
+          created_wln->special = "Se";
+        else if(special[1] == 'I')
+          created_wln->special = "Si";
+        else if(special[1] == 'M')
+          created_wln->special = "Sm";
+        else if(special[1] == 'N')
+          created_wln->special = "Sn";
+        else if(special[1] == 'R')
+          created_wln->special = "Sr";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+
+      case 'T':
+        if(special[1] == 'A')
+          created_wln->special = "Ta";
+        else if(special[1] == 'B')
+          created_wln->special = "Tb";
+        else if(special[1] == 'C')
+          created_wln->special = "Tc";
+        else if(special[1] == 'E')
+          created_wln->special = "Te";
+        else if(special[1] == 'H')
+          created_wln->special = "Th";
+        else if(special[1] == 'I')
+          created_wln->special = "Ti";
+        else if(special[1] == 'L')
+          created_wln->special = "Tl";
+        else if(special[1] == 'M')
+          created_wln->special = "Tm";
+        else if(special[1] == 'S')
+          created_wln->special = "Ts";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+
+      case 'X':
+        if(special[1] == 'E')
+          created_wln->special = "Xe";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'Y':
+        if(special[1] == 'B')
+          created_wln->special = "Yb";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      case 'Z':
+        if(special[1] == 'N')
+          created_wln->special = "Zn";
+        else if (special[1] == 'R')
+          created_wln->special = "Zr";
+        else{
+          fprintf(stderr,"Error: invalid element symbol in special definition\n");
+          return (WLNSymbol*)0; 
+        }
+      break;
+
+      default:
+        fprintf(stderr,"Error: invalid character in special definition switch\n");
+        return (WLNSymbol*)0; 
+    }
+
+    created_wln->allowed_edges = 8; // allow on octet default for these species. 
+
+    return created_wln; 
+  }
+
+  /* consumes the standard blocks, uses stacks to handle branching */
   WLNSymbol *consume_standard_notation(unsigned int start, unsigned int end)
   {
 
@@ -794,22 +1176,56 @@ struct WLNGraph
 
     root = created_wln;
 
-    unsigned int bond_tick = 0; 
+    unsigned int bond_tick = 0;
+    bool open_special = false; 
+    std::vector<unsigned char> special;  
 
     for (unsigned int i = start + 1; i <= end; i++)
     {
 
-      // the only skip i should have
+      // bonds
       if (wln[i] == 'U'){
         bond_tick++;
         continue; 
       }
 
-      created_wln = AllocateWLNSymbol(wln[i]);
+
+      if(open_special && wln[i] != '-'){
+        special.push_back(wln[i]);
+        if(special.size() > 2){
+          fprintf(stderr,"Error: invalid elemental notation in standard\n");
+          return (WLNSymbol *)0;
+        }
+        continue;
+      }
+
+      // specials
+      if(wln[i] == '-'){
+        if(!open_special){
+          open_special = true;
+          continue;
+        }
+          
+        if(open_special){
+          created_wln = define_element(special);
+          special.clear();
+          open_special = false;
+        }
+      }
+      else
+        created_wln = AllocateWLNSymbol(wln[i]);
+
+
       if (!created_wln)
         return (WLNSymbol *)0;
 
-      prev = wln_stack.top();
+      if(wln_stack.empty()){
+        fprintf(stderr,"Error: invalid branch notation - invalid tertiary access\n");
+        return (WLNSymbol *)0;
+      }
+      else
+        prev = wln_stack.top();
+
       wln_stack.push(created_wln); // push all of them
 
       if (!add_symbol(created_wln, prev,bond_tick))
@@ -898,6 +1314,13 @@ struct WLNGraph
           break;
         }
 
+        case 'Y':
+        case 'X':{
+          // expands to carbon, details should be kept about charge
+          node->ch = 'C';
+          break; 
+        }
+
 
         default:
           fprintf(stderr,"Error: unexpected char in graph expansion - %c\n",node->ch);
@@ -922,8 +1345,12 @@ struct WLNGraph
 
     fprintf(fp, "---- atom table ----\n");
     fprintf(fp,"|index|\t|type|\t|charge|\n");
-    for (WLNSymbol *node : symbol_mempool)
-      fprintf(fp, "%d\t%c\t%d\n", index_lookup[node], node->ch,node->charge);
+    for (WLNSymbol *node : symbol_mempool){
+      if(node->ch == '*')
+        fprintf(fp, "%d\t%s\t%d\n", index_lookup[node], node->special.c_str(),node->charge);
+      else
+        fprintf(fp, "%d\t%c\t%d\n", index_lookup[node], node->ch,node->charge);
+    }
     fprintf(fp,"\n");
     
 
@@ -945,7 +1372,11 @@ struct WLNGraph
     for (WLNSymbol *node : symbol_mempool)
     {
       fprintf(fp, "  %d", index_lookup[node]);
-      fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+      if (node->ch == '*')
+        fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+      else
+        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+
       for (WLNSymbol *child : node->children)
       {
         if(child->inc_bond > 1){
@@ -1327,6 +1758,9 @@ struct WLNParser
           // for interplaying ring notation but build this slowly
 
           WLNSymbol *head = graph.consume_standard_notation(current->start_ch, current->end_ch);
+          if(!head)
+            return false; 
+          
           if (binder)
             binder->children.push_back(head);
 
@@ -1596,17 +2030,17 @@ int main(int argc, char *argv[])
   {
     FILE *fp = 0;
     fp = fopen("wln-graph.dot", "w");
-    if (!fp)
-    {
+    if (!fp){
       fprintf(stderr, "Error: could not open compiler dump file\n");
+      fclose(fp);
       return 1;
     }
-    else
+    else{
       wln_graph.WLNDumpToDot(fp);
+      fclose(fp);
+    }
+      
   }
-
- 
-  
 
   return 0;
 }
