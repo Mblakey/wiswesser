@@ -7,7 +7,6 @@
 #include <stack>
 #include <map>
 #include <deque>
-#include <algorithm> // std::sort
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -17,7 +16,6 @@
 #include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
-
 
 
 // --- macros ---
@@ -30,10 +28,19 @@ const char *dotfile;
 // --- options ---
 static bool opt_wln2dot = false;
 static bool opt_allow = false;
-static bool opt_verbose = false;
 static bool opt_debug = false;
-static bool opt_canonical = false;
-static bool opt_returnwln = false;
+static bool opt_convert = false;
+
+
+// --- globals ---
+struct WLNSymbol;
+std::map<WLNSymbol *, unsigned int> index_lookup;
+std::map<unsigned int, WLNSymbol*> symbol_lookup;
+unsigned int glob_index = 0;
+
+
+// used for assigning charges with post notation
+std::map<unsigned int, WLNSymbol*> pending_charge; 
 
 // character type and instruction types
 enum WLNType
@@ -43,6 +50,7 @@ enum WLNType
   LINKER = 2,
   TERMINATOR = 3
 };
+
 enum WLNCode
 {
   ROOT = 0,
@@ -62,18 +70,22 @@ enum WLNBond{
   AROMATIC =  4
 };
 
+
+
+
 const char *code_hierarchy[] = {"ROOT", "STANDARD", "LOCANT", "CYCLIC", "BRIDGED", "SPIRO", "IONIC"};
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
 std::map<unsigned char, unsigned int> char_hierarchy =
-    {
-        {' ', 1}, {'-', 2}, {'/', 3}, {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23}, {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}};
+{
+  {' ', 1}, {'-', 2}, {'/', 3}, {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23}, {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}
+};
 
 std::map<unsigned int, unsigned char> locant_symbols =
-    {
-        {0, 'A'}, {1, 'B'}, {2, 'C'}, {3, 'D'}, {4, 'E'}, {5, 'F'}, {6, 'G'}, {7, 'H'}, {8, 'I'}, {9, 'J'}, {10, 'K'}, {11, 'L'}, {12, 'M'}, {13, 'N'}, {14, 'O'}, {15, 'P'}, {16, 'Q'}, {17, 'R'}, {18, 'S'}, {19, 'T'}, {20, 'U'}, {21, 'V'}, {22, 'W'}, {23, 'X'}, {24, 'Y'}, {25, 'Z'}};
+{
+  {0, 'A'}, {1, 'B'}, {2, 'C'}, {3, 'D'}, {4, 'E'}, {5, 'F'}, {6, 'G'}, {7, 'H'}, {8, 'I'}, {9, 'J'}, {10, 'K'}, {11, 'L'}, {12, 'M'}, {13, 'N'}, {14, 'O'}, {15, 'P'}, {16, 'Q'}, {17, 'R'}, {18, 'S'}, {19, 'T'}, {20, 'U'}, {21, 'V'}, {22, 'W'}, {23, 'X'}, {24, 'Y'}, {25, 'Z'}
+};
 
-/*--- worker functions ---*/
 
 /*  assumes a bi-atomic fuse, max = 6*6 for bicyclic */
 unsigned int calculate_ring_atoms(unsigned int rings, unsigned int max_atoms)
@@ -339,12 +351,7 @@ struct WLNGraph
     }
   }
 
-  /* for std::sort on canonicalise */
-  bool char_comp(const WLNSymbol *a, const WLNSymbol *b)
-  {
-    return char_hierarchy[a->ch] > char_hierarchy[b->ch];
-  }
-
+  
   WLNSymbol *AllocateWLNSymbol(unsigned char ch)
   {
     wln_nodes++;
@@ -353,6 +360,12 @@ struct WLNGraph
       symbol_mempool.push_back(wln);
     else
       return (WLNSymbol *)0;
+
+
+    // add to globals --> needed for charge assignment
+    index_lookup[wln] = glob_index;
+    symbol_lookup[glob_index] = wln;
+    glob_index++; 
 
     return wln;
   }
@@ -366,11 +379,41 @@ struct WLNGraph
     return wln_ring;
   }
 
+  void reset_indexes(){
+    glob_index = 0; 
+    for (WLNSymbol* node : symbol_mempool){
+      index_lookup[node] = glob_index;
+      symbol_lookup[glob_index] = node;
+      glob_index++;
+    }
+  }
+
   /* re init a transformed symbol */
   WLNSymbol *transform_symbol(WLNSymbol *sym, unsigned char ch)
   {
     sym->init(ch);
     return sym;
+  }
+
+  
+  bool copy_symbol_info(WLNSymbol *src, WLNSymbol *trg, bool SYM = false){
+    
+    if(SYM)
+      trg->ch = src->ch;
+
+    trg->type = src->type;
+    trg->charge = src->charge;
+    trg->inc_bond = src->inc_bond;
+    trg->allowed_edges = src->allowed_edges;
+    trg->num_edges = src->num_edges;
+    trg->prev = src->prev;
+    
+ 
+    for(WLNSymbol *child: src->children){
+      trg->children.push_back(child);
+    }
+
+    return true;
   }
 
   WLNSymbol *access_locant(unsigned char ch, WLNRing *ring, bool strict=true)
@@ -787,43 +830,88 @@ struct WLNGraph
     return root; // return start of the tree
   }
 
-  /* reforms WLN string with DFS ordering */
-  std::string ReformWLNString(WLNSymbol *root)
-  {
-    std::string res;
+  // expands the graph to suite a pseudo smiles for conversion
+  bool ExpandGraph(){
 
-    std::stack<WLNSymbol *> wln_stack;
-    std::map<WLNSymbol *, bool> visit_map;
-    wln_stack.push(root);
+    unsigned int start_size = symbol_mempool.size(); // doesnt change
+    for (unsigned int i=0; i<start_size;i++){
+      WLNSymbol *node = symbol_mempool[i];
+      
+      switch (node->ch){
 
-    WLNSymbol *top = 0;
-    while (!wln_stack.empty())
-    {
-      top = wln_stack.top();
-      wln_stack.pop();
-      visit_map[top] = true;
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':{
+          
+          unsigned int atoms = node->ch - '0';
+          node = transform_symbol(node,'C'); // 1) transform the head
 
-      res.push_back(top->ch);
+          // 2) create the chain
+          WLNSymbol *prev = 0; 
+          WLNSymbol *head = 0; 
+          for (unsigned int k=0;k<atoms-1;k++){
+            WLNSymbol *created = AllocateWLNSymbol('C');
+            if(prev)
+              add_symbol(prev,created,0);
+            else
+              head = created; 
+            prev = created;
+          }
+          
+          // 3) last prev will be the tail, copy over heads details
+          copy_symbol_info(node,prev);
+          
+          // 4) remove children from node
+          node->children.clear();
 
-      for (WLNSymbol *child : top->children)
-      {
-        if (!visit_map[child])
-        {
-          wln_stack.push(child);
+          // 5) bind the new chain
+          node->children.push_back(head);
+          break;
         }
+
+        case 'K':
+        case 'M':{
+          // expands to nitrogen, details should be kept about charge
+          node->ch = 'N';
+          break; 
+        }
+
+        case 'Q':{
+          // expands to O-H
+          node = transform_symbol(node,'O');
+          WLNSymbol *created = AllocateWLNSymbol('H');
+          add_symbol(created,node,0);
+          break;
+        }
+
+        case 'V':{ 
+          // expands to C=O
+          node = transform_symbol(node,'C');
+          WLNSymbol *created = AllocateWLNSymbol('O');
+          add_symbol(created,node,1);
+          break;
+        }
+
+
+        default:
+          fprintf(stderr,"Error: unexpected char in graph expansion - %c\n",node->ch);
+          break;
       }
     }
 
-    return res;
+    return true; 
   }
 
-  /* the good stuff */
+  /*prints the WLN connection table in SCT XI format */
   void WLNConnectionTable(FILE *fp){
 
-
     /* 
-    --- SCT ish format --- 
-
     -- atom table ---
     |index| |type| |charge|
 
@@ -831,21 +919,11 @@ struct WLNGraph
     |atom1| |atom2| |order| 
     */
 
-    // set up index map for node creation, reverse needed as well here
-    std::map<WLNSymbol *, unsigned int> index_map;
-    std::map<unsigned int, WLNSymbol*> reverse_map;
-    unsigned int glob_index = 0;
-    for (WLNSymbol *node : symbol_mempool)
-    {
-      index_map[node] = glob_index;
-      reverse_map[glob_index] = node; 
-      glob_index++;
-    }
 
     fprintf(fp, "---- atom table ----\n");
     fprintf(fp,"|index|\t|type|\t|charge|\n");
     for (WLNSymbol *node : symbol_mempool)
-      fprintf(fp, "%d\t%c\t%d\n", index_map[node], node->ch,node->charge);
+      fprintf(fp, "%d\t%c\t%d\n", index_lookup[node], node->ch,node->charge);
     fprintf(fp,"\n");
     
 
@@ -853,7 +931,7 @@ struct WLNGraph
     fprintf(fp,"|atom 1|\t|atom 2|\t|order|\n");
     for (WLNSymbol *node : symbol_mempool)
       for (WLNSymbol *child : node->children)
-        fprintf(fp, "%d\t%d\t%d\n", index_map[node],index_map[child], child->inc_bond);
+        fprintf(fp, "%d\t%d\t%d\n", index_lookup[node],index_lookup[child], child->inc_bond);
 
     fprintf(fp,"\n");
   }
@@ -862,34 +940,25 @@ struct WLNGraph
   void WLNDumpToDot(FILE *fp)
   {
 
-    // set up index map for node creation
-    std::map<WLNSymbol *, unsigned int> index_map;
-    unsigned int glob_index = 0;
-    for (WLNSymbol *node : symbol_mempool)
-    {
-      index_map[node] = glob_index;
-      glob_index++;
-    }
-
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
     for (WLNSymbol *node : symbol_mempool)
     {
-      fprintf(fp, "  %d", index_map[node]);
+      fprintf(fp, "  %d", index_lookup[node]);
       fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
       for (WLNSymbol *child : node->children)
       {
         if(child->inc_bond > 1){
           for (unsigned int i=0; i<child->inc_bond; i++){
-            fprintf(fp, "  %d", index_map[node]);
+            fprintf(fp, "  %d", index_lookup[node]);
             fprintf(fp, " -> ");
-            fprintf(fp, "%d [arrowhead=none]\n", index_map[child]);
+            fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
           }
         } 
         else{
-          fprintf(fp, "  %d", index_map[node]);
+          fprintf(fp, "  %d", index_lookup[node]);
           fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none]\n", index_map[child]);
+          fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
         }
         
       }
@@ -1400,6 +1469,7 @@ static void DisplayUsage()
   fprintf(stderr, "wln-writer <options> < input (escaped) >\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -a | --allow-changes          allow changes to notation to allow parsing\n");
+  fprintf(stderr, "  -c | --convert                convert the wln graph into SCT table\n");
   fprintf(stderr, "  -d | --debug                  print debug messages to stderr\n");
   fprintf(stderr, "  -h | --help                   print debug messages to stderr\n");
   fprintf(stderr, "  -w | --wln2dot                dump wln trees to dot file in [build]\n");
@@ -1432,6 +1502,10 @@ static void ProcessCommandLine(int argc, char *argv[])
         opt_allow = true;
         break;
 
+      case 'c':
+        opt_convert = true;
+        break;
+
       case 'd':
         opt_debug = true;
         break;
@@ -1447,6 +1521,11 @@ static void ProcessCommandLine(int argc, char *argv[])
         if (!strcmp(ptr, "--allow-changes"))
         {
           opt_allow = true;
+          break;
+        }
+        else if (!strcmp(ptr, "--convert"))
+        {
+          opt_convert = true;
           break;
         }
         else if (!strcmp(ptr, "--debug"))
@@ -1501,7 +1580,16 @@ int main(int argc, char *argv[])
   // parse should exit 1 at errors
   if(!parser.CreateWLNGraph(wln, strlen(wln), wln_graph))
     return 1; 
-     
+
+  if (opt_debug)
+    parser.display_instructions();
+
+    
+  if(opt_convert){
+    wln_graph.ExpandGraph();
+    wln_graph.reset_indexes();
+    wln_graph.WLNConnectionTable(stdout);
+  }
   
   // create the wln dotfile
   if (opt_wln2dot)
@@ -1517,10 +1605,8 @@ int main(int argc, char *argv[])
       wln_graph.WLNDumpToDot(fp);
   }
 
-  if (opt_debug)
-    parser.display_instructions();
-
-  wln_graph.WLNConnectionTable(stdout);
+ 
+  
 
   return 0;
 }
