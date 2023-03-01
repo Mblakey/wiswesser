@@ -409,7 +409,7 @@ struct WLNGraph{
     for (WLNSymbol* node : symbol_mempool){
       if (symbol_hide[node])
         continue;
-        
+
       index_lookup[node] = glob_index;
       symbol_lookup[glob_index] = node;
       glob_index++;
@@ -462,9 +462,7 @@ struct WLNGraph{
   {
 
     // locants are sequential if inline defined e.g AUO places O on B
-
     // start here should be where the cyclic values are ended
-
     // < so should not hit J
 
     bool pending_special = false;
@@ -538,7 +536,19 @@ struct WLNGraph{
         break;
 
       case 'U':
-        fprintf(stderr, "special, needs work\n");
+        if (pending_locant)
+        {
+          cur_locant = ch;
+          atom = access_locant(ch, ring);
+          if (!atom)
+            return false;
+
+          pending_locant = false;
+        }
+        else{
+          atom = access_locant(cur_locant + 1, ring,false);
+          atom->inc_bond++;
+        }
         break;
 
       case 'V':
@@ -1379,9 +1389,6 @@ struct WLNGraph{
       if(symbol_hide[node])
         continue;
 
-      if(opt_debug)
-        fprintf(stderr,"Expanding: %c\n",node->ch);
-      
       switch (node->ch){
 
         case '1':
@@ -1400,10 +1407,36 @@ struct WLNGraph{
           break;
         }
 
+
+        case 'E':
+          node = transform_symbol(node,'*');
+          node->special = "Br";
+          break;
+
+        case 'G':
+          node = transform_symbol(node,'*');
+          node->special = "Cl";
+          break;
+        
+
         case 'K':
+          node = transform_symbol(node,'N');
+          node->charge = 1;
+          break;
+
         case 'M':{
-          // expands to nitrogen, details should be kept about charge
-          node->ch = 'N';
+          node = transform_symbol(node,'N');
+          WLNSymbol *created = AllocateWLNSymbol('H');
+          add_symbol(created,node,0);
+          break;
+        }
+
+        case 'Z':{
+          node = transform_symbol(node,'N');
+          for (unsigned int k = 0; k < 2; k++){
+            WLNSymbol *created = AllocateWLNSymbol('H');
+            add_symbol(created,node,0);
+          }
           break; 
         }
 
@@ -1434,6 +1467,11 @@ struct WLNGraph{
           break;
 
 
+        case 'W':
+          fprintf(stderr,"Too handle!\n");
+          break;
+
+
         case '&':
           HideWLNSymbol(node);
           break;
@@ -1443,6 +1481,18 @@ struct WLNGraph{
           if (isdigit_str(node->special))
             create_chain(node,true);
           
+          break;
+
+
+        // do nothings
+        case 'F':
+        case 'H':
+        case 'I':
+        case 'J':
+        case 'L':
+        case 'R': // i'll handle this seperately 
+        case 'T':
+        case 'U':
           break;
 
         default:
