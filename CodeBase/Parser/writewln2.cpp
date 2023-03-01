@@ -99,6 +99,16 @@ unsigned int calculate_ring_atoms(unsigned int rings, unsigned int max_atoms)
 }
 
 
+bool isdigit_str(const std::string& s)
+{
+  for (char const &ch : s) {
+    if (std::isdigit(ch) == 0) 
+      return false;
+  }
+  return true;
+ }
+
+
 struct WLNSymbol
 {
 
@@ -115,7 +125,7 @@ struct WLNSymbol
   // using string to maintain struct ownership
 
   WLNSymbol *prev;                   // should be a single term - wln symbol only has one incoming
-  std::vector<WLNSymbol *> children; // linked list of next terms chains
+  std::vector<WLNSymbol*> children; // linked list of next terms chains
 
   // if default needed
   WLNSymbol()
@@ -341,6 +351,8 @@ struct WLNGraph{
   unsigned int wln_rings = 0;
   std::vector<WLNSymbol *> symbol_mempool;
   std::vector<WLNRing *> ring_mempool;
+  
+  std::map<WLNSymbol*,bool> symbol_hide; 
   std::map<WLNRing *, WLNSymbol *> ring_access; // access the ring struct from locant A pointer
 
   WLNGraph() : root{(WLNSymbol *)0}, wln_nodes{0} {};
@@ -351,6 +363,7 @@ struct WLNGraph{
       delete allocedwln;
       allocedwln = 0;
     }
+
     for (WLNRing *allocedring : ring_mempool)
     { // if error free all the symbol_mempool --> stop leak
       delete allocedring;
@@ -377,19 +390,9 @@ struct WLNGraph{
     return wln;
   }
 
-  bool DeAllocateWLNSymbol(WLNSymbol *node){
-    // this is expensive, only use sparingly 
-    unsigned int index=0;
-    for (WLNSymbol *mem : symbol_mempool){
-      if(node == mem)
-        break;
-      
-      index++;
-    }
-    
-    symbol_mempool.erase(symbol_mempool.begin() + index);
-    delete node; 
-    node = 0; 
+  // for a manual psuedo style deallocate
+  void HideWLNSymbol(WLNSymbol *node){
+    symbol_hide[node] = true;
   }
 
   WLNRing *AllocateWLNRing()
@@ -404,6 +407,9 @@ struct WLNGraph{
   void reset_indexes(){
     glob_index = 0; 
     for (WLNSymbol* node : symbol_mempool){
+      if (symbol_hide[node])
+        continue;
+        
       index_lookup[node] = glob_index;
       symbol_lookup[glob_index] = node;
       glob_index++;
@@ -461,7 +467,11 @@ struct WLNGraph{
 
     // < so should not hit J
 
+    bool pending_special = false;
     bool pending_locant = false;
+
+    std::string special; 
+
     WLNSymbol *atom = 0;
     unsigned char cur_locant = '\0';
 
@@ -575,6 +585,8 @@ struct WLNGraph{
       case ' ':
         pending_locant = true;
         break;
+
+      case '-': // allows inter-ring specific atoms
 
       default:
         fprintf(stderr, "Error: invalid symbol in inter ring notation - %c\n",ch);
@@ -1264,9 +1276,14 @@ struct WLNGraph{
   }
 
 
-  bool create_chain(WLNSymbol *node){
+  bool create_chain(WLNSymbol *node, bool special=false){
+    
+    unsigned int atoms = 0; 
+    if (special)
+      atoms = std::stoi(node->special);
+    else
+      atoms = node->ch - '0';
 
-    unsigned int atoms = node->ch - '0';
     node = transform_symbol(node,'C'); // 1) transform the character
 
     // 2) create the chain
@@ -1302,6 +1319,10 @@ struct WLNGraph{
 
 
     std::string chain; 
+    std::vector<WLNSymbol*> streak; 
+
+    WLNSymbol *head = 0; 
+    WLNSymbol *tail = 0; 
 
     WLNSymbol *node = 0; 
     while(!node_stack.empty()){
@@ -1310,17 +1331,37 @@ struct WLNGraph{
       node_stack.pop();
       visited[node] = true;
 
-      if(std::isdigit(node->ch))
+      if(std::isdigit(node->ch)){
+
+        if(chain.empty())
+          head = node;
+        else  
+          tail = node; 
+
+        streak.push_back(node);
         chain.push_back(node->ch);
-      else{
-        if (chain.size() > 1)
-          std::cout << chain << std::endl;
+      }
         
+      else{
+        if (chain.size() > 1){
+          WLNSymbol* chain_symbol = AllocateWLNSymbol('*');
+          chain_symbol->special = chain;
+          copy_symbol_info(tail,chain_symbol);
+          if (head->prev){
+            head->prev->children.push_back(chain_symbol);
+          }
+          for (WLNSymbol* n : streak)
+            HideWLNSymbol(n);
+        }
+
+        head = 0; 
+        tail = 0; 
         chain.clear();
+        streak.clear();
       }
 
       for (WLNSymbol *child : node->children){
-        if(!visited[child])
+        if(child && !visited[child])
           node_stack.push(child);
       }
 
@@ -1331,10 +1372,15 @@ struct WLNGraph{
 
   // expands the graph to suite a pseudo smiles for conversion
   bool ExpandGraph(){
-
+    
     unsigned int start_size = symbol_mempool.size(); // doesnt change
     for (unsigned int i=0; i<start_size;i++){
       WLNSymbol *node = symbol_mempool[i];
+      if(symbol_hide[node])
+        continue;
+
+      if(opt_debug)
+        fprintf(stderr,"Expanding: %c\n",node->ch);
       
       switch (node->ch){
 
@@ -1384,6 +1430,20 @@ struct WLNGraph{
           break; 
         }
 
+        case 'S':
+          break;
+
+
+        case '&':
+          HideWLNSymbol(node);
+          break;
+
+
+        case '*':
+          if (isdigit_str(node->special))
+            create_chain(node,true);
+          
+          break;
 
         default:
           fprintf(stderr,"Error: unexpected char in graph expansion - %c\n",node->ch);
@@ -1409,19 +1469,31 @@ struct WLNGraph{
     fprintf(fp, "---- atom table ----\n");
     fprintf(fp,"|index|\t|type|\t|charge|\n");
     for (WLNSymbol *node : symbol_mempool){
+      
+      if(symbol_hide[node])
+        continue;
+
       if(node->ch == '*')
         fprintf(fp, "%d\t%s\t%d\n", index_lookup[node], node->special.c_str(),node->charge);
       else
         fprintf(fp, "%d\t%c\t%d\n", index_lookup[node], node->ch,node->charge);
+      
     }
     fprintf(fp,"\n");
     
 
     fprintf(fp, "---- bond table ----\n");
     fprintf(fp,"|atom 1|\t|atom 2|\t|order|\n");
-    for (WLNSymbol *node : symbol_mempool)
-      for (WLNSymbol *child : node->children)
+    for (WLNSymbol *node : symbol_mempool){
+      if(symbol_hide[node])
+        continue;
+
+      for (WLNSymbol *child : node->children){
+        if(symbol_hide[child])
+          continue;
         fprintf(fp, "%d\t%d\t%d\n", index_lookup[node],index_lookup[child], child->inc_bond);
+      }
+    }    
 
     fprintf(fp,"\n");
   }
@@ -1433,7 +1505,10 @@ struct WLNGraph{
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
     for (WLNSymbol *node : symbol_mempool)
-    {
+    { 
+      if(symbol_hide[node])
+        continue;
+
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->ch == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
@@ -1441,7 +1516,10 @@ struct WLNGraph{
         fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
 
       for (WLNSymbol *child : node->children)
-      {
+      { 
+        if(symbol_hide[child])
+          continue;
+
         if(child->inc_bond > 1){
           for (unsigned int i=0; i<child->inc_bond; i++){
             fprintf(fp, "  %d", index_lookup[node]);
@@ -1454,7 +1532,7 @@ struct WLNGraph{
           fprintf(fp, " -> ");
           fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
         }
-        
+
       }
     }
     fprintf(fp, "}\n");
