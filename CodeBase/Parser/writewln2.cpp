@@ -18,6 +18,8 @@
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
+
+
 // --- macros ---
 #define REASONABLE 1024
 
@@ -27,7 +29,7 @@ const char *dotfile;
 
 // --- options ---
 static bool opt_wln2dot = false;
-static bool opt_valstrict = false;
+static bool opt_allow = false;
 static bool opt_verbose = false;
 static bool opt_debug = false;
 static bool opt_canonical = false;
@@ -74,6 +76,7 @@ unsigned int calculate_ring_atoms(unsigned int rings, unsigned int max_atoms)
 
   return max_atoms - shared_atoms;
 }
+
 
 struct WLNSymbol
 {
@@ -252,7 +255,7 @@ struct WLNSymbol
 
     default:
       fprintf(stderr, "Error: invalid wln symbol parsed: %c\n", ch);
-      return false;
+      return false; 
     }
 
     prev = (WLNSymbol *)0;
@@ -371,7 +374,7 @@ struct WLNGraph
   }
 
   /* handles all inter ring defintions*/
-  bool parse_ring_inner(unsigned int start, unsigned int end, WLNRing *ring)
+  bool ParseInterRing(unsigned int start, unsigned int end, WLNRing *ring)
   {
 
     // locants are sequential if inline defined e.g AUO places O on B
@@ -463,8 +466,9 @@ struct WLNGraph
         else
         {
           WLNSymbol *oxy = AllocateWLNSymbol('O');
-          oxy->inc_bond = 1;
-          atom->children.push_back(oxy);
+          if(!add_symbol(oxy,atom,1))
+            return false;
+          
           atom = access_locant(cur_locant + 1, ring,false);
         }
 
@@ -484,11 +488,8 @@ struct WLNGraph
         {
           WLNSymbol *oxy_1 = AllocateWLNSymbol('O');
           WLNSymbol *oxy_2 = AllocateWLNSymbol('O');
-          oxy_1->inc_bond = 1;
-          oxy_2->inc_bond = 1;
-
-          atom->children.push_back(oxy_1);
-          atom->children.push_back(oxy_2);
+          if(!add_symbol(oxy_1,atom,1) ||  !add_symbol(oxy_2,atom,1))
+            return false;
           atom = access_locant(cur_locant + 1, ring,false);
         }
         break;
@@ -498,7 +499,7 @@ struct WLNGraph
         break;
 
       default:
-        fprintf(stderr, "Error: invalid definition in inter ring notation\n");
+        fprintf(stderr, "Error: invalid symbol in inter ring notation - %c\n",ch);
         return false;
       }
     }
@@ -507,11 +508,10 @@ struct WLNGraph
   }
 
   /* inplace function, should only edit the WLNRing pointer */
-  bool create_standard_ring(unsigned int start, unsigned int end, WLNRing *ring)
+  bool CreateStandardRing(unsigned int start, unsigned int end, WLNRing *ring)
   {
 
-    if (!ring)
-    {
+    if (!ring){
       fprintf(stderr, "Error: ring object incorrectly made!\n");
       return false;
     }
@@ -549,11 +549,11 @@ struct WLNGraph
     {
       current = AllocateWLNSymbol('C');
       ring->locants[locant_symbols[locant++]] = current; // add the locants
-      add_symbol(current, prev);
+      add_symbol(current, prev,0);
       prev = current;
     }
 
-    add_symbol(rhead, current);
+    add_symbol(rhead, current,0);
 
     if (num_rings > 1)
     {
@@ -561,8 +561,10 @@ struct WLNGraph
     }
 
     // handle all inter atomic definitions here
-    parse_ring_inner(digit_end, end, ring);
-
+    if(!ParseInterRing(digit_end, end, ring))
+      return false; 
+    
+    
     return true;
   }
 
@@ -646,95 +648,43 @@ struct WLNGraph
       // create the poly cyclic functions here
     }
     else
-      create_standard_ring(start, end, wln_ring);
+      if(!CreateStandardRing(start, end, wln_ring))
+        return (WLNRing *)0; 
 
     return wln_ring;
   }
 
-  bool handle_hypervalence(WLNSymbol *problem)
+  
+
+  /* should handle all bonding modes, adds child to parent->children
+  'UU' bonding also added here */
+  bool add_symbol(WLNSymbol *child, WLNSymbol *parent, unsigned int bond_ticks)
   {
 
-    // this will always lead to a positive ion species
-    switch (problem->ch)
-    {
-    case 'M': // tranforming this to a N is an easy solve
-      if (opt_verbose)
-        fprintf(stderr, "   transforming hypervalent M --> N\n");
 
-      problem->ch = 'N';
-      break;
+    unsigned int bond_added = 1 + bond_ticks; // can be zero - local scope so reset outside
 
-    case 'N':
-      if (opt_verbose)
-        fprintf(stderr, "   transforming hypervalent N --> K\n");
-
-      problem->ch = 'N';
-      break;
-
-    case 'Y': // can go to an X
-      if (opt_verbose)
-        fprintf(stderr, "   transforming hypervalent Y --> X\n");
-
-      problem->ch = 'X';
-      break;
-
-    default:
-      if (opt_verbose)
-        fprintf(stderr, "Error: cannot handle hypervalent symbol: %c\n", problem->ch);
-      return false;
-    }
-    return true;
-  }
-
-  /* add src to the children vector of trg, handle hypervalent bonds if possible */
-  bool add_symbol(WLNSymbol *src, WLNSymbol *trg)
-  {
-
-    // handle exotic bonding - lookback
-    if (trg->ch == 'U')
-    {
-      if (trg->prev && trg->prev->ch == 'U')
-        src->num_edges += 3;
-      else
-        src->num_edges += 2;
-    }
-    else
-      src->num_edges++;
-
-    if (src->num_edges > src->allowed_edges)
-    {
-      if (!opt_valstrict)
-      {
-        if (!handle_hypervalence(src))
-          return false;
-      }
-      else
-      {
-        fprintf(stderr, "Error: (strict mode) hypervalence on WLN character %c\n", src->ch);
-        return false;
-      }
+    // if the child cannot handle the new valence
+    if ( (child->num_edges + bond_added) > child->allowed_edges ){
+      fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",child->ch);
+      return false; 
     }
 
-    if (trg->num_edges < trg->allowed_edges)
-    {
-      trg->children.push_back(src);
-      trg->num_edges++;
+    // same for the parent
+    if ( (parent->num_edges + bond_added) > parent->allowed_edges ){
+      fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",parent->ch);
+      return false; 
     }
-    else
-    {
-      if (!opt_valstrict)
-      {
-        if (!handle_hypervalence(trg))
-          return false;
-        else
-          trg->children.push_back(src);
-      }
-      else
-      {
-        fprintf(stderr, "Error: (strict mode) hypervalence on WLN character %c\n", trg->ch);
-        return false;
-      }
-    }
+
+    
+    // if these pass, we can add and change both num_edges 
+    
+    child->inc_bond   += bond_added; 
+
+    child->num_edges  += bond_added;
+    parent->num_edges += bond_added;
+
+    parent->children.push_back(child);
 
     return true;
   }
@@ -803,17 +753,14 @@ struct WLNGraph
       if (!created_wln)
         return (WLNSymbol *)0;
 
-      if(bond_tick){
-        created_wln->inc_bond = bond_tick;
-        bond_tick = 0; 
-      }
-
       prev = wln_stack.top();
       wln_stack.push(created_wln); // push all of them
 
-      if (!add_symbol(created_wln, prev))
+      if (!add_symbol(created_wln, prev,bond_tick))
         return (WLNSymbol *)0;
 
+      bond_tick = 0; // reset the bond counter;  
+     
       // options here depending on the forced closure of '&'
       if (created_wln->type == TERMINATOR)
       {
@@ -878,8 +825,8 @@ struct WLNGraph
       fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
       for (WLNSymbol *child : node->children)
       {
-        if(child->inc_bond){
-          for (unsigned int i=0; i<=child->inc_bond; i++){
+        if(child->inc_bond > 1){
+          for (unsigned int i=0; i<child->inc_bond; i++){
             fprintf(fp, "  %d", index_map[node]);
             fprintf(fp, " -> ");
             fprintf(fp, "%d [arrowhead=none]\n", index_map[child]);
@@ -1047,8 +994,8 @@ struct WLNParser
 
             binder = return_locant_symbol(i, ring_stack);
             if (!binder)
-              return false;
-
+              return false; 
+            
             pending_locant = false;
           }
         }
@@ -1070,7 +1017,7 @@ struct WLNParser
 
             binder = return_locant_symbol(i, ring_stack);
             if (!binder)
-              return false;
+              return false; 
 
             pending_locant = false;
           }
@@ -1089,7 +1036,7 @@ struct WLNParser
 
             binder = return_locant_symbol(i, ring_stack);
             if (!binder)
-              return false;
+              return false; 
 
             pending_locant = false;
           }
@@ -1108,6 +1055,9 @@ struct WLNParser
             // create the ring object
 
             WLNRing *ring = graph.consume_ring_notation(current->start_ch, current->end_ch);
+            if(!ring)
+              return false;
+            
             ring_stack.push(ring);
 
             pending_closure = false;
@@ -1120,7 +1070,7 @@ struct WLNParser
 
             binder = return_locant_symbol(i, ring_stack);
             if (!binder)
-              return false;
+              return false; 
 
             pending_locant = false;
           }
@@ -1166,7 +1116,7 @@ struct WLNParser
 
             binder = return_locant_symbol(i, ring_stack);
             if (!binder)
-              return false;
+              return false;  
 
             pending_locant = false;
           }
@@ -1187,7 +1137,7 @@ struct WLNParser
 
             binder = return_locant_symbol(i, ring_stack);
             if (!binder)
-              return false;
+              return false; 
 
             pending_locant = false;
           }
@@ -1357,7 +1307,7 @@ struct WLNParser
 
       default:
         fprintf(stderr, "Error: unrecognised symbol: %c\n", ch);
-        return false;
+        return false;  
       }
     }
 
@@ -1369,12 +1319,8 @@ struct WLNParser
     if (current->state == STANDARD)
     {
       WLNSymbol *head = graph.consume_standard_notation(current->start_ch, current->end_ch);
-
       if (!head)
-      {
-        fprintf(stderr, "Error: could not consume standard wln branch\n");
-        return false;
-      }
+        return false; 
 
       if (binder)
         binder->children.push_back(head);
@@ -1384,16 +1330,25 @@ struct WLNParser
   }
 };
 
+
+static void DisplayHelp(){
+  fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
+  fprintf(stderr, " This parser reads and evaluates wiswesser\n"
+                  " line notation (wln), the parser is native\n"
+                  " and will can return either a reformatted string*\n"
+                  " *if rules do not parse exactly, and the connection\n"
+                  " table which can be used in other libraries\n");
+  exit(1);
+}
+
 static void DisplayUsage()
 {
   fprintf(stderr, "wln-writer <options> < input (escaped) >\n");
   fprintf(stderr, "<options>\n");
+  fprintf(stderr, "  -a | --allow-changes          allow changes to notation to allow parsing\n");
   fprintf(stderr, "  -d | --debug                  print debug messages to stderr\n");
-  fprintf(stderr, "  -v | --verbose                print runtime messages to stderr\n");
-  fprintf(stderr, "  -s | --strict                 fail on hypervalence, no symbol correction\n");
-  fprintf(stderr, "  -c | --canonical              perform wln canonicalise procedure\n");
-  fprintf(stderr, "  -r | --return-wln             return wln after altering procedure(s)\n");
-  fprintf(stderr, "  --wln2dot                     dump wln trees to dot file\n");
+  fprintf(stderr, "  -h | --help                   print debug messages to stderr\n");
+  fprintf(stderr, "  -w | --wln2dot                dump wln trees to dot file in [build]\n");
   exit(1);
 }
 
@@ -1419,61 +1374,46 @@ static void ProcessCommandLine(int argc, char *argv[])
       switch (ptr[1])
       {
 
+      case 'a':
+        opt_allow = true;
+        break;
+
       case 'd':
         opt_debug = true;
         break;
 
-      case 'c':
-        opt_canonical = true;
-        break;
+      case 'h':
+        DisplayHelp();
 
-      case 'r':
-        opt_returnwln = true;
-        break;
-
-      case 's':
-        opt_valstrict = true;
-        break;
-
-      case 'v':
-        opt_verbose = true;
+      case 'w':
+        opt_wln2dot = true;
         break;
 
       case '-':
-        if (!strcmp(ptr, "--debug"))
+        if (!strcmp(ptr, "--allow-changes"))
+        {
+          opt_allow = true;
+          break;
+        }
+        else if (!strcmp(ptr, "--debug"))
         {
           opt_debug = true;
           break;
+        }
+        else if (!strcmp(ptr, "--help"))
+        {
+          DisplayHelp();
         }
         else if (!strcmp(ptr, "--wln2dot"))
         {
           opt_wln2dot = true;
           break;
         }
-        else if (!strcmp(ptr, "--strict"))
-        {
-          opt_valstrict = true;
-          break;
-        }
-        else if (!strcmp(ptr, "--verbose"))
-        {
-          opt_verbose = true;
-          break;
-        }
-        else if (!strcmp(ptr, "--canonical"))
-        {
-          opt_canonical = true;
-          break;
-        }
-        else if (!strcmp(ptr, "--return-wln"))
-        {
-          opt_returnwln = true;
-          break;
-        }
-
+        
+     
       default:
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
-        break;
+        DisplayUsage();
       }
 
     else
@@ -1504,9 +1444,11 @@ int main(int argc, char *argv[])
   WLNGraph wln_graph;
   WLNParser parser;
 
-  if (!parser.CreateWLNGraph(wln, strlen(wln), wln_graph))
-    return 1;
-
+  // parse should exit 1 at errors
+  if(!parser.CreateWLNGraph(wln, strlen(wln), wln_graph))
+    return 1; 
+     
+  
   // create the wln dotfile
   if (opt_wln2dot)
   {
@@ -1514,7 +1456,7 @@ int main(int argc, char *argv[])
     fp = fopen("wln-graph.dot", "w");
     if (!fp)
     {
-      fprintf(stderr, "Error: coould not open compiler dump file\n");
+      fprintf(stderr, "Error: could not open compiler dump file\n");
       return 1;
     }
     else
