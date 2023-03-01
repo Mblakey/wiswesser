@@ -377,6 +377,21 @@ struct WLNGraph{
     return wln;
   }
 
+  bool DeAllocateWLNSymbol(WLNSymbol *node){
+    // this is expensive, only use sparingly 
+    unsigned int index=0;
+    for (WLNSymbol *mem : symbol_mempool){
+      if(node == mem)
+        break;
+      
+      index++;
+    }
+    
+    symbol_mempool.erase(symbol_mempool.begin() + index);
+    delete node; 
+    node = 0; 
+  }
+
   WLNRing *AllocateWLNRing()
   {
     wln_rings++;
@@ -748,6 +763,8 @@ struct WLNGraph{
     parent->num_edges += bond_added;
 
     parent->children.push_back(child);
+
+    child->prev = parent; // keep the linked list functionality.
 
     return true;
   }
@@ -1176,9 +1193,10 @@ struct WLNGraph{
 
     root = created_wln;
 
-    unsigned int bond_tick = 0;
     bool open_special = false; 
-    std::vector<unsigned char> special;  
+    unsigned int bond_tick = 0;    
+    std::vector<unsigned char> special;
+
 
     for (unsigned int i = start + 1; i <= end; i++)
     {
@@ -1188,7 +1206,6 @@ struct WLNGraph{
         bond_tick++;
         continue; 
       }
-
 
       if(open_special && wln[i] != '-'){
         special.push_back(wln[i]);
@@ -1204,8 +1221,7 @@ struct WLNGraph{
         if(!open_special){
           open_special = true;
           continue;
-        }
-          
+        }   
         if(open_special){
           created_wln = define_element(special);
           special.clear();
@@ -1215,10 +1231,10 @@ struct WLNGraph{
       else
         created_wln = AllocateWLNSymbol(wln[i]);
 
-
       if (!created_wln)
         return (WLNSymbol *)0;
 
+    
       if(wln_stack.empty()){
         fprintf(stderr,"Error: invalid branch notation - invalid tertiary access\n");
         return (WLNSymbol *)0;
@@ -1226,6 +1242,7 @@ struct WLNGraph{
       else
         prev = wln_stack.top();
 
+    
       wln_stack.push(created_wln); // push all of them
 
       if (!add_symbol(created_wln, prev,bond_tick))
@@ -1246,6 +1263,72 @@ struct WLNGraph{
     return root; // return start of the tree
   }
 
+
+  bool create_chain(WLNSymbol *node){
+
+    unsigned int atoms = node->ch - '0';
+    node = transform_symbol(node,'C'); // 1) transform the character
+
+    // 2) create the chain
+    WLNSymbol *prev = 0; 
+    WLNSymbol *head = 0; 
+    for (unsigned int k=0;k<atoms-1;k++){
+      WLNSymbol *created = AllocateWLNSymbol('C');
+      if(prev)
+        add_symbol(prev,created,0);
+      else
+        head = created; 
+      prev = created;
+    }
+    
+    // 3) last prev will be the tail, copy over heads details
+    copy_symbol_info(node,prev);
+    
+    // 4) remove children from node
+    node->children.clear();
+    // 5) bind the new chain
+    node->children.push_back(head);
+
+    return true;
+  }
+
+  /* search the mempool dfs style and find all concat points */
+  bool ConcatNumerics(){
+
+    std::stack<WLNSymbol*> node_stack; 
+    std::map<WLNSymbol*,bool> visited; // avoid the loop issue i know is coming
+
+    node_stack.push(symbol_mempool[0]);
+
+
+    std::string chain; 
+
+    WLNSymbol *node = 0; 
+    while(!node_stack.empty()){
+      
+      node = node_stack.top();
+      node_stack.pop();
+      visited[node] = true;
+
+      if(std::isdigit(node->ch))
+        chain.push_back(node->ch);
+      else{
+        if (chain.size() > 1)
+          std::cout << chain << std::endl;
+        
+        chain.clear();
+      }
+
+      for (WLNSymbol *child : node->children){
+        if(!visited[child])
+          node_stack.push(child);
+      }
+
+    }
+
+    return true; 
+  }
+
   // expands the graph to suite a pseudo smiles for conversion
   bool ExpandGraph(){
 
@@ -1256,6 +1339,9 @@ struct WLNGraph{
       switch (node->ch){
 
         case '1':
+          node->ch = 'C';
+          break; 
+
         case '2':
         case '3':
         case '4':
@@ -1264,30 +1350,7 @@ struct WLNGraph{
         case '7':
         case '8':
         case '9':{
-          
-          unsigned int atoms = node->ch - '0';
-          node = transform_symbol(node,'C'); // 1) transform the head
-
-          // 2) create the chain
-          WLNSymbol *prev = 0; 
-          WLNSymbol *head = 0; 
-          for (unsigned int k=0;k<atoms-1;k++){
-            WLNSymbol *created = AllocateWLNSymbol('C');
-            if(prev)
-              add_symbol(prev,created,0);
-            else
-              head = created; 
-            prev = created;
-          }
-          
-          // 3) last prev will be the tail, copy over heads details
-          copy_symbol_info(node,prev);
-          
-          // 4) remove children from node
-          node->children.clear();
-
-          // 5) bind the new chain
-          node->children.push_back(head);
+          create_chain(node);
           break;
         }
 
@@ -2006,7 +2069,6 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  // two levels of abstraction allows proper flexibility
 
   WLNGraph wln_graph;
   WLNParser parser;
@@ -2020,9 +2082,12 @@ int main(int argc, char *argv[])
 
     
   if(opt_convert){
+    wln_graph.ConcatNumerics();
     wln_graph.ExpandGraph();
     wln_graph.reset_indexes();
-    wln_graph.WLNConnectionTable(stdout);
+    
+    if(opt_debug)
+      wln_graph.WLNConnectionTable(stderr);
   }
   
   // create the wln dotfile
