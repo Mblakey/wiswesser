@@ -116,6 +116,7 @@ struct WLNSymbol
   unsigned int type;
 
   int charge;
+
   unsigned int inc_bond; // can take values 1-3 for ['','U','UU']
 
   unsigned int allowed_edges;
@@ -124,7 +125,8 @@ struct WLNSymbol
   std::string special; // if ch='\0' then a special string is denoted e.g Mg
   // using string to maintain struct ownership
 
-  WLNSymbol *prev;                   // should be a single term - wln symbol only has one incoming
+  WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
+  
   std::vector<WLNSymbol*> children; // linked list of next terms chains
 
   // if default needed
@@ -754,7 +756,15 @@ struct WLNGraph{
     return wln_ring;
   }
 
-  
+  /* used in ring notation only*/
+  bool add_aromatic(WLNSymbol *child, WLNSymbol *parent){
+    child->inc_bond   = 4; 
+    child->num_edges  += 1;
+    parent->num_edges += 1;
+    parent->children.push_back(child);
+    child->prev = parent; // keep the linked list functionality.
+    return true;
+  }
 
   /* should handle all bonding modes, adds child to parent->children
   'UU' bonding also added here */
@@ -1423,6 +1433,28 @@ struct WLNGraph{
     return true;
   }
 
+  // to be used on a mono substitued R benzene only
+  // not in place uses hide mechanism. 
+  bool create_benzene(WLNSymbol *node){
+    
+    symbol_hide[node] = true; 
+
+    WLNSymbol *head = AllocateWLNSymbol('C');
+    WLNSymbol *prev = head;
+
+    for (unsigned int k=0;k<5;k++){
+      WLNSymbol *created = AllocateWLNSymbol('C');
+      add_aromatic(prev,created);
+      prev = created;
+    }
+
+    add_aromatic(head,prev);
+    prev->inc_bond = 1;
+    node->prev->children.push_back(prev);
+
+    return true;
+  }
+
   /* search the mempool dfs style and find all concat points */
   bool ConcatNumerics(){
 
@@ -1567,10 +1599,12 @@ struct WLNGraph{
           break; 
         }
 
-        case 'S':
+        case 'R':{
+          create_benzene(node);
           break;
+        }
 
-
+       
         case 'W':
           fprintf(stderr,"Too handle!\n");
           break;
@@ -1594,9 +1628,9 @@ struct WLNGraph{
         case 'I':
         case 'J':
         case 'L':
-        case 'R': // i'll handle this seperately 
         case 'T':
         case 'U':
+        case 'S':
           break;
 
         default:
@@ -1645,7 +1679,12 @@ struct WLNGraph{
       for (WLNSymbol *child : node->children){
         if(symbol_hide[child])
           continue;
-        fprintf(fp, "%d\t%d\t%d\n", index_lookup[node],index_lookup[child], child->inc_bond);
+
+        if(!child->inc_bond){
+          fprintf(stderr,"Error: undefined bond written into connection table\n");
+          return ;
+        }else
+          fprintf(fp, "%d\t%d\t%d\n", index_lookup[node],index_lookup[child], child->inc_bond);
       }
     }    
 
@@ -1674,19 +1713,30 @@ struct WLNGraph{
         if(symbol_hide[child])
           continue;
 
-        if(child->inc_bond > 1){
+        if(child->inc_bond == SINGLE){
+          fprintf(fp, "  %d", index_lookup[node]);
+          fprintf(fp, " -> ");
+          fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
+        }
+        else if (child->inc_bond == DOUBLE || child->inc_bond == TRIPLE){
           for (unsigned int i=0; i<child->inc_bond; i++){
             fprintf(fp, "  %d", index_lookup[node]);
             fprintf(fp, " -> ");
             fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
           }
         } 
-        else{
+        else if (child->inc_bond == AROMATIC){
           fprintf(fp, "  %d", index_lookup[node]);
           fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
+          fprintf(fp, "%d [arrowhead=none,color=blue]\n", index_lookup[child]);
         }
-
+        else if (child->inc_bond == 0){
+          fprintf(stderr,"Warning: plotting undefined bond, shown in red\n");
+          fprintf(fp, "  %d", index_lookup[node]);
+          fprintf(fp, " -> ");
+          fprintf(fp, "%d [color=red]\n", index_lookup[child]);
+        }
+        
       }
     }
     fprintf(fp, "}\n");
@@ -1942,7 +1992,6 @@ struct WLNParser
       case 'O':
       case 'P':
       case 'Q':
-      case 'R':
       case 'S':
       case 'U':
       case 'V':
@@ -1950,6 +1999,52 @@ struct WLNParser
       case 'X':
       case 'Y':
       case 'Z':
+        if (current->state == ROOT)
+        {
+          current = add_instruction(STANDARD, i);
+        }
+        else if (current->state == STANDARD)
+        {
+
+          if (pending_locant)
+          {
+
+            current = add_instruction(LOCANT, i);
+            current->add_end(i); // all locants terminate on one char
+
+            binder = return_locant_symbol(i, ring_stack);
+            if (!binder)
+              return false;  
+
+            pending_locant = false;
+          }
+        }
+        else if (current->state == LOCANT || current->state == IONIC)
+        {
+
+          current = add_instruction(STANDARD, i);
+        }
+        else if (current->state == CYCLIC)
+        {
+
+          if (pending_locant)
+          {
+
+            current = add_instruction(LOCANT, i);
+            current->add_end(i); // all locants terminate on one char
+
+            binder = return_locant_symbol(i, ring_stack);
+            if (!binder)
+              return false; 
+
+            pending_locant = false;
+          }
+        }
+
+        break;
+
+
+      case 'R': // we need to be able to place a pending system here for substituted benzene
         if (current->state == ROOT)
         {
           current = add_instruction(STANDARD, i);
