@@ -235,9 +235,9 @@ struct WLNSymbol
       allowed_edges = 1;
       break;
 
-    case 'R':
-      type = SINGLETON;
-      allowed_edges = 2;
+    case 'R':           // if handled in standard notation, only one inbound is allowed
+      type = TERMINATOR;
+      allowed_edges = 1;
       break;
 
     case 'S':
@@ -791,39 +791,6 @@ struct WLNGraph{
     return true;
   }
 
-  /* this can perform the normal backtrack, excluding  '&' closure */
-  WLNSymbol *backtrack_stack(std::stack<WLNSymbol *> &wln_stack)
-  {
-    WLNSymbol *tmp = 0;
-    while (!wln_stack.empty())
-    {
-      tmp = wln_stack.top();
-      if (tmp->type == BRANCH)
-        return tmp;
-      wln_stack.pop();
-    }
-
-    // if it goes all the way that string complete
-    return (WLNSymbol *)0;
-  }
-
-  /* forces both the '&' closure and its parents branch to come off stack */
-  WLNSymbol *force_closure(std::stack<WLNSymbol *> &wln_stack)
-  {
-    WLNSymbol *tmp = 0;
-    unsigned int popped = 0;
-    while (!wln_stack.empty())
-    {
-      tmp = wln_stack.top();
-      if (tmp->type == BRANCH && popped > 1)
-        return tmp;
-      wln_stack.pop();
-      popped++;
-    }
-
-    // if it goes all the way that string complete
-    return (WLNSymbol *)0;
-  }
 
   WLNSymbol* define_element(std::vector<unsigned char> &special){
     
@@ -1200,6 +1167,141 @@ struct WLNGraph{
     return created_wln; 
   }
 
+    /* this can perform the normal backtrack, excluding  '&' closure */
+  WLNSymbol *backtrack_stack(std::stack<WLNSymbol *> &wln_stack)
+  {
+    WLNSymbol *tmp = 0;
+    while (!wln_stack.empty())
+    {
+      tmp = wln_stack.top();
+      if (tmp->type == BRANCH)
+        return tmp;
+      wln_stack.pop();
+    }
+
+    // if it goes all the way that string complete
+    return (WLNSymbol *)0;
+  }
+
+  /* forces both the '&' closure and its parents branch to come off stack */
+  WLNSymbol *force_closure(std::stack<WLNSymbol *> &wln_stack)
+  {
+    WLNSymbol *tmp = 0;
+    unsigned int popped = 0;
+    while (!wln_stack.empty())
+    {
+      tmp = wln_stack.top();
+      if (tmp->type == BRANCH && popped > 1)
+        return tmp;
+      wln_stack.pop();
+      popped++;
+    }
+
+    // if it goes all the way that string complete
+    return (WLNSymbol *)0;
+  }
+
+
+  WLNSymbol* consume_standard_notation2(unsigned int start, unsigned int end){
+
+
+    std::stack<WLNSymbol *> wln_stack;
+    
+    WLNSymbol *created_wln = AllocateWLNSymbol(wln[start]);
+    WLNSymbol *prev = created_wln;
+    WLNSymbol *root = created_wln;
+    
+    if (!created_wln)
+      return (WLNSymbol *)0;
+    
+    if(created_wln->type == BRANCH)
+      wln_stack.push(created_wln);
+
+    bool open_special = false; 
+    unsigned int bond_tick = 0;    
+    std::vector<unsigned char> special;
+
+    // stack rework, only push branching and have a condition for popping
+    for (unsigned int i = start + 1; i <= end; i++){
+      
+      if(open_special && wln[i] != '-'){
+        special.push_back(wln[i]);
+        if(special.size() > 2){
+          fprintf(stderr,"Error: invalid elemental notation in standard\n");
+          return (WLNSymbol *)0;
+        }
+        continue;
+      }
+
+      if (wln[i] == 'U'){
+        bond_tick++;
+        continue; 
+      }
+      else if(wln[i] == '-'){
+        if(!open_special){
+          open_special = true;
+          continue;
+        }   
+        if(open_special){
+          created_wln = define_element(special);
+          special.clear();
+          open_special = false;
+        }
+      }
+      else if(wln[i] == '&'){
+
+        if (wln[i-1] == '&'){
+          if(wln_stack.size() > 1){
+            wln_stack.pop();
+            prev = wln_stack.top();
+          } else{ 
+            fprintf(stderr,"Error: branching stack exhausted - extra '&' in notation\n");
+            return (WLNSymbol *)0;
+          }
+        }
+        else{
+          if(!wln_stack.empty()){
+            prev = wln_stack.top();
+          }
+          else{ 
+            fprintf(stderr,"Error: branching stack exhausted - extra '&' in notation\n");
+            return (WLNSymbol *)0;
+          }
+        }
+        continue; 
+      }
+      else
+        created_wln = AllocateWLNSymbol(wln[i]);
+
+      if(created_wln->type == BRANCH)
+        wln_stack.push(created_wln);
+
+      // add the bond, and move prev across
+      if (!add_symbol(created_wln, prev,bond_tick))
+        return (WLNSymbol *)0;
+
+
+      bond_tick = 0; // reset the bond counter;  
+
+      // if bonded out then we pop off the stack due to bonding condition
+      if(!wln_stack.empty() && prev == wln_stack.top()){
+        if(prev->allowed_edges == prev->num_edges)
+          wln_stack.pop();
+      }
+
+      // if a terminator we have to return to the stack
+      if(!wln_stack.empty() && created_wln->type == TERMINATOR)
+        prev = wln_stack.top();
+      else
+        prev = created_wln; 
+    }
+    
+
+    return root; 
+  }
+
+
+#ifdef DEPRECATED
   /* consumes the standard blocks, uses stacks to handle branching */
   WLNSymbol *consume_standard_notation(unsigned int start, unsigned int end)
   {
@@ -1254,12 +1356,12 @@ struct WLNGraph{
         created_wln = AllocateWLNSymbol(wln[i]);
 
       if (!created_wln)
-        return (WLNSymbol *)0;
+        return (WLNSymbol*)0;
 
     
       if(wln_stack.empty()){
         fprintf(stderr,"Error: invalid branch notation - invalid tertiary access\n");
-        return (WLNSymbol *)0;
+        return (WLNSymbol*)0;
       }
       else
         prev = wln_stack.top();
@@ -1284,6 +1386,8 @@ struct WLNGraph{
 
     return root; // return start of the tree
   }
+
+#endif
 
 
   bool create_chain(WLNSymbol *node, bool special=false){
@@ -1948,7 +2052,7 @@ struct WLNParser
           // will need to perform certain checks here
           // for interplaying ring notation but build this slowly
 
-          WLNSymbol *head = graph.consume_standard_notation(current->start_ch, current->end_ch);
+          WLNSymbol *head = graph.consume_standard_notation2(current->start_ch, current->end_ch);
           if(!head)
             return false; 
           
@@ -2066,7 +2170,7 @@ struct WLNParser
 
     if (current->state == STANDARD)
     {
-      WLNSymbol *head = graph.consume_standard_notation(current->start_ch, current->end_ch);
+      WLNSymbol *head = graph.consume_standard_notation2(current->start_ch, current->end_ch);
       if (!head)
         return false; 
 
