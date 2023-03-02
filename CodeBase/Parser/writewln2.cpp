@@ -651,11 +651,19 @@ struct WLNGraph{
     {
       current = AllocateWLNSymbol('C');
       ring->locants[locant_symbols[locant++]] = current; // add the locants
-      add_symbol(current, prev,0);
+      
+      if(ring->aromatic)
+        add_aromatic(current,prev);
+      else
+        add_symbol(current, prev,0);
+
       prev = current;
     }
 
-    add_symbol(rhead, current,0);
+    if(ring->aromatic)
+      add_aromatic(rhead,current);
+    else
+      add_symbol(rhead, current,0);
 
     if (num_rings > 1)
     {
@@ -670,6 +678,30 @@ struct WLNGraph{
     return true;
   }
 
+  /* one char so should be notation independent */
+  WLNRing *consume_benzene(){
+    
+    WLNRing *ring = AllocateWLNRing();
+
+    // 1) create a big ring
+    WLNSymbol *rhead = AllocateWLNSymbol('C');
+    ring->rhead = rhead; // set the rings head
+
+    WLNSymbol *current = 0;
+    WLNSymbol *prev = rhead;
+
+    unsigned int locant = 0;
+    for (unsigned int i = 1; i < 6; i++)
+    {
+      current = AllocateWLNSymbol('C');
+      ring->locants[locant_symbols[locant++]] = current; // add the locants  
+      add_aromatic(current,prev);
+      prev = current;
+    }
+    add_aromatic(rhead,current);
+    return ring; 
+  }
+
   /* platform for launching ring notation build functions */
   WLNRing *consume_ring_notation(unsigned int start, unsigned int end)
   {
@@ -681,7 +713,7 @@ struct WLNGraph{
 
     // 2) minimum symbols for a ring notation is 3 - allows safe lookback
 
-    if ((end - start) < 3)
+    if ((end - start) < 2)
     {
       fprintf(stderr, "Error: minimum chars for ring notation is 3 - found: %d\n", end - start);
       return (WLNRing *)0;
@@ -755,6 +787,7 @@ struct WLNGraph{
 
     return wln_ring;
   }
+  
 
   /* used in ring notation only*/
   bool add_aromatic(WLNSymbol *child, WLNSymbol *parent){
@@ -1211,8 +1244,8 @@ struct WLNGraph{
     return (WLNSymbol *)0;
   }
 
-
-  WLNSymbol* consume_standard_notation2(unsigned int start, unsigned int end){
+  // can return head or tail
+  WLNSymbol* consume_standard_notation2(unsigned int start, unsigned int end, bool tail = false){
 
 
     std::stack<WLNSymbol *> wln_stack;
@@ -1306,8 +1339,13 @@ struct WLNGraph{
         prev = created_wln; 
     }
     
+    // head or tail return
 
-    return root; 
+    if(tail)
+      return created_wln;
+    else
+      return root; 
+
   }
 
 
@@ -1861,9 +1899,9 @@ struct WLNParser
     std::stack<WLNRing *> ring_stack;
     std::stack<WLNSymbol *> rlinker_stack; // for XR&R style ring definition
 
-    bool pending_closure = false;
-    bool pending_locant = false;
-    // bool pending_ring       = false;
+    bool pending_closure  = false;
+    bool pending_locant   = false;
+    bool pending_benzene  = false; // for substituted R notation
 
     WLNSymbol *binder = 0; // used to link the wln nodes to previous
 
@@ -2047,7 +2085,7 @@ struct WLNParser
       case 'R': // we need to be able to place a pending system here for substituted benzene
         if (current->state == ROOT)
         {
-          current = add_instruction(STANDARD, i);
+          pending_benzene = true;
         }
         else if (current->state == STANDARD)
         {
@@ -2064,11 +2102,12 @@ struct WLNParser
 
             pending_locant = false;
           }
+          else
+            pending_benzene = true;
         }
         else if (current->state == LOCANT || current->state == IONIC)
         {
-
-          current = add_instruction(STANDARD, i);
+          pending_benzene = true;
         }
         else if (current->state == CYCLIC)
         {
@@ -2139,22 +2178,52 @@ struct WLNParser
         break;
 
       case ' ': // keep this simple, a '&' locant means ionic branch out
-        if (current->state == STANDARD)
+        if (current->state == ROOT){
+          if(pending_benzene){
+            current = add_instruction(CYCLIC,i-1);
+            current->add_end(i-1); // the R is the cyclic notation
+            WLNRing *ring = graph.consume_benzene();
+            ring_stack.push(ring);
+            pending_locant = true;
+            pending_benzene = false;
+          }
+        }
+        else if (current->state == STANDARD)
         {
+          if(pending_benzene){
 
-          current->add_end(i - 1); // implied end of standard notation block
+            current->add_end(i-2); // look back close
+            WLNSymbol *tail = graph.consume_standard_notation2(current->start_ch,current->end_ch,true); // consume the chain before
 
-          // will need to perform certain checks here
-          // for interplaying ring notation but build this slowly
+            current = add_instruction(CYCLIC,i-1);
+            current->add_end(i-1); // the R is the cyclic notation
+            WLNRing *ring = graph.consume_benzene();
+            ring_stack.push(ring);
 
-          WLNSymbol *head = graph.consume_standard_notation2(current->start_ch, current->end_ch);
-          if(!head)
-            return false; 
+            // bind the ring to the tail of the chain
+            ring->rhead->children.push_back(tail);
+
+            pending_locant = true;
+            pending_benzene = false;
+          }
+          else{
           
-          if (binder)
-            binder->children.push_back(head);
+            current->add_end(i - 1); // implied end of standard notation block
 
-          pending_locant = true;
+            // will need to perform certain checks here
+            // for interplaying ring notation but build this slowly
+
+            WLNSymbol *head = graph.consume_standard_notation2(current->start_ch, current->end_ch);
+            if(!head)
+              return false; 
+            
+            if (binder){
+              binder->children.push_back(head);
+              head->inc_bond = 1;
+            }
+              
+            pending_locant = true;
+          }
         }
 
         else if (current->state == LOCANT)
@@ -2269,8 +2338,11 @@ struct WLNParser
       if (!head)
         return false; 
 
-      if (binder)
+      if (binder){
         binder->children.push_back(head);
+        head->inc_bond = 1;
+      }
+        
     }
 
     return true;
