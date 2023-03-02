@@ -1488,7 +1488,19 @@ struct WLNGraph{
 
     add_aromatic(head,prev);
     prev->inc_bond = 1;
-    node->prev->children.push_back(prev);
+
+    
+
+    // if it has a previous we bond back - if not, it has to either bond forward or to nothing
+    if(node->prev)
+      node->prev->children.push_back(prev);
+    else if(!node->children.empty()){
+      for (WLNSymbol *move : node->children)
+        prev->children.push_back(move);
+    }
+    else
+      prev->charge = -1; 
+    
 
     return true;
   }
@@ -2084,8 +2096,12 @@ struct WLNParser
 
       case 'R': // we need to be able to place a pending system here for substituted benzene
         if (current->state == ROOT)
-        {
-          pending_benzene = true;
+        { 
+          if(i==0 && len == 1){
+            current = add_instruction(STANDARD, i);
+          }
+          else
+            pending_benzene = true;
         }
         else if (current->state == STANDARD)
         {
@@ -2141,8 +2157,12 @@ struct WLNParser
 
         if (current->state == ROOT)
         {
-
-          current = add_instruction(STANDARD, i);
+          if(pending_benzene){
+            current = add_instruction(STANDARD, i-1);
+            pending_benzene = false;
+          }
+          else
+            current = add_instruction(STANDARD, i);
         }
         else if (current->state == LOCANT || current->state == IONIC)
         {
@@ -2326,6 +2346,17 @@ struct WLNParser
         return false;  
       }
     }
+
+
+    if(!current){
+      fprintf(stderr,"Error: no states could be assigned - broken notation\n");
+      return false;
+    }
+    if (current->state == ROOT){
+      fprintf(stderr,"Error: no states could be assigned - broken notation\n");
+      return false;
+    }
+
 
     // whatever the last instruction was, add len-1 as the end
     current->add_end(len - 1);
