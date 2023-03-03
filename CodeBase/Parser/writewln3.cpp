@@ -1087,8 +1087,56 @@ struct WLNGraph{
       return false;
     }
     
-
     return true;
+  }
+
+  WLNSymbol* pop_ringstack(unsigned int pops, std::stack <WLNSymbol*> &stack){
+
+    if (pops > stack.size()){
+      fprintf(stderr,"Error: trying to pop too many rings check '&' count\n");
+      return 0; 
+    }
+    
+    for (unsigned int i=0; i<pops;i++)
+      stack.pop();
+    
+    return stack.top();
+  }
+
+  // this has a return clause in it and needs previous
+  WLNSymbol* pop_branchstack(unsigned int pops, std::stack <WLNSymbol*> &stack, WLNSymbol *prev){
+
+  
+    if (stack.empty()){
+      fprintf(stderr,"Error: trying to pop empty stack\n");
+      return 0; 
+    }
+
+    bool hard = false; 
+
+    if(prev == stack.top())
+      hard = true;
+
+    if(opt_debug)
+      fprintf(stderr,"  popping %d symbols down the stack: mode(%d) prev[%c]\n",pops, hard,prev->ch);
+
+    if(hard){
+      if(pops >= stack.size()){
+        fprintf(stderr,"Error: to many stack pops - check '&' count\n");
+        return 0; 
+      }
+      for (unsigned int i=0; i<pops;i++)
+        stack.pop();      
+    }
+    else{
+      if(pops > stack.size()){
+        fprintf(stderr,"Error: to many stack pops - check '&' count\n");
+        return 0; 
+      }
+      for (unsigned int i=1; i<pops;i++)
+        stack.pop();      
+    }
+    return stack.top();
   }
 
 
@@ -1114,13 +1162,28 @@ struct WLNGraph{
     unsigned int block_start =  0;
     unsigned int block_end    = 0;
 
-    unsigned int bond_ticks = 0;
+
+    unsigned int pop_ticks  = 0; // '&' style popping
+    unsigned int bond_ticks = 0; // 'U' style bonding
 
     for (unsigned int i=0; i<len; i++){
       unsigned char ch = wln[i];
       
       if(opt_debug)
         fprintf(stderr,"Parsing: %c\n",ch);
+
+
+      // saves repeat in switch
+      if(pop_ticks && wln[i] != '&'){
+        if(!prev)
+          fprintf(stderr,"Error: popping with no previous symbol\n");
+        else{
+          prev = pop_branchstack(pop_ticks,branch_stack,prev);
+          if(!prev)
+            Fatal(i);
+          pop_ticks = 0; 
+        }
+      }
 
       switch (ch){
 
@@ -1147,9 +1210,11 @@ struct WLNGraph{
         case '7':
         case '8':
         case '9':
+
           if(pending_closure || pending_special){
             break;
           }
+
           curr = AllocateWLNSymbol(ch);
           curr->set_edges(2);
 
@@ -1169,6 +1234,7 @@ struct WLNGraph{
         // carbons -- must be sandwiched 
 
         case 'Y':
+      
           if(pending_closure || pending_special){
             break;
           }
@@ -1993,7 +2059,12 @@ struct WLNGraph{
           // clear the branch stack betweek locants and ions
           while(!branch_stack.empty())
             branch_stack.pop();
-            
+
+          if(pop_ticks){
+            prev = pop_ringstack(pop_ticks,ring_stack);
+            pop_ticks = 0; 
+          } 
+           
           pending_locant = true;
           break;
           
@@ -2002,21 +2073,12 @@ struct WLNGraph{
             break;
           }
           if(pending_locant){
-            // ionic species, reset the linkings
+            // ionic species or spiro, reset the linkings
             prev = 0; 
             pending_locant = false;
           }
           else{
-
-            if(branch_stack.empty()){
-              fprintf(stderr,"Error: popping too many branches - check '&' count\n");
-              Fatal(i);
-            }
-            
-            if(prev == branch_stack.top())
-              branch_stack.pop();
-              
-            prev = return_open_branch(branch_stack);
+            pop_ticks++; // set the number of pops to do
           }
           break;
 
@@ -2026,9 +2088,8 @@ struct WLNGraph{
             pending_inline_ring = true;
             
             // send the linker into its own stack
-            if(branch_stack.top()->num_edges < branch_stack.top()->allowed_edges)
+            if(!branch_stack.empty() && (branch_stack.top()->num_edges < branch_stack.top()->allowed_edges) )
               linker_stack.push(branch_stack.top());
-
           }
             
           else if(pending_inline_ring){
@@ -2088,315 +2149,6 @@ struct WLNGraph{
     return true; 
   }
 
-
-
-
-#ifdef DEV
-  bool create_chain(WLNSymbol *node, bool special=false){
-    
-    unsigned int atoms = 0; 
-    if (special)
-      atoms = std::stoi(node->special);
-    else
-      atoms = node->ch - '0';
-
-    node = transform_symbol(node,'C'); // 1) transform the character
-
-    // 2) create the chain
-    WLNSymbol *prev = 0; 
-    WLNSymbol *head = 0; 
-    for (unsigned int k=0;k<atoms-1;k++){
-      WLNSymbol *created = AllocateWLNSymbol('C');
-      if(prev)
-        add_symbol(prev,created,0);
-      else
-        head = created; 
-      prev = created;
-    }
-    
-    // 3) last prev will be the tail, copy over heads details
-    copy_symbol_info(node,prev);
-    
-    // 4) remove children from node
-    node->children.clear();
-    // 5) bind the new chain
-    node->children.push_back(head);
-
-    return true;
-  }
-
-
-  // to be used on a mono substitued R benzene only
-  // not in place uses hide mechanism. 
-  bool create_benzene(WLNSymbol *node){
-    
-    symbol_hide[node] = true; 
-
-    WLNSymbol *head = AllocateWLNSymbol('C');
-    WLNSymbol *prev = head;
-
-    for (unsigned int k=0;k<5;k++){
-      WLNSymbol *created = AllocateWLNSymbol('C');
-      add_aromatic(prev,created);
-      prev = created;
-    }
-
-    add_aromatic(head,prev);
-    prev->inc_bond = 1;
-
-    
-
-    // if it has a previous we bond back - if not, it has to either bond forward or to nothing
-    if(node->prev)
-      node->prev->children.push_back(prev);
-    else if(!node->children.empty()){
-      for (WLNSymbol *move : node->children)
-        prev->children.push_back(move);
-    }
-    else
-      prev->charge = -1; 
-    
-
-    return true;
-  }
-
-
-  /* search the mempool dfs style and find all concat points */
-  bool ConcatNumerics(){
-
-    std::stack<WLNSymbol*> node_stack; 
-    std::map<WLNSymbol*,bool> visited; // avoid the loop issue i know is coming
-
-    node_stack.push(symbol_mempool[0]);
-
-
-    std::string chain; 
-    std::vector<WLNSymbol*> streak; 
-
-    WLNSymbol *head = 0; 
-    WLNSymbol *tail = 0; 
-
-    WLNSymbol *node = 0; 
-    while(!node_stack.empty()){
-      
-      node = node_stack.top();
-      node_stack.pop();
-      visited[node] = true;
-
-      if(std::isdigit(node->ch)){
-
-        if(chain.empty())
-          head = node;
-        else  
-          tail = node; 
-
-        streak.push_back(node);
-        chain.push_back(node->ch);
-      }
-        
-      else{
-        if (chain.size() > 1){
-          WLNSymbol* chain_symbol = AllocateWLNSymbol('*');
-          chain_symbol->special = chain;
-          copy_symbol_info(tail,chain_symbol);
-          if (head->prev){
-            head->prev->children.push_back(chain_symbol);
-          }
-          for (WLNSymbol* n : streak)
-            HideWLNSymbol(n);
-        }
-
-        head = 0; 
-        tail = 0; 
-        chain.clear();
-        streak.clear();
-      }
-
-      for (WLNSymbol *child : node->children){
-        if(child && !visited[child])
-          node_stack.push(child);
-      }
-
-    }
-
-    return true; 
-  }
-
-  // expands the graph to suite a pseudo smiles for conversion
-  bool ExpandGraph(){
-    
-    unsigned int start_size = symbol_mempool.size(); // doesnt change
-    for (unsigned int i=0; i<start_size;i++){
-      WLNSymbol *node = symbol_mempool[i];
-      if(symbol_hide[node])
-        continue;
-
-      switch (node->ch){
-
-        case '1':
-          node->ch = 'C';
-          break; 
-
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':{
-          create_chain(node);
-          break;
-        }
-
-
-        case 'E':
-          node = transform_symbol(node,'*');
-          node->special = "Br";
-          break;
-
-        case 'G':
-          node = transform_symbol(node,'*');
-          node->special = "Cl";
-          break;
-        
-
-        case 'K':
-          node = transform_symbol(node,'N');
-          break;
-
-        case 'M':{
-          node = transform_symbol(node,'N');
-          WLNSymbol *created = AllocateWLNSymbol('H');
-          add_symbol(created,node,0);
-          break;
-        }
-
-        case 'Z':{
-          node = transform_symbol(node,'N');
-          for (unsigned int k = 0; k < 2; k++){
-            WLNSymbol *created = AllocateWLNSymbol('H');
-            add_symbol(created,node,0);
-          }
-          break; 
-        }
-
-        case 'Q':{
-          // expands to O-H
-          node = transform_symbol(node,'O');
-          WLNSymbol *created = AllocateWLNSymbol('H');
-          add_symbol(created,node,0);
-          break;
-        }
-
-        case 'V':{ 
-          // expands to C=O
-          node = transform_symbol(node,'C');
-          WLNSymbol *created = AllocateWLNSymbol('O');
-          add_symbol(created,node,1);
-          break;
-        }
-
-        case 'Y':
-        case 'X':{
-          // expands to carbon, details should be kept about charge
-          node->ch = 'C';
-          break; 
-        }
-
-        case 'R':{
-          create_benzene(node);
-          break;
-        }
-
-       
-        case 'W':
-          fprintf(stderr,"Too handle!\n");
-          break;
-
-
-        case '&':
-          HideWLNSymbol(node);
-          break;
-
-
-        case '*':
-          if (isdigit_str(node->special))
-            create_chain(node,true);
-          
-          break;
-
-
-        // do nothings
-        case 'F':
-        case 'H':
-        case 'I':
-        case 'J':
-        case 'L':
-        case 'T':
-        case 'U':
-        case 'S':
-          break;
-
-        default:
-          fprintf(stderr,"Error: unexpected char in graph expansion - %c\n",node->ch);
-          break;
-      }
-    }
-
-    return true; 
-  }
-
-  /*prints the WLN connection table in SCT XI format */
-  void WLNConnectionTable(FILE *fp){
-
-    /* 
-    -- atom table ---
-    |index| |type| |charge|
-
-    --- bond table --- 
-    |atom1| |atom2| |order| 
-    */
-
-
-    fprintf(fp, "---- atom table ----\n");
-    fprintf(fp,"|index|\t|type|\t|charge|\n");
-    for (WLNSymbol *node : symbol_mempool){
-      
-      if(symbol_hide[node])
-        continue;
-
-      if(node->ch == '*')
-        fprintf(fp, "%d\t%s\t%d\n", index_lookup[node], node->special.c_str(),node->charge);
-      else
-        fprintf(fp, "%d\t%c\t%d\n", index_lookup[node], node->ch,node->charge);
-      
-    }
-    fprintf(fp,"\n");
-    
-
-    fprintf(fp, "---- bond table ----\n");
-    fprintf(fp,"|atom 1|\t|atom 2|\t|order|\n");
-    for (WLNSymbol *node : symbol_mempool){
-      if(symbol_hide[node])
-        continue;
-
-      for (WLNSymbol *child : node->children){
-        if(symbol_hide[child])
-          continue;
-
-        if(!child->inc_bond){
-          fprintf(stderr,"Error: undefined bond written into connection table\n");
-          return ;
-        }else
-          fprintf(fp, "%d\t%d\t%d\n", index_lookup[node],index_lookup[child], child->inc_bond);
-      }
-    }    
-
-    fprintf(fp,"\n");
-  }
-
-#endif
 
   /* dump wln tree to a dotvis file */
   void WLNDumpToDot(FILE *fp)
