@@ -120,7 +120,7 @@ struct WLNSymbol
   unsigned int num_edges;
 
   std::string special; // if ch='\0' then a special string is denoted e.g Mg
-  // using string to maintain struct ownership
+  // using string to maintan struct ownership
 
   WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
   
@@ -398,7 +398,6 @@ struct WLNGraph{
   {
     wln_rings++;
     WLNRing *wln_ring = new WLNRing;
-    wln_ring->init();
     ring_mempool.push_back(wln_ring);
     return wln_ring;
   }
