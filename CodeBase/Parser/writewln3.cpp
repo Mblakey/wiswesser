@@ -1098,7 +1098,8 @@ struct WLNGraph{
 
 
     std::stack <WLNSymbol*>   ring_stack; // access through symbol
-    std::stack <WLNSymbol*>   branch_stack;
+    std::stack <WLNSymbol*>   branch_stack; // between locants, clean branch stack
+    std::stack<WLNSymbol*>    linker_stack; // used for branching ring systems 
 
     WLNSymbol *curr = 0;
     WLNSymbol *prev = 0;  
@@ -1107,7 +1108,7 @@ struct WLNGraph{
     bool pending_locant  = false;
     bool pending_special = false;
     bool pending_closure = false; 
-
+    bool pending_inline_ring    = false;
 
     // allows consumption of notation after full parse
     unsigned int block_start =  0;
@@ -1124,6 +1125,10 @@ struct WLNGraph{
       switch (ch){
 
         case '0': // cannot be lone
+          if(pending_closure || pending_special){
+            break;
+          }
+
           if (i == 0)
             Fatal(i);
           else if(i > 0 && !std::isdigit(wln[i-1]))
@@ -1142,6 +1147,9 @@ struct WLNGraph{
         case '7':
         case '8':
         case '9':
+          if(pending_closure || pending_special){
+            break;
+          }
           curr = AllocateWLNSymbol(ch);
           curr->set_edges(2);
 
@@ -1161,22 +1169,40 @@ struct WLNGraph{
         // carbons -- must be sandwiched 
 
         case 'Y':
-          if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+          if(pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
+            
+            if(pending_inline_ring){
+              // we bond to prev
+              if(prev){
+                if(!link_symbols(curr,prev,1 + bond_ticks))
+                Fatal(i);
+              }
+              else{
+                if(!check_unbroken(i))
+                  Fatal(i);
+              } 
+
             }
             else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
+              if(ring_stack.empty()){
+                fprintf(stderr,"Error: no rings to assign locants to\n");
+                Fatal(i);
+              } 
+              else
+                s_ring = ring_stack.top();
+
+              if(locant_symbols[ch] < s_ring->ring->size)
+                s_ring->children.push_back(curr);
+              else{
+                fprintf(stderr,"Error: assigning locant greater than ring size\n");
+                Fatal(i);
+              }
             }
 
             prev = curr; 
@@ -1203,7 +1229,10 @@ struct WLNGraph{
           break;
 
         case 'X':
-          if(pending_locant){
+          if(pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1241,14 +1270,17 @@ struct WLNGraph{
 
             bond_ticks = 0;
             prev = curr;
-            }
+          }
           break;
 
 
         // oxygens 
 
         case 'O':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1290,7 +1322,10 @@ struct WLNGraph{
           break;
 
         case 'Q':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1335,7 +1370,10 @@ struct WLNGraph{
 
         case 'V':
         case 'W':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1379,7 +1417,10 @@ struct WLNGraph{
         // nitrogens 
 
         case 'N':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1421,7 +1462,10 @@ struct WLNGraph{
           break;
 
         case 'M':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1463,7 +1507,10 @@ struct WLNGraph{
           break;
 
         case 'K':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1506,7 +1553,10 @@ struct WLNGraph{
 
 
         case 'Z':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1556,7 +1606,10 @@ struct WLNGraph{
         case 'G':
         case 'F':
         case 'I':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1603,7 +1656,10 @@ struct WLNGraph{
         // inorganics 
 
         case 'B':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1649,7 +1705,10 @@ struct WLNGraph{
 
         case 'P':
         case 'S':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1692,30 +1751,44 @@ struct WLNGraph{
           break;
 
 
-
-
-        // ring notations
-
         case 'A':
+        case 'C':
         case 'D':
         case 'H':
-          if (pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if (pending_locant){
             
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
+            if(pending_inline_ring){
+              // we bond to prev
+              if(prev){
+                if(!link_symbols(curr,prev,1 + bond_ticks))
+                Fatal(i);
+              }
+              else{
+                if(!check_unbroken(i))
+                  Fatal(i);
+              } 
+              
             }
             else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
+              if(ring_stack.empty()){
+                fprintf(stderr,"Error: no rings to assign locants to\n");
+                Fatal(i);
+              } 
+              else
+                s_ring = ring_stack.top();
+
+              if(locant_symbols[ch] < s_ring->ring->size)
+                s_ring->children.push_back(curr);
+              else{
+                fprintf(stderr,"Error: assigning locant greater than ring size\n");
+                Fatal(i);
+              }
             }
 
             prev = curr; 
@@ -1728,6 +1801,9 @@ struct WLNGraph{
 
 
         case 'J':
+          if (pending_special){
+            break;
+          }
           if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
@@ -1752,18 +1828,34 @@ struct WLNGraph{
           else if(pending_closure){
             block_end = i;
 
-            // eval ring
+            curr = AllocateWLNSymbol('*');
+            curr->ring = AllocateWLNRing();
+
+            curr->add_special(block_start,block_end);
+            block_start = 0; 
+            block_end = 0; 
+
+            curr->ring->consume_ring_notation(curr->special);
+            ring_stack.push(curr);
+
+            // THESE CAN ONLY HAVE LOCANTS that come before
+            if(prev)
+              prev->children.push_back(curr);
+            
+            bond_ticks = 0;
+            prev = curr; 
 
             pending_closure = false;
           }
           else
             Fatal(i);
+
           break;
 
         case 'L':
         case 'T':
-          if(pending_special){
-            // ignore
+          if(pending_closure || pending_special){
+            break;
           }
           else if(pending_locant){
             if(ring_stack.empty()){
@@ -1787,13 +1879,28 @@ struct WLNGraph{
             pending_locant = false;
           }
           else{
+            
+            if(i==0)
+              pending_inline_ring = true; 
+           
+            if(!pending_inline_ring){
+              fprintf(stderr,"Error: ring notation started without '-' denotion\n");
+              Fatal(i);
+            }
+            else 
+              pending_inline_ring = false;
+
+  
             block_start = i; 
             pending_closure = true; 
           }
           break;
 
         case 'R':
-          if(pending_locant){
+          if (pending_closure || pending_special){
+            break;
+          }
+          else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
               Fatal(i);
@@ -1839,8 +1946,9 @@ struct WLNGraph{
         // bonding
 
         case 'U':
-          if (pending_closure || pending_special)
-            continue;
+          if (pending_closure || pending_special){
+            break;
+          }
           else if(pending_locant){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: no rings to assign locants to\n");
@@ -1873,21 +1981,29 @@ struct WLNGraph{
 
 
         case ' ':
-          if(pending_closure) // skip to allow ring notation
-            continue;
-          
-          
+          if (pending_closure){
+            break;
+          }
+          if (pending_special){
+            pending_special = false; 
+            block_start = 0; 
+            block_end = 0; 
+          }
+
+          // clear the branch stack betweek locants and ions
+          while(!branch_stack.empty())
+            branch_stack.pop();
+            
           pending_locant = true;
           break;
           
         case '&': 
+          if (pending_closure || pending_special){
+            break;
+          }
           if(pending_locant){
             // ionic species, reset the linkings
-            
             prev = 0; 
-            while(!branch_stack.empty())
-              branch_stack.pop();
-
             pending_locant = false;
           }
           else{
@@ -1906,6 +2022,44 @@ struct WLNGraph{
 
 
         case '-':
+          if(!pending_inline_ring){
+            pending_inline_ring = true;
+            
+            // send the linker into its own stack
+            if(branch_stack.top()->num_edges < branch_stack.top()->allowed_edges)
+              linker_stack.push(branch_stack.top());
+
+          }
+            
+          else if(pending_inline_ring){
+            fprintf(stderr,"Error: only one pending ring can be active, check closures\n");
+            Fatal(i);
+          }
+          else if(pending_special){
+            block_end = i;
+            curr = AllocateWLNSymbol('*');
+            curr->add_special(block_start,block_end);
+
+            block_start = 0;
+            block_end = 0; 
+
+            if(prev){
+              if(!link_symbols(curr,prev,1 + bond_ticks))
+                Fatal(i);
+            }
+            else{
+              if(!check_unbroken(i))
+                Fatal(i);
+            }
+
+            bond_ticks = 0; 
+            prev = curr;
+            pending_special = false;
+          }
+          else if (!pending_special)
+            pending_special = true;
+          
+          break;
         case '/':
           prev = curr;
           curr = AllocateWLNSymbol(ch);
