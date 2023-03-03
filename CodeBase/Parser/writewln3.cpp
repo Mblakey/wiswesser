@@ -43,16 +43,6 @@ std::map<unsigned int, WLNSymbol*> symbol_lookup;
 unsigned int glob_index = 0;
 
 
-// character type and instruction types
-enum WLNType
-{
-  SINGLETON = 0,
-  BRANCH = 1,
-  LINKER = 2,
-  TERMINATOR = 3,
-  SPECIAL = 4
-};
-
 enum WLNCode
 {
   ROOT = 0,
@@ -63,16 +53,6 @@ enum WLNCode
   SPIRO = 5,
   IONIC = 6
 };
-
-// follows connection table formats
-enum WLNBond{
-  SINGLE =    1, 
-  DOUBLE =    2,
-  TRIPLE =    3, 
-  AROMATIC =  4
-};
-
-
 
 
 const char *code_hierarchy[] = {"ROOT", "STANDARD", "LOCANT", "CYCLIC", "BRIDGED", "SPIRO", "IONIC"};
@@ -112,9 +92,9 @@ bool isdigit_str(const std::string& s)
 }
 
 // wln string is global - type must be 4 letters
-void Fatal(unsigned int pos, const char *type){
-  fprintf(stderr,"Fatal (%s): %s\n",type,wln);
-  fprintf(stderr,"              ");
+void Fatal(unsigned int pos){
+  fprintf(stderr,"Fatal: %s\n",wln);
+  fprintf(stderr,"       ");
   
   for(unsigned int i=0; i<pos;i++)
     fprintf(stderr," ");
@@ -136,8 +116,6 @@ struct Atom{
 
   std::vector<Atom> bonded;
   std::vector<unsigned int> orders; 
-
-
 };
 
 
@@ -150,7 +128,6 @@ struct WLNSymbol
 {
 
   unsigned char ch;
-  unsigned int type;
 
   unsigned int allowed_edges;
   unsigned int num_edges;
@@ -164,178 +141,19 @@ struct WLNSymbol
   WLNSymbol()
   {
     ch = '\0';
-    type = 0;
     allowed_edges = 0;
     num_edges = 0;
   }
 
-  bool init(unsigned char inp_char)
-  {
-    ch = inp_char;
 
-    switch (ch)
-    {
 
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      type = SINGLETON;
-      allowed_edges = 4; // allows the U to be handled inline
-      break;
-
-    case 'A':
-      type = SINGLETON;
-      allowed_edges = 2;
-      break;
-
-    case 'B': // boron
-      type = BRANCH;
-      allowed_edges = 3;
-      break;
-
-    case 'C': // shortcut carbon atom
-      type = BRANCH;
-      allowed_edges = 4;
-      break;
-
-    case 'D':
-      type = SINGLETON;
-      allowed_edges = 2;
-      break;
-
-    case 'E': // halogens
-    case 'F':
-    case 'G':
-    case 'I':
-      type = BRANCH;
-      allowed_edges = 3;
-      break;
-
-    case 'H': // closing hydrogen
-      type = TERMINATOR;
-      allowed_edges = 1;
-      break;
-
-    case 'J': // generic symbol for halogen
-      type = BRANCH;
-      allowed_edges = 3;
-      break;
-
-    case 'K':
-      type = BRANCH;
-      allowed_edges = 4;
-      break;
-
-    case 'L':
-      type = LINKER;
-      allowed_edges = 2;
-      break;
-
-    case 'M':
-      type = BRANCH;
-      allowed_edges = 2;
-      break;
-
-    case 'N':
-      type = BRANCH;
-      allowed_edges = 3;
-      break;
-
-    case 'O':
-      type = SINGLETON;
-      allowed_edges = 2;
-      break;
-
-    case 'P':
-      type = BRANCH;
-      allowed_edges = 5;
-      break;
-
-    case 'Q':
-      type = TERMINATOR;
-      allowed_edges = 1;
-      break;
-
-    case 'R':           // if handled in standard notation, only one inbound is allowed
-      type = TERMINATOR;
-      allowed_edges = 1;
-      break;
-
-    case 'S':
-      type = BRANCH;
-      allowed_edges = 6;
-      break;
-
-    case 'T':
-    case 'U':
-      type = LINKER;
-      allowed_edges = 2;
-      break;
-
-    case 'V':
-      type = SINGLETON;
-      allowed_edges = 2;
-      break;
-
-    case 'W':
-      type = LINKER;
-      allowed_edges = 2;
-      break;
-
-    case 'X':
-      type = BRANCH;
-      allowed_edges = 4;
-      break;
-
-    case 'Y':
-      type = BRANCH;
-      allowed_edges = 3;
-      break;
-
-    case 'Z':
-      type = TERMINATOR;
-      allowed_edges = 1;
-      break;
-
-    case '&':
-      type = TERMINATOR;
-      allowed_edges = 1;
-      break;
-
-    case ' ':
-    case '-':
-    case '/':
-      type = LINKER;
-      allowed_edges = 2;
-      break;
-
-    case '\0':
-      fprintf(stderr, "Error: end of string null char accessed!\n");
-      return false;
-
-    case '*':
-      type = SPECIAL;
-      break;
-
-    default:
-      fprintf(stderr, "Error: invalid wln symbol parsed: %c\n", ch);
-      return false; 
-    }
-
-    return true;
+  void set_edges(unsigned int edges){
+    allowed_edges = edges; 
   }
-
+  
   // resets the symbol 
   void reset(){
     ch = '\0';
-    type = 0;
     allowed_edges = 0;
     num_edges = 0;
   }
@@ -414,11 +232,8 @@ struct WLNGraph{
   WLNSymbol *AllocateWLNSymbol(unsigned char ch)
   {
     WLNSymbol *wln = new WLNSymbol;
-    if (wln->init(ch))
-      symbol_mempool[wln] = true;
-    else
-      return (WLNSymbol *)0;
-
+    symbol_mempool[wln] = true;
+    wln->ch = ch;
     // add to globals --> needed for charge assignment
     index_lookup[wln] = glob_index;
     symbol_lookup[glob_index] = wln;
@@ -448,18 +263,10 @@ struct WLNGraph{
     } 
   }
 
-  /* re init an allocated symbol */
-  WLNSymbol *transform_symbol(WLNSymbol *sym, unsigned char ch)
-  {
-    sym->init(ch);
-    return sym;
-  }
-
   
   WLNSymbol* copy_symbol(WLNSymbol *src){
     
     WLNSymbol *copy = AllocateWLNSymbol(src->ch);
-    copy->type = src->type;
     copy->allowed_edges = src->allowed_edges;
     copy->num_edges = src->num_edges;
     
@@ -484,6 +291,8 @@ struct WLNGraph{
     return locant;
   }
 
+
+#ifdef DEV
   /* handles all inter ring defintions*/
   bool ParseInterRing(unsigned int start, unsigned int end, WLNRing *ring)
   {
@@ -590,7 +399,7 @@ struct WLNGraph{
         else
         {
           WLNSymbol *oxy = AllocateWLNSymbol('O');
-          if(!add_symbol(oxy,atom,1))
+          if(!link_symbols(oxy,atom,1))
             return false;
           
           atom = access_locant(cur_locant + 1, ring,false);
@@ -612,7 +421,7 @@ struct WLNGraph{
         {
           WLNSymbol *oxy_1 = AllocateWLNSymbol('O');
           WLNSymbol *oxy_2 = AllocateWLNSymbol('O');
-          if(!add_symbol(oxy_1,atom,1) ||  !add_symbol(oxy_2,atom,1))
+          if(!link_symbols(oxy_1,atom,1) ||  !link_symbols(oxy_2,atom,1))
             return false;
           atom = access_locant(cur_locant + 1, ring,false);
         }
@@ -632,6 +441,8 @@ struct WLNGraph{
 
     return true;
   }
+
+
 
   /* inplace function, should only edit the WLNRing pointer */
   bool CreateStandardRing(unsigned int start, unsigned int end, WLNRing *ring)
@@ -679,7 +490,7 @@ struct WLNGraph{
       if(ring->aromatic)
         add_aromatic(current,prev);
       else
-        add_symbol(current, prev,0);
+        link_symbols(current, prev,0);
 
       prev = current;
     }
@@ -687,7 +498,7 @@ struct WLNGraph{
     if(ring->aromatic)
       add_aromatic(rhead,current);
     else
-      add_symbol(rhead, current,0);
+      link_symbols(rhead, current,0);
 
     if (num_rings > 1)
     {
@@ -812,42 +623,31 @@ struct WLNGraph{
     return wln_ring;
   }
   
-
-  /* used in ring notation only*/
-  bool add_aromatic(WLNSymbol *child, WLNSymbol *parent){
-    child->num_edges  += 1;
-    parent->num_edges += 1;
-    parent->children.push_back(child);
-    return true;
-  }
+#endif
 
   /* should handle all bonding modes, adds child to parent->children
   'UU' bonding also added here */
-  bool add_symbol(WLNSymbol *child, WLNSymbol *parent, unsigned int bond_ticks)
+  bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
   {
 
-
-    unsigned int bond_added = 1 + bond_ticks; // can be zero - local scope so reset outside
-
+   
     // if the child cannot handle the new valence
-    if ( (child->num_edges + bond_added) > child->allowed_edges ){
+    if ( (child->num_edges + bond) > child->allowed_edges ){
       fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",child->ch);
       return false; 
     }
 
     // same for the parent
-    if ( (parent->num_edges + bond_added) > parent->allowed_edges ){
+    if ( (parent->num_edges + bond) > parent->allowed_edges ){
       fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",parent->ch);
       return false; 
     }
 
-    
-    // if these pass, we can add and change both num_edges 
-    
-    child->num_edges  += bond_added;
-    parent->num_edges += bond_added;
+    child->num_edges  += bond;
+    parent->num_edges += bond;
 
     parent->children.push_back(child);
+    parent->orders.push_back(bond);
 
     return true;
   }
@@ -1228,39 +1028,6 @@ struct WLNGraph{
     return created_wln; 
   }
 
-    /* this can perform the normal backtrack, excluding  '&' closure */
-  WLNSymbol *backtrack_stack(std::stack<WLNSymbol *> &wln_stack)
-  {
-    WLNSymbol *tmp = 0;
-    while (!wln_stack.empty())
-    {
-      tmp = wln_stack.top();
-      if (tmp->type == BRANCH)
-        return tmp;
-      wln_stack.pop();
-    }
-
-    // if it goes all the way that string complete
-    return (WLNSymbol *)0;
-  }
-
-  /* forces both the '&' closure and its parents branch to come off stack */
-  WLNSymbol *force_closure(std::stack<WLNSymbol *> &wln_stack)
-  {
-    WLNSymbol *tmp = 0;
-    unsigned int popped = 0;
-    while (!wln_stack.empty())
-    {
-      tmp = wln_stack.top();
-      if (tmp->type == BRANCH && popped > 1)
-        return tmp;
-      wln_stack.pop();
-      popped++;
-    }
-
-    // if it goes all the way that string complete
-    return (WLNSymbol *)0;
-  }
 
   // can return head or tail
   WLNSymbol* consume_standard_notation2(unsigned int start, unsigned int end, bool tail = false){
@@ -1275,8 +1042,8 @@ struct WLNGraph{
     if (!created_wln)
       return (WLNSymbol *)0;
     
-    if(created_wln->type == BRANCH)
-      wln_stack.push(created_wln);
+    // if(created_wln->type == BRANCH)
+    //   wln_stack.push(created_wln);
 
     bool open_special = false; 
     unsigned int bond_tick = 0;    
@@ -1334,11 +1101,11 @@ struct WLNGraph{
       else
         created_wln = AllocateWLNSymbol(wln[i]);
 
-      if(created_wln->type == BRANCH)
-        wln_stack.push(created_wln);
+      // if(created_wln->type == BRANCH)
+      //   wln_stack.push(created_wln);
 
       // add the bond, and move prev across
-      if (!add_symbol(created_wln, prev,bond_tick))
+      if (!link_symbols(created_wln, prev,bond_tick))
         return (WLNSymbol *)0;
 
 
@@ -1350,11 +1117,11 @@ struct WLNGraph{
           wln_stack.pop();
       }
 
-      // if a terminator we have to return to the stack
-      if(!wln_stack.empty() && created_wln->type == TERMINATOR)
-        prev = wln_stack.top();
-      else
-        prev = created_wln; 
+      // // if a terminator we have to return to the stack
+      // if(!wln_stack.empty() && created_wln->type == TERMINATOR)
+      //   prev = wln_stack.top();
+      // else
+      //   prev = created_wln; 
     }
     
     // head or tail return
@@ -1366,22 +1133,73 @@ struct WLNGraph{
 
   }
 
+  WLNSymbol* return_open_branch(std::stack<WLNSymbol*> &branch_stack){
+
+    if (branch_stack.empty())
+      return (WLNSymbol*)0;
+
+    WLNSymbol *top = 0;
+    while(!branch_stack.empty()){
+      top = branch_stack.top();
+      if(top->allowed_edges == top->num_edges)
+        branch_stack.pop();
+      else
+        return top;
+    }
+
+    return (WLNSymbol*)0;
+  }
+
+  bool check_unbroken(unsigned int i){
+    if(i != 0 && wln[i-1] != '&'){
+      fprintf(stderr,"Error: broken graph without ionic denotation, check branches|locants and '&'\n");
+      return false;
+    }
+
+    return true;
+  }
+
 
 
   /* a global segmentation using both rule sets - start merging */
   bool ParseWLNString(const char *wln, unsigned int len){
 
+
+    std::stack <WLNRing*>   ring_stack; 
+    std::stack <WLNSymbol*> branch_stack;
+
+    WLNSymbol *curr = 0;
+    WLNSymbol *prev = 0;  
+
+    bool pending_locant  = false;
+    bool pending_special = false;
+    bool pending_closure = false; 
+
+
+    // allows consumption of notation after full parse
+    unsigned int block_start =  0;
+    unsigned int block_end    = 0;
+
+    unsigned int bond_ticks = 0;
+
     for (unsigned int i=0; i<len; i++){
       unsigned char ch = wln[i];
       
-
       if(opt_debug)
         fprintf(stderr,"Parsing: %c\n",ch);
 
       switch (ch){
 
+        case '0': // cannot be lone
+          if (i == 0)
+            Fatal(i);
+          else if(i > 0 && !std::isdigit(wln[i-1]))
+            Fatal(i);
+          else  
+            curr = AllocateWLNSymbol(ch);
+          break;
+          
 
-        case '0':
         case '1':
         case '2':
         case '3':
@@ -1391,6 +1209,19 @@ struct WLNGraph{
         case '7':
         case '8':
         case '9':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(2);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          prev = curr;
           break;
 
 
@@ -1403,40 +1234,302 @@ struct WLNGraph{
         case 'G':
         case 'H':
         case 'I':
-        case 'J':
-        case 'K':
-        case 'L':
-        case 'M':
-        case 'N':
-        case 'O':
         case 'P':
-        case 'Q':
         case 'R':
         case 'S':
-        case 'T':
-        case 'U':
-        case 'V':
-        case 'W':
-        case 'X':
-        case 'Y':
-        case 'Z':
+          
+          curr = AllocateWLNSymbol(ch);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1))
+              Fatal(i);
+          }
+
+          prev = curr;
           break;
 
+
+        // carbons 
+
+        case 'Y':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(3);
+
+          branch_stack.push(curr);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+          prev = curr;
+          break;
+
+        case 'X':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(4);
+
+          branch_stack.push(curr);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+          prev = curr;
+          break;
+
+
+        // oxygens 
+
+        case 'O':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(2);
+
+          branch_stack.push(curr);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+          prev = curr;
+          break;
+
+        case 'Q':
+          if(pending_locant){
+
+
+            pending_locant = false;
+          }
+          else if(pending_closure || pending_special){
+            continue; 
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(1);
+
+            if(prev){
+              if(!link_symbols(curr,prev,1 + bond_ticks))
+                Fatal(i);
+            }
+            else{
+              if(!check_unbroken(i))
+               Fatal(i);
+            }
+
+            bond_ticks = 0;
+            
+            prev = return_open_branch(branch_stack);
+          }
+          break;
+
+
+        case 'V':
+        case 'W':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(2);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+            
+          prev = curr;
+          break;
+
+
+
+        // nitrogens 
+        case 'N':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(3);
+
+          branch_stack.push(curr);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+          prev = curr;
+          break;
+
+        case 'M':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(2);
+
+          branch_stack.push(curr);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+          prev = curr;
+          break;
+
+        case 'K':
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(4);
+
+          branch_stack.push(curr);
+
+          if(prev){
+            if(!link_symbols(curr,prev,1 + bond_ticks))
+              Fatal(i);
+          }
+          else{
+            if(!check_unbroken(i))
+              Fatal(i);
+          }
+
+          bond_ticks = 0;
+          prev = curr;
+          break;
+
+
+        case 'Z':
+          if(pending_locant){
+
+
+            pending_locant = false;
+          }
+          else if(pending_closure || pending_special){
+            continue; 
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(1);
+
+            if(prev){
+              if(!link_symbols(curr,prev,1 + bond_ticks))
+                Fatal(i);
+            }
+            else{
+              if(!check_unbroken(i))
+                Fatal(i);
+            }
+
+            bond_ticks = 0;
+            
+            prev = return_open_branch(branch_stack);
+          }
+          break;
+
+
+        // ring notations
+
+        case 'J':
+          if(pending_locant){
+
+
+            pending_locant = false;
+          }
+          if(pending_closure){
+            block_end = i;
+
+            // eval ring
+
+            pending_closure = false;
+          }
+          break;
+
+        case 'L':
+        case 'T':
+          if(pending_special){
+            // ignore
+          }
+          else if(pending_locant){
+            // handle locant
+          }
+          else{
+            block_start = i; 
+            pending_closure = true; 
+          }
+          break;
+
+
+
+        // bonding
+
+        case 'U':
+          if (pending_closure || pending_special)
+            continue;
+          else if (pending_locant){
+            // locant stuff
+          }
+          else
+            bond_ticks++;
+
+          break;
+          
+
+        
+        // specials 
+
+
         case ' ':
+          if(pending_closure) // skip to allow ring notation
+            continue;
+          
+          if(!ring_stack.empty())
+            pending_locant = true;
+
+          break;
+          
         case '&':
         case '-':
         case '/':
+          prev = curr;
+          curr = AllocateWLNSymbol(ch);
           break;
 
-
         default: 
-          Fatal(i,"CHAR");
+          Fatal(i);
         
       }
 
 
     }
 
+
+    if(pending_closure){
+      fprintf(stderr,"Error: expected 'J' to close ring\n");
+      Fatal(len);
+    }
+            
     return true; 
   }
 

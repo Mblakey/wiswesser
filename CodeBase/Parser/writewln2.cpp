@@ -563,7 +563,7 @@ struct WLNGraph{
         else
         {
           WLNSymbol *oxy = AllocateWLNSymbol('O');
-          if(!add_symbol(oxy,atom,1))
+          if(!link_symbols(oxy,atom,1))
             return false;
           
           atom = access_locant(cur_locant + 1, ring,false);
@@ -585,7 +585,7 @@ struct WLNGraph{
         {
           WLNSymbol *oxy_1 = AllocateWLNSymbol('O');
           WLNSymbol *oxy_2 = AllocateWLNSymbol('O');
-          if(!add_symbol(oxy_1,atom,1) ||  !add_symbol(oxy_2,atom,1))
+          if(!link_symbols(oxy_1,atom,1) ||  !link_symbols(oxy_2,atom,1))
             return false;
           atom = access_locant(cur_locant + 1, ring,false);
         }
@@ -652,7 +652,7 @@ struct WLNGraph{
       if(ring->aromatic)
         add_aromatic(current,prev);
       else
-        add_symbol(current, prev,0);
+        link_symbols(current, prev,0);
 
       prev = current;
     }
@@ -660,7 +660,7 @@ struct WLNGraph{
     if(ring->aromatic)
       add_aromatic(rhead,current);
     else
-      add_symbol(rhead, current,0);
+      link_symbols(rhead, current,0);
 
     if (num_rings > 1)
     {
@@ -798,7 +798,7 @@ struct WLNGraph{
 
   /* should handle all bonding modes, adds child to parent->children
   'UU' bonding also added here */
-  bool add_symbol(WLNSymbol *child, WLNSymbol *parent, unsigned int bond_ticks)
+  bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond_ticks)
   {
 
 
@@ -1317,7 +1317,7 @@ struct WLNGraph{
         wln_stack.push(created_wln);
 
       // add the bond, and move prev across
-      if (!add_symbol(created_wln, prev,bond_tick))
+      if (!link_symbols(created_wln, prev,bond_tick))
         return (WLNSymbol *)0;
 
 
@@ -1451,7 +1451,7 @@ struct WLNGraph{
     for (unsigned int k=0;k<atoms-1;k++){
       WLNSymbol *created = AllocateWLNSymbol('C');
       if(prev)
-        add_symbol(prev,created,0);
+        link_symbols(prev,created,0);
       else
         head = created; 
       prev = created;
@@ -1610,7 +1610,7 @@ struct WLNGraph{
         case 'M':{
           node = transform_symbol(node,'N');
           WLNSymbol *created = AllocateWLNSymbol('H');
-          add_symbol(created,node,0);
+          link_symbols(created,node,0);
           break;
         }
 
@@ -1618,7 +1618,7 @@ struct WLNGraph{
           node = transform_symbol(node,'N');
           for (unsigned int k = 0; k < 2; k++){
             WLNSymbol *created = AllocateWLNSymbol('H');
-            add_symbol(created,node,0);
+            link_symbols(created,node,0);
           }
           break; 
         }
@@ -1627,7 +1627,7 @@ struct WLNGraph{
           // expands to O-H
           node = transform_symbol(node,'O');
           WLNSymbol *created = AllocateWLNSymbol('H');
-          add_symbol(created,node,0);
+          link_symbols(created,node,0);
           break;
         }
 
@@ -1635,7 +1635,7 @@ struct WLNGraph{
           // expands to C=O
           node = transform_symbol(node,'C');
           WLNSymbol *created = AllocateWLNSymbol('O');
-          add_symbol(created,node,1);
+          link_symbols(created,node,1);
           break;
         }
 
