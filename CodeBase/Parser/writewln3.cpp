@@ -1092,9 +1092,9 @@ struct WLNGraph{
 
   WLNSymbol* pop_ringstack(unsigned int pops, std::stack <WLNSymbol*> &stack){
 
-    if (pops > stack.size()){
+    if (pops >= stack.size()){
       fprintf(stderr,"Error: trying to pop too many rings check '&' count\n");
-      return 0; 
+      return (WLNSymbol*)0; 
     }
     
     for (unsigned int i=0; i<pops;i++)
@@ -1111,6 +1111,9 @@ struct WLNGraph{
       fprintf(stderr,"Error: trying to pop empty stack\n");
       return 0; 
     }
+
+    if(!prev)
+      fprintf(stderr,"Error: popping with no previous symbol\n");
 
     bool hard = false; 
 
@@ -1138,6 +1141,10 @@ struct WLNGraph{
     }
     return stack.top();
   }
+
+
+
+
 
 
 
@@ -1171,19 +1178,7 @@ struct WLNGraph{
       
       if(opt_debug)
         fprintf(stderr,"Parsing: %c\n",ch);
-
-
-      // saves repeat in switch
-      if(pop_ticks && wln[i] != '&'){
-        if(!prev)
-          fprintf(stderr,"Error: popping with no previous symbol\n");
-        else{
-          prev = pop_branchstack(pop_ticks,branch_stack,prev);
-          if(!prev)
-            Fatal(i);
-          pop_ticks = 0; 
-        }
-      }
+    
 
       switch (ch){
 
@@ -1210,6 +1205,12 @@ struct WLNGraph{
         case '7':
         case '8':
         case '9':
+          if(pop_ticks){
+            prev = pop_branchstack(pop_ticks,branch_stack,prev);
+            if(!prev)
+              Fatal(i);
+            pop_ticks = 0; 
+          }
 
           if(pending_closure || pending_special){
             break;
@@ -1234,7 +1235,7 @@ struct WLNGraph{
         // carbons -- must be sandwiched 
 
         case 'Y':
-      
+          
           if(pending_closure || pending_special){
             break;
           }
@@ -1275,6 +1276,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else{
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(3);
 
@@ -1320,6 +1329,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else {
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(4);
 
@@ -1368,6 +1385,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else {
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(2);
 
@@ -1416,6 +1441,14 @@ struct WLNGraph{
             continue; 
           }
           else{
+            
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(1);
 
@@ -1461,6 +1494,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else {
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(2);
 
@@ -1508,6 +1549,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else {
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(3);
 
@@ -1553,6 +1602,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else {
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(2);
 
@@ -1598,6 +1655,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else {
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(4);
 
@@ -1647,6 +1712,14 @@ struct WLNGraph{
             continue; 
           }
           else{
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(1);
 
@@ -1660,7 +1733,6 @@ struct WLNGraph{
             }
 
             bond_ticks = 0;
-            
             prev = return_open_branch(branch_stack);
           }
           break;
@@ -1700,6 +1772,14 @@ struct WLNGraph{
             continue; 
           }
           else{
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(1);
 
@@ -1750,6 +1830,14 @@ struct WLNGraph{
             continue; 
           }
           else{
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(3);
 
@@ -1763,7 +1851,6 @@ struct WLNGraph{
             }
 
             bond_ticks = 0;
-            
             prev = return_open_branch(branch_stack);
           }
           break;
@@ -1799,6 +1886,14 @@ struct WLNGraph{
             continue; 
           }
           else{
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(6);
 
@@ -1988,6 +2083,14 @@ struct WLNGraph{
             pending_locant = false;
           }
           else{
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             curr = AllocateWLNSymbol('*');
             curr->ring = AllocateWLNRing();
 
@@ -2062,6 +2165,8 @@ struct WLNGraph{
 
           if(pop_ticks){
             prev = pop_ringstack(pop_ticks,ring_stack);
+            if(!prev)
+              Fatal(i);
             pop_ticks = 0; 
           } 
            
@@ -2097,6 +2202,14 @@ struct WLNGraph{
             Fatal(i);
           }
           else if(pending_special){
+
+            if(pop_ticks){
+              prev = pop_branchstack(pop_ticks,branch_stack,prev);
+              if(!prev)
+                Fatal(i);
+              pop_ticks = 0; 
+            }
+
             block_end = i;
             curr = AllocateWLNSymbol('*');
             curr->add_special(block_start,block_end);
