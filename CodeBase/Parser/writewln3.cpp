@@ -1,4 +1,7 @@
 
+/* third iteration */
+
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,6 +10,7 @@
 #include <stack>
 #include <map>
 #include <deque>
+#include <iterator>
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -96,6 +100,8 @@ unsigned int calculate_ring_atoms(unsigned int rings, unsigned int max_atoms)
 }
 
 
+// --- utilities ---
+
 bool isdigit_str(const std::string& s)
 {
   for (char const &ch : s) {
@@ -103,7 +109,41 @@ bool isdigit_str(const std::string& s)
       return false;
   }
   return true;
- }
+}
+
+// wln string is global - type must be 4 letters
+void Fatal(unsigned int pos, const char *type){
+  fprintf(stderr,"Fatal (%s): %s\n",type,wln);
+  fprintf(stderr,"              ");
+  
+  for(unsigned int i=0; i<pos;i++)
+    fprintf(stderr," ");
+
+  fprintf(stderr,"^\n");
+
+  exit(1);
+}
+
+
+
+
+// should be all we need for a SCT XI connection table - obabel can handle coords
+struct Atom{
+  std::string symbol; 
+  unsigned int atomic_num;
+
+  int charge; 
+
+  std::vector<Atom> bonded;
+  std::vector<unsigned int> orders; 
+
+
+};
+
+
+struct AtomGraph{
+  Atom *head; 
+}; 
 
 
 struct WLNSymbol
@@ -112,32 +152,21 @@ struct WLNSymbol
   unsigned char ch;
   unsigned int type;
 
-  int charge;
-
-  unsigned int inc_bond; // can take values 1-3 for ['','U','UU']
-
   unsigned int allowed_edges;
   unsigned int num_edges;
 
-  std::string special; // if ch='\0' then a special string is denoted e.g Mg
-  // using string to maintain struct ownership
-
-  WLNSymbol *prev; // should be a single term - wln symbol only has one incoming
-  
-  std::vector<WLNSymbol*> children; // linked list of next terms chains
+  std::string special; // if ch='*' then a special string is denoted e.g Mg
+ 
+  std::vector<WLNSymbol*>     children; // linked list of next terms chains
+  std::vector<unsigned int>   orders;
 
   // if default needed
   WLNSymbol()
   {
     ch = '\0';
     type = 0;
-
-    inc_bond = 0;
-    charge = 0; 
-
     allowed_edges = 0;
     num_edges = 0;
-    prev = 0;
   }
 
   bool init(unsigned char inp_char)
@@ -300,8 +329,15 @@ struct WLNSymbol
       return false; 
     }
 
-    prev = (WLNSymbol *)0;
     return true;
+  }
+
+  // resets the symbol 
+  void reset(){
+    ch = '\0';
+    type = 0;
+    allowed_edges = 0;
+    num_edges = 0;
   }
 };
 
@@ -341,45 +377,47 @@ struct WLNRing
       fprintf(stderr, "%p ---> %c\n", iter->second, iter->first);
     }
   }
+
+ 
 };
 
 struct WLNGraph{
 
   WLNSymbol *root;
-  unsigned int wln_nodes = 0;
-  unsigned int wln_rings = 0;
-  std::vector<WLNSymbol *> symbol_mempool;
-  std::vector<WLNRing *> ring_mempool;
+  std::map<WLNSymbol*, bool> symbol_mempool;
+  std::map<WLNRing*,   bool > ring_mempool;
   
-  std::map<WLNSymbol*,bool> symbol_hide; 
   std::map<WLNRing *, WLNSymbol *> ring_access; // access the ring struct from locant A pointer
 
-  WLNGraph() : root{(WLNSymbol *)0}, wln_nodes{0} {};
-  ~WLNGraph()
-  {
-    for (WLNSymbol *allocedwln : symbol_mempool)
-    { // if error free all the symbol_mempool --> stop leak
-      delete allocedwln;
-      allocedwln = 0;
+  WLNGraph() : root{(WLNSymbol *)0}{};
+  ~WLNGraph(){
+    Clean();
+  };
+
+  void Clean(){
+    
+    std::map<WLNSymbol*, bool>::iterator sym_iter;
+    for (sym_iter = symbol_mempool.begin(); sym_iter != symbol_mempool.end(); sym_iter++){
+      if (sym_iter->second)
+        delete sym_iter->first;
+    } 
+
+    std::map<WLNRing*, bool>::iterator ring_iter;
+    for (ring_iter = ring_mempool.begin(); ring_iter != ring_mempool.end(); ring_iter++){
+      if (ring_iter->second)
+        delete ring_iter->first;
     }
 
-    for (WLNRing *allocedring : ring_mempool)
-    { // if error free all the symbol_mempool --> stop leak
-      delete allocedring;
-      allocedring = 0;
-    }
   }
 
   
   WLNSymbol *AllocateWLNSymbol(unsigned char ch)
   {
-    wln_nodes++;
     WLNSymbol *wln = new WLNSymbol;
     if (wln->init(ch))
-      symbol_mempool.push_back(wln);
+      symbol_mempool[wln] = true;
     else
       return (WLNSymbol *)0;
-
 
     // add to globals --> needed for charge assignment
     index_lookup[wln] = glob_index;
@@ -389,33 +427,28 @@ struct WLNGraph{
     return wln;
   }
 
-  // for a manual psuedo style deallocate
-  void HideWLNSymbol(WLNSymbol *node){
-    symbol_hide[node] = true;
-  }
 
   WLNRing *AllocateWLNRing()
   {
-    wln_rings++;
     WLNRing *wln_ring = new WLNRing;
     wln_ring->init();
-    ring_mempool.push_back(wln_ring);
+    ring_mempool[wln_ring] = true;
     return wln_ring;
   }
 
   void reset_indexes(){
     glob_index = 0; 
-    for (WLNSymbol* node : symbol_mempool){
-      if (symbol_hide[node])
-        continue;
-
-      index_lookup[node] = glob_index;
-      symbol_lookup[glob_index] = node;
-      glob_index++;
-    }
+    std::map<WLNSymbol*, bool>::iterator sym_iter;
+    for (sym_iter = symbol_mempool.begin(); sym_iter != symbol_mempool.end(); sym_iter++){
+      if (sym_iter->second){
+        index_lookup[sym_iter->first] = glob_index;
+        symbol_lookup[glob_index] = sym_iter->first;
+        glob_index++;
+      }  
+    } 
   }
 
-  /* re init a transformed symbol */
+  /* re init an allocated symbol */
   WLNSymbol *transform_symbol(WLNSymbol *sym, unsigned char ch)
   {
     sym->init(ch);
@@ -423,24 +456,19 @@ struct WLNGraph{
   }
 
   
-  bool copy_symbol_info(WLNSymbol *src, WLNSymbol *trg, bool SYM = false){
+  WLNSymbol* copy_symbol(WLNSymbol *src){
     
-    if(SYM)
-      trg->ch = src->ch;
-
-    trg->type = src->type;
-    trg->charge = src->charge;
-    trg->inc_bond = src->inc_bond;
-    trg->allowed_edges = src->allowed_edges;
-    trg->num_edges = src->num_edges;
-    trg->prev = src->prev;
+    WLNSymbol *copy = AllocateWLNSymbol(src->ch);
+    copy->type = src->type;
+    copy->allowed_edges = src->allowed_edges;
+    copy->num_edges = src->num_edges;
     
- 
-    for(WLNSymbol *child: src->children){
-      trg->children.push_back(child);
+    for (unsigned int i=0; i<src->children.size();i++){
+      copy->children.push_back(src->children[i]);
+      copy->orders.push_back(src->orders[i]);
     }
 
-    return true;
+    return copy;
   }
 
   WLNSymbol *access_locant(unsigned char ch, WLNRing *ring, bool strict=true)
@@ -546,7 +574,6 @@ struct WLNGraph{
         }
         else{
           atom = access_locant(cur_locant + 1, ring,false);
-          atom->inc_bond++;
         }
         break;
 
@@ -788,11 +815,9 @@ struct WLNGraph{
 
   /* used in ring notation only*/
   bool add_aromatic(WLNSymbol *child, WLNSymbol *parent){
-    child->inc_bond   = 4; 
     child->num_edges  += 1;
     parent->num_edges += 1;
     parent->children.push_back(child);
-    child->prev = parent; // keep the linked list functionality.
     return true;
   }
 
@@ -819,14 +844,10 @@ struct WLNGraph{
     
     // if these pass, we can add and change both num_edges 
     
-    child->inc_bond   += bond_added; 
-
     child->num_edges  += bond_added;
     parent->num_edges += bond_added;
 
     parent->children.push_back(child);
-
-    child->prev = parent; // keep the linked list functionality.
 
     return true;
   }
@@ -1346,95 +1367,83 @@ struct WLNGraph{
   }
 
 
-#ifdef DEPRECATED
-  /* consumes the standard blocks, uses stacks to handle branching */
-  WLNSymbol *consume_standard_notation(unsigned int start, unsigned int end)
-  {
 
-    std::stack<WLNSymbol *> wln_stack;
-    WLNSymbol *prev = 0;
-    WLNSymbol *root = 0;
+  /* a global segmentation using both rule sets - start merging */
+  bool ParseWLNString(const char *wln, unsigned int len){
 
-    WLNSymbol *created_wln = AllocateWLNSymbol(wln[start]);
-    if (!created_wln)
-      return (WLNSymbol *)0;
-    wln_stack.push(created_wln);
+    for (unsigned int i=0; i<len; i++){
+      unsigned char ch = wln[i];
+      
 
-    root = created_wln;
+      if(opt_debug)
+        fprintf(stderr,"Parsing: %c\n",ch);
 
-    bool open_special = false; 
-    unsigned int bond_tick = 0;    
-    std::vector<unsigned char> special;
+      switch (ch){
 
 
-    for (unsigned int i = start + 1; i <= end; i++)
-    {
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          break;
 
-      // bonds
-      if (wln[i] == 'U'){
-        bond_tick++;
-        continue; 
+
+        case 'A':
+        case 'B':
+        case 'C':
+        case 'D':
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'H':
+        case 'I':
+        case 'J':
+        case 'K':
+        case 'L':
+        case 'M':
+        case 'N':
+        case 'O':
+        case 'P':
+        case 'Q':
+        case 'R':
+        case 'S':
+        case 'T':
+        case 'U':
+        case 'V':
+        case 'W':
+        case 'X':
+        case 'Y':
+        case 'Z':
+          break;
+
+        case ' ':
+        case '&':
+        case '-':
+        case '/':
+          break;
+
+
+        default: 
+          Fatal(i,"CHAR");
+        
       }
 
-      if(open_special && wln[i] != '-'){
-        special.push_back(wln[i]);
-        if(special.size() > 2){
-          fprintf(stderr,"Error: invalid elemental notation in standard\n");
-          return (WLNSymbol *)0;
-        }
-        continue;
-      }
 
-      // specials
-      if(wln[i] == '-'){
-        if(!open_special){
-          open_special = true;
-          continue;
-        }   
-        if(open_special){
-          created_wln = define_element(special);
-          special.clear();
-          open_special = false;
-        }
-      }
-      else
-        created_wln = AllocateWLNSymbol(wln[i]);
-
-      if (!created_wln)
-        return (WLNSymbol*)0;
-
-    
-      if(wln_stack.empty()){
-        fprintf(stderr,"Error: invalid branch notation - invalid tertiary access\n");
-        return (WLNSymbol*)0;
-      }
-      else
-        prev = wln_stack.top();
-
-    
-      wln_stack.push(created_wln); // push all of them
-
-      if (!add_symbol(created_wln, prev,bond_tick))
-        return (WLNSymbol *)0;
-
-      bond_tick = 0; // reset the bond counter;  
-     
-      // options here depending on the forced closure of '&'
-      if (created_wln->type == TERMINATOR)
-      {
-        if (created_wln->ch == '&' && prev->type == BRANCH)
-          prev = force_closure(wln_stack);
-        else
-          prev = backtrack_stack(wln_stack);
-      }
     }
 
-    return root; // return start of the tree
+    return true; 
   }
 
-#endif
 
 
+
+#ifdef DEV
   bool create_chain(WLNSymbol *node, bool special=false){
     
     unsigned int atoms = 0; 
@@ -1467,6 +1476,7 @@ struct WLNGraph{
 
     return true;
   }
+
 
   // to be used on a mono substitued R benzene only
   // not in place uses hide mechanism. 
@@ -1501,6 +1511,7 @@ struct WLNGraph{
 
     return true;
   }
+
 
   /* search the mempool dfs style and find all concat points */
   bool ConcatNumerics(){
@@ -1604,7 +1615,6 @@ struct WLNGraph{
 
         case 'K':
           node = transform_symbol(node,'N');
-          node->charge = 1;
           break;
 
         case 'M':{
@@ -1738,16 +1748,23 @@ struct WLNGraph{
     fprintf(fp,"\n");
   }
 
+#endif
+
   /* dump wln tree to a dotvis file */
   void WLNDumpToDot(FILE *fp)
   {
 
+    std::map<WLNSymbol*, bool>::iterator sym_iter;
+    
+
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
-    for (WLNSymbol *node : symbol_mempool)
-    { 
-      if(symbol_hide[node])
+    for (sym_iter = symbol_mempool.begin(); sym_iter != symbol_mempool.end(); sym_iter++){ 
+      
+      if (!sym_iter->second)
         continue;
+      
+      WLNSymbol *node = sym_iter->first;
 
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->ch == '*')
@@ -1757,630 +1774,17 @@ struct WLNGraph{
 
       for (WLNSymbol *child : node->children)
       { 
-        if(symbol_hide[child])
-          continue;
-
-        if(child->inc_bond == SINGLE){
-          fprintf(fp, "  %d", index_lookup[node]);
-          fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
-        }
-        else if (child->inc_bond == DOUBLE || child->inc_bond == TRIPLE){
-          for (unsigned int i=0; i<child->inc_bond; i++){
-            fprintf(fp, "  %d", index_lookup[node]);
-            fprintf(fp, " -> ");
-            fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
-          }
-        } 
-        else if (child->inc_bond == AROMATIC){
-          fprintf(fp, "  %d", index_lookup[node]);
-          fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none,color=blue]\n", index_lookup[child]);
-        }
-        else if (child->inc_bond == 0){
-          fprintf(stderr,"Warning: plotting undefined bond, shown in red\n");
-          fprintf(fp, "  %d", index_lookup[node]);
-          fprintf(fp, " -> ");
-          fprintf(fp, "%d [color=red]\n", index_lookup[child]);
-        }
-        
+        fprintf(fp, "  %d", index_lookup[node]);
+        fprintf(fp, " -> ");
+        fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
       }
     }
     fprintf(fp, "}\n");
   }
 };
 
-struct WLNInstruction
-{
 
-  unsigned int state;
-  unsigned int start_ch;
-  unsigned int end_ch;
 
-  bool ring_linker;
-
-  WLNInstruction *parent;
-  std::vector<WLNInstruction *> next_instructions;
-
-  void init_state(unsigned int c)
-  {
-    state = c;
-    start_ch = 0;
-    end_ch = 0;
-    parent = (WLNInstruction *)0;
-    ring_linker = false;
-  }
-
-  void add_start(unsigned int pos)
-  {
-    start_ch = pos;
-  }
-
-  void add_end(unsigned int pos)
-  {
-    end_ch = pos;
-  }
-
-  void add_prev(WLNInstruction *src)
-  {
-    parent = src;
-  }
-
-  void display()
-  {
-    if (state == ROOT)
-      fprintf(stderr, "instruction: %10s\n", "ROOT");
-    else if (state == LOCANT)
-      fprintf(stderr, "instruction: %10s contains: %c\n", code_hierarchy[state], wln[start_ch]);
-    else
-    {
-      fprintf(stderr, "instruction: %10s contains: ", code_hierarchy[state]);
-      for (unsigned int i = start_ch; i <= end_ch; i++)
-        fprintf(stderr, "%c", wln[i]);
-      fprintf(stderr, "\n");
-    }
-  }
-};
-
-
-// THIS CLASS CAN GO ONCE GRAPH IS BUILT
-
-/* make a graph, split the string, call the subroutines - easy right? */
-struct WLNParser
-{
-
-  WLNInstruction *root;
-  unsigned int num_instructions;
-  std::vector<WLNInstruction *> instruction_pool;
-
-  WLNParser()
-      : root{(WLNInstruction *)0}, num_instructions{0} {};
-  ~WLNParser()
-  {
-    for (WLNInstruction *instruction : instruction_pool)
-      delete instruction;
-  }
-
-  WLNInstruction *add_instruction(unsigned int int_code, unsigned int i)
-  {
-    WLNInstruction *instruction = new WLNInstruction;
-    instruction->init_state(int_code);
-    instruction->add_start(i);
-
-    instruction_pool.push_back(instruction);
-    num_instructions++;
-    return instruction;
-  }
-
-  void display_instructions()
-  {
-    for (WLNInstruction *instruction : instruction_pool)
-      instruction->display();
-  }
-
-  WLNSymbol *return_locant_symbol(unsigned int wln_pos, std::stack<WLNRing *> &ring_stack)
-  {
-
-    if (ring_stack.empty())
-    {
-      fprintf(stderr, "Error: accessing ring notation with zero rings\n");
-      return 0;
-    }
-
-    WLNRing *ring = ring_stack.top();
-    WLNSymbol *binder = ring->locants[wln[wln_pos]];
-
-    if (!binder)
-    {
-      fprintf(stderr, "Error: accessed out of bound locant position\n");
-      return 0;
-    }
-
-    return binder;
-  }
-
-  /* parse the wln string and create instruction set,
-  I think its reasonable to have two abstractions for this */
-  bool CreateWLNGraph(const char *wln, unsigned int len, WLNGraph &graph)
-  {
-
-    WLNInstruction *current = add_instruction(ROOT, 0);
-    root = current;
-
-    // these are now global for inline graph creation
-    std::stack<WLNRing *> ring_stack;
-    std::stack<WLNSymbol *> rlinker_stack; // for XR&R style ring definition
-
-    bool pending_closure  = false;
-    bool pending_locant   = false;
-    bool pending_benzene  = false; // for substituted R notation
-
-    WLNSymbol *binder = 0; // used to link the wln nodes to previous
-
-    for (unsigned int i = 0; i < len; i++)
-    {
-      char ch = wln[i];
-      switch (ch)
-      {
-
-      case 'L':
-      case 'T':
-
-        if (current->state == ROOT)
-        {
-          current = add_instruction(CYCLIC, i);
-          pending_closure = true;
-        }
-        else if (current->state == STANDARD)
-        {
-
-          if (pending_locant)
-          {
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false; 
-            
-            pending_locant = false;
-          }
-        }
-        else if (current->state == LOCANT)
-        {
-
-          current = add_instruction(CYCLIC, i);
-
-          pending_closure = true;
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (pending_locant)
-          {
-
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false; 
-
-            pending_locant = false;
-          }
-        }
-
-        break;
-
-      case 'J': // pass
-        if (current->state == STANDARD)
-        {
-
-          if (pending_locant)
-          {
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false; 
-
-            pending_locant = false;
-          }
-        }
-        else if (current->state == LOCANT || current->state == IONIC)
-        {
-
-          current = add_instruction(STANDARD, i);
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (pending_closure)
-          {
-            current->add_end(i);
-            // create the ring object
-
-            WLNRing *ring = graph.consume_ring_notation(current->start_ch, current->end_ch);
-            if(!ring)
-              return false;
-            
-            ring_stack.push(ring);
-
-            pending_closure = false;
-          }
-          else if (pending_locant)
-          {
-
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false; 
-
-            pending_locant = false;
-          }
-        }
-
-        break;
-
-      case 'A':
-      case 'B':
-      case 'C':
-      case 'D':
-      case 'E':
-      case 'F':
-      case 'G':
-      case 'H':
-      case 'I':
-      case 'K':
-      case 'M':
-      case 'N':
-      case 'O':
-      case 'P':
-      case 'Q':
-      case 'S':
-      case 'U':
-      case 'V':
-      case 'W':
-      case 'X':
-      case 'Y':
-      case 'Z':
-        if (current->state == ROOT)
-        {
-          current = add_instruction(STANDARD, i);
-        }
-        else if (current->state == STANDARD)
-        {
-
-          if (pending_locant)
-          {
-
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false;  
-
-            pending_locant = false;
-          }
-        }
-        else if (current->state == LOCANT || current->state == IONIC)
-        {
-
-          current = add_instruction(STANDARD, i);
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (pending_locant)
-          {
-
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false; 
-
-            pending_locant = false;
-          }
-        }
-
-        break;
-
-
-      case 'R': // we need to be able to place a pending system here for substituted benzene
-        if (current->state == ROOT)
-        { 
-          if(i==0 && len == 1){
-            current = add_instruction(STANDARD, i);
-          }
-          else
-            pending_benzene = true;
-        }
-        else if (current->state == STANDARD)
-        {
-
-          if (pending_locant)
-          {
-
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false;  
-
-            pending_locant = false;
-          }
-          else
-            pending_benzene = true;
-        }
-        else if (current->state == LOCANT || current->state == IONIC)
-        {
-          pending_benzene = true;
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (pending_locant)
-          {
-
-            current = add_instruction(LOCANT, i);
-            current->add_end(i); // all locants terminate on one char
-
-            binder = return_locant_symbol(i, ring_stack);
-            if (!binder)
-              return false; 
-
-            pending_locant = false;
-          }
-        }
-
-        break;
-
-      case '0':
-      case '1':
-      case '2':
-      case '3':
-      case '4':
-      case '5':
-      case '6':
-      case '7':
-      case '8':
-      case '9':
-
-        if (current->state == ROOT)
-        {
-          if(pending_benzene){
-            current = add_instruction(STANDARD, i-1);
-            pending_benzene = false;
-          }
-          else
-            current = add_instruction(STANDARD, i);
-        }
-        else if (current->state == LOCANT || current->state == IONIC)
-        {
-
-          current = add_instruction(STANDARD, i);
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (wln[i - 1] == '&')
-          {
-            // attach a standard here, other rules handle ring,
-            // match on no symbol for easy merge.
-
-            unsigned int k = i - 1;
-            unsigned int terms = 0;
-            while (wln[k] == '&')
-            {
-              terms++;
-              k--;
-            }
-
-            if (!current)
-            {
-              fprintf(stderr, "Error: no ring linker to return to via '&<x>-' - terminating parse\n");
-              return false;
-            }
-
-            current = add_instruction(STANDARD, i);
-          }
-        }
-
-        break;
-
-      case ' ': // keep this simple, a '&' locant means ionic branch out
-        if (current->state == ROOT){
-          if(pending_benzene){
-            current = add_instruction(CYCLIC,i-1);
-            current->add_end(i-1); // the R is the cyclic notation
-            WLNRing *ring = graph.consume_benzene();
-            ring_stack.push(ring);
-            pending_locant = true;
-            pending_benzene = false;
-          }
-        }
-        else if (current->state == STANDARD)
-        {
-          if(pending_benzene){
-
-            current->add_end(i-2); // look back close
-            WLNSymbol *tail = graph.consume_standard_notation2(current->start_ch,current->end_ch,true); // consume the chain before
-
-            current = add_instruction(CYCLIC,i-1);
-            current->add_end(i-1); // the R is the cyclic notation
-            WLNRing *ring = graph.consume_benzene();
-            ring_stack.push(ring);
-
-            // bind the ring to the tail of the chain
-            ring->rhead->children.push_back(tail);
-
-            pending_locant = true;
-            pending_benzene = false;
-          }
-          else{
-          
-            current->add_end(i - 1); // implied end of standard notation block
-
-            // will need to perform certain checks here
-            // for interplaying ring notation but build this slowly
-
-            WLNSymbol *head = graph.consume_standard_notation2(current->start_ch, current->end_ch);
-            if(!head)
-              return false; 
-            
-            if (binder){
-              binder->children.push_back(head);
-              head->inc_bond = 1;
-            }
-              
-            pending_locant = true;
-          }
-        }
-
-        else if (current->state == LOCANT)
-        {
-
-          ;
-        }
-
-        else if (current->state == CYCLIC)
-        {
-
-          if (!pending_closure)
-            pending_locant = true;
-        }
-
-        break;
-
-      case '-':
-
-        if (current->state == ROOT)
-        {
-
-          current = add_instruction(STANDARD, i);
-        }
-        else if (current->state == STANDARD)
-        {
-
-          ;
-        }
-        else if (current->state == LOCANT)
-        {
-
-          ;
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (wln[i - 1] == '&')
-          {
-            // means a return to a branching linker - also pops off ring
-            unsigned int k = i - 1;
-            unsigned int terms = 0;
-            while (wln[k] == '&')
-            {
-              terms++;
-              k--;
-            }
-
-            if (!current)
-            {
-              fprintf(stderr, "Error: no ring linker to return to via '&<x>-' - terminating parse\n");
-              return false;
-            }
-          }
-        }
-
-        else if (current->state == IONIC)
-        {
-
-          current = add_instruction(STANDARD, i);
-        }
-
-        break;
-
-      case '&':
-        if (current->state == STANDARD)
-        {
-
-          if (pending_locant)
-          {
-            current = add_instruction(IONIC, i); // ionic is always seperate in the graph
-            current->add_end(i);
-
-            // an ionic species means a complete blow through of the ring stack
-            while (!ring_stack.empty())
-              ring_stack.pop();
-
-            pending_locant = false;
-          }
-        }
-        else if (current->state == CYCLIC)
-        {
-
-          if (pending_locant)
-          {
-            current = add_instruction(IONIC, i); // ionic is always seperate in the graph
-            current->add_end(i);
-
-            // an ionic species means a complete blow through of the ring stack
-            while (!ring_stack.empty())
-              ring_stack.pop();
-
-            pending_locant = false;
-          }
-        }
-        break;
-
-      default:
-        fprintf(stderr, "Error: unrecognised symbol: %c\n", ch);
-        return false;  
-      }
-    }
-
-
-    if(!current){
-      fprintf(stderr,"Error: no states could be assigned - broken notation\n");
-      return false;
-    }
-    if (current->state == ROOT){
-      fprintf(stderr,"Error: no states could be assigned - broken notation\n");
-      return false;
-    }
-
-
-    // whatever the last instruction was, add len-1 as the end
-    current->add_end(len - 1);
-
-    // this also handles completely standard notation
-
-    if (current->state == STANDARD)
-    {
-      WLNSymbol *head = graph.consume_standard_notation2(current->start_ch, current->end_ch);
-      if (!head)
-        return false; 
-
-      if (binder){
-        binder->children.push_back(head);
-        head->inc_bond = 1;
-      }
-        
-    }
-
-    return true;
-  }
-
-
-
-
-};
 
 
 static void DisplayHelp(){
@@ -2503,25 +1907,9 @@ int main(int argc, char *argv[])
 
 
   WLNGraph wln_graph;
-  WLNParser parser;
 
-  // parse should exit 1 at errors
-  if(!parser.CreateWLNGraph(wln, strlen(wln), wln_graph))
-    return 1; 
+  wln_graph.ParseWLNString(wln,strlen(wln));
 
-  if (opt_debug)
-    parser.display_instructions();
-
-    
-  if(opt_convert){
-    wln_graph.ConcatNumerics();
-    wln_graph.ExpandGraph();
-    wln_graph.reset_indexes();
-    
-    if(opt_debug)
-      wln_graph.WLNConnectionTable(stderr);
-  }
-  
   // create the wln dotfile
   if (opt_wln2dot)
   {
