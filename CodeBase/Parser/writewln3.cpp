@@ -1155,9 +1155,9 @@ struct WLNGraph{
     WLNSymbol *prev = 0;  
     WLNSymbol *s_ring = 0; 
 
-    bool pending_locant  = false;
-    bool pending_special = false;
-    bool pending_closure = false; 
+    bool pending_locant         = false;
+    bool pending_special        = false;
+    bool pending_closure        = false; 
     bool pending_inline_ring    = false;
 
     // allows consumption of notation after full parse
@@ -2251,6 +2251,11 @@ struct WLNGraph{
 
     if(pending_locant){
       fprintf(stderr,"Error: expected locant to attach to ring\n");
+      Fatal(len);
+    }
+
+    if(pending_inline_ring){
+      fprintf(stderr,"Error: expected inline ring to be defined\n");
       Fatal(len);
     }
             
