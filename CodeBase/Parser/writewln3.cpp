@@ -1069,16 +1069,11 @@ struct WLNGraph{
     if (branch_stack.empty())
       return (WLNSymbol*)0;
 
-    WLNSymbol *top = 0;
-    while(!branch_stack.empty()){
-      top = branch_stack.top();
-      if(top->allowed_edges == top->num_edges)
-        branch_stack.pop();
-      else
-        return top;
-    }
+    WLNSymbol *top = branch_stack.top();
 
-    return (WLNSymbol*)0;
+    // doesnt pop here, only '&' can pop the stack
+
+    return top;
   }
 
   bool check_unbroken(unsigned int i){
