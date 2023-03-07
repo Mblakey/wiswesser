@@ -1136,7 +1136,21 @@ struct WLNGraph{
   }
 
 
+  WLNSymbol *pop_standard_stacks(unsigned int pop_ticks, 
+                        std::stack<WLNSymbol*> &branch_stack,
+                        std::stack<WLNSymbol*> &linker_stack,
+                        WLNSymbol* prev)
+  {
+    WLNSymbol *ret = 0; 
+    if(!branch_stack.empty())
+      ret = pop_branchstack(pop_ticks,branch_stack,prev);
+    else if(!linker_stack.empty())
+      ret = pop_branchstack(pop_ticks,linker_stack,prev);
+    else
+      fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
 
+    return ret;   
+  }
 
 
 
@@ -1199,20 +1213,9 @@ struct WLNGraph{
         case '8':
         case '9':
           if(pop_ticks){
-            
-            // some choices dependent on the stacks
-            if(!branch_stack.empty())
-              prev = pop_branchstack(pop_ticks,branch_stack,prev);
-            else if(!linker_stack.empty())
-              prev = pop_branchstack(pop_ticks,linker_stack,prev);
-            else{
-              fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-              Fatal(i);
-            }
-              
+            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
             if(!prev)
               Fatal(i);
-
             pop_ticks = 0; 
           }
 
@@ -1282,19 +1285,10 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              // some choices dependent on the stacks
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-              pop_ticks = 0; 
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1344,19 +1338,10 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1409,19 +1394,10 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1474,19 +1450,10 @@ struct WLNGraph{
           else{
             
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1536,19 +1503,10 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1600,19 +1558,10 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1662,18 +1611,9 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
               pop_ticks = 0; 
             }
 
@@ -1724,19 +1664,10 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1790,19 +1721,10 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1859,18 +1781,9 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
               pop_ticks = 0; 
             }
 
@@ -1926,19 +1839,10 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -1993,19 +1897,10 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
@@ -2201,19 +2096,10 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-
-              pop_ticks = 0; 
+              pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol('*');
@@ -2289,19 +2175,10 @@ struct WLNGraph{
             branch_stack.pop();
 
           if(pop_ticks){
-            if(!branch_stack.empty())
-              prev = pop_branchstack(pop_ticks,branch_stack,prev);
-            else if(!linker_stack.empty())
-              prev = pop_branchstack(pop_ticks,linker_stack,prev);
-            else{
-              fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-              Fatal(i);
-            }
-
+            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
             if(!prev)
               Fatal(i);
-
-            pop_ticks = 0; 
+            pop_ticks = 0;
           } 
            
           pending_locant = true;
@@ -2338,18 +2215,9 @@ struct WLNGraph{
           else if(pending_special){
 
             if(pop_ticks){
-              if(!branch_stack.empty())
-                prev = pop_branchstack(pop_ticks,branch_stack,prev);
-              else if(!linker_stack.empty())
-                prev = pop_branchstack(pop_ticks,linker_stack,prev);
-              else{
-                fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-                Fatal(i);
-              }
-
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
               if(!prev)
                 Fatal(i);
-                
               pop_ticks = 0; 
             }
 
