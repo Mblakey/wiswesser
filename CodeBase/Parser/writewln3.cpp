@@ -1135,25 +1135,39 @@ struct WLNGraph{
     return stack.top();
   }
 
-
+  /* wraps popping for the linker and branch stacks */
   WLNSymbol *pop_standard_stacks(unsigned int pop_ticks, 
                         std::stack<WLNSymbol*> &branch_stack,
                         std::stack<WLNSymbol*> &linker_stack,
-                        WLNSymbol* prev)
+                        WLNSymbol* prev, unsigned int i)
   {
     WLNSymbol *ret = 0; 
     if(!branch_stack.empty())
       ret = pop_branchstack(pop_ticks,branch_stack,prev);
     else if(!linker_stack.empty())
       ret = pop_branchstack(pop_ticks,linker_stack,prev);
-    else
+    else{
       fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
-
+      Fatal(i);
+    }
+      
     return ret;   
   }
 
 
-
+  /* wraps the linking and graph checking functions */
+  void create_bond( WLNSymbol *curr, WLNSymbol *prev, 
+                    unsigned int bond_ticks, unsigned int i)
+  {
+    if(prev){
+      if(!link_symbols(curr,prev,1 + bond_ticks))
+        Fatal(i);
+    }
+    else{
+      if(!check_unbroken(i))
+        Fatal(i);
+    }
+  }
 
   /* a global segmentation using both rule sets - start merging */
   bool ParseWLNString(const char *wln, unsigned int len){
@@ -1172,10 +1186,9 @@ struct WLNGraph{
     bool pending_closure        = false; 
     bool pending_inline_ring    = false;
 
-    // allows consumption of notation after full parse
+    // allows consumption of notation after block parses
     unsigned int block_start =  0;
     unsigned int block_end    = 0;
-
 
     unsigned int pop_ticks  = 0; // '&' style popping
     unsigned int bond_ticks = 0; // 'U' style bonding
@@ -1193,7 +1206,6 @@ struct WLNGraph{
           if(pending_closure || pending_special){
             break;
           }
-
           if (i == 0)
             Fatal(i);
           else if(i > 0 && !std::isdigit(wln[i-1]))
@@ -1213,9 +1225,7 @@ struct WLNGraph{
         case '8':
         case '9':
           if(pop_ticks){
-            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-            if(!prev)
-              Fatal(i);
+            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
             pop_ticks = 0; 
           }
 
@@ -1226,20 +1236,13 @@ struct WLNGraph{
           curr = AllocateWLNSymbol(ch);
           curr->set_edges(2);
 
-          if(prev){
-            if(!link_symbols(curr,prev,1))
-              Fatal(i);
-          }
-          else{
-            if(!check_unbroken(i))
-              Fatal(i);
-          }
+          create_bond(curr,prev,bond_ticks,i);
 
           prev = curr;
           break;
 
 
-        // carbons -- must be sandwiched 
+        // carbons
 
         case 'Y':
           
@@ -1253,14 +1256,7 @@ struct WLNGraph{
             
             if(pending_inline_ring){
               // we bond to prev
-              if(prev){
-                if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-              }
-              else{
-                if(!check_unbroken(i))
-                  Fatal(i);
-              } 
+              create_bond(curr,prev,bond_ticks,i);
 
             }
             else{
@@ -1285,9 +1281,7 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1296,14 +1290,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1338,9 +1325,7 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1349,14 +1334,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1394,9 +1372,7 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1405,14 +1381,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1450,23 +1419,14 @@ struct WLNGraph{
           else{
             
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(1);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-               Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = return_open_branch(branch_stack);
@@ -1503,23 +1463,14 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(2);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr; 
@@ -1558,9 +1509,7 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1569,14 +1518,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1611,9 +1553,7 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0; 
             }
 
@@ -1622,14 +1562,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1664,9 +1597,7 @@ struct WLNGraph{
           else {
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1675,14 +1606,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1721,23 +1645,14 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(1);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = return_open_branch(branch_stack);
@@ -1781,23 +1696,14 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0; 
             }
 
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(1);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             
@@ -1839,9 +1745,7 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1850,14 +1754,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1897,9 +1794,7 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -1908,14 +1803,7 @@ struct WLNGraph{
 
             branch_stack.push(curr);
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0;
             prev = curr;
@@ -1937,14 +1825,7 @@ struct WLNGraph{
             
             if(pending_inline_ring){
               // we bond to prev
-              if(prev){
-                if(!link_symbols(curr,prev,1 + bond_ticks))
-                  Fatal(i);
-              }
-              else{
-                if(!check_unbroken(i))
-                  Fatal(i);
-              }
+              create_bond(curr,prev,bond_ticks,i);
               
             }
             else{
@@ -2096,9 +1977,7 @@ struct WLNGraph{
           else{
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0;
             }
 
@@ -2111,10 +1990,7 @@ struct WLNGraph{
 
             curr->set_edges(1); // for inline R's they cannot have more than 1; 
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
             
             bond_ticks = 0;
             prev = curr; 
@@ -2175,9 +2051,7 @@ struct WLNGraph{
             branch_stack.pop();
 
           if(pop_ticks){
-            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-            if(!prev)
-              Fatal(i);
+            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
             pop_ticks = 0;
           } 
            
@@ -2215,9 +2089,7 @@ struct WLNGraph{
           else if(pending_special){
 
             if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev);
-              if(!prev)
-                Fatal(i);
+              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
               pop_ticks = 0; 
             }
 
@@ -2228,14 +2100,7 @@ struct WLNGraph{
             block_start = 0;
             block_end = 0; 
 
-            if(prev){
-              if(!link_symbols(curr,prev,1 + bond_ticks))
-                Fatal(i);
-            }
-            else{
-              if(!check_unbroken(i))
-                Fatal(i);
-            }
+            create_bond(curr,prev,bond_ticks,i);
 
             bond_ticks = 0; 
             prev = curr;
