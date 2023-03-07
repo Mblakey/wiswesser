@@ -1169,6 +1169,27 @@ struct WLNGraph{
     }
   }
 
+  /*  Wraps the creation of locant and bonding back ring assignment */
+  void create_locant(WLNSymbol *curr,std::stack<WLNSymbol*> &ring_stack,unsigned int i){
+
+    WLNSymbol *s_ring = 0; 
+    unsigned char ch = wln[i];
+
+    if(ring_stack.empty()){
+      fprintf(stderr,"Error: no rings to assign locants to\n");
+      Fatal(i);
+    } 
+    else
+      s_ring = ring_stack.top();
+
+    if(locant_symbols[ch] < s_ring->ring->size)
+      s_ring->children.push_back(curr);
+    else{
+      fprintf(stderr,"Error: assigning locant greater than ring size\n");
+      Fatal(i);
+    }
+  }
+
   /* a global segmentation using both rule sets - start merging */
   bool ParseWLNString(const char *wln, unsigned int len){
 
@@ -1254,26 +1275,11 @@ struct WLNGraph{
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(2); // locants always have two edges
             
-            if(pending_inline_ring){
-              // we bond to prev
+            if(pending_inline_ring)
               create_bond(curr,prev,bond_ticks,i);
-
-            }
-            else{
-              if(ring_stack.empty()){
-                fprintf(stderr,"Error: no rings to assign locants to\n");
-                Fatal(i);
-              } 
-              else
-                s_ring = ring_stack.top();
-
-              if(locant_symbols[ch] < s_ring->ring->size)
-                s_ring->children.push_back(curr);
-              else{
-                fprintf(stderr,"Error: assigning locant greater than ring size\n");
-                Fatal(i);
-              }
-            }
+            else
+              create_locant(curr,ring_stack,i);
+            
 
             prev = curr; 
             pending_locant = false;
@@ -1302,22 +1308,14 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
+            
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1349,22 +1347,14 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
+            
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1393,22 +1383,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1440,22 +1421,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1486,22 +1458,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1530,22 +1493,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1574,22 +1528,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1619,22 +1564,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1670,22 +1606,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1719,22 +1646,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1768,22 +1686,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1823,26 +1732,10 @@ struct WLNGraph{
             curr = AllocateWLNSymbol(ch);
             curr->set_edges(2); // locants always have two edges
             
-            if(pending_inline_ring){
-              // we bond to prev
+            if(pending_inline_ring)
               create_bond(curr,prev,bond_ticks,i);
-              
-            }
-            else{
-              if(ring_stack.empty()){
-                fprintf(stderr,"Error: no rings to assign locants to\n");
-                Fatal(i);
-              } 
-              else
-                s_ring = ring_stack.top();
-
-              if(locant_symbols[ch] < s_ring->ring->size)
-                s_ring->children.push_back(curr);
-              else{
-                fprintf(stderr,"Error: assigning locant greater than ring size\n");
-                Fatal(i);
-              }
-            }
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1858,22 +1751,13 @@ struct WLNGraph{
             break;
           }
           if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1911,22 +1795,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -1954,22 +1829,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
@@ -2006,22 +1872,13 @@ struct WLNGraph{
             break;
           }
           else if(pending_locant){
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: no rings to assign locants to\n");
-              Fatal(i);
-            } 
-            else
-              s_ring = ring_stack.top();
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2); // locants always have two edges
             
-            if(locant_symbols[ch] < s_ring->ring->size){
-              curr = AllocateWLNSymbol(ch);
-              curr->set_edges(2); // locants always have two edges
-              s_ring->children.push_back(curr);
-            }
-            else{
-              fprintf(stderr,"Error: assigning locant greater than ring size\n");
-              Fatal(i);
-            }
+            if(pending_inline_ring)
+              create_bond(curr,prev,bond_ticks,i);
+            else
+              create_locant(curr,ring_stack,i);
 
             prev = curr; 
             pending_locant = false;
