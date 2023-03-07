@@ -50,7 +50,7 @@ std::vector<WLNSymbol*> symbol_mempool;
 std::vector<WLNRing*>   ring_mempool;
 
 
-enum WLNTYPE{ STANDARD = 0, LOCANT = 1, RING = 2, SPECIAL = 4};
+enum WLNTYPE{ STANDARD = 0, LOCANT = 1, LINKER = 2, RING = 3, SPECIAL = 4};
 
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
@@ -171,6 +171,10 @@ struct WLNSymbol
   void set_edges(unsigned int edges){
     allowed_edges = edges; 
   }
+
+  void set_type(unsigned int i){
+    type = i; 
+  }
   
   // resets the symbol 
   void reset(){
@@ -238,7 +242,7 @@ WLNSymbol* copy_symbol(WLNSymbol *src){
 }
 
 
-/* struct to hold pointers for the wln ring - only for stack return */
+/* struct to hold pointers for the wln ring */
 struct WLNRing
 {
 
@@ -246,9 +250,8 @@ struct WLNRing
   bool aromatic;
   bool heterocyclic;
 
-  std::vector<std::string> components; // allows the rings to be defined as subsets of smallers
-  // e.g L6TJ A A L6TJ, components = {"L6TJ", "L6TJ"}
-
+  std::vector<unsigned char> fuse_points; // gives the fusing points for combined rings
+ 
   WLNRing()
   {
     size = 0;
@@ -298,32 +301,6 @@ struct WLNRing
     return local_size; // returns size as a value
   }
 
-  bool consume_spiro_notation(){
-
-    if(opt_debug)
-      fprintf(stderr,"  assigning spiro system\n",size);
-
-    // evaluate each component seperatly 
-    unsigned int true_size = 0;
-    for (std::string &comp : components){
-
-      if(opt_debug)
-        fprintf(stderr,"    evaluating '%s'\n",comp.c_str());
-
-      
-      true_size += consume_ring_notation(comp);
-    }
-
-    true_size --; // atom is shared; 
-    size = true_size; 
-
-    if(opt_debug)
-      fprintf(stderr,"    set sprio system size as %d\n",size);
-
-    return true;
-  }
-
-  
 
 };
 
@@ -1041,110 +1018,6 @@ struct WLNGraph{
   }
 
 
-  // can return head or tail
-  WLNSymbol* consume_standard_notation2(unsigned int start, unsigned int end, bool tail = false){
-
-
-    std::stack<WLNSymbol *> wln_stack;
-    
-    WLNSymbol *created_wln = AllocateWLNSymbol(wln[start]);
-    WLNSymbol *prev = created_wln;
-    WLNSymbol *root = created_wln;
-    
-    if (!created_wln)
-      return (WLNSymbol *)0;
-    
-    // if(created_wln->type == BRANCH)
-    //   wln_stack.push(created_wln);
-
-    bool open_special = false; 
-    unsigned int bond_tick = 0;    
-    std::vector<unsigned char> special;
-
-    // stack rework, only push branching and have a condition for popping
-    for (unsigned int i = start + 1; i <= end; i++){
-      
-      if(open_special && wln[i] != '-'){
-        special.push_back(wln[i]);
-        if(special.size() > 2){
-          fprintf(stderr,"Error: invalid elemental notation in standard\n");
-          return (WLNSymbol *)0;
-        }
-        continue;
-      }
-
-      if (wln[i] == 'U'){
-        bond_tick++;
-        continue; 
-      }
-      else if(wln[i] == '-'){
-        if(!open_special){
-          open_special = true;
-          continue;
-        }   
-        if(open_special){
-          created_wln = define_element(special);
-          special.clear();
-          open_special = false;
-        }
-      }
-      else if(wln[i] == '&'){
-
-        if (wln[i-1] == '&'){
-          if(wln_stack.size() > 1){
-            wln_stack.pop();
-            prev = wln_stack.top();
-          } else{ 
-            fprintf(stderr,"Error: branching stack exhausted - extra '&' in notation\n");
-            return (WLNSymbol *)0;
-          }
-        }
-        else{
-          if(!wln_stack.empty()){
-            prev = wln_stack.top();
-          }
-          else{ 
-            fprintf(stderr,"Error: branching stack exhausted - extra '&' in notation\n");
-            return (WLNSymbol *)0;
-          }
-        }
-        continue; 
-      }
-      else
-        created_wln = AllocateWLNSymbol(wln[i]);
-
-      // if(created_wln->type == BRANCH)
-      //   wln_stack.push(created_wln);
-
-      // add the bond, and move prev across
-      if (!link_symbols(created_wln, prev,bond_tick))
-        return (WLNSymbol *)0;
-
-
-      bond_tick = 0; // reset the bond counter;  
-
-      // if bonded out then we pop off the stack due to bonding condition
-      if(!wln_stack.empty() && prev == wln_stack.top()){
-        if(prev->allowed_edges == prev->num_edges)
-          wln_stack.pop();
-      }
-
-      // // if a terminator we have to return to the stack
-      // if(!wln_stack.empty() && created_wln->type == TERMINATOR)
-      //   prev = wln_stack.top();
-      // else
-      //   prev = created_wln; 
-    }
-    
-    // head or tail return
-
-    if(tail)
-      return created_wln;
-    else
-      return root; 
-
-  }
-
   WLNSymbol* return_open_branch(std::stack<WLNSymbol*> &branch_stack){
 
     if (branch_stack.empty())
@@ -1273,7 +1146,7 @@ struct WLNGraph{
 
     std::stack <WLNSymbol*>   ring_stack;   // access through symbol
     std::stack <WLNSymbol*>   branch_stack; // between locants, clean branch stack
-    std::stack<WLNSymbol*>    linker_stack; // used for branching ring systems 
+    std::stack <WLNSymbol*>   linker_stack; // used for branching ring systems 
 
     WLNSymbol *curr = 0;
     WLNSymbol *prev = 0;  
@@ -1300,7 +1173,7 @@ struct WLNGraph{
 
       switch (ch){
 
-        case '0': // cannot be lone
+        case '0': // cannot be lone, must be an addition to another num
           if(pending_closure || pending_special){
             break;
           }
@@ -1308,8 +1181,10 @@ struct WLNGraph{
             Fatal(i);
           else if(i > 0 && !std::isdigit(wln[i-1]))
             Fatal(i);
-          else  
+          else{
             curr = AllocateWLNSymbol(ch);
+          }  
+            
           break;
           
 
@@ -1332,6 +1207,7 @@ struct WLNGraph{
           }
 
           curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
           curr->set_edges(2);
 
           create_bond(curr,prev,bond_ticks,i);
@@ -1350,6 +1226,7 @@ struct WLNGraph{
           else if(pending_locant){
             
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1369,6 +1246,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(3);
 
             branch_stack.push(curr);
@@ -1387,6 +1265,7 @@ struct WLNGraph{
           else if(pending_locant){
             
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1405,6 +1284,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(4);
 
             branch_stack.push(curr);
@@ -1426,6 +1306,7 @@ struct WLNGraph{
           else if(pending_locant){
             
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1444,6 +1325,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(2);
 
             branch_stack.push(curr);
@@ -1461,6 +1343,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1482,6 +1365,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(1);
 
             create_bond(curr,prev,bond_ticks,i);
@@ -1499,6 +1383,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1517,6 +1402,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(2);
 
             create_bond(curr,prev,bond_ticks,i);
@@ -1536,6 +1422,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1554,6 +1441,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(3);
 
             branch_stack.push(curr);
@@ -1571,6 +1459,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1589,6 +1478,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(2);
 
             branch_stack.push(curr);
@@ -1606,6 +1496,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1624,6 +1515,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(4);
 
             branch_stack.push(curr);
@@ -1642,6 +1534,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1663,6 +1556,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(1);
 
             create_bond(curr,prev,bond_ticks,i);
@@ -1684,6 +1578,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1705,6 +1600,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(1);
 
             create_bond(curr,prev,bond_ticks,i);
@@ -1724,6 +1620,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1745,6 +1642,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(3);
 
             branch_stack.push(curr);
@@ -1764,6 +1662,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1785,6 +1684,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
             curr->set_edges(6);
 
             branch_stack.push(curr);
@@ -1809,6 +1709,7 @@ struct WLNGraph{
           else if (pending_locant){
             
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1834,6 +1735,7 @@ struct WLNGraph{
           }
           if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1844,63 +1746,12 @@ struct WLNGraph{
             prev = curr; 
             pending_locant = false;
           }
-          else if (pending_spiro){
 
-            WLNSymbol *merge_ring = 0;
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: spiro notation active without previous ring\n");
-              Fatal(i);
-            }
-            else
-              merge_ring = ring_stack.top();
-
-            // now use the components vector to store for easy build
-            merge_ring->ring->components.push_back(merge_ring->special);
-
-            // there needs to be a 2 locant connective path between rings
-            WLNSymbol* connectives[2];  // hold for deallocate
-            connectives[1] = prev; // should be locant b
-            
-            if(prev->previous)
-              connectives[0] = prev->previous; // locant a
-            else{
-              fprintf(stderr,"Error: invalid spiro definition, two locant positions needed\n");
-              Fatal(i);
-            }
-
-            // recreate the special with locants
-            merge_ring->special.push_back(' ');
-            for (unsigned int spr_itr = 0; spr_itr < 2; spr_itr++){
-              merge_ring->special.push_back(connectives[spr_itr]->ch);
-              merge_ring->special.push_back(' ');
-              DeallocateWLNSymbol(connectives[spr_itr]);
-            }
-
-            block_end = i; 
-
-            // add the following ring into the notation
-            std::string second_ring;
-            get_notation(block_start,block_end,second_ring);
-            merge_ring->ring->components.push_back(second_ring);
-            merge_ring->add_special(second_ring);
-
-            block_start = 0; 
-            block_end = 0; 
-
-            // remove the locants from the children
-            merge_ring->ring->consume_spiro_notation();
-            merge_ring->children.clear();
-
-            bond_ticks = 0;
-            prev = merge_ring; 
-
-            pending_spiro     = false;
-            pending_closure   = false;
-          }
           else if(pending_closure){
             block_end = i;
 
             curr = AllocateWLNSymbol('*');
+            curr->set_type(RING);
             curr->ring = AllocateWLNRing();
 
             curr->add_special(block_start,block_end);
@@ -1910,6 +1761,12 @@ struct WLNGraph{
             curr->ring->size = curr->ring->consume_ring_notation(curr->special);
 
             ring_stack.push(curr);
+
+            if(pending_spiro){
+              prev->type = LINKER; // spiros are normal rings with dual linker notation
+              prev->previous->type = LINKER; 
+              pending_spiro = false; 
+            }
 
             // does the incoming locant check
             if(prev){
@@ -1936,6 +1793,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1970,6 +1828,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT);
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -1988,6 +1847,7 @@ struct WLNGraph{
             }
 
             curr = AllocateWLNSymbol('*');
+            curr->set_type(RING);
             curr->ring = AllocateWLNRing();
 
             curr->add_special("L6J");
@@ -2014,6 +1874,7 @@ struct WLNGraph{
           }
           else if(pending_locant){
             curr = AllocateWLNSymbol(ch);
+            curr->set_type(LOCANT); 
             curr->set_edges(2); // locants always have two edges
             
             if(pending_inline_ring)
@@ -2143,6 +2004,11 @@ struct WLNGraph{
 
     if(pending_inline_ring){
       fprintf(stderr,"Error: expected inline ring to be defined\n");
+      Fatal(len);
+    }
+
+    if(pending_spiro){
+      fprintf(stderr,"Error: expected sprio ring to be defined\n");
       Fatal(len);
     }
             
