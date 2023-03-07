@@ -250,6 +250,7 @@ struct WLNRing
   bool aromatic;
   bool heterocyclic;
 
+  std::vector<unsigned int>  ring_components; 
   std::vector<unsigned char> fuse_points; // gives the fusing points for combined rings
  
   WLNRing()
@@ -264,11 +265,33 @@ struct WLNRing
   {
 
     unsigned int local_size = 0; 
+    unsigned int len = block.size() - 1;
 
     if (block.size() < 3){
       fprintf(stderr,"Error: not enough chars to build ring - %s\n",block.c_str());
       return false; 
     }
+
+    if (block[0] == 'T')
+      heterocyclic = true;
+    else if (block[0] == 'L')
+      heterocyclic = false;
+    else{
+      fprintf(stderr,"Error: first character in ring notation must be an L|T\n");
+      return 0; 
+    }
+
+    if (block[len] != 'J'){
+      fprintf(stderr,"Error: last character in ring notation must be J\n");
+      return 0; 
+    }
+
+    if (block[len-1] == 'T'){
+      aromatic = false;
+    }
+    else
+      aromatic = true; 
+
 
     if (block[1] == ' '){
       // special ring types
@@ -281,6 +304,8 @@ struct WLNRing
       while (std::isdigit(block[it]) && block[it] != '\0')
       {
         unsigned int val = block[it] - '0';
+        ring_components.push_back(val);
+
         local_size += val;
         rings++;
         it++;
