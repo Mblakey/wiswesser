@@ -1908,7 +1908,9 @@ struct WLNGraph{
             branch_stack.pop();
 
           if(pop_ticks){
-            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
+            prev = pop_ringstack(pop_ticks,ring_stack);
+            if(!prev)
+              Fatal(i);
             pop_ticks = 0;
           } 
            
