@@ -76,7 +76,7 @@ std::map<unsigned char,unsigned int> locant_symbols =
 
 // --- utilities ---
 
-bool isdigit_str(const std::string& s)
+static bool isdigit_str(const std::string& s)
 {
   for (char const &ch : s) {
     if (std::isdigit(ch) == 0) 
@@ -98,18 +98,14 @@ static void Fatal(unsigned int pos){
   exit(1);
 }
 
-
-static void Clean(){
-  for (WLNSymbol * node : symbol_mempool)
-    delete node; 
-  for (WLNRing * ring : ring_mempool)
-    delete ring; 
+static void Reindex_lookups(){
+  glob_index = 0; 
+  for (WLNSymbol *node : symbol_mempool){
+    index_lookup[node] = glob_index;
+    symbol_lookup[glob_index] = node;
+    glob_index++; 
+  }
 }
-
-
-
-
-
 
 
 
@@ -142,7 +138,7 @@ struct WLNSymbol
   unsigned int allowed_edges;
   unsigned int num_edges;
 
-  
+  WLNSymbol *previous;
   std::vector<WLNSymbol*>     children; // linked list of next terms chains
   std::vector<unsigned int>   orders;
   
@@ -157,10 +153,13 @@ struct WLNSymbol
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
+    
+    previous = 0; 
 
     special = "";
     ring = 0; 
   }
+  ~WLNSymbol(){};
 
 
   void set_edges(unsigned int edges){
@@ -186,6 +185,10 @@ struct WLNSymbol
 };
 
 WLNSymbol *AllocateWLNSymbol(unsigned char ch){
+  
+  if(opt_debug)
+    fprintf(stderr,"  allocating %c\n",ch);
+  
   WLNSymbol *wln = new WLNSymbol;
   symbol_mempool.push_back(wln);
   wln->ch = ch;
@@ -194,6 +197,24 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch){
   symbol_lookup[glob_index] = wln;
   glob_index++; 
   return wln;
+}
+
+// these are expensive, but needed for some edge case notations
+void DeallocateWLNSymbol(WLNSymbol *node){
+
+  if(opt_debug)
+    fprintf(stderr,"  manual deallocation: %c\n",node->ch);
+  
+  // find the node in the mem pool 
+  unsigned int i = 0; 
+  for (WLNSymbol *n : symbol_mempool){
+    if (n == node)
+      break;
+    i++;
+  }
+
+  symbol_mempool.erase(symbol_mempool.begin() + i);
+  delete node;
 }
 
 
@@ -211,8 +232,6 @@ WLNSymbol* copy_symbol(WLNSymbol *src){
 }
 
 
-
-
 /* struct to hold pointers for the wln ring - only for stack return */
 struct WLNRing
 {
@@ -220,13 +239,16 @@ struct WLNRing
   unsigned int size;
   bool aromatic;
   bool heterocyclic;
+  bool spiro;
 
   WLNRing()
   {
     size = 0;
     aromatic = false;
     heterocyclic = false;
+    spiro = false; 
   }
+  ~WLNRing(){};
 
   bool consume_ring_notation(std::string &block)
   {
@@ -267,7 +289,10 @@ struct WLNRing
     return true;
   }
 
- 
+  bool consume_spiro_notation(std::string &block){
+    
+  }
+
 };
 
 
@@ -278,15 +303,32 @@ WLNRing *AllocateWLNRing(){
 }
 
 
+// expensive but sometimes necessary for edge cases
+void DeallocateWLNRing(WLNRing *ring){
+  // find the ring in the mem pool 
+  unsigned int i = 0; 
+  for (WLNRing *r : ring_mempool){
+    if (r == ring)
+      break;
+    i++;
+  }
+
+  ring_mempool.erase(ring_mempool.begin() + i);
+  delete ring;
+}
+
+
 
 struct WLNGraph{
 
   WLNSymbol *root;
-  
-  
+
   WLNGraph() : root{(WLNSymbol *)0}{};
   ~WLNGraph(){
-    Clean();
+    for (WLNSymbol * node : symbol_mempool)
+      delete node; 
+    for (WLNRing * ring : ring_mempool)
+      delete ring; 
   };
 
 
@@ -577,6 +619,9 @@ struct WLNGraph{
       fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",parent->ch);
       return false; 
     }
+
+
+    child->previous = parent; // keep the linked list so i can consume backwards rings
 
     child->num_edges  += bond;
     parent->num_edges += bond;
@@ -1194,18 +1239,18 @@ struct WLNGraph{
   bool ParseWLNString(const char *wln, unsigned int len){
 
 
-    std::stack <WLNSymbol*>   ring_stack; // access through symbol
+    std::stack <WLNSymbol*>   ring_stack;   // access through symbol
     std::stack <WLNSymbol*>   branch_stack; // between locants, clean branch stack
     std::stack<WLNSymbol*>    linker_stack; // used for branching ring systems 
 
     WLNSymbol *curr = 0;
     WLNSymbol *prev = 0;  
-    WLNSymbol *s_ring = 0; 
 
     bool pending_locant         = false;
     bool pending_special        = false;
     bool pending_closure        = false; 
     bool pending_inline_ring    = false;
+    bool pending_spiro          = false;
 
     // allows consumption of notation after block parses
     unsigned int block_start =  0;
@@ -1679,7 +1724,7 @@ struct WLNGraph{
           }
           break;
 
-
+  
         case 'P':
         case 'S':
           if (pending_closure || pending_special){
@@ -1720,6 +1765,8 @@ struct WLNGraph{
           break;
 
 
+        // locants only?
+
         case 'A':
         case 'C':
         case 'D':
@@ -1746,6 +1793,9 @@ struct WLNGraph{
           break;
 
 
+
+        // ring notation
+
         case 'J':
           if (pending_special){
             break;
@@ -1762,6 +1812,54 @@ struct WLNGraph{
             prev = curr; 
             pending_locant = false;
           }
+          else if (pending_spiro){
+
+            WLNSymbol *merge_ring = 0;
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: spiro notation active without previous ring\n");
+              Fatal(i);
+            }
+            else{
+              merge_ring = ring_stack.top();
+              merge_ring->ring->spiro = true; 
+            }
+
+            // there needs to be a 2 locant connective path between rings
+            WLNSymbol* connectives[2];  // hold for deallocate
+            connectives[1] = prev; // should be locant b
+            
+            if(prev->previous)
+              connectives[0] = prev->previous; // locant a
+            else{
+              fprintf(stderr,"Error: invalid spiro definition, two locant positions needed\n");
+              Fatal(i);
+            }
+
+            // recreate the special with locants
+            merge_ring->special.push_back(' ');
+            for (unsigned int spr_itr = 0; spr_itr < 2; spr_itr++){
+              merge_ring->special.push_back(connectives[spr_itr]->ch);
+              merge_ring->special.push_back(' ');
+              DeallocateWLNSymbol(connectives[spr_itr]);
+            }
+
+            block_end = i; 
+
+            // add the following ring into the notation
+            merge_ring->add_special(block_start,block_end);
+            block_start = 0; 
+            block_end = 0; 
+
+            // remove the locants from the children
+            merge_ring->children.clear();
+
+            bond_ticks = 0;
+            prev = merge_ring; 
+
+            pending_spiro     = false;
+            pending_closure   = false;
+
+          }
           else if(pending_closure){
             block_end = i;
 
@@ -1773,15 +1871,20 @@ struct WLNGraph{
             block_end = 0; 
 
             curr->ring->consume_ring_notation(curr->special);
+
             ring_stack.push(curr);
 
-            // THESE CAN ONLY HAVE LOCANTS that come before
-            if(prev)
+            // does the incoming locant check
+            if(prev){
               prev->children.push_back(curr);
-            
+              if(locant_symbols[prev->ch] > curr->ring->size){
+                fprintf(stderr,"Error: attaching inline ring with out of bounds locant assignment\n");
+                Fatal(i);
+              }
+            }
+
             bond_ticks = 0;
             prev = curr; 
-
             pending_closure = false;
           }
           else
@@ -1921,7 +2024,12 @@ struct WLNGraph{
           if (pending_closure || pending_special){
             break;
           }
-          if(pending_locant){
+
+          if(pending_inline_ring){
+            // spiro notation open
+            pending_spiro = true; 
+          }
+          else if(pending_locant){
             // ionic species or spiro, reset the linkings
             prev = 0; 
             pending_locant = false;
@@ -2158,6 +2266,7 @@ int main(int argc, char *argv[])
   WLNGraph wln_graph;
 
   wln_graph.ParseWLNString(wln,strlen(wln));
+  Reindex_lookups();
 
   // create the wln dotfile
   if (opt_wln2dot)
