@@ -85,6 +85,12 @@ static bool isdigit_str(const std::string& s)
   return true;
 }
 
+static void get_notation(unsigned int s, unsigned int e, std::string &res){
+  for (unsigned int i=s; i<=e; i++){
+    res.push_back(wln[i]);
+  }
+}
+
 
 static void Fatal(unsigned int pos){
   fprintf(stderr,"Fatal: %s\n",wln);
@@ -179,7 +185,7 @@ struct WLNSymbol
   }
 
   void add_special(std::string str){
-    special = str; 
+    special.append(str); 
   }
 
 };
@@ -239,19 +245,22 @@ struct WLNRing
   unsigned int size;
   bool aromatic;
   bool heterocyclic;
-  bool spiro;
+
+  std::vector<std::string> components; // allows the rings to be defined as subsets of smallers
+  // e.g L6TJ A A L6TJ, components = {"L6TJ", "L6TJ"}
 
   WLNRing()
   {
     size = 0;
     aromatic = false;
     heterocyclic = false;
-    spiro = false; 
   }
   ~WLNRing(){};
 
-  bool consume_ring_notation(std::string &block)
+  unsigned int consume_ring_notation(std::string &block)
   {
+
+    unsigned int local_size = 0; 
 
     if (block.size() < 3){
       fprintf(stderr,"Error: not enough chars to build ring - %s\n",block.c_str());
@@ -269,7 +278,7 @@ struct WLNRing
       while (std::isdigit(block[it]) && block[it] != '\0')
       {
         unsigned int val = block[it] - '0';
-        size += val;
+        local_size += val;
         rings++;
         it++;
       }
@@ -278,20 +287,43 @@ struct WLNRing
         // refactor size down 
         unsigned int term = rings - 2;
         unsigned int shared_atoms = rings + term;
-        size = size - shared_atoms;
+        local_size = local_size - shared_atoms;
       }
       
       if (opt_debug)
-        fprintf(stderr,"  created ring with size %d\n",size);
+        fprintf(stderr,"  evaluated ring to size %d\n",local_size);
       
     }
     
+    return local_size; // returns size as a value
+  }
+
+  bool consume_spiro_notation(){
+
+    if(opt_debug)
+      fprintf(stderr,"  assigning spiro system\n",size);
+
+    // evaluate each component seperatly 
+    unsigned int true_size = 0;
+    for (std::string &comp : components){
+
+      if(opt_debug)
+        fprintf(stderr,"    evaluating '%s'\n",comp.c_str());
+
+      
+      true_size += consume_ring_notation(comp);
+    }
+
+    true_size --; // atom is shared; 
+    size = true_size; 
+
+    if(opt_debug)
+      fprintf(stderr,"    set sprio system size as %d\n",size);
+
     return true;
   }
 
-  bool consume_spiro_notation(std::string &block){
-    
-  }
+  
 
 };
 
@@ -1819,10 +1851,11 @@ struct WLNGraph{
               fprintf(stderr,"Error: spiro notation active without previous ring\n");
               Fatal(i);
             }
-            else{
+            else
               merge_ring = ring_stack.top();
-              merge_ring->ring->spiro = true; 
-            }
+
+            // now use the components vector to store for easy build
+            merge_ring->ring->components.push_back(merge_ring->special);
 
             // there needs to be a 2 locant connective path between rings
             WLNSymbol* connectives[2];  // hold for deallocate
@@ -1846,11 +1879,16 @@ struct WLNGraph{
             block_end = i; 
 
             // add the following ring into the notation
-            merge_ring->add_special(block_start,block_end);
+            std::string second_ring;
+            get_notation(block_start,block_end,second_ring);
+            merge_ring->ring->components.push_back(second_ring);
+            merge_ring->add_special(second_ring);
+
             block_start = 0; 
             block_end = 0; 
 
             // remove the locants from the children
+            merge_ring->ring->consume_spiro_notation();
             merge_ring->children.clear();
 
             bond_ticks = 0;
@@ -1858,7 +1896,6 @@ struct WLNGraph{
 
             pending_spiro     = false;
             pending_closure   = false;
-
           }
           else if(pending_closure){
             block_end = i;
@@ -1870,7 +1907,7 @@ struct WLNGraph{
             block_start = 0; 
             block_end = 0; 
 
-            curr->ring->consume_ring_notation(curr->special);
+            curr->ring->size = curr->ring->consume_ring_notation(curr->special);
 
             ring_stack.push(curr);
 
@@ -1954,7 +1991,8 @@ struct WLNGraph{
             curr->ring = AllocateWLNRing();
 
             curr->add_special("L6J");
-            curr->ring->consume_ring_notation(curr->special);
+            curr->ring->size = curr->ring->consume_ring_notation(curr->special);
+
             ring_stack.push(curr);
 
             curr->set_edges(1); // for inline R's they cannot have more than 1; 
