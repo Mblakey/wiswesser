@@ -3,5 +3,7 @@ Papers/
 Figures/
 Deprecated/masters.tar
 Reports/presentations/
+CodeBase/.vscode/
 CodeBase/Parser/build/
+CodeBase/Parser/.vscode/
 CodeBase/openbabel/
