@@ -79,12 +79,14 @@ static bool isdigit_str(const std::string &s)
   return true;
 }
 
-static void get_notation(unsigned int s, unsigned int e, std::string &res)
+std::string get_notation(unsigned int s, unsigned int e)
 {
+  std::string res; 
   for (unsigned int i = s; i <= e; i++)
   {
     res.push_back(wln[i]);
   }
+  return res; 
 }
 
 static void Fatal(unsigned int pos)
@@ -143,7 +145,8 @@ struct WLNSymbol
 
   // if 'ch='*'
   std::string special; // string for element, or ring
-  WLNRing *ring;
+  
+  // dont hold the ring anymore!
 
   // if default needed
   WLNSymbol()
@@ -151,11 +154,8 @@ struct WLNSymbol
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
-
     previous = 0;
-
     special = "";
-    ring = 0;
   }
   ~WLNSymbol(){};
 
@@ -244,13 +244,13 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
   // if the child cannot handle the new valence
   if ((child->num_edges + bond) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", child->ch);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+bond, child->allowed_edges);
     return false;
   }
   // same for the parent
   if ((parent->num_edges + bond) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", parent->ch);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+bond, parent->allowed_edges);
     return false;
   }
   child->previous = parent; // keep the linked list so i can consume backwards rings
@@ -268,13 +268,13 @@ bool link_aromatics(WLNSymbol *child, WLNSymbol *parent)
   // if the child cannot handle the new valence
   if ((child->num_edges + 1) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", child->ch);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
     return false;
   }
   // same for the parent
   if ((parent->num_edges + 1) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", parent->ch);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
     return false;
   }
 
@@ -500,49 +500,56 @@ struct WLNRing
       unsigned char loc = integer_locant_map[i];
       if (!locants[loc])
       {
-        locants[loc] = AllocateWLNSymbol('1');
-        locants[loc]->allowed_edges = 3;
+        locants[loc] = AllocateWLNSymbol('C');
+        locants[loc]->allowed_edges = 4;
       }
+
+      if(aromatic)
+        locants[loc]->allowed_edges += -1; // take off 1 when aromatic!
 
       if (!head)
         head = locants[loc];
 
       if (prev)
       {
-        if (aromatic)
+        if (aromatic){
           if(!link_aromatics(locants[loc], prev))
             return false;
-        else
+        }
+        else{
           if(!link_symbols(locants[loc], prev, 1))
             return false;
+        }
       }
 
       prev = locants[loc];
     }
 
-    if (aromatic)
+    if (aromatic){
       if(!link_aromatics(head, prev))
         return false;
-    else
+    }else{
       if(!link_symbols(head, prev, 1))
         return false;
-
+    }
     // fuse any points given
     for (std::pair<unsigned char, unsigned char> fuse : fuse_points)
     { 
       if (opt_debug)
         fprintf(stderr, "  fusing position %c to position %c\n",fuse.first,fuse.second);
 
-      if (aromatic)
+      if (aromatic){
         if(!link_aromatics(locants[fuse.first], locants[fuse.second]))
           return false;
-      else
+      }else{
         if(!link_symbols(locants[fuse.first], locants[fuse.second], 1))
           return false;
+      }
     }
 
-    return 0;
+    return true;
   }
+
 };
 
 WLNRing *AllocateWLNRing()
@@ -1000,13 +1007,13 @@ struct WLNGraph
     return true;
   }
 
-  WLNSymbol *pop_ringstack(unsigned int pops, std::stack<WLNSymbol *> &stack)
+  WLNRing *pop_ringstack(unsigned int pops, std::stack<WLNRing *> &stack)
   {
 
     if (pops >= stack.size())
     {
       fprintf(stderr, "Error: trying to pop too many rings check '&' count\n");
-      return (WLNSymbol *)0;
+      return (WLNRing *)0;
     }
 
     for (unsigned int i = 0; i < pops; i++)
@@ -1090,10 +1097,10 @@ struct WLNGraph
   }
 
   /*  Wraps the creation of locant and bonding back ring assignment */
-  void create_locant(WLNSymbol *curr, std::stack<WLNSymbol *> &ring_stack, unsigned int i)
+  void create_locant(WLNSymbol *curr, std::stack<WLNRing *> &ring_stack, unsigned int i)
   {
 
-    WLNSymbol *s_ring = 0;
+    WLNRing *s_ring = 0;
     unsigned char ch = wln[i];
 
     if (ring_stack.empty())
@@ -1104,25 +1111,28 @@ struct WLNGraph
     else
       s_ring = ring_stack.top();
 
-    if (locant_integer_map[ch] < s_ring->ring->size)
-      s_ring->children.push_back(curr);
-    else
-    {
+    if (s_ring->locants[ch]){
+      if(!link_symbols(curr,s_ring->locants[ch],1))
+        Fatal(i);
+    } 
+    else {
       fprintf(stderr, "Error: assigning locant greater than ring size\n");
       Fatal(i);
     }
+
   }
 
   /* a global segmentation using both rule sets - start merging */
   bool ParseWLNString(const char *wln, unsigned int len)
   {
 
-    std::stack<WLNSymbol *> ring_stack;   // access through symbol
+    std::stack<WLNRing *> ring_stack;   // access through symbol
     std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
     std::stack<WLNSymbol *> linker_stack; // used for branching ring systems
 
     WLNSymbol *curr = 0;
     WLNSymbol *prev = 0;
+    WLNRing   *ring = 0;
 
     bool pending_locant = false;
     bool pending_special = false;
@@ -1772,17 +1782,17 @@ struct WLNGraph
         {
           block_end = i;
 
-          curr = AllocateWLNSymbol('*');
-          curr->set_type(RING);
-          curr->ring = AllocateWLNRing();
+          
+          ring = AllocateWLNRing();
+          std::string r_notation = get_notation(block_start,block_end);
 
-          curr->add_special(block_start, block_end);
           block_start = 0;
           block_end = 0;
 
-          curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
+          if(!ring->consume_standard_ring_notation(r_notation))
+            Fatal(i);
 
-          ring_stack.push(curr);
+          ring_stack.push(ring);
 
           if (pending_spiro)
           {
@@ -1794,8 +1804,9 @@ struct WLNGraph
           // does the incoming locant check
           if (prev)
           {
-            prev->children.push_back(curr);
-            if (locant_integer_map[prev->ch] > curr->ring->size)
+            if (ring->locants[prev->ch])
+              create_bond(ring->locants[prev->ch],prev,bond_ticks,i);
+            else
             {
               fprintf(stderr, "Error: attaching inline ring with out of bounds locant assignment\n");
               Fatal(i);
@@ -1803,7 +1814,6 @@ struct WLNGraph
           }
 
           bond_ticks = 0;
-          prev = curr;
           pending_closure = false;
         }
         else
@@ -1878,21 +1888,17 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol('*');
-          curr->set_type(RING);
-          curr->ring = AllocateWLNRing();
+          ring = AllocateWLNRing();
 
-          curr->add_special("L6J");
-          curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
+          std::string r_notation = "L6J";
+          if(!ring->consume_standard_ring_notation(r_notation))
+            Fatal(i);
+          ring_stack.push(ring);
 
-          ring_stack.push(curr);
-
-          curr->set_edges(1); // for inline R's they cannot have more than 1;
-
-          create_bond(curr, prev, bond_ticks, i);
+          if (prev)
+            create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
-          prev = curr;
         }
         break;
 
@@ -1942,7 +1948,7 @@ struct WLNGraph
 
         if (pop_ticks)
         {
-          prev = pop_ringstack(pop_ticks, ring_stack);
+          ring = pop_ringstack(pop_ticks, ring_stack);
           if (!prev)
             Fatal(i);
           pop_ticks = 0;
