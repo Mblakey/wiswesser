@@ -20,7 +20,6 @@
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
-
 // --- macros ---
 #define REASONABLE 1024
 
@@ -34,130 +33,117 @@ static bool opt_allow = false;
 static bool opt_debug = false;
 static bool opt_convert = false;
 
-
 // --- globals ---
 struct WLNSymbol;
-struct WLNRing; 
+struct WLNRing;
 
 std::map<WLNSymbol *, unsigned int> index_lookup;
-std::map<unsigned int, WLNSymbol*> symbol_lookup;
+std::map<unsigned int, WLNSymbol *> symbol_lookup;
 unsigned int glob_index = 0;
 
+// --- pools ---
+std::vector<WLNSymbol *> symbol_mempool;
+std::vector<WLNRing *> ring_mempool;
 
-// --- pools --- 
-std::vector<WLNSymbol*> symbol_mempool;
-std::vector<WLNRing*>   ring_mempool;
-
-
-enum WLNTYPE{ STANDARD = 0, LOCANT = 1, LINKER = 2, RING = 3, SPECIAL = 4};
-
+enum WLNTYPE
+{
+  STANDARD = 0,
+  LOCANT = 1,
+  LINKER = 2,
+  RING = 3,
+  SPECIAL = 4
+};
 
 // rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
 std::map<unsigned char, unsigned int> char_hierarchy =
-{
-  {' ', 1}, {'-', 2}, {'/', 3}, 
-  {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, 
-  {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23},
-  {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, 
-  {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}
-};
+    {
+        {' ', 1}, {'-', 2}, {'/', 3}, {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23}, {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}};
 
+std::map<unsigned char, unsigned int> locant_integer_map =
+    {
+        {'A', 1}, {'B', 2}, {'C', 3}, {'D', 4}, {'E', 5}, {'F', 6}, {'G', 7}, {'H', 8}, {'I', 9}, {'J', 10}, {'K', 11}, {'L', 12}, {'M', 13}, {'N', 14}, {'O', 15}, {'P', 16}, {'Q', 17}, {'R', 18}, {'S', 19}, {'T', 20}, {'U', 21}, {'V', 22}, {'W', 23}, {'X', 24}, {'Y', 25}, {'Z', 26}};
 
-std::map<unsigned char,unsigned int> locant_integer_map =
-{
-  {'A',1}, {'B',2}, {'C',3}, {'D',4}, {'E',5}, {'F',6}, {'G',7}, 
-  {'H',8}, {'I',9}, {'J',10}, {'K',11}, {'L',12}, {'M',13}, 
-  {'N',14}, {'O',15}, {'P',16}, {'Q',17}, {'R',18}, {'S',19}, 
-  {'T',20}, {'U',21}, {'V',22}, {'W',23}, {'X',24}, {'Y',25}, {'Z',26}
-};
-
-std::map<unsigned int,unsigned char> integer_locant_map =
-{
-  {1,'A'}, {2,'B'}, {3,'C'}, {4,'D'}, {5,'E'}, {6,'F'}, {7,'G'}, 
-  {8,'H'}, {9,'I'}, {10,'H'}, {11,'K'}, {12,'L'}, {13,'M'}, 
-  {14,'N'}, {15,'O'}, {16,'P'}, {17,'Q'}, {18,'R'}, {19,'S'}, 
-  {20,'T'}, {21,'U'}, {22,'V'}, {23,'W'}, {24,'X'}, {25,'Y'}, {26,'Z'}
-};
-
+std::map<unsigned int, unsigned char> integer_locant_map =
+    {
+        {1, 'A'}, {2, 'B'}, {3, 'C'}, {4, 'D'}, {5, 'E'}, {6, 'F'}, {7, 'G'}, {8, 'H'}, {9, 'I'}, {10, 'J'}, {11, 'K'}, {12, 'L'}, {13, 'M'}, {14, 'N'}, {15, 'O'}, {16, 'P'}, {17, 'Q'}, {18, 'R'}, {19, 'S'}, {20, 'T'}, {21, 'U'}, {22, 'V'}, {23, 'W'}, {24, 'X'}, {25, 'Y'}, {26, 'Z'}};
 
 // --- utilities ---
 
-static bool isdigit_str(const std::string& s)
+static bool isdigit_str(const std::string &s)
 {
-  for (char const &ch : s) {
-    if (std::isdigit(ch) == 0) 
+  for (char const &ch : s)
+  {
+    if (std::isdigit(ch) == 0)
       return false;
   }
   return true;
 }
 
-static void get_notation(unsigned int s, unsigned int e, std::string &res){
-  for (unsigned int i=s; i<=e; i++){
+static void get_notation(unsigned int s, unsigned int e, std::string &res)
+{
+  for (unsigned int i = s; i <= e; i++)
+  {
     res.push_back(wln[i]);
   }
 }
 
+static void Fatal(unsigned int pos)
+{
+  fprintf(stderr, "Fatal: %s\n", wln);
+  fprintf(stderr, "       ");
 
-static void Fatal(unsigned int pos){
-  fprintf(stderr,"Fatal: %s\n",wln);
-  fprintf(stderr,"       ");
-  
-  for(unsigned int i=0; i<pos;i++)
-    fprintf(stderr," ");
+  for (unsigned int i = 0; i < pos; i++)
+    fprintf(stderr, " ");
 
-  fprintf(stderr,"^\n");
+  fprintf(stderr, "^\n");
 
   exit(1);
 }
 
-static void Reindex_lookups(){
-  glob_index = 0; 
-  for (WLNSymbol *node : symbol_mempool){
+static void Reindex_lookups()
+{
+  glob_index = 0;
+  for (WLNSymbol *node : symbol_mempool)
+  {
     index_lookup[node] = glob_index;
     symbol_lookup[glob_index] = node;
-    glob_index++; 
+    glob_index++;
   }
 }
 
-
-
 // should be all we need for a SCT XI connection table - obabel can handle coords
-struct Atom{
-  std::string symbol; 
+struct Atom
+{
+  std::string symbol;
   unsigned int atomic_num;
 
-  int charge; 
+  int charge;
 
   std::vector<Atom> bonded;
-  std::vector<unsigned int> orders; 
+  std::vector<unsigned int> orders;
 };
 
-
-struct AtomGraph{
-  Atom *head; 
-}; 
-
-
-
-
+struct AtomGraph
+{
+  Atom *head;
+};
 
 struct WLNSymbol
 {
 
   unsigned char ch;
-  unsigned int type; 
+  unsigned int type;
 
   unsigned int allowed_edges;
   unsigned int num_edges;
 
   WLNSymbol *previous;
-  std::vector<WLNSymbol*>     children; // linked list of next terms chains
-  std::vector<unsigned int>   orders;
-  
+  std::vector<WLNSymbol *> children; // linked list of next terms chains
+  std::vector<unsigned int> orders;
 
-  //if 'ch='*'
+  // if 'ch='*'
   std::string special; // string for element, or ring
-  WLNRing* ring;
+  WLNRing *ring;
 
   // if default needed
   WLNSymbol()
@@ -165,62 +151,68 @@ struct WLNSymbol
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
-    
-    previous = 0; 
+
+    previous = 0;
 
     special = "";
-    ring = 0; 
+    ring = 0;
   }
   ~WLNSymbol(){};
 
-
-  void set_edges(unsigned int edges){
-    allowed_edges = edges; 
+  void set_edges(unsigned int edges)
+  {
+    allowed_edges = edges;
   }
 
-  void set_type(unsigned int i){
-    type = i; 
+  void set_type(unsigned int i)
+  {
+    type = i;
   }
-  
-  // resets the symbol 
-  void reset(){
+
+  // resets the symbol
+  void reset()
+  {
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
   }
 
-  void add_special(unsigned int s, unsigned int e){
-    for (unsigned int i=s; i<= e;i++)
+  void add_special(unsigned int s, unsigned int e)
+  {
+    for (unsigned int i = s; i <= e; i++)
       special.push_back(wln[i]);
   }
 
-  void add_special(std::string str){
-    special.append(str); 
+  void add_special(std::string str)
+  {
+    special.append(str);
   }
-
 };
 
-WLNSymbol *AllocateWLNSymbol(unsigned char ch){
-  
+WLNSymbol *AllocateWLNSymbol(unsigned char ch)
+{
+
   WLNSymbol *wln = new WLNSymbol;
   symbol_mempool.push_back(wln);
   wln->ch = ch;
 
   index_lookup[wln] = glob_index;
   symbol_lookup[glob_index] = wln;
-  glob_index++; 
+  glob_index++;
   return wln;
 }
 
 // these are expensive, but needed for some edge case notations
-void DeallocateWLNSymbol(WLNSymbol *node){
+void DeallocateWLNSymbol(WLNSymbol *node)
+{
 
-  if(opt_debug)
-    fprintf(stderr,"  manual deallocation: %c\n",node->ch);
-  
-  // find the node in the mem pool 
-  unsigned int i = 0; 
-  for (WLNSymbol *n : symbol_mempool){
+  if (opt_debug)
+    fprintf(stderr, "  manual deallocation: %c\n", node->ch);
+
+  // find the node in the mem pool
+  unsigned int i = 0;
+  for (WLNSymbol *n : symbol_mempool)
+  {
     if (n == node)
       break;
     i++;
@@ -230,20 +222,69 @@ void DeallocateWLNSymbol(WLNSymbol *node){
   delete node;
 }
 
+WLNSymbol *copy_symbol(WLNSymbol *src)
+{
 
-WLNSymbol* copy_symbol(WLNSymbol *src){
-  
   WLNSymbol *copy = AllocateWLNSymbol(src->ch);
   copy->allowed_edges = src->allowed_edges;
   copy->num_edges = src->num_edges;
-  
-  for (unsigned int i=0; i<src->children.size();i++){
+
+  for (unsigned int i = 0; i < src->children.size(); i++)
+  {
     copy->children.push_back(src->children[i]);
     copy->orders.push_back(src->orders[i]);
   }
   return copy;
 }
 
+/* should handle all bonding modes, adds child to parent->children
+'UU' bonding also added here */
+bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
+{
+  // if the child cannot handle the new valence
+  if ((child->num_edges + bond) > child->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", child->ch);
+    return false;
+  }
+  // same for the parent
+  if ((parent->num_edges + bond) > parent->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", parent->ch);
+    return false;
+  }
+  child->previous = parent; // keep the linked list so i can consume backwards rings
+  child->num_edges += bond;
+  parent->num_edges += bond;
+  parent->children.push_back(child);
+  parent->orders.push_back(bond);
+  return true;
+}
+
+// sets bond type to 4 however aromatic takes 2 valence points off
+bool link_aromatics(WLNSymbol *child, WLNSymbol *parent)
+{
+
+  // if the child cannot handle the new valence
+  if ((child->num_edges + 1) > child->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", child->ch);
+    return false;
+  }
+  // same for the parent
+  if ((parent->num_edges + 1) > parent->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections\n", parent->ch);
+    return false;
+  }
+
+  child->previous = parent; // keep the linked list so i can consume backwards rings
+  child->num_edges += 1;
+  parent->num_edges += 1;
+  parent->children.push_back(child);
+  parent->orders.push_back(4); // follows SCT XI connection table format
+  return true;
+}
 
 /* struct to hold pointers for the wln ring */
 struct WLNRing
@@ -253,12 +294,12 @@ struct WLNRing
   bool aromatic;
   bool heterocyclic;
 
-  std::vector<unsigned int>  ring_components; 
-  std::vector<unsigned char> bridge_components; 
-  std::vector<std::pair<unsigned char,unsigned char>> fuse_points; // gives the fusing points for combined rings
-  
+  std::vector<unsigned int> ring_components;
+  std::vector<unsigned char> bridge_components;
+  std::vector<std::pair<unsigned char, unsigned char>> fuse_points; // gives the fusing points for combined rings
+
   // wln symbols will be allocated with locants kept for graph conversion when writing
-  std::map<WLNSymbol*,unsigned char> locants; 
+  std::map<unsigned char, WLNSymbol *> locants;
 
   WLNRing()
   {
@@ -268,38 +309,38 @@ struct WLNRing
   }
   ~WLNRing(){};
 
-
   /* standard here is considered anything with a L|T<int><int> notation */
-  unsigned int consume_standard_ring_notation(std::string &block)
+  bool consume_standard_ring_notation(std::string &block)
   {
 
-    unsigned int local_size = 0; 
+    unsigned int local_size = 0;
     unsigned int len = block.size() - 1;
 
-    if (len < 2){
-      fprintf(stderr,"Error: not enough chars to build ring - %s\n",block.c_str());
-      return false; 
+    if (len < 2)
+    {
+      fprintf(stderr, "Error: not enough chars to build ring - %s\n", block.c_str());
+      return false;
     }
 
     if (block[0] == 'T')
       heterocyclic = true;
     else if (block[0] == 'L')
       heterocyclic = false;
-    else{
-      fprintf(stderr,"Error: first character in ring notation must be an L|T\n");
-      return 0; 
+    else
+    {
+      fprintf(stderr, "Error: first character in ring notation must be an L|T\n");
+      return false;
     }
 
-    if (block[len-1] == 'T')
+    if (block[len - 1] == 'T')
       aromatic = false;
     else
-      aromatic = true; 
+      aromatic = true;
 
-    
-    // check how many locants are allowed 
+    // check how many locants are allowed
 
     unsigned int it = 1;
-    unsigned int rings = 0; 
+    unsigned int rings = 0;
     while (std::isdigit(block[it]) && block[it] != '\0')
     {
       unsigned int val = block[it] - '0';
@@ -310,147 +351,214 @@ struct WLNRing
     }
 
     /* simple for easy bicyclics */
-    if(rings > 1){
-      // refactor size down 
+    if (rings > 1)
+    {
+      // refactor size down
       unsigned int term = rings - 2;
       unsigned int shared_atoms = rings + term;
       local_size = local_size - shared_atoms;
 
       // calculate local fuses, this is simple at this stage
 
-      unsigned int last_atom = 1; 
-      for (unsigned int comp_size : ring_components){
-        fprintf(stderr,"  fusing position %c to position %c\n",integer_locant_map[last_atom],integer_locant_map[last_atom + comp_size - 1]);
+      unsigned int last_atom = 1;
+      for (unsigned int i = 0; i < ring_components.size() - 1; i++){ 
+        unsigned int comp_size = ring_components[i];
+        fuse_points.push_back({integer_locant_map[last_atom], integer_locant_map[last_atom + comp_size - 1]});
         last_atom = comp_size;
-        fuse_points.push_back({integer_locant_map[last_atom],integer_locant_map[last_atom + comp_size - 1]});
       }
     }
 
     if (opt_debug)
-      fprintf(stderr,"  evaluated ring to size %d\n",local_size);
-    
-      
+      fprintf(stderr, "  evaluated ring to size %d\n", local_size);
+
+    size = local_size;
+
     /* process the substring*/
-    create_symbol_ring(block.substr(it,block.length()));
-      
-    
-    
-    return local_size; // returns size as a value
+    if(!create_symbol_ring(block.substr(it, block.length())))
+      return false;
+
+    return true; // returns size as a value
   }
 
   // creates and allocates the ring in WLNSymbol struct style
-  unsigned int create_symbol_ring(std::string block){
+  bool create_symbol_ring(std::string block)
+  {
 
-    /* 
-    we assume this start after the ring blocks 
+    /*
+    we assume this start after the ring blocks
     i.e 'L66 AO TJ' -->' AO TJ'
-    */ 
+    */
 
     bool inter_ring = false;
-    for (unsigned char ch : block){
-      if (ch == ' '){
+    for (unsigned char ch : block)
+    {
+      if (ch == ' ')
+      {
         inter_ring = true;
         break;
       }
     }
 
-    if(inter_ring){
+    if (inter_ring)
+    {
 
       // split the string on the spaces, and then process the blocks
       std::istringstream ss(block);
       std::string del;
 
       unsigned int locant = 1; // use the maps to assign locants
-      WLNSymbol *assignment = 0; 
+      WLNSymbol *assignment = 0;
 
-      unsigned int consumed = 0; 
-      while(getline(ss, del, ' ')){
+      unsigned int consumed = 0;
+      while (getline(ss, del, ' '))
+      {
 
         unsigned int assign_size = del.size();
-      
 
         if (assign_size < 1)
-          continue; // not sure i can help this? 
-        else if (assign_size == 1){
-          consumed+= 2; // +1 for the space!
-          
+          continue; // not sure i can help this?
+        else if (assign_size == 1)
+        {
+          consumed += 2; // +1 for the space!
+
           // handles the lone 'J'
-          if(consumed == block.size())
+          if (consumed == block.size())
             break;
 
           // bridge defintions --> figure out a way to ignore the last 'J' as a 'J' bridge is intirely plausible
-          if(opt_debug)
-            fprintf(stderr, "  assigning bridge: %c\n",del[0]);
+          if (opt_debug)
+            fprintf(stderr, "  assigning bridge: %c\n", del[0]);
 
           bridge_components.push_back(del[0]);
-          
         }
-        else if (assign_size > 1){
-          consumed+= assign_size + 1; // +1 for the space!
-          // standard atomic definitions 
+        else if (assign_size > 1)
+        {
+          consumed += assign_size + 1; // +1 for the space!
+          // standard atomic definitions
+
+          unsigned int back = assign_size - 1;
+          if (del[assign_size] == 'J')
+          {
+            back += -1;
+            if (!aromatic)
+              back += -1;
+          }
 
           // process the locants as expected in standard notation
-          if(del.back() != 'J'){
-            locant = locant_integer_map[del[0]];
-            for (unsigned int i = 1; i<assign_size; i++){
-              if(del[i] != 'U'){
 
-                if(opt_debug)
-                  fprintf(stderr,"  assigning symbol: locant(%c) --> symbol(%c)\n",integer_locant_map[locant],del[i]);
+          locant = locant_integer_map[del[0]];
+          for (unsigned int i = 1; i < back; i++)
+          {
 
+            // need to add support for specials here
+
+            if (del[i] != 'U')
+            {
+              if (opt_debug)
+                fprintf(stderr, "  assigning symbol: locant(%c) --> symbol(%c)\n", integer_locant_map[locant], del[i]);
+
+              locants[integer_locant_map[locant]] = AllocateWLNSymbol(del[i]);
+              switch (del[i])
+              {
+
+              case 'B':
+              case 'I':
+                locants[integer_locant_map[locant]]->allowed_edges = 3;
+                break;
+
+              case 'N':
+              case 'K':
+                locants[integer_locant_map[locant]]->allowed_edges = 3;
+                break;
+
+              case 'O':
+              case 'M':
+              case 'V':
+                locants[integer_locant_map[locant]]->allowed_edges = 2;
+                break;
+
+              case 'P':
+              case 'S':
+                locants[integer_locant_map[locant]]->allowed_edges = 5;
+                break;
               }
-                
-              locant++;
             }
 
-          }
-          else if (del.back() == 'J'){
-            // we just ignore the J
-            locant = locant_integer_map[del[0]];
-            for (unsigned int i = 1; i<assign_size-1; i++){
-              if(del[i] != 'U'){
-
-                if(opt_debug)
-                  fprintf(stderr,"  assigning: locant(%c) --> symbol(%c)\n",integer_locant_map[locant],del[i]);
-
-              }
-
-              locant++;
-            }
+            locant++;
           }
         }
-     
       }
-  
     }
 
+    // now we assign everything not coverered as 1's!
+    // a nice property is that all locants are binded to eachother
 
+    WLNSymbol *prev = 0;
+    WLNSymbol *head = 0;
+    for (unsigned int i = 1; i <= size; i++)
+    {
+      unsigned char loc = integer_locant_map[i];
+      if (!locants[loc])
+      {
+        locants[loc] = AllocateWLNSymbol('1');
+        locants[loc]->allowed_edges = 3;
+      }
 
+      if (!head)
+        head = locants[loc];
 
+      if (prev)
+      {
+        if (aromatic)
+          if(!link_aromatics(locants[loc], prev))
+            return false;
+        else
+          if(!link_symbols(locants[loc], prev, 1))
+            return false;
+      }
 
+      prev = locants[loc];
+    }
 
+    if (aromatic)
+      if(!link_aromatics(head, prev))
+        return false;
+    else
+      if(!link_symbols(head, prev, 1))
+        return false;
 
+    // fuse any points given
+    for (std::pair<unsigned char, unsigned char> fuse : fuse_points)
+    { 
+      if (opt_debug)
+        fprintf(stderr, "  fusing position %c to position %c\n",fuse.first,fuse.second);
+
+      if (aromatic)
+        if(!link_aromatics(locants[fuse.first], locants[fuse.second]))
+          return false;
+      else
+        if(!link_symbols(locants[fuse.first], locants[fuse.second], 1))
+          return false;
+    }
 
     return 0;
   }
-
-
-
 };
 
-
-WLNRing *AllocateWLNRing(){
+WLNRing *AllocateWLNRing()
+{
   WLNRing *wln_ring = new WLNRing;
   ring_mempool.push_back(wln_ring);
   return wln_ring;
 }
 
-
 // expensive but sometimes necessary for edge cases
-void DeallocateWLNRing(WLNRing *ring){
-  // find the ring in the mem pool 
-  unsigned int i = 0; 
-  for (WLNRing *r : ring_mempool){
+void DeallocateWLNRing(WLNRing *ring)
+{
+  // find the ring in the mem pool
+  unsigned int i = 0;
+  for (WLNRing *r : ring_mempool)
+  {
     if (r == ring)
       break;
     i++;
@@ -460,702 +568,419 @@ void DeallocateWLNRing(WLNRing *ring){
   delete ring;
 }
 
-
-
-struct WLNGraph{
+struct WLNGraph
+{
 
   WLNSymbol *root;
 
-  WLNGraph() : root{(WLNSymbol *)0}{};
-  ~WLNGraph(){
-    for (WLNSymbol * node : symbol_mempool)
-      delete node; 
-    for (WLNRing * ring : ring_mempool)
-      delete ring; 
+  WLNGraph() : root{(WLNSymbol *)0} {};
+  ~WLNGraph()
+  {
+    for (WLNSymbol *node : symbol_mempool)
+      delete node;
+    for (WLNRing *ring : ring_mempool)
+      delete ring;
   };
 
 
-#ifdef DEV
-  /* handles all inter ring defintions*/
-  bool ParseInterRing(unsigned int start, unsigned int end, WLNRing *ring)
+  WLNSymbol *define_element(std::vector<unsigned char> &special)
   {
 
-    // locants are sequential if inline defined e.g AUO places O on B
-    // start here should be where the cyclic values are ended
-    // < so should not hit J
-
-    bool pending_special = false;
-    bool pending_locant = false;
-
-    std::string special; 
-
-    WLNSymbol *atom = 0;
-    unsigned char cur_locant = '\0';
-
-    for (unsigned int i = start; i < end; i++)
-    {
-      unsigned char ch = wln[i];
-      switch (ch)
-      {
-
-      case 'A':
-      case 'C':
-      case 'D':
-      case 'E':
-      case 'F':
-      case 'G':
-      case 'H':
-      case 'I':
-      case 'J':
-      case 'L':
-      case 'Q':
-      case 'R':
-      case 'T':
-      case 'X':
-      case 'Y':
-      case 'Z':
-        if (pending_locant)
-        {
-          cur_locant = ch;
-          atom = access_locant(ch, ring);
-          if (!atom)
-            return false;
-
-          pending_locant = false;
-        }
-        else
-        {
-          fprintf(stderr, "Error: invalid definition in inter ring notation\n");
-          return false;
-        }
-        break;
-
-      case 'B':
-      case 'K':
-      case 'M':
-      case 'N':
-      case 'O':
-      case 'P':
-      case 'S':
-        if (pending_locant)
-        {
-          cur_locant = ch;
-          atom = access_locant(ch, ring);
-          if (!atom)
-            return false;
-
-          pending_locant = false;
-        }
-        else
-        {
-          transform_symbol(atom, ch);
-          atom = access_locant(cur_locant + 1, ring,false);
-        }
-
-        break;
-
-      case 'U':
-        if (pending_locant)
-        {
-          cur_locant = ch;
-          atom = access_locant(ch, ring);
-          if (!atom)
-            return false;
-
-          pending_locant = false;
-        }
-        else{
-          atom = access_locant(cur_locant + 1, ring,false);
-        }
-        break;
-
-      case 'V':
-        if (pending_locant)
-        {
-          cur_locant = ch;
-          atom = access_locant(ch, ring);
-          if (!atom)
-            return false;
-
-          pending_locant = false;
-        }
-        else
-        {
-          WLNSymbol *oxy = AllocateWLNSymbol('O');
-          if(!link_symbols(oxy,atom,1))
-            return false;
-          
-          atom = access_locant(cur_locant + 1, ring,false);
-        }
-
-        break;
-
-      case 'W':
-        if (pending_locant)
-        {
-          cur_locant = ch;
-          atom = access_locant(ch, ring);
-          if (!atom)
-            return false;
-
-          pending_locant = false;
-        }
-        else
-        {
-          WLNSymbol *oxy_1 = AllocateWLNSymbol('O');
-          WLNSymbol *oxy_2 = AllocateWLNSymbol('O');
-          if(!link_symbols(oxy_1,atom,1) ||  !link_symbols(oxy_2,atom,1))
-            return false;
-          atom = access_locant(cur_locant + 1, ring,false);
-        }
-        break;
-
-      case ' ':
-        pending_locant = true;
-        break;
-
-      case '-': // allows inter-ring specific atoms
-
-      default:
-        fprintf(stderr, "Error: invalid symbol in inter ring notation - %c\n",ch);
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-
-
-
-
-  /* one char so should be notation independent */
-  WLNRing *consume_benzene(){
-    
-    WLNRing *ring = AllocateWLNRing();
-
-    // 1) create a big ring
-    WLNSymbol *rhead = AllocateWLNSymbol('C');
-    ring->rhead = rhead; // set the rings head
-
-    WLNSymbol *current = 0;
-    WLNSymbol *prev = rhead;
-
-    unsigned int locant = 0;
-    for (unsigned int i = 1; i < 6; i++)
-    {
-      current = AllocateWLNSymbol('C');
-      ring->locants[locant_symbols[locant++]] = current; // add the locants  
-      add_aromatic(current,prev);
-      prev = current;
-    }
-    add_aromatic(rhead,current);
-    return ring; 
-  }
-
-  /* platform for launching ring notation build functions */
-  WLNRing *consume_ring_notation(unsigned int start, unsigned int end)
-  {
-
-    bool handle_advanced = false;
-
-    // 1) allocate the blank ring object
-    WLNRing *wln_ring = AllocateWLNRing();
-
-    // 2) minimum symbols for a ring notation is 3 - allows safe lookback
-
-    if ((end - start) < 2)
-    {
-      fprintf(stderr, "Error: minimum chars for ring notation is 3 - found: %d\n", end - start);
-      return (WLNRing *)0;
-    }
-
-    // 3) evaluate start character
-    switch (wln[start])
-    {
-
-    case 'L':
-      wln_ring->heterocyclic = false;
-      break;
-
-    case 'T':
-      wln_ring->heterocyclic = true;
-      break;
-
-    default:
-      fprintf(stderr, "Error: ring notation must start L|T ... not: %c\n", wln[start]);
-      return (WLNRing *)0;
-    }
-
-    // 3) advanced vs standard notation test on second char
-
-    switch (wln[start + 1])
-    {
-
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      break;
-
-    case ' ':
-      handle_advanced = true;
-      break;
-
-    default:
-      fprintf(stderr, "Error: unknown second char in ring notation: %c\n", wln[start + 1]);
-      return (WLNRing *)0;
-    }
-
-    // 4) aromatic testing on the second to last 'T'
-
-    switch (wln[end - 1])
-    {
-    case 'T':
-      wln_ring->aromatic = false;
-
-      // we can move the end back in this case 'helps with locants'
-      end += -1;
-      break;
-
-    default:
-      wln_ring->aromatic = true;
-    }
-
-    if (handle_advanced)
-    {
-      // create the poly cyclic functions here
-    }
-    else
-      if(!CreateStandardRing(start, end, wln_ring))
-        return (WLNRing *)0; 
-
-    return wln_ring;
-  }
-  
-#endif
-
-  /* should handle all bonding modes, adds child to parent->children
-  'UU' bonding also added here */
-  bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
-  {
-
-    if (parent->ch == '*' && parent->ring){
-      fprintf(stderr,"Error: trying to link a ring through standard notation, locants needed\n");
-      return false; 
-    }
-   
-    // if the child cannot handle the new valence
-    if ( (child->num_edges + bond) > child->allowed_edges ){
-      fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",child->ch);
-      return false; 
-    }
-
-    // same for the parent
-    if ( (parent->num_edges + bond) > parent->allowed_edges ){
-      fprintf(stderr,"Error: wln character[%c] is exceeding allowed connections\n",parent->ch);
-      return false; 
-    }
-
-
-    child->previous = parent; // keep the linked list so i can consume backwards rings
-
-    child->num_edges  += bond;
-    parent->num_edges += bond;
-
-    parent->children.push_back(child);
-    parent->orders.push_back(bond);
-
-    return true;
-  }
-
-
-  WLNSymbol* define_element(std::vector<unsigned char> &special){
-    
     // allocate a special wln
     WLNSymbol *created_wln = AllocateWLNSymbol('*');
 
     // some fancy switching
 
-    switch(special[0]){
+    switch (special[0])
+    {
 
-      case 'A':
-        if(special[1] == 'C')
-          created_wln->special = "Ac";
-        else if (special[1] == 'G')
-          created_wln->special = "Ag";
-        else if (special[1] == 'L')
-          created_wln->special = "Al";
-        else if (special[1] == 'M')
-          created_wln->special = "Am";
-        else if (special[1] == 'R')
-          created_wln->special = "Ar";
-        else if (special[1] == 'S')
-          created_wln->special = "As";
-        else if (special[1] == 'T')
-          created_wln->special = "At";
-        else if (special[1] == 'U')
-          created_wln->special = "Au";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'A':
+      if (special[1] == 'C')
+        created_wln->special = "Ac";
+      else if (special[1] == 'G')
+        created_wln->special = "Ag";
+      else if (special[1] == 'L')
+        created_wln->special = "Al";
+      else if (special[1] == 'M')
+        created_wln->special = "Am";
+      else if (special[1] == 'R')
+        created_wln->special = "Ar";
+      else if (special[1] == 'S')
+        created_wln->special = "As";
+      else if (special[1] == 'T')
+        created_wln->special = "At";
+      else if (special[1] == 'U')
+        created_wln->special = "Au";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'B':
-        if(special[1] == 'A')
-          created_wln->special = "Ba";
-        else if (special[1] == 'E')
-          created_wln->special = "Be";
-        else if (special[1] == 'H')
-          created_wln->special = "Bh";
-        else if (special[1] == 'I')
-          created_wln->special = "Bi";
-        else if (special[1] == 'K')
-          created_wln->special = "Bk";
-        else if (special[1] == 'R')
-          created_wln->special = "Br";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'B':
+      if (special[1] == 'A')
+        created_wln->special = "Ba";
+      else if (special[1] == 'E')
+        created_wln->special = "Be";
+      else if (special[1] == 'H')
+        created_wln->special = "Bh";
+      else if (special[1] == 'I')
+        created_wln->special = "Bi";
+      else if (special[1] == 'K')
+        created_wln->special = "Bk";
+      else if (special[1] == 'R')
+        created_wln->special = "Br";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'C':
-        if(special[1] == 'A')
-          created_wln->special = "Ca";
-        else if (special[1] == 'D')
-          created_wln->special = "Cd";
-        else if (special[1] == 'E')
-          created_wln->special = "Ce";
-        else if (special[1] == 'F')
-          created_wln->special = "Cf";
-        else if (special[1] == 'M')
-          created_wln->special = "Cm";
-        else if (special[1] == 'N')
-          created_wln->special = "Cn";
-        else if (special[1] == 'O')
-          created_wln->special = "Co";
-        else if (special[1] == 'R')
-          created_wln->special = "Cr";
-        else if (special[1] == 'S')
-          created_wln->special = "Cs";
-        else if (special[1] == 'U')
-          created_wln->special = "Cu";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'C':
+      if (special[1] == 'A')
+        created_wln->special = "Ca";
+      else if (special[1] == 'D')
+        created_wln->special = "Cd";
+      else if (special[1] == 'E')
+        created_wln->special = "Ce";
+      else if (special[1] == 'F')
+        created_wln->special = "Cf";
+      else if (special[1] == 'M')
+        created_wln->special = "Cm";
+      else if (special[1] == 'N')
+        created_wln->special = "Cn";
+      else if (special[1] == 'O')
+        created_wln->special = "Co";
+      else if (special[1] == 'R')
+        created_wln->special = "Cr";
+      else if (special[1] == 'S')
+        created_wln->special = "Cs";
+      else if (special[1] == 'U')
+        created_wln->special = "Cu";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'D':
-        if(special[1] == 'B')
-          created_wln->special = "Db";
-        else if (special[1] == 'S')
-          created_wln->special = "Ds";
-        else if (special[1] == 'Y')
-          created_wln->special = "Dy";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'D':
+      if (special[1] == 'B')
+        created_wln->special = "Db";
+      else if (special[1] == 'S')
+        created_wln->special = "Ds";
+      else if (special[1] == 'Y')
+        created_wln->special = "Dy";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'E':
-        if(special[1] == 'R')
-          created_wln->special = "Er";
-        else if (special[1] == 'S')
-          created_wln->special = "Es";
-        else if (special[1] == 'U')
-          created_wln->special = "Eu";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'E':
+      if (special[1] == 'R')
+        created_wln->special = "Er";
+      else if (special[1] == 'S')
+        created_wln->special = "Es";
+      else if (special[1] == 'U')
+        created_wln->special = "Eu";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'F':
-        if(special[1] == 'E')
-          created_wln->special = "Fe";
-        else if (special[1] == 'L')
-          created_wln->special = "Fl";
-        else if (special[1] == 'M')
-          created_wln->special = "Fm";
-        else if (special[1] == 'R')
-          created_wln->special = "Fr";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'F':
+      if (special[1] == 'E')
+        created_wln->special = "Fe";
+      else if (special[1] == 'L')
+        created_wln->special = "Fl";
+      else if (special[1] == 'M')
+        created_wln->special = "Fm";
+      else if (special[1] == 'R')
+        created_wln->special = "Fr";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'G':
-        if(special[1] == 'A')
-          created_wln->special = "Ga";
-        else if (special[1] == 'D')
-          created_wln->special = "Gd";
-        else if (special[1] == 'E')
-          created_wln->special = "Ge";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'G':
+      if (special[1] == 'A')
+        created_wln->special = "Ga";
+      else if (special[1] == 'D')
+        created_wln->special = "Gd";
+      else if (special[1] == 'E')
+        created_wln->special = "Ge";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'H':
-        if(special[1] == 'E')
-          created_wln->special = "Ha";
-        else if (special[1] == 'F')
-          created_wln->special = "Hf";
-        else if (special[1] == 'G')
-          created_wln->special = "Hg";
-        else if (special[1] == 'O')
-          created_wln->special = "Ho";
-        else if (special[1] == 'S')
-          created_wln->special = "Hs";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'H':
+      if (special[1] == 'E')
+        created_wln->special = "Ha";
+      else if (special[1] == 'F')
+        created_wln->special = "Hf";
+      else if (special[1] == 'G')
+        created_wln->special = "Hg";
+      else if (special[1] == 'O')
+        created_wln->special = "Ho";
+      else if (special[1] == 'S')
+        created_wln->special = "Hs";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-
-      case 'I':
-        if(special[1] == 'N')
-          created_wln->special = "In";
-        else if (special[1] == 'R')
-          created_wln->special = "Ir";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'I':
+      if (special[1] == 'N')
+        created_wln->special = "In";
+      else if (special[1] == 'R')
+        created_wln->special = "Ir";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'K':
-        if(special[1] == 'R')
-          created_wln->special = "Kr";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'K':
+      if (special[1] == 'R')
+        created_wln->special = "Kr";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'L':
-        if(special[1] == 'A')
-          created_wln->special = "La";
-        else if (special[1] == 'I')
-          created_wln->special = "Li";
-        else if (special[1] == 'R')
-          created_wln->special = "Lr";
-        else if (special[1] == 'U')
-          created_wln->special = "Lu";
-        else if (special[1] == 'V')
-          created_wln->special = "Lv";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'L':
+      if (special[1] == 'A')
+        created_wln->special = "La";
+      else if (special[1] == 'I')
+        created_wln->special = "Li";
+      else if (special[1] == 'R')
+        created_wln->special = "Lr";
+      else if (special[1] == 'U')
+        created_wln->special = "Lu";
+      else if (special[1] == 'V')
+        created_wln->special = "Lv";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'M':
-        if(special[1] == 'C')
-          created_wln->special = "Mc";
-        else if (special[1] == 'D')
-          created_wln->special = "Md";
-        else if (special[1] == 'G')
-          created_wln->special = "Mg";
-        else if (special[1] == 'N')
-          created_wln->special = "Mn";
-        else if (special[1] == 'O')
-          created_wln->special = "Mo";
-        else if (special[1] == 'T')
-          created_wln->special = "Mt";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'M':
+      if (special[1] == 'C')
+        created_wln->special = "Mc";
+      else if (special[1] == 'D')
+        created_wln->special = "Md";
+      else if (special[1] == 'G')
+        created_wln->special = "Mg";
+      else if (special[1] == 'N')
+        created_wln->special = "Mn";
+      else if (special[1] == 'O')
+        created_wln->special = "Mo";
+      else if (special[1] == 'T')
+        created_wln->special = "Mt";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-
-      case 'N':
-        if(special[1] == 'A')
-          created_wln->special = "Na";
-        else if (special[1] == 'B')
-          created_wln->special = "Nb";
-        else if (special[1] == 'D')
-          created_wln->special = "Nd";
-        else if (special[1] == 'E')
-          created_wln->special = "Ne";
-        else if (special[1] == 'H')
-          created_wln->special = "Nh";
-        else if (special[1] == 'I')
-          created_wln->special = "Ni";
-        else if (special[1] == 'O')
-          created_wln->special = "No";
-        else if (special[1] == 'P')
-          created_wln->special = "Np";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'N':
+      if (special[1] == 'A')
+        created_wln->special = "Na";
+      else if (special[1] == 'B')
+        created_wln->special = "Nb";
+      else if (special[1] == 'D')
+        created_wln->special = "Nd";
+      else if (special[1] == 'E')
+        created_wln->special = "Ne";
+      else if (special[1] == 'H')
+        created_wln->special = "Nh";
+      else if (special[1] == 'I')
+        created_wln->special = "Ni";
+      else if (special[1] == 'O')
+        created_wln->special = "No";
+      else if (special[1] == 'P')
+        created_wln->special = "Np";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-
-      case 'O':
-        if(special[1] == 'G')
-          created_wln->special = "Og";
-        else if(special[1] == 'S')
-          created_wln->special = "Os";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'O':
+      if (special[1] == 'G')
+        created_wln->special = "Og";
+      else if (special[1] == 'S')
+        created_wln->special = "Os";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'P':
-        if(special[1] == 'A')
-          created_wln->special = "Pa";
-        else if(special[1] == 'B')
-          created_wln->special = "Pb";
-        else if(special[1] == 'D')
-          created_wln->special = "Pd";
-        else if(special[1] == 'M')
-          created_wln->special = "Pm";
-        else if(special[1] == 'O')
-          created_wln->special = "Po";
-        else if(special[1] == 'R')
-          created_wln->special = "Pr";
-        else if(special[1] == 'T')
-          created_wln->special = "Pt";
-        else if(special[1] == 'U')
-          created_wln->special = "Pu";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
-      break;
-      
-      case 'R':
-        if(special[1] == 'A')
-          created_wln->special = "Ra";
-        else if(special[1] == 'B')
-          created_wln->special = "Rb";
-        else if(special[1] == 'E')
-          created_wln->special = "Re";
-        else if(special[1] == 'F')
-          created_wln->special = "Rf";
-        else if(special[1] == 'G')
-          created_wln->special = "Rg";
-        else if(special[1] == 'H')
-          created_wln->special = "Rh";
-        else if(special[1] == 'N')
-          created_wln->special = "Rn";
-        else if(special[1] == 'U')
-          created_wln->special = "Ru";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
-      break;
-      
-      case 'S':
-        if(special[1] == 'B')
-          created_wln->special = "Sb";
-        else if(special[1] == 'C')
-          created_wln->special = "Sc";
-        else if(special[1] == 'E')
-          created_wln->special = "Se";
-        else if(special[1] == 'I')
-          created_wln->special = "Si";
-        else if(special[1] == 'M')
-          created_wln->special = "Sm";
-        else if(special[1] == 'N')
-          created_wln->special = "Sn";
-        else if(special[1] == 'R')
-          created_wln->special = "Sr";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'P':
+      if (special[1] == 'A')
+        created_wln->special = "Pa";
+      else if (special[1] == 'B')
+        created_wln->special = "Pb";
+      else if (special[1] == 'D')
+        created_wln->special = "Pd";
+      else if (special[1] == 'M')
+        created_wln->special = "Pm";
+      else if (special[1] == 'O')
+        created_wln->special = "Po";
+      else if (special[1] == 'R')
+        created_wln->special = "Pr";
+      else if (special[1] == 'T')
+        created_wln->special = "Pt";
+      else if (special[1] == 'U')
+        created_wln->special = "Pu";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-
-      case 'T':
-        if(special[1] == 'A')
-          created_wln->special = "Ta";
-        else if(special[1] == 'B')
-          created_wln->special = "Tb";
-        else if(special[1] == 'C')
-          created_wln->special = "Tc";
-        else if(special[1] == 'E')
-          created_wln->special = "Te";
-        else if(special[1] == 'H')
-          created_wln->special = "Th";
-        else if(special[1] == 'I')
-          created_wln->special = "Ti";
-        else if(special[1] == 'L')
-          created_wln->special = "Tl";
-        else if(special[1] == 'M')
-          created_wln->special = "Tm";
-        else if(special[1] == 'S')
-          created_wln->special = "Ts";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'R':
+      if (special[1] == 'A')
+        created_wln->special = "Ra";
+      else if (special[1] == 'B')
+        created_wln->special = "Rb";
+      else if (special[1] == 'E')
+        created_wln->special = "Re";
+      else if (special[1] == 'F')
+        created_wln->special = "Rf";
+      else if (special[1] == 'G')
+        created_wln->special = "Rg";
+      else if (special[1] == 'H')
+        created_wln->special = "Rh";
+      else if (special[1] == 'N')
+        created_wln->special = "Rn";
+      else if (special[1] == 'U')
+        created_wln->special = "Ru";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-
-      case 'X':
-        if(special[1] == 'E')
-          created_wln->special = "Xe";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'S':
+      if (special[1] == 'B')
+        created_wln->special = "Sb";
+      else if (special[1] == 'C')
+        created_wln->special = "Sc";
+      else if (special[1] == 'E')
+        created_wln->special = "Se";
+      else if (special[1] == 'I')
+        created_wln->special = "Si";
+      else if (special[1] == 'M')
+        created_wln->special = "Sm";
+      else if (special[1] == 'N')
+        created_wln->special = "Sn";
+      else if (special[1] == 'R')
+        created_wln->special = "Sr";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'Y':
-        if(special[1] == 'B')
-          created_wln->special = "Yb";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'T':
+      if (special[1] == 'A')
+        created_wln->special = "Ta";
+      else if (special[1] == 'B')
+        created_wln->special = "Tb";
+      else if (special[1] == 'C')
+        created_wln->special = "Tc";
+      else if (special[1] == 'E')
+        created_wln->special = "Te";
+      else if (special[1] == 'H')
+        created_wln->special = "Th";
+      else if (special[1] == 'I')
+        created_wln->special = "Ti";
+      else if (special[1] == 'L')
+        created_wln->special = "Tl";
+      else if (special[1] == 'M')
+        created_wln->special = "Tm";
+      else if (special[1] == 'S')
+        created_wln->special = "Ts";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      case 'Z':
-        if(special[1] == 'N')
-          created_wln->special = "Zn";
-        else if (special[1] == 'R')
-          created_wln->special = "Zr";
-        else{
-          fprintf(stderr,"Error: invalid element symbol in special definition\n");
-          return (WLNSymbol*)0; 
-        }
+    case 'X':
+      if (special[1] == 'E')
+        created_wln->special = "Xe";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
       break;
 
-      default:
-        fprintf(stderr,"Error: invalid character in special definition switch\n");
-        return (WLNSymbol*)0; 
+    case 'Y':
+      if (special[1] == 'B')
+        created_wln->special = "Yb";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
+      break;
+
+    case 'Z':
+      if (special[1] == 'N')
+        created_wln->special = "Zn";
+      else if (special[1] == 'R')
+        created_wln->special = "Zr";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition\n");
+        return (WLNSymbol *)0;
+      }
+      break;
+
+    default:
+      fprintf(stderr, "Error: invalid character in special definition switch\n");
+      return (WLNSymbol *)0;
     }
 
-    created_wln->allowed_edges = 8; // allow on octet default for these species. 
+    created_wln->allowed_edges = 8; // allow on octet default for these species.
 
-    return created_wln; 
+    return created_wln;
   }
 
-
-  WLNSymbol* return_open_branch(std::stack<WLNSymbol*> &branch_stack){
+  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack)
+  {
 
     if (branch_stack.empty())
-      return (WLNSymbol*)0;
+      return (WLNSymbol *)0;
 
     WLNSymbol *top = branch_stack.top();
 
@@ -1164,1002 +989,1081 @@ struct WLNGraph{
     return top;
   }
 
-  bool check_unbroken(unsigned int i){
-    if(i > 1 && !(wln[i-1] == '&' && wln[i-2] == ' ')){
-      fprintf(stderr,"Error: broken graph without ionic notation, check branches|locants and '&' count\n");
+  bool check_unbroken(unsigned int i)
+  {
+    if (i > 1 && !(wln[i - 1] == '&' && wln[i - 2] == ' '))
+    {
+      fprintf(stderr, "Error: broken graph without ionic notation, check branches|locants and '&' count\n");
       return false;
     }
-    
+
     return true;
   }
 
-  WLNSymbol* pop_ringstack(unsigned int pops, std::stack <WLNSymbol*> &stack){
+  WLNSymbol *pop_ringstack(unsigned int pops, std::stack<WLNSymbol *> &stack)
+  {
 
-    if (pops >= stack.size()){
-      fprintf(stderr,"Error: trying to pop too many rings check '&' count\n");
-      return (WLNSymbol*)0; 
+    if (pops >= stack.size())
+    {
+      fprintf(stderr, "Error: trying to pop too many rings check '&' count\n");
+      return (WLNSymbol *)0;
     }
-    
-    for (unsigned int i=0; i<pops;i++)
+
+    for (unsigned int i = 0; i < pops; i++)
       stack.pop();
-    
+
     return stack.top();
   }
 
   // this has a return clause in it and needs previous
-  WLNSymbol* pop_branchstack(unsigned int pops, std::stack <WLNSymbol*> &stack, WLNSymbol *prev){
+  WLNSymbol *pop_branchstack(unsigned int pops, std::stack<WLNSymbol *> &stack, WLNSymbol *prev)
+  {
 
-    if(!prev)
-      fprintf(stderr,"Error: popping with no previous symbol\n");
+    if (!prev)
+      fprintf(stderr, "Error: popping with no previous symbol\n");
 
-    bool hard = false; 
+    bool hard = false;
 
-    if(prev == stack.top())
+    if (prev == stack.top())
       hard = true;
 
-    if(opt_debug)
-      fprintf(stderr,"  popping %d symbols down the stack: mode(%d) prev[%c]\n",pops, hard,prev->ch);
+    if (opt_debug)
+      fprintf(stderr, "  popping %d symbols down the stack: mode(%d) prev[%c]\n", pops, hard, prev->ch);
 
-    if(hard){
-      if(pops >= stack.size()){
-        fprintf(stderr,"Error: to many stack pops - check '&' count\n");
-        return 0; 
+    if (hard)
+    {
+      if (pops >= stack.size())
+      {
+        fprintf(stderr, "Error: to many stack pops - check '&' count\n");
+        return 0;
       }
-      for (unsigned int i=0; i<pops;i++)
-        stack.pop();      
+      for (unsigned int i = 0; i < pops; i++)
+        stack.pop();
     }
-    else{
-      if(pops > stack.size()){
-        fprintf(stderr,"Error: to many stack pops - check '&' count\n");
-        return 0; 
+    else
+    {
+      if (pops > stack.size())
+      {
+        fprintf(stderr, "Error: to many stack pops - check '&' count\n");
+        return 0;
       }
-      for (unsigned int i=1; i<pops;i++)
-        stack.pop();      
+      for (unsigned int i = 1; i < pops; i++)
+        stack.pop();
     }
     return stack.top();
   }
 
   /* wraps popping for the linker and branch stacks */
-  WLNSymbol *pop_standard_stacks(unsigned int pop_ticks, 
-                        std::stack<WLNSymbol*> &branch_stack,
-                        std::stack<WLNSymbol*> &linker_stack,
-                        WLNSymbol* prev, unsigned int i)
+  WLNSymbol *pop_standard_stacks(unsigned int pop_ticks,
+                                 std::stack<WLNSymbol *> &branch_stack,
+                                 std::stack<WLNSymbol *> &linker_stack,
+                                 WLNSymbol *prev, unsigned int i)
   {
-    WLNSymbol *ret = 0; 
-    if(!branch_stack.empty())
-      ret = pop_branchstack(pop_ticks,branch_stack,prev);
-    else if(!linker_stack.empty())
-      ret = pop_branchstack(pop_ticks,linker_stack,prev);
-    else{
-      fprintf(stderr,"Error: popping empty stacks - check '&' count\n");
+    WLNSymbol *ret = 0;
+    if (!branch_stack.empty())
+      ret = pop_branchstack(pop_ticks, branch_stack, prev);
+    else if (!linker_stack.empty())
+      ret = pop_branchstack(pop_ticks, linker_stack, prev);
+    else
+    {
+      fprintf(stderr, "Error: popping empty stacks - check '&' count\n");
       Fatal(i);
     }
-      
-    return ret;   
+
+    return ret;
   }
 
-
   /* wraps the linking and graph checking functions */
-  void create_bond( WLNSymbol *curr, WLNSymbol *prev, 
-                    unsigned int bond_ticks, unsigned int i)
+  void create_bond(WLNSymbol *curr, WLNSymbol *prev,
+                   unsigned int bond_ticks, unsigned int i)
   {
-    if(prev){
-      if(!link_symbols(curr,prev,1 + bond_ticks))
+    if (prev)
+    {
+      if (!link_symbols(curr, prev, 1 + bond_ticks))
         Fatal(i);
     }
-    else{
-      if(!check_unbroken(i))
+    else
+    {
+      if (!check_unbroken(i))
         Fatal(i);
     }
   }
 
   /*  Wraps the creation of locant and bonding back ring assignment */
-  void create_locant(WLNSymbol *curr,std::stack<WLNSymbol*> &ring_stack,unsigned int i){
+  void create_locant(WLNSymbol *curr, std::stack<WLNSymbol *> &ring_stack, unsigned int i)
+  {
 
-    WLNSymbol *s_ring = 0; 
+    WLNSymbol *s_ring = 0;
     unsigned char ch = wln[i];
 
-    if(ring_stack.empty()){
-      fprintf(stderr,"Error: no rings to assign locants to\n");
+    if (ring_stack.empty())
+    {
+      fprintf(stderr, "Error: no rings to assign locants to\n");
       Fatal(i);
-    } 
+    }
     else
       s_ring = ring_stack.top();
 
-    if(locant_integer_map[ch] < s_ring->ring->size)
+    if (locant_integer_map[ch] < s_ring->ring->size)
       s_ring->children.push_back(curr);
-    else{
-      fprintf(stderr,"Error: assigning locant greater than ring size\n");
+    else
+    {
+      fprintf(stderr, "Error: assigning locant greater than ring size\n");
       Fatal(i);
     }
   }
 
   /* a global segmentation using both rule sets - start merging */
-  bool ParseWLNString(const char *wln, unsigned int len){
+  bool ParseWLNString(const char *wln, unsigned int len)
+  {
 
-
-    std::stack <WLNSymbol*>   ring_stack;   // access through symbol
-    std::stack <WLNSymbol*>   branch_stack; // between locants, clean branch stack
-    std::stack <WLNSymbol*>   linker_stack; // used for branching ring systems 
+    std::stack<WLNSymbol *> ring_stack;   // access through symbol
+    std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
+    std::stack<WLNSymbol *> linker_stack; // used for branching ring systems
 
     WLNSymbol *curr = 0;
-    WLNSymbol *prev = 0;  
+    WLNSymbol *prev = 0;
 
-    bool pending_locant         = false;
-    bool pending_special        = false;
-    bool pending_closure        = false; 
-    bool pending_inline_ring    = false;
-    bool pending_spiro          = false;
+    bool pending_locant = false;
+    bool pending_special = false;
+    bool pending_closure = false;
+    bool pending_inline_ring = false;
+    bool pending_spiro = false;
 
     // allows consumption of notation after block parses
-    unsigned int block_start =  0;
-    unsigned int block_end    = 0;
+    unsigned int block_start = 0;
+    unsigned int block_end = 0;
 
-    unsigned int pop_ticks  = 0; // '&' style popping
+    unsigned int pop_ticks = 0;  // '&' style popping
     unsigned int bond_ticks = 0; // 'U' style bonding
 
-    for (unsigned int i=0; i<len; i++){
+    for (unsigned int i = 0; i < len; i++)
+    {
       unsigned char ch = wln[i];
-      
-      if(opt_debug)
-        fprintf(stderr,"Parsing: %c\n",ch);
-    
 
-      switch (ch){
+      if (opt_debug)
+        fprintf(stderr, "Parsing: %c\n", ch);
 
-        case '0': // cannot be lone, must be an addition to another num
-          if(pending_closure || pending_special){
-            break;
-          }
-          if (i == 0)
-            Fatal(i);
-          else if(i > 0 && !std::isdigit(wln[i-1]))
-            Fatal(i);
-          else{
-            curr = AllocateWLNSymbol(ch);
-          }  
-            
+      switch (ch)
+      {
+
+      case '0': // cannot be lone, must be an addition to another num
+        if (pending_closure || pending_special)
+        {
           break;
-          
+        }
+        if (i == 0)
+          Fatal(i);
+        else if (i > 0 && !std::isdigit(wln[i - 1]))
+          Fatal(i);
+        else
+        {
+          curr = AllocateWLNSymbol(ch);
+        }
 
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          if(pop_ticks){
-            prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-            pop_ticks = 0; 
+        break;
+
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+        if (pop_ticks)
+        {
+          prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+          pop_ticks = 0;
+        }
+
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
+
+        curr = AllocateWLNSymbol(ch);
+        curr->set_type(STANDARD);
+        curr->set_edges(2);
+
+        create_bond(curr, prev, bond_ticks, i);
+
+        prev = curr;
+        break;
+
+        // carbons
+
+      case 'Y':
+
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
+        else if (pending_locant)
+        {
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
 
-          if(pending_closure || pending_special){
-            break;
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(3);
+
+          branch_stack.push(curr);
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
+
+      case 'X':
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
+        else if (pending_locant)
+        {
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
+          }
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(4);
+
+          branch_stack.push(curr);
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
+
+        // oxygens
+
+      case 'O':
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
+        else if (pending_locant)
+        {
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
 
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
-          create_bond(curr,prev,bond_ticks,i);
+          branch_stack.push(curr);
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
+
+      case 'Q':
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
           prev = curr;
+          pending_locant = false;
+        }
+        else if (pending_closure || pending_special)
+        {
+          continue;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
+          }
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(1);
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = return_open_branch(branch_stack);
+        }
+        break;
+
+      case 'V':
+      case 'W':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
-        // carbons
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
 
-        case 'Y':
-          
-          if(pending_closure || pending_special){
-            break;
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-            
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else{
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(2);
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          create_bond(curr, prev, bond_ticks, i);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(3);
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
 
-            branch_stack.push(curr);
+        // nitrogens
 
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
+      case 'N':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
-        case 'X':
-          if(pending_closure || pending_special){
-            break;
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(3);
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          branch_stack.push(curr);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(4);
+          create_bond(curr, prev, bond_ticks, i);
 
-            branch_stack.push(curr);
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
 
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
+      case 'M':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
-        // oxygens 
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
 
-        case 'O':
-          if (pending_closure || pending_special){
-            break;
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(2);
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          branch_stack.push(curr);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(2);
+          create_bond(curr, prev, bond_ticks, i);
 
-            branch_stack.push(curr);
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
 
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
+      case 'K':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
-        case 'Q':
-          if (pending_closure || pending_special){
-            break;
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else if(pending_closure || pending_special){
-            continue; 
-          }
-          else{
-            
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(4);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(1);
+          branch_stack.push(curr);
 
-            create_bond(curr,prev,bond_ticks,i);
+          create_bond(curr, prev, bond_ticks, i);
 
-            bond_ticks = 0;
-            prev = return_open_branch(branch_stack);
-          }
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
+
+      case 'Z':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
-        case 'V':
-        case 'W':
-          if (pending_closure || pending_special){
-            break;
+          prev = curr;
+          pending_locant = false;
+        }
+        else if (pending_closure || pending_special)
+        {
+          continue;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(1);
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          create_bond(curr, prev, bond_ticks, i);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(2);
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr; 
-          }
-          break;
-
-
-
-        // nitrogens 
-
-        case 'N':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else {
-
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
-
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(3);
-
-            branch_stack.push(curr);
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
-          break;
-
-        case 'M':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else {
-
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0; 
-            }
-
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(2);
-
-            branch_stack.push(curr);
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
-          break;
-
-        case 'K':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else {
-
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
-
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(4);
-
-            branch_stack.push(curr);
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
-          break;
-
-
-        case 'Z':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else if(pending_closure || pending_special){
-            continue; 
-          }
-          else{
-
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
-
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(1);
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = return_open_branch(branch_stack);
-          }
-          break;
-
+          bond_ticks = 0;
+          prev = return_open_branch(branch_stack);
+        }
+        break;
 
         // halogens - need to add rules for semi allowed hyper valence in ionions
 
-        case 'E':
-        case 'G':
-        case 'F':
-        case 'I':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else if(pending_closure || pending_special){
-            continue; 
-          }
-          else{
-
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0; 
-            }
-
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(1);
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            
-            prev = return_open_branch(branch_stack);
-          }
+      case 'E':
+      case 'G':
+      case 'F':
+      case 'I':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
-        
-        // inorganics 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
-        case 'B':
-          if (pending_closure || pending_special){
-            break;
+          prev = curr;
+          pending_locant = false;
+        }
+        else if (pending_closure || pending_special)
+        {
+          continue;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else if(pending_closure || pending_special){
-            continue; 
-          }
-          else{
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(1);
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          create_bond(curr, prev, bond_ticks, i);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(3);
+          bond_ticks = 0;
 
-            branch_stack.push(curr);
+          prev = return_open_branch(branch_stack);
+        }
+        break;
 
-            create_bond(curr,prev,bond_ticks,i);
+        // inorganics
 
-            bond_ticks = 0;
-            prev = curr;
-          }
+      case 'B':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
-  
-        case 'P':
-        case 'S':
-          if (pending_closure || pending_special){
-            break;
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else if (pending_closure || pending_special)
+        {
+          continue;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
           }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else if(pending_closure || pending_special){
-            continue; 
-          }
-          else{
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(3);
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
+          branch_stack.push(curr);
 
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(6);
+          create_bond(curr, prev, bond_ticks, i);
 
-            branch_stack.push(curr);
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
 
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0;
-            prev = curr;
-          }
+      case 'P':
+      case 'S':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else if (pending_closure || pending_special)
+        {
+          continue;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
+          }
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(6);
+
+          branch_stack.push(curr);
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
 
         // locants only?
 
-        case 'A':
-        case 'C':
-        case 'D':
-        case 'H':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if (pending_locant){
-            
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else
-            Fatal(i);
-
+      case 'A':
+      case 'C':
+      case 'D':
+      case 'H':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
 
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+          Fatal(i);
+
+        break;
 
         // ring notation
 
-        case 'J':
-          if (pending_special){
-            break;
-          }
-          if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-
-          else if(pending_closure){
-            block_end = i;
-
-            curr = AllocateWLNSymbol('*');
-            curr->set_type(RING);
-            curr->ring = AllocateWLNRing();
-
-            curr->add_special(block_start,block_end);
-            block_start = 0; 
-            block_end = 0; 
-
-            curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
-
-            ring_stack.push(curr);
-
-            if(pending_spiro){
-              prev->type = LINKER; // spiros are normal rings with dual linker notation
-              prev->previous->type = LINKER; 
-              pending_spiro = false; 
-            }
-
-            // does the incoming locant check
-            if(prev){
-              prev->children.push_back(curr);
-              if(locant_integer_map[prev->ch] > curr->ring->size){
-                fprintf(stderr,"Error: attaching inline ring with out of bounds locant assignment\n");
-                Fatal(i);
-              }
-            }
-
-            bond_ticks = 0;
-            prev = curr; 
-            pending_closure = false;
-          }
-          else
-            Fatal(i);
-
+      case 'J':
+        if (pending_special)
+        {
           break;
+        }
+        if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
-        case 'L':
-        case 'T':
-          if(pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
-            prev = curr; 
-            pending_locant = false;
+          prev = curr;
+          pending_locant = false;
+        }
+
+        else if (pending_closure)
+        {
+          block_end = i;
+
+          curr = AllocateWLNSymbol('*');
+          curr->set_type(RING);
+          curr->ring = AllocateWLNRing();
+
+          curr->add_special(block_start, block_end);
+          block_start = 0;
+          block_end = 0;
+
+          curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
+
+          ring_stack.push(curr);
+
+          if (pending_spiro)
+          {
+            prev->type = LINKER; // spiros are normal rings with dual linker notation
+            prev->previous->type = LINKER;
+            pending_spiro = false;
           }
-          else{
-            
-            if(i==0)
-              pending_inline_ring = true; 
-           
-            if(!pending_inline_ring){
-              fprintf(stderr,"Error: ring notation started without '-' denotion\n");
+
+          // does the incoming locant check
+          if (prev)
+          {
+            prev->children.push_back(curr);
+            if (locant_integer_map[prev->ch] > curr->ring->size)
+            {
+              fprintf(stderr, "Error: attaching inline ring with out of bounds locant assignment\n");
               Fatal(i);
             }
-            else 
-              pending_inline_ring = false;
-
-  
-            block_start = i; 
-            pending_closure = true; 
           }
+
+          bond_ticks = 0;
+          prev = curr;
+          pending_closure = false;
+        }
+        else
+          Fatal(i);
+
+        break;
+
+      case 'L':
+      case 'T':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
-        case 'R':
-          if (pending_closure || pending_special){
-            break;
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (i == 0)
+            pending_inline_ring = true;
+
+          if (!pending_inline_ring)
+          {
+            fprintf(stderr, "Error: ring notation started without '-' denotion\n");
+            Fatal(i);
           }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT);
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
+          else
+            pending_inline_ring = false;
 
-            prev = curr; 
-            pending_locant = false;
-          }
-          else{
+          block_start = i;
+          pending_closure = true;
+        }
+        break;
 
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0;
-            }
-
-            curr = AllocateWLNSymbol('*');
-            curr->set_type(RING);
-            curr->ring = AllocateWLNRing();
-
-            curr->add_special("L6J");
-            curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
-
-            ring_stack.push(curr);
-
-            curr->set_edges(1); // for inline R's they cannot have more than 1; 
-
-            create_bond(curr,prev,bond_ticks,i);
-            
-            bond_ticks = 0;
-            prev = curr; 
-          }
+      case 'R':
+        if (pending_closure || pending_special)
+        {
           break;
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
 
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
 
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
+          }
+
+          curr = AllocateWLNSymbol('*');
+          curr->set_type(RING);
+          curr->ring = AllocateWLNRing();
+
+          curr->add_special("L6J");
+          curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
+
+          ring_stack.push(curr);
+
+          curr->set_edges(1); // for inline R's they cannot have more than 1;
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
 
         // bonding
 
-        case 'U':
-          if (pending_closure || pending_special){
-            break;
-          }
-          else if(pending_locant){
-            curr = AllocateWLNSymbol(ch);
-            curr->set_type(LOCANT); 
-            curr->set_edges(2); // locants always have two edges
-            
-            if(pending_inline_ring)
-              create_bond(curr,prev,bond_ticks,i);
-            else
-              create_locant(curr,ring_stack,i);
-
-            prev = curr; 
-            pending_locant = false;
-          }
-          else
-            bond_ticks++;
-
+      case 'U':
+        if (pending_closure || pending_special)
+        {
           break;
-          
-
-        
-        // specials 
-
-
-        case ' ':
-          if (pending_closure){
-            break;
-          }
-          if (pending_special){
-            pending_special = false; 
-            block_start = 0; 
-            block_end = 0; 
-          }
-
-          // clear the branch stack betweek locants and ions
-          while(!branch_stack.empty())
-            branch_stack.pop();
-
-          if(pop_ticks){
-            prev = pop_ringstack(pop_ticks,ring_stack);
-            if(!prev)
-              Fatal(i);
-            pop_ticks = 0;
-          } 
-           
-          pending_locant = true;
-          break;
-          
-        case '&': 
-          if (pending_closure || pending_special){
-            break;
-          }
-
-          if(pending_inline_ring){
-            // spiro notation open
-            pending_spiro = true; 
-          }
-          else if(pending_locant){
-            // ionic species or spiro, reset the linkings
-            prev = 0; 
-            pending_locant = false;
-          }
-          else{
-            pop_ticks++; // set the number of pops to do
-          }
-          break;
-
-
-        case '-':
-          if(!pending_inline_ring){
-            pending_inline_ring = true;
-            
-            // send the linker into its own stack
-            if(!branch_stack.empty() && (branch_stack.top()->num_edges < branch_stack.top()->allowed_edges) )
-              linker_stack.push(branch_stack.top());
-          }
-            
-          else if(pending_inline_ring){
-            fprintf(stderr,"Error: only one pending ring can be active, check closures\n");
-            Fatal(i);
-          }
-          else if(pending_special){
-
-            if(pop_ticks){
-              prev = pop_standard_stacks(pop_ticks,branch_stack,linker_stack,prev,i);
-              pop_ticks = 0; 
-            }
-
-            block_end = i;
-            curr = AllocateWLNSymbol('*');
-            curr->add_special(block_start,block_end);
-
-            block_start = 0;
-            block_end = 0; 
-
-            create_bond(curr,prev,bond_ticks,i);
-
-            bond_ticks = 0; 
-            prev = curr;
-            pending_special = false;
-          }
-          else if (!pending_special)
-            pending_special = true;
-          
-          break;
-
-        case '/':
-          prev = curr;
+        }
+        else if (pending_locant)
+        {
           curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+          bond_ticks++;
+
+        break;
+
+        // specials
+
+      case ' ':
+        if (pending_closure)
+        {
           break;
+        }
+        if (pending_special)
+        {
+          pending_special = false;
+          block_start = 0;
+          block_end = 0;
+        }
 
-        default: 
-          fprintf(stderr,"Error: unallowed character! - [A-Z][0-1][&-/' ']\n");
+        // clear the branch stack betweek locants and ions
+        while (!branch_stack.empty())
+          branch_stack.pop();
+
+        if (pop_ticks)
+        {
+          prev = pop_ringstack(pop_ticks, ring_stack);
+          if (!prev)
+            Fatal(i);
+          pop_ticks = 0;
+        }
+
+        pending_locant = true;
+        break;
+
+      case '&':
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
+
+        if (pending_inline_ring)
+        {
+          // spiro notation open
+          pending_spiro = true;
+        }
+        else if (pending_locant)
+        {
+          // ionic species or spiro, reset the linkings
+          prev = 0;
+          pending_locant = false;
+        }
+        else
+        {
+          pop_ticks++; // set the number of pops to do
+        }
+        break;
+
+      case '-':
+        if (!pending_inline_ring)
+        {
+          pending_inline_ring = true;
+
+          // send the linker into its own stack
+          if (!branch_stack.empty() && (branch_stack.top()->num_edges < branch_stack.top()->allowed_edges))
+            linker_stack.push(branch_stack.top());
+        }
+
+        else if (pending_inline_ring)
+        {
+          fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
           Fatal(i);
-        
+        }
+        else if (pending_special)
+        {
+
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
+          }
+
+          block_end = i;
+          curr = AllocateWLNSymbol('*');
+          curr->add_special(block_start, block_end);
+
+          block_start = 0;
+          block_end = 0;
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          prev = curr;
+          pending_special = false;
+        }
+        else if (!pending_special)
+          pending_special = true;
+
+        break;
+
+      case '/':
+        prev = curr;
+        curr = AllocateWLNSymbol(ch);
+        break;
+
+      default:
+        fprintf(stderr, "Error: unallowed character! - [A-Z][0-1][&-/' ']\n");
+        Fatal(i);
       }
-
-
     }
 
-
-    if(pending_closure){
-      fprintf(stderr,"Error: expected 'J' to close ring\n");
+    if (pending_closure)
+    {
+      fprintf(stderr, "Error: expected 'J' to close ring\n");
       Fatal(len);
     }
 
-    if(pending_locant){
-      fprintf(stderr,"Error: expected locant to attach to ring\n");
+    if (pending_locant)
+    {
+      fprintf(stderr, "Error: expected locant to attach to ring\n");
       Fatal(len);
     }
 
-    if(pending_inline_ring){
-      fprintf(stderr,"Error: expected inline ring to be defined\n");
+    if (pending_inline_ring)
+    {
+      fprintf(stderr, "Error: expected inline ring to be defined\n");
       Fatal(len);
     }
 
-    if(pending_spiro){
-      fprintf(stderr,"Error: expected sprio ring to be defined\n");
+    if (pending_spiro)
+    {
+      fprintf(stderr, "Error: expected sprio ring to be defined\n");
       Fatal(len);
     }
-            
-    return true; 
+
+    return true;
   }
-
 
   /* dump wln tree to a dotvis file */
   void WLNDumpToDot(FILE *fp)
   {
 
-    std::map<WLNSymbol*, bool>::iterator sym_iter;
-    
+    std::map<WLNSymbol *, bool>::iterator sym_iter;
 
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
-    for (WLNSymbol *node: symbol_mempool){
+    for (WLNSymbol *node : symbol_mempool)
+    {
 
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->ch == '*')
@@ -2168,7 +2072,7 @@ struct WLNGraph{
         fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
 
       for (WLNSymbol *child : node->children)
-      { 
+      {
         fprintf(fp, "  %d", index_lookup[node]);
         fprintf(fp, " -> ");
         fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
@@ -2178,11 +2082,8 @@ struct WLNGraph{
   }
 };
 
-
-
-
-
-static void DisplayHelp(){
+static void DisplayHelp()
+{
   fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
   fprintf(stderr, " This parser reads and evaluates wiswesser\n"
                   " line notation (wln), the parser is native\n"
@@ -2270,8 +2171,7 @@ static void ProcessCommandLine(int argc, char *argv[])
           opt_wln2dot = true;
           break;
         }
-        
-     
+
       default:
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
         DisplayUsage();
@@ -2300,10 +2200,9 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-
   WLNGraph wln_graph;
 
-  wln_graph.ParseWLNString(wln,strlen(wln));
+  wln_graph.ParseWLNString(wln, strlen(wln));
   Reindex_lookups();
 
   // create the wln dotfile
@@ -2311,16 +2210,17 @@ int main(int argc, char *argv[])
   {
     FILE *fp = 0;
     fp = fopen("wln-graph.dot", "w");
-    if (!fp){
+    if (!fp)
+    {
       fprintf(stderr, "Error: could not open compiler dump file\n");
       fclose(fp);
       return 1;
     }
-    else{
+    else
+    {
       wln_graph.WLNDumpToDot(fp);
       fclose(fp);
     }
-      
   }
 
   return 0;
