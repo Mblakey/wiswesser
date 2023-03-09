@@ -22,13 +22,15 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/src
 )
 
+add_executable(wln-writer3 writewln3.cpp)
+
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
 
-add_executable(wisswesser parser.cpp readwln.cpp writewln.cpp)
-add_executable(wln-writer2 writewln2.cpp)
-add_executable(wln-writer3 writewln3.cpp)
-
-target_link_libraries(wisswesser "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
-target_link_libraries(wln-writer2 "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
-target_link_libraries(wln-writer3 "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
+if(WIN32)
+  message(ERROR "Unsupported operating system - windows")
+elseif(APPLE)
+  target_link_libraries(wln-writer3 "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
+elseif(UNIX)
+  target_link_libraries(wln-writer3 "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
+endif()
