@@ -71,7 +71,7 @@ std::map<unsigned char,unsigned int> locant_integer_map =
   {'T',20}, {'U',21}, {'V',22}, {'W',23}, {'X',24}, {'Y',25}, {'Z',26}
 };
 
-std::map<unsigned char,unsigned int> integer_locant_map =
+std::map<unsigned int,unsigned char> integer_locant_map =
 {
   {1,'A'}, {2,'B'}, {3,'C'}, {4,'D'}, {5,'E'}, {6,'F'}, {7,'G'}, 
   {8,'H'}, {9,'I'}, {10,'H'}, {11,'K'}, {12,'L'}, {13,'M'}, 
@@ -254,6 +254,7 @@ struct WLNRing
   bool heterocyclic;
 
   std::vector<unsigned int>  ring_components; 
+  std::vector<unsigned char> bridge_components; 
   std::vector<std::pair<unsigned char,unsigned char>> fuse_points; // gives the fusing points for combined rings
   
   // wln symbols will be allocated with locants kept for graph conversion when writing
@@ -308,7 +309,7 @@ struct WLNRing
       it++;
     }
 
-
+    /* simple for easy bicyclics */
     if(rings > 1){
       // refactor size down 
       unsigned int term = rings - 2;
@@ -321,48 +322,114 @@ struct WLNRing
       for (unsigned int comp_size : ring_components){
         fprintf(stderr,"  fusing position %c to position %c\n",integer_locant_map[last_atom],integer_locant_map[last_atom + comp_size - 1]);
         last_atom = comp_size;
-
         fuse_points.push_back({integer_locant_map[last_atom],integer_locant_map[last_atom + comp_size - 1]});
       }
     }
-      
+
     if (opt_debug)
       fprintf(stderr,"  evaluated ring to size %d\n",local_size);
     
-
+      
     /* process the substring*/
-    process_interconnections(block.substr(it,block.length()));
+    create_symbol_ring(block.substr(it,block.length()));
       
     
     
     return local_size; // returns size as a value
   }
 
-  unsigned int process_interconnections(std::string block){
+  // creates and allocates the ring in WLNSymbol struct style
+  unsigned int create_symbol_ring(std::string block){
 
     /* 
     we assume this start after the ring blocks 
     i.e 'L66 AO TJ' -->' AO TJ'
     */ 
 
-    // split the string on the spaces, and then process the blocks
-    std::istringstream ss(block);
-    std::string del;
-
-    unsigned char locant = 'A'; // use the maps to assign locants
-    WLNSymbol *assignment = 0; 
-
-    while(getline(ss, del, ' ')){
-     
-
-      // process the locants as expected
-      if(del.back() != 'J'){
-        locant = del.front();
-        //assignment = positional_symbols[locant];
+    bool inter_ring = false;
+    for (unsigned char ch : block){
+      if (ch == ' '){
+        inter_ring = true;
+        break;
       }
-
-     
     }
+
+    if(inter_ring){
+
+      // split the string on the spaces, and then process the blocks
+      std::istringstream ss(block);
+      std::string del;
+
+      unsigned int locant = 1; // use the maps to assign locants
+      WLNSymbol *assignment = 0; 
+
+      unsigned int consumed = 0; 
+      while(getline(ss, del, ' ')){
+
+        unsigned int assign_size = del.size();
+      
+
+        if (assign_size < 1)
+          continue; // not sure i can help this? 
+        else if (assign_size == 1){
+          consumed+= 2; // +1 for the space!
+          
+          // handles the lone 'J'
+          if(consumed == block.size())
+            break;
+
+          // bridge defintions --> figure out a way to ignore the last 'J' as a 'J' bridge is intirely plausible
+          if(opt_debug)
+            fprintf(stderr, "  assigning bridge: %c\n",del[0]);
+
+          bridge_components.push_back(del[0]);
+          
+        }
+        else if (assign_size > 1){
+          consumed+= assign_size + 1; // +1 for the space!
+          // standard atomic definitions 
+
+          // process the locants as expected in standard notation
+          if(del.back() != 'J'){
+            locant = locant_integer_map[del[0]];
+            for (unsigned int i = 1; i<assign_size; i++){
+              if(del[i] != 'U'){
+
+                if(opt_debug)
+                  fprintf(stderr,"  assigning symbol: locant(%c) --> symbol(%c)\n",integer_locant_map[locant],del[i]);
+
+              }
+                
+              locant++;
+            }
+
+          }
+          else if (del.back() == 'J'){
+            // we just ignore the J
+            locant = locant_integer_map[del[0]];
+            for (unsigned int i = 1; i<assign_size-1; i++){
+              if(del[i] != 'U'){
+
+                if(opt_debug)
+                  fprintf(stderr,"  assigning: locant(%c) --> symbol(%c)\n",integer_locant_map[locant],del[i]);
+
+              }
+
+              locant++;
+            }
+          }
+        }
+     
+      }
+  
+    }
+
+
+
+
+
+
+
 
     return 0;
   }
