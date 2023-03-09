@@ -1,6 +1,4 @@
 
-/* third iteration */
-
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -11,6 +9,7 @@
 #include <map>
 #include <deque>
 #include <iterator>
+#include <sstream>
 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
@@ -251,8 +250,15 @@ struct WLNRing
   bool heterocyclic;
 
   std::vector<unsigned int>  ring_components; 
-  std::vector<unsigned char> fuse_points; // gives the fusing points for combined rings
- 
+  std::map<unsigned char,unsigned char> fuse_points; // gives the fusing points for combined rings
+  
+
+  // nope this is actually very clever, use 1's for carbons
+  // everything else gets a wln symbol, then converts to atoms
+
+
+  std::map<WLNSymbol*,unsigned char> locants; 
+
   WLNRing()
   {
     size = 0;
@@ -260,6 +266,7 @@ struct WLNRing
     heterocyclic = false;
   }
   ~WLNRing(){};
+
 
   unsigned int consume_ring_notation(std::string &block)
   {
@@ -320,11 +327,46 @@ struct WLNRing
       
       if (opt_debug)
         fprintf(stderr,"  evaluated ring to size %d\n",local_size);
+
+      // create the pseudo ring
+
+      /* process the substring*/
+      process_interconnections(block.substr(it,block.length()));
       
     }
     
     return local_size; // returns size as a value
   }
+
+  unsigned int process_interconnections(std::string block){
+
+    /* 
+    we assume this start after the ring blocks 
+    i.e 'L66 AO TJ' -->' AO TJ'
+    */ 
+
+    // split the string on the spaces, and then process the blocks
+    std::istringstream ss(block);
+    std::string del;
+
+    unsigned char locant = 'A'; // use the maps to assign locants
+    WLNSymbol *assignment = 0; 
+
+    while(getline(ss, del, ' ')){
+     
+
+      // process the locants as expected
+      if(del.back() != 'J'){
+        locant = del.front();
+        //assignment = positional_symbols[locant];
+      }
+
+     
+    }
+
+    return 0;
+  }
+
 
 
 };
