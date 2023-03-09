@@ -504,6 +504,8 @@ struct WLNRing
         locants[loc]->allowed_edges = 4;
       }
 
+      locants[loc]->type = RING; 
+
       if(aromatic)
         locants[loc]->allowed_edges += -1; // take off 1 when aromatic!
 
@@ -2074,6 +2076,12 @@ struct WLNGraph
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->ch == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+      else if(node->type == LOCANT)
+        fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
+      else if (node->type == RING)
+        fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
+      else if (node->type == LINKER)
+        fprintf(fp, "[shape=circle,label=\"%c\",color=red];\n", node->ch);
       else
         fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
 
