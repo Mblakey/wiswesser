@@ -7,7 +7,7 @@
 #include <vector>
 #include <stack>
 #include <map>
-#include <deque>
+#include <utility> // std::pair
 #include <iterator>
 #include <sstream>
 
@@ -63,14 +63,21 @@ std::map<unsigned char, unsigned int> char_hierarchy =
 };
 
 
-std::map<unsigned char,unsigned int> locant_symbols =
+std::map<unsigned char,unsigned int> locant_integer_map =
 {
   {'A',1}, {'B',2}, {'C',3}, {'D',4}, {'E',5}, {'F',6}, {'G',7}, 
   {'H',8}, {'I',9}, {'J',10}, {'K',11}, {'L',12}, {'M',13}, 
   {'N',14}, {'O',15}, {'P',16}, {'Q',17}, {'R',18}, {'S',19}, 
-  {'T',20}, {'U',21}, {'V',22}, {'W',23}, {'X',25}, {'Y',26}, {'Z',27}
+  {'T',20}, {'U',21}, {'V',22}, {'W',23}, {'X',24}, {'Y',25}, {'Z',26}
 };
 
+std::map<unsigned char,unsigned int> integer_locant_map =
+{
+  {1,'A'}, {2,'B'}, {3,'C'}, {4,'D'}, {5,'E'}, {6,'F'}, {7,'G'}, 
+  {8,'H'}, {9,'I'}, {10,'H'}, {11,'K'}, {12,'L'}, {13,'M'}, 
+  {14,'N'}, {15,'O'}, {16,'P'}, {17,'Q'}, {18,'R'}, {19,'S'}, 
+  {20,'T'}, {21,'U'}, {22,'V'}, {23,'W'}, {24,'X'}, {25,'Y'}, {26,'Z'}
+};
 
 
 // --- utilities ---
@@ -195,9 +202,6 @@ struct WLNSymbol
 
 WLNSymbol *AllocateWLNSymbol(unsigned char ch){
   
-  if(opt_debug)
-    fprintf(stderr,"  allocating %c\n",ch);
-  
   WLNSymbol *wln = new WLNSymbol;
   symbol_mempool.push_back(wln);
   wln->ch = ch;
@@ -250,13 +254,9 @@ struct WLNRing
   bool heterocyclic;
 
   std::vector<unsigned int>  ring_components; 
-  std::map<unsigned char,unsigned char> fuse_points; // gives the fusing points for combined rings
+  std::vector<std::pair<unsigned char,unsigned char>> fuse_points; // gives the fusing points for combined rings
   
-
-  // nope this is actually very clever, use 1's for carbons
-  // everything else gets a wln symbol, then converts to atoms
-
-
+  // wln symbols will be allocated with locants kept for graph conversion when writing
   std::map<WLNSymbol*,unsigned char> locants; 
 
   WLNRing()
@@ -268,13 +268,14 @@ struct WLNRing
   ~WLNRing(){};
 
 
-  unsigned int consume_ring_notation(std::string &block)
+  /* standard here is considered anything with a L|T<int><int> notation */
+  unsigned int consume_standard_ring_notation(std::string &block)
   {
 
     unsigned int local_size = 0; 
     unsigned int len = block.size() - 1;
 
-    if (block.size() < 3){
+    if (len < 2){
       fprintf(stderr,"Error: not enough chars to build ring - %s\n",block.c_str());
       return false; 
     }
@@ -288,52 +289,51 @@ struct WLNRing
       return 0; 
     }
 
-    if (block[len] != 'J'){
-      fprintf(stderr,"Error: last character in ring notation must be J\n");
-      return 0; 
-    }
-
-    if (block[len-1] == 'T'){
+    if (block[len-1] == 'T')
       aromatic = false;
-    }
     else
       aromatic = true; 
 
+    
+    // check how many locants are allowed 
 
-    if (block[1] == ' '){
-      // special ring types
-
+    unsigned int it = 1;
+    unsigned int rings = 0; 
+    while (std::isdigit(block[it]) && block[it] != '\0')
+    {
+      unsigned int val = block[it] - '0';
+      ring_components.push_back(val);
+      local_size += val;
+      rings++;
+      it++;
     }
-    else{
-      // check how many locants are allowed 
-      unsigned int it = 1;
-      unsigned int rings = 0; 
-      while (std::isdigit(block[it]) && block[it] != '\0')
-      {
-        unsigned int val = block[it] - '0';
-        ring_components.push_back(val);
 
-        local_size += val;
-        rings++;
-        it++;
+
+    if(rings > 1){
+      // refactor size down 
+      unsigned int term = rings - 2;
+      unsigned int shared_atoms = rings + term;
+      local_size = local_size - shared_atoms;
+
+      // calculate local fuses, this is simple at this stage
+
+      unsigned int last_atom = 1; 
+      for (unsigned int comp_size : ring_components){
+        fprintf(stderr,"  fusing position %c to position %c\n",integer_locant_map[last_atom],integer_locant_map[last_atom + comp_size - 1]);
+        last_atom = comp_size;
+
+        fuse_points.push_back({integer_locant_map[last_atom],integer_locant_map[last_atom + comp_size - 1]});
       }
-
-      if(rings > 1){
-        // refactor size down 
-        unsigned int term = rings - 2;
-        unsigned int shared_atoms = rings + term;
-        local_size = local_size - shared_atoms;
-      }
-      
-      if (opt_debug)
-        fprintf(stderr,"  evaluated ring to size %d\n",local_size);
-
-      // create the pseudo ring
-
-      /* process the substring*/
-      process_interconnections(block.substr(it,block.length()));
-      
     }
+      
+    if (opt_debug)
+      fprintf(stderr,"  evaluated ring to size %d\n",local_size);
+    
+
+    /* process the substring*/
+    process_interconnections(block.substr(it,block.length()));
+      
+    
     
     return local_size; // returns size as a value
   }
@@ -1199,7 +1199,7 @@ struct WLNGraph{
     else
       s_ring = ring_stack.top();
 
-    if(locant_symbols[ch] < s_ring->ring->size)
+    if(locant_integer_map[ch] < s_ring->ring->size)
       s_ring->children.push_back(curr);
     else{
       fprintf(stderr,"Error: assigning locant greater than ring size\n");
@@ -1825,7 +1825,7 @@ struct WLNGraph{
             block_start = 0; 
             block_end = 0; 
 
-            curr->ring->size = curr->ring->consume_ring_notation(curr->special);
+            curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
 
             ring_stack.push(curr);
 
@@ -1838,7 +1838,7 @@ struct WLNGraph{
             // does the incoming locant check
             if(prev){
               prev->children.push_back(curr);
-              if(locant_symbols[prev->ch] > curr->ring->size){
+              if(locant_integer_map[prev->ch] > curr->ring->size){
                 fprintf(stderr,"Error: attaching inline ring with out of bounds locant assignment\n");
                 Fatal(i);
               }
@@ -1918,7 +1918,7 @@ struct WLNGraph{
             curr->ring = AllocateWLNRing();
 
             curr->add_special("L6J");
-            curr->ring->size = curr->ring->consume_ring_notation(curr->special);
+            curr->ring->size = curr->ring->consume_standard_ring_notation(curr->special);
 
             ring_stack.push(curr);
 

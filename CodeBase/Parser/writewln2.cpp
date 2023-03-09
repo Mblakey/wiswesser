@@ -79,7 +79,7 @@ std::map<unsigned char, unsigned int> char_hierarchy =
   {' ', 1}, {'-', 2}, {'/', 3}, {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23}, {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}
 };
 
-std::map<unsigned int, unsigned char> locant_symbols =
+std::map<unsigned int, unsigned char> locant_integer_map =
 {
   {0, 'A'}, {1, 'B'}, {2, 'C'}, {3, 'D'}, {4, 'E'}, {5, 'F'}, {6, 'G'}, {7, 'H'}, {8, 'I'}, {9, 'J'}, {10, 'K'}, {11, 'L'}, {12, 'M'}, {13, 'N'}, {14, 'O'}, {15, 'P'}, {16, 'Q'}, {17, 'R'}, {18, 'S'}, {19, 'T'}, {20, 'U'}, {21, 'V'}, {22, 'W'}, {23, 'X'}, {24, 'Y'}, {25, 'Z'}
 };
@@ -646,7 +646,7 @@ struct WLNGraph{
     for (unsigned int i = 1; i < ratoms; i++)
     {
       current = AllocateWLNSymbol('C');
-      ring->locants[locant_symbols[locant++]] = current; // add the locants
+      ring->locants[locant_integer_map[locant++]] = current; // add the locants
       
       if(ring->aromatic)
         add_aromatic(current,prev);
@@ -690,7 +690,7 @@ struct WLNGraph{
     for (unsigned int i = 1; i < 6; i++)
     {
       current = AllocateWLNSymbol('C');
-      ring->locants[locant_symbols[locant++]] = current; // add the locants  
+      ring->locants[locant_integer_map[locant++]] = current; // add the locants  
       add_aromatic(current,prev);
       prev = current;
     }
