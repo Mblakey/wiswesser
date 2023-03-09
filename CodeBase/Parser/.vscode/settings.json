@@ -1,9 +1,0 @@
-{
-    "files.associations": {
-        "new": "cpp",
-        "deque": "cpp",
-        "string": "cpp",
-        "vector": "cpp",
-        "iosfwd": "cpp"
-    }
-}
