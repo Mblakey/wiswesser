@@ -253,6 +253,8 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+bond, parent->allowed_edges);
     return false;
   }
+
+  
   child->previous = parent; // keep the linked list so i can consume backwards rings
   child->num_edges += bond;
   parent->num_edges += bond;
@@ -261,125 +263,273 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
   return true;
 }
 
-// sets bond type to 4 however aromatic takes 2 valence points off
-bool link_aromatics(WLNSymbol *child, WLNSymbol *parent)
-{
-
-  // if the child cannot handle the new valence
-  if ((child->num_edges + 1) > child->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
-    return false;
-  }
-  // same for the parent
-  if ((parent->num_edges + 1) > parent->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
-    return false;
-  }
-
-  child->previous = parent; // keep the linked list so i can consume backwards rings
-  child->num_edges += 1;
-  parent->num_edges += 1;
-  parent->children.push_back(child);
-  parent->orders.push_back(4); // follows SCT XI connection table format
-  return true;
-}
 
 /* struct to hold pointers for the wln ring */
 struct WLNRing
 {
 
   unsigned int size;
-  bool aromatic;
   bool heterocyclic;
 
-  std::vector<unsigned int> ring_components;
-  std::vector<unsigned char> bridge_components;
-  std::vector<std::pair<unsigned char, unsigned char>> fuse_points; // gives the fusing points for combined rings
-
-  // wln symbols will be allocated with locants kept for graph conversion when writing
+  std::vector<unsigned int> rings;
   std::map<unsigned char, WLNSymbol *> locants;
+
+  // keep this simple
 
   WLNRing()
   {
     size = 0;
-    aromatic = false;
     heterocyclic = false;
   }
   ~WLNRing(){};
 
-  /* standard here is considered anything with a L|T<int><int> notation */
-  bool consume_standard_ring_notation(std::string &block)
-  {
 
-    unsigned int local_size = 0;
-    unsigned int len = block.size() - 1;
+  bool create_ring(unsigned int size, unsigned char start_locant){
 
-    if (len < 2)
-    {
-      fprintf(stderr, "Error: not enough chars to build ring - %s\n", block.c_str());
-      return false;
+    WLNSymbol *head = 0; 
+    WLNSymbol *prev = 0;
+    WLNSymbol *current = 0; 
+
+    unsigned int locant_num = locant_integer_map[start_locant];
+    
+    for (unsigned int i=0;i<size;i++){
+      current = AllocateWLNSymbol('C');
+      current->type = RING;
+
+      if(locants[integer_locant_map[locant_num]]){
+        fprintf(stderr,"Error: overwriting locant in ring definition!\n");
+        return false; 
+      }
+
+      locants[integer_locant_map[locant_num]] = current;
+      locant_num++; 
+
+      if (!head)
+        head = current; 
+
+      if(prev)
+        link_symbols(current,prev,0);
+
+      prev = current;
     }
 
-    if (block[0] == 'T')
-      heterocyclic = true;
-    else if (block[0] == 'L')
-      heterocyclic = false;
-    else
-    {
-      fprintf(stderr, "Error: first character in ring notation must be an L|T\n");
-      return false;
+    link_symbols(head,prev,0);
+
+    return true; 
+  }
+
+  // i here is the first 'L'
+  void FormWLNRing(std::string &block, unsigned int start){
+
+    unsigned int ring_type = 0;
+    enum RINGTYPE{MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
+
+    unsigned char implied_site = 'A';
+  
+    bool pending_locant = false;
+    
+    unsigned int expected_fuses = 0;
+    std::vector<unsigned char> fuses;
+
+    std::vector<std::pair<unsigned int, unsigned char>> numerics;  
+
+    bool pending_large =  false; 
+    std::vector<unsigned int> large_size; 
+
+    // ignore the L|T that comes first
+  
+    for (unsigned int i=1;i<block.size();i++){
+      unsigned char ch = block[i];
+      switch(ch){
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          if (expected_fuses){
+            fprintf(stderr,"Error: expected fuse notation <XY> after / for pseudo bridge\n");
+            Fatal(start);
+          }
+
+          if (pending_large)
+            large_size.push_back(ch - '0');
+          else if (pending_locant)
+          {
+            // if the type if not a PSD - ERROR; 
+            if (ring_type != PSDBRIDGED){
+              fprintf(stderr,"Error: numerical locants are not allowed outside pseudo bridge notation\n");
+              Fatal(start);
+            }
+
+            // set the expected to the number given
+            expected_fuses = ch - '0';
+          }
+          else
+            numerics.push_back({ch - '0',implied_site});
+          
+          break; 
+
+        case '/':
+          expected_fuses = 2; 
+          ring_type = PSDBRIDGED; 
+          break; 
+
+        case '-':
+        case '&':
+          break;
+
+        case ' ':
+          pending_locant = true; 
+          break;
+
+        case 'A':
+        case 'B':
+        case 'C':
+        case 'D':
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'H':
+        case 'I':
+        case 'J':
+        case 'K':
+        case 'L':
+        case 'M':
+        case 'N':
+        case 'O':
+        case 'P':
+        case 'Q':
+        case 'R':
+        case 'S':
+        case 'T':
+        case 'U':
+        case 'V':
+        case 'W':
+        case 'X':
+        case 'Y':
+        case 'Z':
+          if(expected_fuses){
+            fuses.push_back(ch);
+            expected_fuses += -1;
+          }
+          break;
+
+        default:
+          fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
+          Fatal(start);
+      }
+      
+
+      
     }
 
-    if (block[len - 1] == 'T')
-      aromatic = false;
-    else
-      aromatic = true;
 
-    // check how many locants are allowed
+    // take the first pair, and then a ring for bonding - algorithm 1
 
-    unsigned int it = 1;
-    unsigned int rings = 0;
-    while (std::isdigit(block[it]) && block[it] != '\0')
-    {
-      unsigned int val = block[it] - '0';
-      ring_components.push_back(val);
-      local_size += val;
-      rings++;
-      it++;
+    unsigned int fuse_itr = 0;
+    unsigned int ring_itr = 0; 
+    while (fuse_itr < fuses.size() - 1){
+
+      if (opt_debug)
+        fprintf(stderr,"  creating %4d membered ring from locants %c --> %c\n",numerics[ring_itr].first,fuses[fuse_itr],fuses[fuse_itr+1]);
+
+      if(!create_ring(numerics[ring_itr].first,fuses[fuse_itr]))
+        Fatal(start);
+      
+      fuse_itr+=2; 
+      ring_itr++;
     }
 
-    /* simple for easy bicyclics */
-    if (rings > 1)
-    {
-      // refactor size down
-      unsigned int term = rings - 2;
-      unsigned int shared_atoms = rings + term;
-      local_size = local_size - shared_atoms;
+    // check and bind consequtives to keep locant path - algorithm 2
+    unsigned int map_size = locants.size(); 
+    for (unsigned int i=0;i < map_size - 1; i++){
+      WLNSymbol *parent = locants[integer_locant_map[i]]; 
+      if (parent){
 
-      // calculate local fuses, this is simple at this stage
+        bool pass = false;
+        for (WLNSymbol * node : parent->children){
+          if (locants[integer_locant_map[i+1]] == node){
+            pass = true; 
+            break;
+          }
+        }
 
-      unsigned int last_atom = 1;
-      for (unsigned int i = 0; i < ring_components.size() - 1; i++){ 
-        unsigned int comp_size = ring_components[i];
-        fuse_points.push_back({integer_locant_map[last_atom], integer_locant_map[last_atom + comp_size - 1]});
-        last_atom = comp_size;
+        if(!pass)
+          link_symbols(locants[integer_locant_map[i+1]],parent,0);      
       }
     }
 
-    if (opt_debug)
-      fprintf(stderr, "  evaluated ring to size %d\n", local_size);
 
-    size = local_size;
+    // linking from implied positions - algorithm 3
 
-    /* process the substring*/
-    if(!create_symbol_ring(block.substr(it, block.length())))
-      return false;
+    while (ring_itr < numerics.size()){
+      if (opt_debug)
+        fprintf(stderr, "  linking %5d membered ring from implied position %c\n",numerics[ring_itr].first,numerics[ring_itr].second);
 
-    return true; // returns size as a value
+        // DFS a set number of characters away from implied, to link back characters
+        unsigned int limit = numerics[ring_itr].first; 
+        WLNSymbol *prev = 0;
+        WLNSymbol *top = locants[numerics[ring_itr].second]; 
+        std::stack<WLNSymbol*> dfs_stack;
+        std::map<WLNSymbol*,bool> visited; 
+
+        dfs_stack.push(top);
+
+        unsigned int seen = 1; // include itself, 6 bonds, 5 atoms away 
+        while(!dfs_stack.empty()){
+
+          top = dfs_stack.top();
+          visited[top] = true; 
+          seen++;
+          dfs_stack.pop();
+
+          if (seen == limit){
+
+            // check if already bonded
+            bool prebonded = false;
+            for (WLNSymbol * subchild : locants[numerics[ring_itr].second]->children){
+              if (subchild == top){
+                prebonded = true;
+                break;
+              }
+            }
+
+            if(!prebonded)
+              link_symbols(locants[numerics[ring_itr].second],top,0);
+
+            while(!dfs_stack.empty())
+              dfs_stack.pop();
+            
+            dfs_stack.push(locants[numerics[ring_itr].second]);
+            seen = 1;
+          }
+
+          for (WLNSymbol *child : top->children){
+            if (!visited[child])
+              dfs_stack.push(child);
+          }
+
+        }
+
+
+      ring_itr++; 
+    }
+
+
+
+    
+
+
+    
+
+   
   }
 
+  
   // creates and allocates the ring in WLNSymbol struct style
   bool create_symbol_ring(std::string block)
   {
@@ -429,7 +579,7 @@ struct WLNRing
           if (opt_debug)
             fprintf(stderr, "  assigning bridge: %c\n", del[0]);
 
-          bridge_components.push_back(del[0]);
+          //bridge_points.push_back(del[0]);
         }
         else if (assign_size > 1)
         {
@@ -440,8 +590,8 @@ struct WLNRing
           if (del[assign_size] == 'J')
           {
             back += -1;
-            if (!aromatic)
-              back += -1;
+            // if (!aromatic)
+            //   back += -1;
           }
 
           // process the locants as expected in standard notation
@@ -506,48 +656,48 @@ struct WLNRing
 
       locants[loc]->type = RING; 
 
-      if(aromatic)
-        locants[loc]->allowed_edges += -1; // take off 1 when aromatic!
+      // if(aromatic)
+      //   locants[loc]->allowed_edges += -1; // take off 1 when aromatic!
 
       if (!head)
         head = locants[loc];
 
       if (prev)
       {
-        if (aromatic){
-          if(!link_aromatics(locants[loc], prev))
-            return false;
-        }
-        else{
-          if(!link_symbols(locants[loc], prev, 1))
-            return false;
-        }
+        // if (aromatic){
+        //   if(!link_aromatics(locants[loc], prev))
+        //     return false;
+        // }
+        // else{
+        //   if(!link_symbols(locants[loc], prev, 1))
+        //     return false;
+        // }
       }
 
       prev = locants[loc];
     }
 
-    if (aromatic){
-      if(!link_aromatics(head, prev))
-        return false;
-    }else{
-      if(!link_symbols(head, prev, 1))
-        return false;
-    }
+    // if (aromatic){
+    //   if(!link_aromatics(head, prev))
+    //     return false;
+    // }else{
+    //   if(!link_symbols(head, prev, 1))
+    //     return false;
+    // }
     // fuse any points given
-    for (std::pair<unsigned char, unsigned char> fuse : fuse_points)
-    { 
-      if (opt_debug)
-        fprintf(stderr, "  fusing position %c to position %c\n",fuse.first,fuse.second);
+    // for (std::pair<unsigned char, unsigned char> fuse : fuse_points)
+    // { 
+    //   if (opt_debug)
+    //     fprintf(stderr, "  fusing position %c to position %c\n",fuse.first,fuse.second);
 
-      if (aromatic){
-        if(!link_aromatics(locants[fuse.first], locants[fuse.second]))
-          return false;
-      }else{
-        if(!link_symbols(locants[fuse.first], locants[fuse.second], 1))
-          return false;
-      }
-    }
+    //   // if (aromatic){
+    //   //   if(!link_aromatics(locants[fuse.first], locants[fuse.second]))
+    //   //     return false;
+    //   // }else{
+    //   //   if(!link_symbols(locants[fuse.first], locants[fuse.second], 1))
+    //   //     return false;
+    //   // }
+    // }
 
     return true;
   }
@@ -1791,9 +1941,7 @@ struct WLNGraph
           block_start = 0;
           block_end = 0;
 
-          if(!ring->consume_standard_ring_notation(r_notation))
-            Fatal(i);
-
+          ring->FormWLNRing(r_notation,i);
           ring_stack.push(ring);
 
           if (pending_spiro)
@@ -1893,8 +2041,7 @@ struct WLNGraph
           ring = AllocateWLNRing();
 
           std::string r_notation = "L6J";
-          if(!ring->consume_standard_ring_notation(r_notation))
-            Fatal(i);
+          ring->FormWLNRing(r_notation,i);
           ring_stack.push(ring);
 
           if (prev)
@@ -2025,6 +2172,10 @@ struct WLNGraph
         break;
 
       case '/':
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
         prev = curr;
         curr = AllocateWLNSymbol(ch);
         break;
