@@ -395,9 +395,13 @@ struct WLNRing
     
     unsigned char ring_specifier = 'A';
     unsigned char last_locant = 'A'; 
+    
 
     std::vector<unsigned char> fuses;
     std::vector<unsigned int> numerics; 
+
+    std::map<unsigned char, bool> skeleton; 
+    skeleton['A'] = true; // default behaviour
 
     std::vector<unsigned int> large_size; 
     
@@ -427,7 +431,6 @@ struct WLNRing
             large_size.push_back(ch - '0');
             break; 
           }
-            
           else if (pending_locant)
           {
             // if the type if not a PSD - ERROR; 
@@ -442,10 +445,7 @@ struct WLNRing
           }
           else{
             numerics.push_back(ch - '0');
-            last_locant += ch - '0' - 1;
-            fprintf(stderr,"  %c  %c\n",ring_specifier, last_locant);
             ring_specifier = 'A'; // reset back to A
-
             break; 
           }
             
