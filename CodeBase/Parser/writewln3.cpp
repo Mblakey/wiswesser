@@ -366,196 +366,22 @@ struct WLNRing
     return locant_num - 1; // will always advance 1 extra past allocation
   }
 
-  bool CreatePSDBRDIGE( std::vector<unsigned char> &fuses, 
-                        std::vector<unsigned char> &pseudos,
-                        std::vector<std::pair<unsigned int, unsigned char>> &numerics, 
-                        std::vector<std::pair<unsigned char, unsigned char>> &atom_assignments)
-  {
-    // rule interpretation for this is used with a ring closure style algorithm. 
+  bool CreatePSDBRIDGE(std::vector<unsigned char> &fuses,unsigned int size){
     
-    //    the pairs given as pseudobridges shows a locant path forcer, and should not be evaulated as a ring path, the last ring in numerics
-    //    defines the size for this linker. 
-
-    // 1. create all the given fuse points to define a structure upon, evaulate and close the rings based on what the only avaliable locants are
-    // fuses here can be defined with as a 3-4 so need to all be evaulated; 
-  
-    std::vector<WLNSymbol*> start_path;
-
-    WLNSymbol *prev = 0; 
-    WLNSymbol *current = 0; 
-
-    if (opt_debug)
-      fprintf(stderr,"  forming ring skeleton: ");
-
-    for (unsigned int i=0; i<fuses.size();i++){
-      unsigned char loc = fuses[i];
-      if (opt_debug)
-        fprintf(stderr,"%c ",loc);
-
-      if (!locants[loc]){
-        current = AllocateWLNSymbol('C');
-        current->type = RING; 
-        locants[loc] = current;
-      }
-      else
-        current = locants[loc];
-
-      if (prev)
-        link_symbols(current,prev,0);
-
-      start_path.push_back(current);
-      prev = current; 
-    }
-
-    if(opt_debug)
-      fprintf(stderr,"\n");
-
-    // from this base structure, we need to create a ring system from the numerics. 
-    // order goes --> given, implied, closure. 
-
-    
-    unsigned int consumed_numerics = 0;  // track the consumed order
-
-    if (opt_debug)
-      fprintf(stderr, "  bonding first %d membered ring on skeleton\n",numerics[consumed_numerics].first);
-
-    unsigned char last_locant = '\0';
-    last_locant = integer_locant_map[wrap_ring(start_path,numerics[consumed_numerics++].first,fuses[0])];
-    
-    // advance the locant position here if there is a path to advance into
-    while(locants[last_locant])
-      last_locant++;
-    last_locant--; 
-
-    unsigned int implied = numerics.size() - 2;
-    for (unsigned int i=consumed_numerics; i<=implied;i++){
-
+    unsigned int i = 1; 
+    while (i < fuses.size()){
       if(opt_debug)
-        fprintf(stderr, "  bonding %d membered implied ring: %c --> %c starting at %c\n",numerics[i].first,numerics[i].second,last_locant,last_locant);
-        
-      std::vector<WLNSymbol*> path = {locants[last_locant],locants[numerics[i].second]};
-      last_locant = integer_locant_map[wrap_ring(path,numerics[i].first,last_locant)];
-    }
-    consumed_numerics = implied + 1; 
-
-    // link back through the pseudo pair for the last ring
-
-    unsigned int i = 1 ;
-    while(i < pseudos.size()){
-      unsigned char closure_1 = pseudos[i-1];
-      unsigned char closure_2 = pseudos[i];
-      
-      if (opt_debug)
-        fprintf(stderr,"  closing bond to form %d membered ring with %c bonded to %c\n",numerics[consumed_numerics++],closure_1,closure_2);
-
-      std::vector<WLNSymbol*> path = {locants[last_locant],locants[closure_1]};
-      last_locant = integer_locant_map[wrap_ring(path,numerics[i].first,last_locant)];
-
+        fprintf(stderr,"  fusing: %c - %c\n",fuses[i-1],fuses[i]);
       i+=2;
     }
+  
    
     return true; 
   }
 
-#ifdef DEPRECATED
 
-   unsigned int fuse_itr = 0;
-    unsigned int ring_itr = 0; 
-    while (fuse_itr < fuses.size() - 1){
-
-      if (opt_debug)
-        fprintf(stderr,"  forming %4d membered ring from locants %c --> %c\n",numerics[ring_itr].first,fuses[fuse_itr],fuses[fuse_itr+1]);
-
-      if(!create_ring(numerics[ring_itr].first,fuses[fuse_itr]))
-        Fatal(start);
-      
-      fuse_itr+=2; 
-      ring_itr++;
-    }
-
-    // check and bind consequtives to keep locant path - algorithm 2
-    unsigned int map_size = locants.size(); 
-    for (unsigned int i=0;i < map_size - 1; i++){
-      WLNSymbol *parent = locants[integer_locant_map[i]]; 
-      if (parent){
-
-        bool pass = false;
-        for (WLNSymbol * node : parent->children){
-          if (locants[integer_locant_map[i+1]] == node){
-            pass = true; 
-            break;
-          }
-        }
-
-        if(!pass)
-          link_symbols(locants[integer_locant_map[i+1]],parent,0);      
-      }
-    }
-
-
-    // linking from implied positions - algorithm 3
-
-    while (ring_itr < numerics.size()){
-      if (opt_debug)
-        fprintf(stderr, "  linking %5d membered ring from implied position %c\n",numerics[ring_itr].first,numerics[ring_itr].second);
-
-        // DFS a set number of characters away from implied, to link back characters
-        unsigned int limit = numerics[ring_itr].first; 
-        WLNSymbol *prev = 0;
-        WLNSymbol *top = locants[numerics[ring_itr].second]; 
-        std::stack<WLNSymbol*> dfs_stack;
-        std::map<WLNSymbol*,bool> visited; 
-
-        dfs_stack.push(top);
-
-        unsigned int seen = 1; // include itself, 6 bonds, 5 atoms away 
-        while(!dfs_stack.empty()){
-
-          top = dfs_stack.top();
-          visited[top] = true; 
-          seen++;
-          dfs_stack.pop();
-
-          if (seen == limit){
-
-            // check if already bonded
-            bool prebonded = false;
-            for (WLNSymbol * subchild : locants[numerics[ring_itr].second]->children){
-              if (subchild == top){
-                prebonded = true;
-                break;
-              }
-            }
-
-            if(!prebonded)
-              link_symbols(locants[numerics[ring_itr].second],top,0);
-
-            while(!dfs_stack.empty())
-              dfs_stack.pop();
-            
-            dfs_stack.push(locants[numerics[ring_itr].second]);
-            seen = 1;
-          }
-
-          for (WLNSymbol *child : top->children){
-            if (!visited[child])
-              dfs_stack.push(child);
-          }
-
-        }
-
-
-      ring_itr++; 
-    }
-
-
-
-#endif 
-
-  // i here is the first 'L'
   void FormWLNRing(std::string &block, unsigned int start){
 
-    
     enum RINGTYPE{MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
 
     bool pending_locant = false;
@@ -563,16 +389,20 @@ struct WLNRing
     bool pending_pseudo = false;
     
     unsigned int ring_type = 0;
+
+    unsigned int size = 0; 
     unsigned int expected_fuses = 0;
-    unsigned char implied_site = 'A';
+    
+    unsigned char ring_specifier = 'A';
+    unsigned char last_locant = 'A'; 
 
     std::vector<unsigned char> fuses;
-    std::vector<unsigned char> pseudos; 
-    std::vector<unsigned int> large_size; 
-    std::vector<std::pair<unsigned int, unsigned char>> numerics; 
-    std::vector<std::pair<unsigned char, unsigned char>> atom_assignments;  
+    std::vector<unsigned int> numerics; 
 
+    std::vector<unsigned int> large_size; 
     
+   
+   
     // ignore the L|T that comes first
   
     for (unsigned int i=1;i<block.size();i++){
@@ -593,8 +423,11 @@ struct WLNRing
             Fatal(start);
           }
 
-          if (pending_large)
+          if (pending_large){
             large_size.push_back(ch - '0');
+            break; 
+          }
+            
           else if (pending_locant)
           {
             // if the type if not a PSD - ERROR; 
@@ -605,11 +438,19 @@ struct WLNRing
 
             // set the expected to the number given
             expected_fuses = ch - '0';
+            break; 
           }
-          else
-            numerics.push_back({ch - '0',implied_site});
+          else{
+            numerics.push_back(ch - '0');
+            last_locant += ch - '0' - 1;
+            fprintf(stderr,"  %c  %c\n",ring_specifier, last_locant);
+            ring_specifier = 'A'; // reset back to A
+
+            break; 
+          }
+            
           
-          break; 
+         
 
         case '/':
           expected_fuses = 2; 
@@ -659,12 +500,7 @@ struct WLNRing
         case 'Y':
         case 'Z':
           if(expected_fuses){
-
-            if (pending_pseudo)
-              pseudos.push_back(ch);
-            else
-              fuses.push_back(ch);
-
+            fuses.push_back(ch);
             expected_fuses += -1;
           }
           break;
@@ -676,19 +512,15 @@ struct WLNRing
        
     }
 
-    // this first bit is perfect as it extracts the locants and numerics, we can add various atom assignments here when 
-    // the skeleton algorithm is perfect
-
-
-    // take the first pair, and then a ring for bonding - algorithm 1
+    // we change how we init the structure,but all locant fuses defined the ring
 
     switch(ring_type){
 
-
       case PSDBRIDGED:
-        CreatePSDBRDIGE(fuses,pseudos,numerics,atom_assignments);
+        if(!CreatePSDBRIDGE(fuses,0))
+          Fatal(start);
         break;
-
+        
     }
 
 
