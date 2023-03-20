@@ -274,6 +274,7 @@ struct WLNRing
   std::vector<unsigned int> rings;
   std::map<unsigned char, WLNSymbol *> locants;
 
+
   // keep this simple
 
   WLNRing()
@@ -366,16 +367,22 @@ struct WLNRing
     return locant_num - 1; // will always advance 1 extra past allocation
   }
 
-  bool CreatePSDBRIDGE(std::vector<unsigned char> &fuses,unsigned int size){
+
+
+  bool CreatePSDBRIDGE(std::vector<unsigned char> &fuses,
+                       std::vector<unsigned int> &numerics,
+                       unsigned int size)
+  {
     
     unsigned int i = 1; 
     while (i < fuses.size()){
+
       if(opt_debug)
         fprintf(stderr,"  fusing: %c - %c\n",fuses[i-1],fuses[i]);
+
       i+=2;
     }
   
-   
     return true; 
   }
 
@@ -383,32 +390,34 @@ struct WLNRing
   void FormWLNRing(std::string &block, unsigned int start){
 
     enum RINGTYPE{MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
+    enum NOTTYPE{ COMP=0, MULT=1, SIZE=2,LOC=3,END=4};
+
+    bool pending_large  = false;
 
     bool pending_locant = false;
-    bool pending_large  = false;
-    bool pending_pseudo = false;
+    bool pending_size   = false; // this comes after a set type of notation per block - like multicyclics
+    bool pending_multi  = false; 
+    bool pending_pseudo = false; 
     
     unsigned int ring_type = 0;
+    unsigned int notation_type = COMP; // start in the component phase of the notation.  
 
     unsigned int size = 0; 
     unsigned int expected_fuses = 0;
     
-    unsigned char ring_specifier = 'A';
-    unsigned char last_locant = 'A'; 
+    unsigned char last_recorded = 'A';
     
 
     std::vector<unsigned char> fuses;
     std::vector<unsigned int> numerics; 
 
-    std::map<unsigned char, bool> skeleton; 
-    skeleton['A'] = true; // default behaviour
-
     std::vector<unsigned int> large_size; 
     
    
-   
-    // ignore the L|T that comes first
-  
+    // ignore the L|T that comes first and the 'T <&> J' ending notation, as simplifies 
+    
+    WLNSymbol *wln_locant = 0; 
+
     for (unsigned int i=1;i<block.size();i++){
       unsigned char ch = block[i];
 
@@ -435,22 +444,20 @@ struct WLNRing
           {
             // if the type if not a PSD - ERROR; 
             if (ring_type != PSDBRIDGED){
-              fprintf(stderr,"Error: numerical locants are not allowed outside pseudo bridge notation\n");
+              fprintf(stderr,"Error: numerical are used to specify multicyclic points - notation not expected for ring type\n");
               Fatal(start);
             }
 
             // set the expected to the number given
+            pending_multi = true; 
             expected_fuses = ch - '0';
             break; 
           }
           else{
             numerics.push_back(ch - '0');
-            ring_specifier = 'A'; // reset back to A
             break; 
           }
             
-          
-         
 
         case '/':
           expected_fuses = 2; 
@@ -499,11 +506,20 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
+          last_recorded = ch; // keep to set a ring size if needed / or bridging molecules 
           if(expected_fuses){
             fuses.push_back(ch);
             expected_fuses += -1;
           }
+          else if (pending_locant){
+            wln_locant = locants[ch];
+            pending_locant = false; 
+          }
           break;
+
+
+        
+
 
         default:
           fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
@@ -517,7 +533,7 @@ struct WLNRing
     switch(ring_type){
 
       case PSDBRIDGED:
-        if(!CreatePSDBRIDGE(fuses,0))
+        if(!CreatePSDBRIDGE(fuses,numerics,0))
           Fatal(start);
         break;
         
