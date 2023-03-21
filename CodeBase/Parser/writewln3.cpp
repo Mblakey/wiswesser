@@ -389,36 +389,43 @@ struct WLNRing
 
   void FormWLNRing(std::string &block, unsigned int start){
 
-    enum RINGTYPE{MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
-    enum NOTTYPE{ COMP=0, MULT=1, SIZE=2,LOC=3,END=4};
+    enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
+    unsigned int ring_type = MONO;   // start in mono and climb up
 
-    bool pending_large  = false;
+    bool warned = false; // limit warning messages to console
+    bool heterocyclic       = false;  // L|T designator can throw warnings
 
-    bool pending_locant = false;
-    bool pending_size   = false; // this comes after a set type of notation per block - like multicyclics
-    bool pending_multi  = false; 
-    bool pending_pseudo = false; 
+    // -- stages --
+
+    // based off certain rules, we can enforce ordering
+    bool multi_completed      = false;
+  
+    // -- paths -- 
+    bool pending_component  = false;
+    bool pending_multi      = false; 
+    bool pending_pseudo     = false; 
+    bool pending_bridge     = false;
+    bool pending_aromatics  = false;
+
+    unsigned int expected_locants     = 0;
+    unsigned char ring_size_specifier  = '\0';
+    unsigned char positional_locant = '\0'; // this changes
+
+    std::vector<bool> aromaticity; 
+
+    std::vector<unsigned char> fuses; // read as pairs
+    std::vector<unsigned char> bridge_locants;
+    std::vector<unsigned char> multicyclic_locants;
     
-    unsigned int ring_type = 0;
-    unsigned int notation_type = COMP; // start in the component phase of the notation.  
-
-    unsigned int size = 0; 
-    unsigned int expected_fuses = 0;
-    
-    unsigned char last_recorded = 'A';
-    
-
-    std::vector<unsigned char> fuses;
-    std::vector<unsigned int> numerics; 
-
-    std::vector<unsigned int> large_size; 
-    
+    std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
-    // ignore the L|T that comes first and the 'T <&> J' ending notation, as simplifies 
-    
+   
+    // things can now have multiple options, need to cover all variations
+    // and move the pending bools around to give proper notation read. 
+
     WLNSymbol *wln_locant = 0; 
 
-    for (unsigned int i=1;i<block.size();i++){
+    for (unsigned int i=0;i<block.size();i++){
       unsigned char ch = block[i];
 
       switch(ch){
@@ -431,53 +438,59 @@ struct WLNRing
         case '7':
         case '8':
         case '9':
-          if (expected_fuses){
-            fprintf(stderr,"Error: expected fuse notation <XY> after / for pseudo bridge\n");
-            Fatal(start);
-          }
-
-          if (pending_large){
-            large_size.push_back(ch - '0');
-            break; 
-          }
-          else if (pending_locant)
-          {
-            // if the type if not a PSD - ERROR; 
-            if (ring_type != PSDBRIDGED){
-              fprintf(stderr,"Error: numerical are used to specify multicyclic points - notation not expected for ring type\n");
-              Fatal(start);
+          if (pending_component){
+            if(!positional_locant)
+              ring_components.push_back({ch - '0','A'});
+            else{
+              ring_components.push_back({ch - '0',positional_locant});
+              positional_locant = '\0'; // reset the assigner
             }
-
-            // set the expected to the number given
-            pending_multi = true; 
-            expected_fuses = ch - '0';
-            break; 
+            break;
           }
           else{
-            numerics.push_back(ch - '0');
-            break; 
+            pending_multi   = true;
+            expected_locants = ch - '0';
+            break;
           }
+          
             
 
         case '/':
-          expected_fuses = 2; 
-          pending_pseudo = true; 
-          ring_type = PSDBRIDGED; 
+          expected_locants = 2; 
+          pending_pseudo = true;
           break; 
 
         case '-':
+          break;
+
+        // aromatics
         case '&':
+          pending_aromatics = true;
+          if (positional_locant == 'T') // back search if we start this with T
+            aromaticity.push_back(false);
+
+          aromaticity.push_back(true);
           break;
 
         case ' ':
-          if(pending_pseudo){
-            if(expected_fuses){
-              fprintf(stderr,"Error: expected %d locants after numeric defined fuse\n",expected_fuses);
-              Fatal(i);
-            }
-            pending_pseudo = false; 
+          if(expected_locants){
+            fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
+            Fatal(start+i);
           }
-          pending_locant = true; 
+
+          // resets any pendings and set states
+          if(pending_multi){
+            pending_multi     = false;
+            multi_completed   = true;
+          }
+          else if (pending_bridge){ 
+            bridge_locants.push_back(positional_locant);
+            pending_bridge = false; 
+          }
+          
+          pending_pseudo    = false;
+          pending_component = false;
+          positional_locant = '\0'; // hard reset the positional locant
           break;
 
         case 'A':
@@ -489,58 +502,251 @@ struct WLNRing
         case 'G':
         case 'H':
         case 'I':
-        case 'J':
         case 'K':
-        case 'L':
         case 'M':
         case 'N':
         case 'O':
         case 'P':
-        case 'Q':
         case 'R':
         case 'S':
-        case 'T':
         case 'U':
         case 'V':
         case 'W':
         case 'X':
         case 'Y':
         case 'Z':
-          last_recorded = ch; // keep to set a ring size if needed / or bridging molecules 
-          if(expected_fuses){
-            fuses.push_back(ch);
-            expected_fuses += -1;
+          if(expected_locants){
+
+            if(pending_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (pending_pseudo){
+              fuses.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+            break;
           }
-          else if (pending_locant){
-            wln_locant = locants[ch];
-            pending_locant = false; 
+          else if(block[i-1] == ' '){
+
+            if(multi_completed){ // a size specifier is always needed
+              ring_size_specifier = ch;
+              positional_locant = ch;
+            }
+            else{
+              positional_locant = ch;
+              pending_component = true;
+              pending_bridge = true;
+            }
+            break;
           }
-          break;
+          else if (positional_locant){
+            pending_bridge = false;
+            pending_component = false;
+
+            if (opt_debug)
+              fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
+
+            if(!heterocyclic)
+              warned = true;
+
+            switch(ch){
+              case 'S':
+              case 'P':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 5;
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'Y':
+              case 'N':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 3;
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'V':
+              case 'M':
+              case 'O':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 2;
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'X':
+              case 'K':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 4;
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'U':
+                if(opt_debug)
+                  fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant++);
+                break;
+
+              
+              default:
+                fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
+                Fatal(start+i);
+            }
+
+            
+            break;
+          }
+          else{
+            positional_locant = ch;
+            break;
+          }
+          
+
+        // openers 
+        case 'L':
+
+          if(i==0){
+           heterocyclic = false; 
+           pending_component = true;
+           break;
+          }
+          else if(expected_locants){
+
+            if(pending_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (pending_pseudo){
+              fuses.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+
+            break;
+          }
+          
+          else{
+            
+            break;
+          }
+
+        case 'T':
+          if(i==0){
+            heterocyclic = true; 
+            pending_component = true;
+            break; 
+          }
+          else if(expected_locants){
+
+            if(pending_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (pending_pseudo){
+              fuses.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+
+            break;
+          }
+          else if (pending_aromatics){
+            aromaticity.push_back(false); // simple here
+            break;
+          }
+          else if (positional_locant && positional_locant == 'T'){
+            pending_aromatics = true;
+            aromaticity.push_back(false);
+            positional_locant = 'T';
+            break;
+          }
+          else if (i == block.size()-2){
+            // this now must be the aromatic designator 
+            if(opt_debug)
+              fprintf(stderr,"  removing all aromaticty with singular T notation\n");
+
+            for (unsigned int i=0;i<ring_components.size();i++)
+              aromaticity.push_back(false);
+            
+            break;
+          }
+          else{
+            positional_locant = ch;
+            break;
+          }
+
+        //closure
+        case 'J':
+          if(i==block.size() - 1){
+            if(!pending_aromatics){
+              for(unsigned int i=0;i<ring_components.size();i++)
+                aromaticity.push_back(true);
+            }
+            break;
+          }
+            
 
 
-        
+          
 
 
         default:
           fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
-          Fatal(start);
+          Fatal(start + i);
       }
        
     }
 
-    // we change how we init the structure,but all locant fuses defined the ring
+    
 
-    switch(ring_type){
+    
+    // debug here
 
-      case PSDBRIDGED:
-        if(!CreatePSDBRIDGE(fuses,numerics,0))
-          Fatal(start);
-        break;
-        
+    if (opt_debug){
+
+      fprintf(stderr,"  ring components: ");
+      for (std::pair<unsigned int, unsigned char> comp : ring_components)
+        fprintf(stderr,"%d(%c) ",comp.first,comp.second);
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  aromaticity: ");
+      for (bool aromatic : aromaticity)
+        fprintf(stderr,"%d ",aromatic);
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  multicyclic points: ");
+      for (unsigned char loc : multicyclic_locants)
+        fprintf(stderr,"%c ",loc);
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  bridge points: ");
+      for (unsigned char loc : bridge_locants)
+        fprintf(stderr,"%c ",loc);
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  hard fuses: ");
+      for (unsigned int i=1;i<fuses.size();i++)
+        fprintf(stderr,"(%c --> %c) ",fuses[i-1],fuses[i]);
+      fprintf(stderr,"\n");
+
+
+      fprintf(stderr,"  size denotion: %c\n",ring_size_specifier);
+      fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
+
     }
 
-
-   
+    if(warned)
+      fprintf(stderr,"Warning: heterocyclic ring notation required for inter atom assignment, change starting 'L' to 'T'\n");
+              
+    
   }
 
   
@@ -1952,11 +2158,11 @@ struct WLNGraph
           ring = AllocateWLNRing();
           std::string r_notation = get_notation(block_start,block_end);
 
+          ring->FormWLNRing(r_notation,block_start);
+          ring_stack.push(ring);
+
           block_start = 0;
           block_end = 0;
-
-          ring->FormWLNRing(r_notation,i);
-          ring_stack.push(ring);
 
           if (pending_spiro)
           {
