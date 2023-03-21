@@ -317,8 +317,6 @@ struct WLNRing
 
       unsigned char loc = integer_locant_map[i];
 
-      fprintf(stderr,"loc: %c\n",loc);
-
       if(!locants[loc]){
         current = AllocateWLNSymbol('C');
         current->allowed_edges = 4;
@@ -354,6 +352,7 @@ struct WLNRing
   }
 
   bool CreatePoly(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, std::vector<bool> &aromaticity){
+     
 
     if (ring_assignments.size() != aromaticity.size()){
       fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
@@ -389,9 +388,47 @@ struct WLNRing
     // set the global size; 
     size = local_size; 
 
-    // create a non-aromatic mono ring
-    if(!CreateMono(size,false))
+    // create all the nodes in a large ring with aromatics evaulated
+
+    bool state = true;
+
+    WLNSymbol *current = 0; 
+    WLNSymbol *prev = 0; 
+    WLNSymbol *head = 0;
+    for (unsigned int i=1;i<=size;i++){
+      unsigned char loc = integer_locant_map[i];
+      if(!locants[loc]){
+        current = AllocateWLNSymbol('C');
+        current->allowed_edges = 4;
+        locants[loc] = current;
+      }
+      else
+        current = locants[loc];
+
+      if(!head)
+        head = current;
+
+      if(prev){
+        if (aromatic_map[loc] && aromatic_map[loc-1])
+          state = link_symbols(current,prev,1,true);
+        else
+          state = link_symbols(current,prev,1);
+        
+        if(!state){
+          fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
+          return false; 
+        }
+        
+      }
+
+      prev = current;
+    }
+
+    if(!link_symbols(prev,head,1)){
+      fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
       return false; 
+    }
+    
 
     
     
@@ -517,7 +554,7 @@ struct WLNRing
             Fatal(start+i);
           }
           if(block[i-1] == ' '){
-            fprintf(stderr,"Error: double spacing in ring notation is not allowed\n",expected_locants);
+            fprintf(stderr,"Error: double spacing in ring notation is not allowed\n");
             Fatal(start+i);
           }
 
@@ -656,7 +693,7 @@ struct WLNRing
 
               case 'U':
                 if(opt_debug)
-                  fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant++);
+                  fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
                 break;
 
               
