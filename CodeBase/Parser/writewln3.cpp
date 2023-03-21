@@ -454,10 +454,10 @@ struct WLNRing
           }
           
             
-
         case '/':
           expected_locants = 2; 
           pending_pseudo = true;
+          ring_type = PSDBRIDGED; 
           break; 
 
         case '-':
@@ -482,8 +482,14 @@ struct WLNRing
           if(pending_multi){
             pending_multi     = false;
             multi_completed   = true;
+
+            if(ring_type < PERI)
+              ring_type = PERI; 
           }
-          else if (pending_bridge){ 
+          else if (pending_bridge){
+            if(ring_type < BRIDGED)
+              ring_type = BRIDGED; 
+
             bridge_locants.push_back(positional_locant);
             pending_bridge = false; 
           }
@@ -646,12 +652,23 @@ struct WLNRing
               fprintf(stderr,"Error: unhandled locant rule\n");
               Fatal(start+i);
             }
-
             break;
           }
-          
+          else if(block[i-1] == ' '){
+
+            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
+              ring_size_specifier = ch;
+              positional_locant = ch;
+            }
+            else{
+              positional_locant = ch;
+              pending_component = true;
+              pending_bridge = true;
+            }
+            break;
+          }
           else{
-            
+            positional_locant = ch;
             break;
           }
 
@@ -661,7 +678,7 @@ struct WLNRing
             pending_component = true;
             break; 
           }
-          else if(expected_locants){
+          if(expected_locants){
 
             if(pending_multi){
               multicyclic_locants.push_back(ch);
@@ -675,7 +692,6 @@ struct WLNRing
               fprintf(stderr,"Error: unhandled locant rule\n");
               Fatal(start+i);
             }
-
             break;
           }
           else if (pending_aromatics){
@@ -699,6 +715,19 @@ struct WLNRing
 
             break;
           }
+          else if(block[i-1] == ' '){
+
+            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
+              ring_size_specifier = ch;
+              positional_locant = ch;
+            }
+            else{
+              positional_locant = ch;
+              pending_component = true;
+              pending_bridge = true;
+            }
+            break;
+          }
           else{
             positional_locant = ch;
             break;
@@ -713,6 +742,39 @@ struct WLNRing
             }
             break;
           }
+          else if(expected_locants){
+
+            if(pending_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (pending_pseudo){
+              fuses.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+            break;
+          }
+          else if(block[i-1] == ' '){
+
+            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
+              ring_size_specifier = ch;
+              positional_locant = ch;
+            }
+            else{
+              positional_locant = ch;
+              pending_component = true;
+              pending_bridge = true;
+            }
+            break;
+          }
+          else{
+            positional_locant = ch;
+            break;
+          }
             
 
         default:
@@ -722,13 +784,36 @@ struct WLNRing
        
     }
 
+    // set the ring type
+
+    if (ring_components.size() > 1 && ring_type < PERI)
+      ring_type = POLY;
+    
     
 
-    
+        
     // debug here
 
     if (opt_debug){
-
+      
+      switch(ring_type){
+        case 0:
+          fprintf(stderr,"  ring type: MONO\n");
+          break;
+        case 1:
+          fprintf(stderr,"  ring type: POLY\n");
+          break;
+        case 2:
+          fprintf(stderr,"  ring type: PERI\n");
+          break;
+        case 3:
+          fprintf(stderr,"  ring type: BRIDGED\n");
+          break;
+        case 4:
+          fprintf(stderr,"  ring type: PSDBRIDGED\n");
+          break;
+      }
+      
       fprintf(stderr,"  ring components: ");
       for (std::pair<unsigned int, unsigned char> comp : ring_components)
         fprintf(stderr,"%d(%c) ",comp.first,comp.second);
