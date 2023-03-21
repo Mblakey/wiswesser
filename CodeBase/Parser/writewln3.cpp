@@ -533,7 +533,7 @@ struct WLNRing
           }
           else if(block[i-1] == ' '){
 
-            if(multi_completed){ // a size specifier is always needed
+            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
               positional_locant = ch;
             }
@@ -551,34 +551,54 @@ struct WLNRing
             if (opt_debug)
               fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
-            if(!heterocyclic)
-              warned = true;
+            
 
             switch(ch){
               case 'S':
               case 'P':
+                if(!heterocyclic)
+                  warned = true;
                 locants[positional_locant] = AllocateWLNSymbol(ch);
                 locants[positional_locant]->allowed_edges = 5;
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'Y':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 3;
+                positional_locant++; // allows inline defition continuation
+                break;
               case 'N':
+                if(!heterocyclic)
+                  warned = true;
                 locants[positional_locant] = AllocateWLNSymbol(ch);
                 locants[positional_locant]->allowed_edges = 3;
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'V':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 2;
+                positional_locant++; // allows inline defition continuation
+                break;
+
               case 'M':
               case 'O':
+                if(!heterocyclic)
+                  warned = true;
                 locants[positional_locant] = AllocateWLNSymbol(ch);
                 locants[positional_locant]->allowed_edges = 2;
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'X':
+                locants[positional_locant] = AllocateWLNSymbol(ch);
+                locants[positional_locant]->allowed_edges = 4;
+                positional_locant++; // allows inline defition continuation
+                break;
               case 'K':
+                if(!heterocyclic)
+                  warned = true;
                 locants[positional_locant] = AllocateWLNSymbol(ch);
                 locants[positional_locant]->allowed_edges = 4;
                 positional_locant++; // allows inline defition continuation
@@ -673,9 +693,10 @@ struct WLNRing
             if(opt_debug)
               fprintf(stderr,"  removing all aromaticty with singular T notation\n");
 
+            pending_aromatics = true;
             for (unsigned int i=0;i<ring_components.size();i++)
               aromaticity.push_back(false);
-            
+
             break;
           }
           else{
@@ -693,10 +714,6 @@ struct WLNRing
             break;
           }
             
-
-
-          
-
 
         default:
           fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
@@ -733,7 +750,7 @@ struct WLNRing
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  hard fuses: ");
-      for (unsigned int i=1;i<fuses.size();i++)
+      for (unsigned int i=1;i<fuses.size();i+=2)
         fprintf(stderr,"(%c --> %c) ",fuses[i-1],fuses[i]);
       fprintf(stderr,"\n");
 
