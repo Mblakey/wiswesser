@@ -238,8 +238,8 @@ WLNSymbol *copy_symbol(WLNSymbol *src)
 }
 
 /* should handle all bonding modes, adds child to parent->children
-'UU' bonding also added here */
-bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
+'UU' bonding also added here - needs a bond specied! 1 for single */
+bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool aromatic = false)
 {
   // if the child cannot handle the new valence
   if ((child->num_edges + bond) > child->allowed_edges)
@@ -259,9 +259,15 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond)
   child->num_edges += bond;
   parent->num_edges += bond;
   parent->children.push_back(child);
-  parent->orders.push_back(bond);
+  
+  if(aromatic)
+    parent->orders.push_back(4);
+  else
+    parent->orders.push_back(bond);
   return true;
 }
+
+
 
 
 /* struct to hold pointers for the wln ring */
@@ -296,77 +302,109 @@ struct WLNRing
   }
 
 
-  unsigned int create_ring(unsigned int size, unsigned char start_locant){
+  bool CreateMono(unsigned int local_size, bool aromatic){
 
     WLNSymbol *head = 0; 
     WLNSymbol *prev = 0;
     WLNSymbol *current = 0; 
 
-    unsigned int locant_num = locant_integer_map[start_locant];
+    bool state = true;
+
+    size = local_size; // set for locant bonding outside of ring functions
     
-    for (unsigned int i=0;i<size;i++){
-      current = AllocateWLNSymbol('C');
+    // assume already assigned locants
+    for (unsigned int i=1;i<=local_size;i++){
+
+      unsigned char loc = integer_locant_map[i];
+
+      fprintf(stderr,"loc: %c\n",loc);
+
+      if(!locants[loc]){
+        current = AllocateWLNSymbol('C');
+        current->allowed_edges = 4;
+        locants[loc] = current;
+      }
+      else
+        current = locants[loc];
+
       current->type = RING;
 
-      if(locants[integer_locant_map[locant_num]]){
-        fprintf(stderr,"Error: overwriting locant in ring definition!\n");
-        return 0; 
-      }
-
-      locants[integer_locant_map[locant_num]] = current;
-      locant_num++; 
+      if(aromatic)
+        current->allowed_edges--; // take off 1 due to aromaticity.
 
       if (!head)
         head = current; 
 
-      if(prev)
-        link_symbols(current,prev,0);
-
+      if(prev){
+        if(!aromatic)
+          state = link_symbols(current,prev,1);
+        else
+          state = link_symbols(current,prev,1,true);
+      }
+        
       prev = current;
     }
 
-    link_symbols(head,prev,0);
+    if(!aromatic)
+      state = link_symbols(head,prev,1);
+    else
+      state = link_symbols(head,prev,1,true);
 
-    return locant_num; 
+    return state; 
   }
 
+  bool CreatePoly(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, std::vector<bool> &aromaticity){
 
-  // creates a loop between two or more wln positions - locants are consecutive from the given char
-  // ring size is implied with the two given atoms -- inputting 6 will create 4 new symbols
-
-  // return last locant!
-  unsigned int wrap_ring(std::vector<WLNSymbol*> &given_path, unsigned int size, unsigned char start_locant){
-    
-   
-    unsigned int locant_num = locant_integer_map[start_locant + 1];
-    
-    WLNSymbol *prev = given_path.front();
-    WLNSymbol *current = 0; 
-
-    for (unsigned int i=0;i<size-given_path.size();i++){
-      current = AllocateWLNSymbol('C');
-      current->allowed_edges = 4;
-      current->type = RING;
-
-      if(locants[integer_locant_map[locant_num]]){
-        fprintf(stderr,"Error: overwriting locant in ring definition!\n");
-        return 0; 
-      }
-
-      locants[integer_locant_map[locant_num]] = current;
-      locant_num++;
-
-      if(prev)
-        link_symbols(current,prev,0);
-
-      prev = current; 
+    if (ring_assignments.size() != aromaticity.size()){
+      fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
+      return false; 
     }
 
-    link_symbols(given_path.back(),prev,0);
-     
-    return locant_num - 1; // will always advance 1 extra past allocation
-  }
+    std::map<unsigned char,bool> aromatic_map; 
 
+    // calculate the locants needed based off shared atoms
+    unsigned char bind_1 = '\0';
+    unsigned char bind_2 = '\0';
+    unsigned char last_char = '\0';
+
+    unsigned int prev_size = 1; // offset by 1 to get locant 'A' 
+    unsigned int local_size = 0; 
+    for (unsigned int i=0;i<ring_assignments.size();i++){
+      std::pair<unsigned int, unsigned char> component = ring_assignments[i];
+      bool aromatic = aromaticity[i]; 
+
+      if(local_size)
+        local_size += component.first - 2;
+      else
+        local_size = component.first;
+
+      // check the aromaticity and then add to the map
+      if (aromatic){
+        for (unsigned int k=prev_size+1;k<=local_size;k++)
+          aromatic_map[integer_locant_map[k]] = true; 
+      }
+      prev_size = local_size;
+      fprintf(stderr,"  local_size: %d\n",local_size);
+    }
+    // set the global size; 
+    size = local_size; 
+
+    // create a non-aromatic mono ring
+    if(!CreateMono(size,false))
+      return false; 
+
+    
+    
+
+    
+
+
+
+     
+
+
+    return true; 
+  }
 
 
   bool CreatePSDBRIDGE(std::vector<unsigned char> &fuses,
@@ -391,6 +429,7 @@ struct WLNRing
 
     enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
     unsigned int ring_type = MONO;   // start in mono and climb up
+    unsigned int end = 0;
 
     bool warned = false; // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
@@ -477,6 +516,11 @@ struct WLNRing
             fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
             Fatal(start+i);
           }
+          if(block[i-1] == ' '){
+            fprintf(stderr,"Error: double spacing in ring notation is not allowed\n",expected_locants);
+            Fatal(start+i);
+          }
+
 
           // resets any pendings and set states
           if(pending_multi){
@@ -487,7 +531,7 @@ struct WLNRing
               ring_type = PERI; 
           }
           else if (pending_bridge){
-            if(ring_type < BRIDGED)
+            if(ring_type < BRIDGED && positional_locant)
               ring_type = BRIDGED; 
 
             bridge_locants.push_back(positional_locant);
@@ -707,7 +751,7 @@ struct WLNRing
           else if (i == block.size()-2){
             // this now must be the aromatic designator 
             if(opt_debug)
-              fprintf(stderr,"  removing all aromaticty with singular T notation\n");
+              fprintf(stderr,"  removing all aromaticity with singular T notation\n");
 
             pending_aromatics = true;
             for (unsigned int i=0;i<ring_components.size();i++)
@@ -735,6 +779,7 @@ struct WLNRing
 
         //closure
         case 'J':
+          end = i;
           if(i==block.size() - 1){
             if(!pending_aromatics){
               for(unsigned int i=0;i<ring_components.size();i++)
@@ -825,13 +870,15 @@ struct WLNRing
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  multicyclic points: ");
-      for (unsigned char loc : multicyclic_locants)
-        fprintf(stderr,"%c ",loc);
+      for (unsigned char loc : multicyclic_locants){
+        fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
+      }
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  bridge points: ");
-      for (unsigned char loc : bridge_locants)
-        fprintf(stderr,"%c ",loc);
+      for (unsigned char loc : bridge_locants){
+        fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
+      }
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  hard fuses: ");
@@ -847,182 +894,29 @@ struct WLNRing
 
     if(warned)
       fprintf(stderr,"Warning: heterocyclic ring notation required for inter atom assignment, change starting 'L' to 'T'\n");
-              
+      
+    
+    bool state = true;
+    switch(ring_type){
+      case MONO:
+        state = CreateMono(ring_components[0].first,aromaticity[0]);
+        break;
+      case POLY:
+        state = CreatePoly(ring_components,aromaticity);
+        break;
+      case PERI:
+      case BRIDGED:
+      case PSDBRIDGED:
+        break;
+    }
+
+    if (!state){
+      fprintf(stderr,"Error: error in building ring, however notation parse was successful, check rules\n");
+      Fatal(end);
+    }
     
   }
 
-  
-  // creates and allocates the ring in WLNSymbol struct style
-  bool create_symbol_ring(std::string block)
-  {
-
-    /*
-    we assume this start after the ring blocks
-    i.e 'L66 AO TJ' -->' AO TJ'
-    */
-
-    bool inter_ring = false;
-    for (unsigned char ch : block)
-    {
-      if (ch == ' ')
-      {
-        inter_ring = true;
-        break;
-      }
-    }
-
-    if (inter_ring)
-    {
-
-      // split the string on the spaces, and then process the blocks
-      std::istringstream ss(block);
-      std::string del;
-
-      unsigned int locant = 1; // use the maps to assign locants
-      WLNSymbol *assignment = 0;
-
-      unsigned int consumed = 0;
-      while (getline(ss, del, ' '))
-      {
-
-        unsigned int assign_size = del.size();
-
-        if (assign_size < 1)
-          continue; // not sure i can help this?
-        else if (assign_size == 1)
-        {
-          consumed += 2; // +1 for the space!
-
-          // handles the lone 'J'
-          if (consumed == block.size())
-            break;
-
-          // bridge defintions --> figure out a way to ignore the last 'J' as a 'J' bridge is intirely plausible
-          if (opt_debug)
-            fprintf(stderr, "  assigning bridge: %c\n", del[0]);
-
-          //bridge_points.push_back(del[0]);
-        }
-        else if (assign_size > 1)
-        {
-          consumed += assign_size + 1; // +1 for the space!
-          // standard atomic definitions
-
-          unsigned int back = assign_size - 1;
-          if (del[assign_size] == 'J')
-          {
-            back += -1;
-            // if (!aromatic)
-            //   back += -1;
-          }
-
-          // process the locants as expected in standard notation
-
-          locant = locant_integer_map[del[0]];
-          for (unsigned int i = 1; i < back; i++)
-          {
-
-            // need to add support for specials here
-
-            if (del[i] != 'U')
-            {
-              if (opt_debug)
-                fprintf(stderr, "  assigning symbol: locant(%c) --> symbol(%c)\n", integer_locant_map[locant], del[i]);
-
-              locants[integer_locant_map[locant]] = AllocateWLNSymbol(del[i]);
-              switch (del[i])
-              {
-
-              case 'B':
-              case 'I':
-                locants[integer_locant_map[locant]]->allowed_edges = 3;
-                break;
-
-              case 'N':
-              case 'K':
-                locants[integer_locant_map[locant]]->allowed_edges = 3;
-                break;
-
-              case 'O':
-              case 'M':
-              case 'V':
-                locants[integer_locant_map[locant]]->allowed_edges = 2;
-                break;
-
-              case 'P':
-              case 'S':
-                locants[integer_locant_map[locant]]->allowed_edges = 5;
-                break;
-              }
-            }
-
-            locant++;
-          }
-        }
-      }
-    }
-
-    // now we assign everything not coverered as 1's!
-    // a nice property is that all locants are binded to eachother
-
-    WLNSymbol *prev = 0;
-    WLNSymbol *head = 0;
-    for (unsigned int i = 1; i <= size; i++)
-    {
-      unsigned char loc = integer_locant_map[i];
-      if (!locants[loc])
-      {
-        locants[loc] = AllocateWLNSymbol('C');
-        locants[loc]->allowed_edges = 4;
-      }
-
-      locants[loc]->type = RING; 
-
-      // if(aromatic)
-      //   locants[loc]->allowed_edges += -1; // take off 1 when aromatic!
-
-      if (!head)
-        head = locants[loc];
-
-      if (prev)
-      {
-        // if (aromatic){
-        //   if(!link_aromatics(locants[loc], prev))
-        //     return false;
-        // }
-        // else{
-        //   if(!link_symbols(locants[loc], prev, 1))
-        //     return false;
-        // }
-      }
-
-      prev = locants[loc];
-    }
-
-    // if (aromatic){
-    //   if(!link_aromatics(head, prev))
-    //     return false;
-    // }else{
-    //   if(!link_symbols(head, prev, 1))
-    //     return false;
-    // }
-    // fuse any points given
-    // for (std::pair<unsigned char, unsigned char> fuse : fuse_points)
-    // { 
-    //   if (opt_debug)
-    //     fprintf(stderr, "  fusing position %c to position %c\n",fuse.first,fuse.second);
-
-    //   // if (aromatic){
-    //   //   if(!link_aromatics(locants[fuse.first], locants[fuse.second]))
-    //   //     return false;
-    //   // }else{
-    //   //   if(!link_symbols(locants[fuse.first], locants[fuse.second], 1))
-    //   //     return false;
-    //   // }
-    // }
-
-    return true;
-  }
 
 };
 
@@ -1590,7 +1484,7 @@ struct WLNGraph
         Fatal(i);
     } 
     else {
-      fprintf(stderr, "Error: assigning locant greater than ring size\n");
+      fprintf(stderr, "Error: assigning locant greater than ring size - %d\n",s_ring->size);
       Fatal(i);
     }
 
@@ -1669,7 +1563,7 @@ struct WLNGraph
 
         curr = AllocateWLNSymbol(ch);
         curr->set_type(STANDARD);
-        curr->set_edges(2);
+        curr->set_edges(3);
 
         create_bond(curr, prev, bond_ticks, i);
 
@@ -2539,8 +2433,7 @@ struct WLNGraph
   void WLNDumpToDot(FILE *fp)
   {
 
-    std::map<WLNSymbol *, bool>::iterator sym_iter;
-
+  
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
     for (WLNSymbol *node : symbol_mempool)
@@ -2558,11 +2451,30 @@ struct WLNGraph
       else
         fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
 
-      for (WLNSymbol *child : node->children)
-      {
-        fprintf(fp, "  %d", index_lookup[node]);
-        fprintf(fp, " -> ");
-        fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
+      for(unsigned int i = 0; i<node->children.size(); i++){
+        WLNSymbol *child = node->children[i];
+        unsigned int bond_order = node->orders[i];
+        
+
+        // aromatic
+        if(bond_order == 4){
+          fprintf(fp, "  %d", index_lookup[node]);
+          fprintf(fp, " -> ");
+          fprintf(fp, "%d [arrowhead=none,color=red]\n", index_lookup[child]);
+        }
+        else if (bond_order > 1){
+          for (unsigned int k=0;k<bond_order;k++){
+            fprintf(fp, "  %d", index_lookup[node]);
+            fprintf(fp, " -> ");
+            fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
+          }
+        }
+        else{
+          fprintf(fp, "  %d", index_lookup[node]);
+          fprintf(fp, " -> ");
+          fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
+        }
+         
       }
     }
     fprintf(fp, "}\n");
