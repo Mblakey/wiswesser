@@ -254,7 +254,6 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
     return false;
   }
 
-  
   child->previous = parent; // keep the linked list so i can consume backwards rings
   child->num_edges += bond;
   parent->num_edges += bond;
@@ -265,6 +264,96 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
   else
     parent->orders.push_back(bond);
   return true;
+}
+
+// use sparingly, expensive
+bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond, bool aromatic = false){
+
+  bool found = false;
+  WLNSymbol *local_child = 0; 
+  unsigned int i=0;
+  for (i=0; i<parent->children.size();i++){
+    local_child = parent->children[i];
+    if(local_child == child){
+      found = true;
+      break;
+    }
+  }
+
+  if(!found){
+    fprintf(stderr,"Error: changing bond order of non-existent link\n");
+    return false; 
+  }
+
+  // check can we increase the order, then access orders list with i. 
+
+  if(!aromatic){
+    unsigned int current_order = parent->orders[i]; 
+    if(current_order == bond)
+      return true; // save some work
+
+    int diff = bond - current_order; // can be negative for a decrease in order
+
+    // same checks
+    if ((child->num_edges + diff) > child->allowed_edges)
+    {
+      fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+diff, child->allowed_edges);
+      return false;
+    }
+   
+    if ((parent->num_edges + diff) > parent->allowed_edges)
+    {
+      fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+diff, parent->allowed_edges);
+      return false;
+    }
+
+    child->num_edges += diff;
+    parent->num_edges += diff;
+    parent->orders[i] = bond;
+  }
+  else{
+
+    // if its aromatic 2 things can happen. a double bond has no change, a single, gets upgraded
+    unsigned int current_order = parent->orders[i]; 
+    switch(current_order){
+      case 1:
+        // safety checks
+        if ((child->num_edges + 1) > child->allowed_edges)
+        {
+          fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
+          return false;
+        }
+    
+        if ((parent->num_edges + 1) > parent->allowed_edges)
+        {
+          fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
+          return false;
+        }
+        // upgrade
+        child->num_edges += 1;
+        parent->num_edges += 1;
+        break;
+      case 2:
+        break; // equivilent order, do nothing
+      case 3:
+        // drop by 1
+        child->num_edges += -1;
+        parent->num_edges += -1;
+        break;
+
+      // already aromatic, do nothing
+      case 4:
+        break;
+      
+      default:
+        fprintf(stderr,"Error: changing bond order of unknown bond type - %d\n",current_order);
+    }
+
+
+    parent->orders[i] = 4;
+  }
+  
+  return true; 
 }
 
 
@@ -279,6 +368,7 @@ struct WLNRing
 
   std::vector<unsigned int> rings;
   std::map<unsigned char, WLNSymbol *> locants;
+  std::map<WLNSymbol*,unsigned char> locants_ch;
 
 
   // keep this simple
@@ -290,6 +380,15 @@ struct WLNRing
   }
   ~WLNRing(){};
 
+  // both lookups needed for QOL in ring building
+  WLNSymbol* assign_locant(unsigned char loc,unsigned char type){
+    WLNSymbol *locant = 0; 
+    locant = AllocateWLNSymbol(type);
+    locants[loc] = locant; 
+    locants_ch[locant] = loc;
+    return locant; 
+  } 
+
   void debug_locants(){
     std::map<unsigned char, WLNSymbol *>::iterator locant_itr;
     fprintf(stderr,"alive locants: ");
@@ -299,6 +398,15 @@ struct WLNRing
       }
     }
     fprintf(stderr,"\n");
+  }
+
+  // calculates the SSRS, double checks it against the given assignements
+  bool SSRS(std::vector<std::vector<unsigned char>> &ring_subset, 
+            std::vector<std::pair<unsigned int, unsigned char>> &ring_assignments)
+  {
+
+
+
   }
 
 
@@ -318,9 +426,8 @@ struct WLNRing
       unsigned char loc = integer_locant_map[i];
 
       if(!locants[loc]){
-        current = AllocateWLNSymbol('C');
+        current = assign_locant(loc,'C');
         current->allowed_edges = 4;
-        locants[loc] = current;
       }
       else
         current = locants[loc];
@@ -361,10 +468,9 @@ struct WLNRing
 
     std::map<unsigned char,bool> aromatic_map; 
 
-    // calculate the locants needed based off shared atoms
-    unsigned char bind_1 = '\0';
-    unsigned char bind_2 = '\0';
-    unsigned char last_char = '\0';
+    // size and aromaticty must be calculated first, a second loop is needed once
+    // the chain is alive. <--  annoying
+
 
     unsigned int prev_size = 1; // offset by 1 to get locant 'A' 
     unsigned int local_size = 0; 
@@ -383,57 +489,86 @@ struct WLNRing
           aromatic_map[integer_locant_map[k]] = true; 
       }
       prev_size = local_size;
-      fprintf(stderr,"  local_size: %d\n",local_size);
     }
+
     // set the global size; 
     size = local_size; 
 
-    // create all the nodes in a large ring with aromatics evaulated
-
-    bool state = true;
+    // create all the nodes in a large straight chain with aromatics evaulated
 
     WLNSymbol *current = 0; 
     WLNSymbol *prev = 0; 
-    WLNSymbol *head = 0;
     for (unsigned int i=1;i<=size;i++){
       unsigned char loc = integer_locant_map[i];
       if(!locants[loc]){
-        current = AllocateWLNSymbol('C');
+        current = assign_locant(loc,'C');
         current->allowed_edges = 4;
-        locants[loc] = current;
       }
       else
         current = locants[loc];
 
-      if(!head)
-        head = current;
-
       if(prev){
-        if (aromatic_map[loc] && aromatic_map[loc-1])
-          state = link_symbols(current,prev,1,true);
-        else
-          state = link_symbols(current,prev,1);
-        
-        if(!state){
+        if(!link_symbols(current,prev,1)){
           fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
           return false; 
         }
-        
       }
-
       prev = current;
     }
 
-    if(!link_symbols(prev,head,1)){
-      fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
-      return false; 
+
+    // calculate bindings and then traversals round the loops
+    unsigned char bind_1 = '\0';
+    unsigned char bind_2 = '\0';
+    unsigned int fuses = 0; 
+
+    
+    for (unsigned int i=0;i<ring_assignments.size();i++){
+      std::pair<unsigned int, unsigned char> component = ring_assignments[i];
+      bind_1 = component.second;
+
+      // first pair can be calculated directly without a path travel
+      if(!fuses)
+        bind_2 = bind_1 + component.first - 1; // includes start atom
+      
+      else{
+        //there needs to be a graph travel here taking the longest locant
+
+        // 1. starting on bind_1, travel n-1 places through the maximal locant path, to calculate fuse
+        
+        // annoyingly n2 ... 
+        WLNSymbol *path = locants[bind_1];
+        unsigned char highest_loc = '\0';
+
+        for (unsigned int i=0;i<component.first - 1; i++){
+          for (WLNSymbol *child : path->children){
+            unsigned char child_loc = locants_ch[child];
+            if(child_loc > highest_loc)
+              highest_loc = child_loc;
+          }
+          path = locants[highest_loc];
+        }
+        bind_2 = highest_loc;
+      }
+
+      if(!link_symbols(locants[bind_2],locants[bind_1],1)){
+        fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
+        return false;
+      }
+      
+
+      fuses++;
     }
     
+    // need to calculate SSRS taking the the assigned locants in reverse, then assign aromaticity
+
+
+    
 
     
     
 
-    
+    change_symbol_order(locants['B'],locants['A'],1,true);
 
 
 
@@ -638,34 +773,35 @@ struct WLNRing
             if (opt_debug)
               fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
-            
+            WLNSymbol *new_locant = 0; 
 
             switch(ch){
               case 'S':
               case 'P':
                 if(!heterocyclic)
                   warned = true;
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 5;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 5;
+
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'Y':
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 3;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 3;
                 positional_locant++; // allows inline defition continuation
                 break;
               case 'N':
                 if(!heterocyclic)
                   warned = true;
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 3;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 3;
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'V':
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 2;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 2;
                 positional_locant++; // allows inline defition continuation
                 break;
 
@@ -673,21 +809,22 @@ struct WLNRing
               case 'O':
                 if(!heterocyclic)
                   warned = true;
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 2;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 2;
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'X':
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 4;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 4;
                 positional_locant++; // allows inline defition continuation
                 break;
               case 'K':
                 if(!heterocyclic)
                   warned = true;
-                locants[positional_locant] = AllocateWLNSymbol(ch);
-                locants[positional_locant]->allowed_edges = 4;
+
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->allowed_edges = 4;
                 positional_locant++; // allows inline defition continuation
                 break;
 
@@ -947,10 +1084,8 @@ struct WLNRing
         break;
     }
 
-    if (!state){
-      fprintf(stderr,"Error: error in building ring, however notation parse was successful, check rules\n");
+    if (!state)
       Fatal(end);
-    }
     
   }
 
