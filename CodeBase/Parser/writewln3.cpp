@@ -9,6 +9,7 @@
 #include <map>
 #include <utility> // std::pair
 #include <iterator>
+#include <set>
 #include <sstream>
 
 #include <openbabel/mol.h>
@@ -22,6 +23,7 @@
 
 // --- macros ---
 #define REASONABLE 1024
+#define INF 9999
 
 // --- inputs ---
 const char *wln;
@@ -400,13 +402,73 @@ struct WLNRing
     fprintf(stderr,"\n");
   }
 
-  // calculates the SSRS, double checks it against the given assignements
+  void print_distance(unsigned int *distance, unsigned int n){
+    for (unsigned int i=0;i<n;i++){
+      for (unsigned int j=0;j<n;j++){
+        fprintf(stderr,"%d ",distance[i* n+j]); 
+      }
+      fprintf(stderr,"\n");
+    }
+  }
+
+  /* creates distance matrix from connected grap */
+  unsigned int *distance_matrix(unsigned int n){
+
+    // distance is nxn matrix of a n vertices connected graph
+
+    unsigned int *distance = (unsigned int*)malloc((n*n) *sizeof(unsigned int));
+
+    // set the diagonal elements to zero dij = dii, other weights here are default 1
+    for (unsigned int i=0;i<n;i++){
+      for (unsigned int j=0;j<n;j++){
+        if(i == j)
+          distance[i* n+j] = 0; 
+        else  
+          distance[i* n+j] = INF; // n+1 for infinite 
+      }
+    }
+
+    /*
+    all other elements are the minimum 'steps' from one node to the next
+    use Floyd-warshall to calculate distances, any 'infinites' here would indiciate a broken graph
+    */
+
+    // set the distance 1 pairs
+    std::map<unsigned char,WLNSymbol*>::iterator map_iter;
+    for (map_iter = locants.begin(); map_iter != locants.end(); map_iter++){
+      WLNSymbol *current = map_iter->second; 
+      unsigned int cur_int = locant_integer_map[map_iter->first] - 1; // gives zero index for distance matrix
+      for (WLNSymbol *child : current->children){
+        unsigned int child_int = locant_integer_map[locants_ch[child]] - 1;
+        distance[cur_int* n+child_int] = 1;
+        distance[child_int* n+cur_int] = 1;
+      }
+    } 
+
+    for (unsigned int k=0;k<n;k++){
+      for (unsigned int i=0;i<n;i++){
+        for (unsigned int j=0;j<n;j++){
+          if(distance[i* n+j] > distance[i* n+k] + distance[k* n+j])
+            distance[i* n+j] = distance[i* n+k] + distance[k* n+j];
+        }
+      }
+    }
+    
+    return distance; 
+  }
+
+
+  /* uses RP-PATH n3 algoritm from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2765087/ */
   bool SSRS(std::vector<std::vector<unsigned char>> &ring_subset, 
             std::vector<std::pair<unsigned int, unsigned char>> &ring_assignments)
   {
 
-
-
+    unsigned int *distance = distance_matrix(locants.size());
+    
+    
+    free(distance);
+    
+    return true;
   }
 
 
@@ -559,20 +621,13 @@ struct WLNRing
 
       fuses++;
     }
+
+    // if all aromatic or all 'T' then no need for this step, implement check after
     
     // need to calculate SSRS taking the the assigned locants in reverse, then assign aromaticity
+    std::vector<std::vector<unsigned char>> ring_subset;
+    SSRS(ring_subset,ring_assignments);
 
-
-    
-
-    
-    
-
-    change_symbol_order(locants['B'],locants['A'],1,true);
-
-
-
-     
 
 
     return true; 
