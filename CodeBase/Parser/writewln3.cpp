@@ -312,6 +312,51 @@ bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond){
   return true; 
 }
 
+bool increase_bond_order(WLNSymbol *child, WLNSymbol *parent){
+  bool found = false;
+  WLNSymbol *local_child = 0; 
+  unsigned int i=0;
+  for (i=0; i<parent->children.size();i++){
+    local_child = parent->children[i];
+    if(local_child == child){
+      found = true;
+      break;
+    }
+  }
+
+  if(!found){
+    fprintf(stderr,"Error: changing bond order of non-existent link\n");
+    return false; 
+  }
+
+  unsigned int current_order = parent->orders[i];
+
+  if(current_order == 4){
+    fprintf(stderr,"Error: trying to increase order of aromatic bond - not possible\n");
+    return false;
+  }
+
+  if ((child->num_edges + 1) > child->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
+    return false;
+  }
+  
+  if ((parent->num_edges + 1) > parent->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
+    return false;
+  }
+
+  child->num_edges += 1;
+  parent->num_edges += 1;
+  parent->orders[i] += 1;
+
+  return true; 
+}
+
+
+
 bool make_aromatic(WLNSymbol *child, WLNSymbol *parent){
 
   bool found = false;
@@ -531,20 +576,6 @@ struct WLNRing
   }
 
 
-  /* uses RP-PATH n3 algoritm from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2765087/ */
-  bool SSRS(std::vector<std::vector<unsigned char>> &ring_subset, 
-            std::vector<std::pair<unsigned int, unsigned char>> &ring_assignments)
-  {
-
-    unsigned int *distance = distance_matrix(locants.size());
-    
-    
-    free(distance);
-    
-    return true;
-  }
-
-
   bool CreateMono(unsigned int local_size, bool aromatic){
 
     WLNSymbol *head = 0; 
@@ -759,6 +790,8 @@ struct WLNRing
     unsigned char positional_locant = '\0'; // this changes
 
     std::vector<bool> aromaticity; 
+    std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
+
 
     std::vector<unsigned char> fuses; // read as pairs
     std::vector<unsigned char> bridge_locants;
@@ -964,15 +997,15 @@ struct WLNRing
               case 'U':
                 if(opt_debug)
                   fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
+
+                bond_increases.push_back({positional_locant,positional_locant+1});
                 break;
 
               
               default:
                 fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
                 Fatal(start+i);
-            }
-
-            
+            }            
             break;
           }
           else{
@@ -1125,14 +1158,25 @@ struct WLNRing
        
     }
 
-    // reverse the aromaticity assignments, how the notation works
-    std::reverse(aromaticity.begin(), aromaticity.end());
-
-    // set the ring type
+    // set the ring type if not handled in parser
     if (ring_components.size() > 1 && ring_type < PERI)
       ring_type = POLY;
     
-  
+
+
+    // shorthand aromatic conditions
+    if (aromaticity.size() == 1 && aromaticity[0] == false){
+      while(aromaticity.size() < ring_components.size())
+        aromaticity.push_back(false);
+    }
+    else if (aromaticity.empty()){
+      while(aromaticity.size() < ring_components.size())
+        aromaticity.push_back(true);
+    }
+
+    // reverse the aromaticity assignments, how the notation works
+    std::reverse(aromaticity.begin(), aromaticity.end());
+
     // debug here
     if (opt_debug){
       
@@ -1207,6 +1251,9 @@ struct WLNRing
 
     if (!state)
       Fatal(end);
+
+    for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases)
+      increase_bond_order(locants[bond_pair.second],locants[bond_pair.first]);
     
   }
 
