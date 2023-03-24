@@ -1046,21 +1046,10 @@ struct WLNRing
             aromaticity.push_back(false); // simple here
             break;
           }
-          else if (positional_locant && positional_locant == 'T'){
+          else if (positional_locant || std::isdigit(block[i-1])){
             pending_aromatics = true;
             aromaticity.push_back(false);
-            positional_locant = 'T';
-            break;
-          }
-          else if (i == block.size()-2){
-            // this now must be the aromatic designator 
-            if(opt_debug)
-              fprintf(stderr,"  removing all aromaticity with singular T notation\n");
-
-            pending_aromatics = true;
-            for (unsigned int i=0;i<ring_components.size();i++)
-              aromaticity.push_back(false);
-
+            positional_locant = ch;
             break;
           }
           else if(block[i-1] == ' '){
