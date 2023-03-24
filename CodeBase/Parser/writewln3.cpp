@@ -385,18 +385,18 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent){
     case 'X':
     case 'C':
     case 'K':
-      child->allowed_edges = 3;
+      parent->allowed_edges = 3;
       break;
 
     case 'Y':
     case 'N':
     case 'O':
-      child->allowed_edges = 2;
+      parent->allowed_edges = 2;
       break;
 
     case 'P':
     case 'S':
-      child->allowed_edges = 4;
+      parent->allowed_edges = 4;
       break;
 
     case '*':
@@ -404,7 +404,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent){
       return false; 
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n");
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->ch);
       return false;
   }
 
@@ -432,7 +432,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent){
       return false; 
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n");
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->ch);
       return false;
   }
 
@@ -633,7 +633,6 @@ struct WLNRing
       return false; 
     }
 
-    unsigned int prev_size = 1; // offset by 1 to get locant 'A' 
     unsigned int local_size = 0; 
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
@@ -642,8 +641,6 @@ struct WLNRing
         local_size += component.first - 2;
       else
         local_size = component.first;
-
-      prev_size = local_size;
     }
 
     // set the global size; 
@@ -803,8 +800,7 @@ struct WLNRing
     // things can now have multiple options, need to cover all variations
     // and move the pending bools around to give proper notation read. 
 
-    WLNSymbol *wln_locant = 0; 
-
+  
     for (unsigned int i=0;i<block.size();i++){
       unsigned char ch = block[i];
 
