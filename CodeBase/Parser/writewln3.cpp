@@ -268,8 +268,8 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
   return true;
 }
 
-// use sparingly, expensive
-bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond, bool aromatic = false){
+// use sparingly, loop check isnt ideal 
+bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond){
 
   bool found = false;
   WLNSymbol *local_child = 0; 
@@ -289,72 +289,145 @@ bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond, 
 
   // check can we increase the order, then access orders list with i. 
 
-  if(!aromatic){
-    unsigned int current_order = parent->orders[i]; 
-    if(current_order == bond)
-      return true; // save some work
-
-    int diff = bond - current_order; // can be negative for a decrease in order
-
-    // same checks
-    if ((child->num_edges + diff) > child->allowed_edges)
-    {
-      fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+diff, child->allowed_edges);
-      return false;
-    }
-   
-    if ((parent->num_edges + diff) > parent->allowed_edges)
-    {
-      fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+diff, parent->allowed_edges);
-      return false;
-    }
-
-    child->num_edges += diff;
-    parent->num_edges += diff;
-    parent->orders[i] = bond;
-  }
-  else{
-
-    // if its aromatic 2 things can happen. a double bond has no change, a single, gets upgraded
-    unsigned int current_order = parent->orders[i]; 
-    switch(current_order){
-      case 1:
-        // safety checks
-        if ((child->num_edges + 1) > child->allowed_edges)
-        {
-          fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
-          return false;
-        }
-    
-        if ((parent->num_edges + 1) > parent->allowed_edges)
-        {
-          fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
-          return false;
-        }
-        // upgrade
-        child->num_edges += 1;
-        parent->num_edges += 1;
-        break;
-      case 2:
-        break; // equivilent order, do nothing
-      case 3:
-        // drop by 1
-        child->num_edges += -1;
-        parent->num_edges += -1;
-        break;
-
-      // already aromatic, do nothing
-      case 4:
-        break;
-      
-      default:
-        fprintf(stderr,"Error: changing bond order of unknown bond type - %d\n",current_order);
-    }
-
-
-    parent->orders[i] = 4;
+  unsigned int current_order = parent->orders[i]; 
+  if(current_order == bond)
+    return true; // save some work
+  int diff = bond - current_order; // can be negative for a decrease in order
+  // same checks
+  if ((child->num_edges + diff) > child->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+diff, child->allowed_edges);
+    return false;
   }
   
+  if ((parent->num_edges + diff) > parent->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+diff, parent->allowed_edges);
+    return false;
+  }
+
+  child->num_edges += diff;
+  parent->num_edges += diff;
+  parent->orders[i] = bond;
+  return true; 
+}
+
+bool make_aromatic(WLNSymbol *child, WLNSymbol *parent){
+
+  bool found = false;
+  WLNSymbol *local_child = 0; 
+  unsigned int i=0;
+  for (i=0; i<parent->children.size();i++){
+    local_child = parent->children[i];
+    if(local_child == child){
+      found = true;
+      break;
+    }
+  }
+
+  if(!found){
+    fprintf(stderr,"Error: changing bond order of non-existent link\n");
+    return false; 
+  }
+
+
+  unsigned int current_order = parent->orders[i];
+  if (parent->orders[i] == 4)
+    return true; // save some work
+
+  // set aromatics
+  switch(parent->ch){
+    case 'X':
+    case 'C':
+    case 'K':
+      child->allowed_edges = 3;
+      break;
+
+    case 'Y':
+    case 'N':
+    case 'O':
+      child->allowed_edges = 2;
+      break;
+
+    case 'P':
+    case 'S':
+      child->allowed_edges = 4;
+      break;
+
+    case '*':
+      fprintf(stderr,"Error: aromaticity for specific elemental definitions currently unsupported\n");
+      return false; 
+    
+    default:
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n");
+      return false;
+  }
+
+  // set aromatics
+  switch(child->ch){
+    case 'X':
+    case 'C':
+    case 'K':
+      child->allowed_edges = 3;
+      break;
+
+    case 'Y':
+    case 'N':
+    case 'O':
+      child->allowed_edges = 2;
+      break;
+
+    case 'P':
+    case 'S':
+      child->allowed_edges = 4;
+      break;
+
+    case '*':
+      fprintf(stderr,"Error: aromaticity for specific elemental definitions currently unsupported\n");
+      return false; 
+    
+    default:
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n");
+      return false;
+  }
+
+  
+
+  if (child->num_edges > child->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges, child->allowed_edges);
+    return false;
+  }
+
+  if (parent->num_edges > parent->allowed_edges)
+  {
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges, parent->allowed_edges);
+    return false;
+  }
+
+  switch(current_order){
+    case 1:
+      break;
+    case 2:
+      // drop by 1
+      child->num_edges += -1;
+      parent->num_edges += -1;
+      break; // equivilent order, do nothing
+    case 3:
+      // drop by 2
+      child->num_edges += -2;
+      parent->num_edges += -2;
+      break;
+    // already aromatic, do nothing
+    case 4:
+      break;
+    
+    default:
+      fprintf(stderr,"Error: changing bond order of unknown bond type - %d\n",current_order);
+  }
+
+
+  parent->orders[i] = 4;
   return true; 
 }
 
@@ -520,36 +593,25 @@ struct WLNRing
     return state; 
   }
 
+  /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
   bool CreatePoly(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, std::vector<bool> &aromaticity){
      
-
+    // perform the aromatic denotion check
     if (ring_assignments.size() != aromaticity.size()){
       fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
       return false; 
     }
 
-    std::map<unsigned char,bool> aromatic_map; 
-
-    // size and aromaticty must be calculated first, a second loop is needed once
-    // the chain is alive. <--  annoying
-
-
     unsigned int prev_size = 1; // offset by 1 to get locant 'A' 
     unsigned int local_size = 0; 
     for (unsigned int i=0;i<ring_assignments.size();i++){
-      std::pair<unsigned int, unsigned char> component = ring_assignments[i];
-      bool aromatic = aromaticity[i]; 
+      std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
 
       if(local_size)
         local_size += component.first - 2;
       else
         local_size = component.first;
 
-      // check the aromaticity and then add to the map
-      if (aromatic){
-        for (unsigned int k=prev_size+1;k<=local_size;k++)
-          aromatic_map[integer_locant_map[k]] = true; 
-      }
       prev_size = local_size;
     }
 
@@ -584,15 +646,21 @@ struct WLNRing
     unsigned char bind_2 = '\0';
     unsigned int fuses = 0; 
 
-    
+    // reverse the aromaticity assignments; 
+    std::reverse(aromaticity.begin(), aromaticity.end());
+
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       bind_1 = component.second;
+      bool aromatic = aromaticity[i];
 
+      std::vector<unsigned char> ring_path;
       // first pair can be calculated directly without a path travel
-      if(!fuses)
+      if(!fuses){
         bind_2 = bind_1 + component.first - 1; // includes start atom
-      
+        for (unsigned int i=0; i<component.first;i++)
+          ring_path.push_back(bind_1+i);
+      }
       else{
         //there needs to be a graph travel here taking the longest locant
 
@@ -601,34 +669,44 @@ struct WLNRing
         // annoyingly n2 ... 
         WLNSymbol *path = locants[bind_1];
         unsigned char highest_loc = '\0';
-
         for (unsigned int i=0;i<component.first - 1; i++){
+          ring_path.push_back(locants_ch[path]);
+
           for (WLNSymbol *child : path->children){
             unsigned char child_loc = locants_ch[child];
             if(child_loc > highest_loc)
               highest_loc = child_loc;
-          }
+          }    
           path = locants[highest_loc];
         }
+
+        ring_path.push_back(locants_ch[path]); // add the last symbol
         bind_2 = highest_loc;
       }
 
+    
       if(!link_symbols(locants[bind_2],locants[bind_1],1)){
         fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
         return false;
       }
-      
 
+      if(aromatic){
+        for (unsigned int i=1; i<ring_path.size();i+=1){
+          unsigned char par = ring_path[i-1];
+          unsigned char chi = ring_path[i];
+          if(!make_aromatic(locants[chi],locants[par])){
+            fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
+            return false; 
+          }
+        }
+        if(!make_aromatic(locants[ring_path.back()],locants[ring_path.front()])){
+          fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
+          return false; 
+        }
+      }
+      
       fuses++;
     }
-
-    // if all aromatic or all 'T' then no need for this step, implement check after
-    
-    // need to calculate SSRS taking the the assigned locants in reverse, then assign aromaticity
-    std::vector<std::vector<unsigned char>> ring_subset;
-    SSRS(ring_subset,ring_assignments);
-
-
 
     return true; 
   }
@@ -732,9 +810,6 @@ struct WLNRing
         // aromatics
         case '&':
           pending_aromatics = true;
-          if (positional_locant == 'T') // back search if we start this with T
-            aromaticity.push_back(false);
-
           aromaticity.push_back(true);
           break;
 
