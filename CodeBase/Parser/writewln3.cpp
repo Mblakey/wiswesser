@@ -646,8 +646,6 @@ struct WLNRing
     unsigned char bind_2 = '\0';
     unsigned int fuses = 0; 
 
-    // reverse the aromaticity assignments; 
-    std::reverse(aromaticity.begin(), aromaticity.end());
 
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
@@ -690,21 +688,9 @@ struct WLNRing
         return false;
       }
 
-      if(aromatic){
-        for (unsigned int i=1; i<ring_path.size();i+=1){
-          unsigned char par = ring_path[i-1];
-          unsigned char chi = ring_path[i];
-          if(!make_aromatic(locants[chi],locants[par])){
-            fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
-            return false; 
-          }
-        }
-        if(!make_aromatic(locants[ring_path.back()],locants[ring_path.front()])){
-          fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
-          return false; 
-        }
-      }
-      
+      if(aromatic)
+        AssignAromatics(ring_path);
+        
       fuses++;
     }
 
@@ -727,6 +713,23 @@ struct WLNRing
     }
   
     return true; 
+  }
+
+  bool AssignAromatics(std::vector<unsigned char> &ring_path){
+    for (unsigned int i=1; i<ring_path.size();i+=1){
+      unsigned char par = ring_path[i-1];
+      unsigned char chi = ring_path[i];
+      if(!make_aromatic(locants[chi],locants[par])){
+        fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
+        return false; 
+      }
+    }
+    if(!make_aromatic(locants[ring_path.back()],locants[ring_path.front()])){
+      fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
+      return false; 
+    }
+
+    return true;
   }
 
 
@@ -1122,16 +1125,15 @@ struct WLNRing
        
     }
 
-    // set the ring type
+    // reverse the aromaticity assignments, how the notation works
+    std::reverse(aromaticity.begin(), aromaticity.end());
 
+    // set the ring type
     if (ring_components.size() > 1 && ring_type < PERI)
       ring_type = POLY;
     
-    
-
-        
+  
     // debug here
-
     if (opt_debug){
       
       switch(ring_type){
