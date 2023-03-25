@@ -646,8 +646,8 @@ struct WLNRing
     // set the global size; 
     size = local_size; 
 
-    // create all the nodes in a large straight chain with aromatics evaulated
-
+    // create all the nodes in a large straight chain
+    
     WLNSymbol *current = 0; 
     WLNSymbol *prev = 0; 
     for (unsigned int i=1;i<=size;i++){
@@ -721,6 +721,50 @@ struct WLNRing
         
       fuses++;
     }
+
+    return true; 
+  }
+
+  bool CreatePERI(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+                  std::vector<bool> &aromaticity,
+                  std::vector<unsigned char> &multicyclic_locants,
+                  unsigned char size_designator)
+  {
+
+    // perform the aromatic denotion check
+    if (ring_assignments.size() != aromaticity.size()){
+      fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
+      return false; 
+    }
+
+    // create a chain size of ring designator
+    unsigned int local_size = locant_integer_map[size_designator];
+    size = local_size; 
+
+    // create all the nodes in a large straight chain
+    WLNSymbol *current = 0; 
+    WLNSymbol *prev = 0; 
+    for (unsigned int i=1;i<=size;i++){
+      unsigned char loc = integer_locant_map[i];
+      if(!locants[loc]){
+        current = assign_locant(loc,'C');
+        current->allowed_edges = 4;
+      }
+      else
+        current = locants[loc];
+
+      if(prev){
+        if(!link_symbols(current,prev,1)){
+          fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
+          return false; 
+        }
+      }
+      prev = current;
+    }
+
+
+
+
 
     return true; 
   }
@@ -1240,6 +1284,8 @@ struct WLNRing
         state = CreatePoly(ring_components,aromaticity);
         break;
       case PERI:
+        state = CreatePERI(ring_components,aromaticity,multicyclic_locants,ring_size_specifier);
+        break;
       case BRIDGED:
       case PSDBRIDGED:
         break;
