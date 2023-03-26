@@ -970,13 +970,13 @@ struct WLNRing
     unsigned int ring_type = MONO;   // start in mono and climb up
     unsigned int end = 0;
 
-    bool warned = false; // limit warning messages to console
+    bool warned = false;              // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
 
     // -- stages --
 
     // based off certain rules, we can enforce ordering
-    bool multi_completed      = false;
+    bool multi_completed    = false;
   
     // -- paths -- 
     bool pending_component  = false;
@@ -984,10 +984,14 @@ struct WLNRing
     bool pending_pseudo     = false; 
     bool pending_bridge     = false;
     bool pending_aromatics  = false;
+    bool pending_large      = false; // for '&<x>' locant expansion
+    
 
-    unsigned int expected_locants     = 0;
-    unsigned char ring_size_specifier  = '\0';
-    unsigned char positional_locant = '\0'; // this changes
+    unsigned int size_set               = 0; 
+    unsigned int expected_locants       = 0;
+    unsigned char ring_size_specifier   = '\0';
+    unsigned char positional_locant     = '\0'; 
+
 
     std::vector<bool> aromaticity; 
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
@@ -999,11 +1003,7 @@ struct WLNRing
     
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
-   
-    // things can now have multiple options, need to cover all variations
-    // and move the pending bools around to give proper notation read. 
-
-  
+     
     for (unsigned int i=0;i<block.size();i++){
       unsigned char ch = block[i];
 
@@ -1040,12 +1040,36 @@ struct WLNRing
           break; 
 
         case '-':
+          if(pending_large){
+
+            if(size_set == 1 && ring_size_specifier){
+              ring_size_specifier += 23; 
+              size_set = 2;
+            }
+            else 
+              fprintf(stderr,"Error: unknown use of - in ring notation - TMP MESSAGE\n");
+              
+
+            // resolve large to come
+            pending_aromatics = true;
+          }
           break;
 
-        // aromatics
+        // aromatics and locant expansion
         case '&':
-          pending_aromatics = true;
-          aromaticity.push_back(true);
+          if(pending_aromatics)
+            aromaticity.push_back(true);
+          else if(pending_large){
+            pending_large = false;
+            aromaticity.push_back(true);
+            aromaticity.push_back(true);
+            pending_aromatics = true;
+          }
+          else if (positional_locant)
+            pending_large = true;
+          else
+            pending_aromatics = true;
+          
           break;
 
         case ' ':
@@ -1057,7 +1081,8 @@ struct WLNRing
             fprintf(stderr,"Error: double spacing in ring notation is not allowed\n");
             Fatal(start+i);
           }
-
+          if(!size_set && ring_size_specifier)
+            size_set = true;
 
           // resets any pendings and set states
           if(pending_multi){
@@ -1102,6 +1127,12 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
+    
+          if(pending_large && positional_locant){
+            positional_locant += 23;
+            pending_large = false;
+          }
+
           if(expected_locants){
 
             if(pending_multi){
@@ -1122,6 +1153,7 @@ struct WLNRing
 
             if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
+              size_set = 1; 
               positional_locant = ch;
             }
             else{
@@ -1132,6 +1164,7 @@ struct WLNRing
             break;
           }
           else if (positional_locant){
+
             pending_bridge = false;
             pending_component = false;
 
@@ -1241,6 +1274,7 @@ struct WLNRing
 
             if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
+              size_set = 1; 
               positional_locant = ch;
             }
             else{
@@ -1256,6 +1290,12 @@ struct WLNRing
           }
 
         case 'T':
+
+          if(pending_large && positional_locant){
+            positional_locant += 23;
+            pending_large = false;
+          }
+
           if(i==0){
             heterocyclic = true; 
             pending_component = true;
@@ -1282,6 +1322,12 @@ struct WLNRing
             break;
           }
           else if (positional_locant || std::isdigit(block[i-1])){
+            
+            if(pending_large){
+              pending_large=false;
+              aromaticity.push_back(true);
+            }
+
             pending_aromatics = true;
             aromaticity.push_back(false);
             positional_locant = ch;
@@ -1291,6 +1337,7 @@ struct WLNRing
 
             if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
+              size_set = 1;
               positional_locant = ch;
             }
             else{
@@ -1308,6 +1355,19 @@ struct WLNRing
         //closure
         case 'J':
           end = i;
+
+          if(size_set == 1 && pending_large){
+            ring_size_specifier += 23;
+            size_set = 2;
+          }
+          else
+            size_set = 2;
+
+          if(pending_large && positional_locant){
+            positional_locant += 23;
+            pending_large = false;
+          }
+
           if(i==block.size() - 1){
             if(!pending_aromatics){
               for(unsigned int i=0;i<ring_components.size();i++)
@@ -1333,14 +1393,15 @@ struct WLNRing
           }
           else if(block[i-1] == ' '){
 
-            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
-              ring_size_specifier = ch;
+            if(multi_completed && !ring_size_specifier){
+              ring_size_specifier = ch; 
+              size_set = 1;
               positional_locant = ch;
             }
             else{
-              positional_locant = ch;
               pending_component = true;
               pending_bridge = true;
+              positional_locant = ch;
             }
             break;
           }
