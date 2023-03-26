@@ -56,20 +56,20 @@ enum WLNTYPE
   SPECIAL = 4
 };
 
+
 // rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
 std::map<unsigned char, unsigned int> char_hierarchy =
     {
       {' ', 1}, {'-', 2}, {'/', 3}, {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23}, {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}};
 
-std::map<unsigned char, unsigned int> locant_integer_map =
-    {
-      {'A', 1}, {'B', 2}, {'C', 3}, {'D', 4}, {'E', 5}, {'F', 6}, {'G', 7}, {'H', 8}, {'I', 9}, {'J', 10}, {'K', 11}, {'L', 12}, {'M', 13}, {'N', 14}, {'O', 15}, {'P', 16}, {'Q', 17}, {'R', 18}, {'S', 19}, {'T', 20}, {'U', 21}, {'V', 22}, {'W', 23}}; // locants stop at W
 
-std::map<unsigned int, unsigned char> integer_locant_map =
-  {
-    {1, 'A'}, {2, 'B'}, {3, 'C'}, {4, 'D'}, {5, 'E'}, {6, 'F'}, {7, 'G'}, {8, 'H'}, {9, 'I'}, {10, 'J'}, {11, 'K'}, {12, 'L'}, {13, 'M'}, {14, 'N'}, {15, 'O'}, {16, 'P'}, {17, 'Q'}, {18, 'R'}, {19, 'S'}, {20, 'T'}, {21, 'U'}, {22, 'V'}, {23, 'W'}}; // locants stop at W
+unsigned char static int_to_locant(unsigned int i){
+  return i + 64;
+}
 
-// --- utilities ---
+unsigned int static locant_to_int(unsigned char loc){
+  return loc - 64;
+}
 
 static bool isdigit_str(const std::string &s)
 {
@@ -583,9 +583,9 @@ struct WLNRing
     std::map<unsigned char,WLNSymbol*>::iterator map_iter;
     for (map_iter = locants.begin(); map_iter != locants.end(); map_iter++){
       WLNSymbol *current = map_iter->second; 
-      unsigned int cur_int = locant_integer_map[map_iter->first] - 1; // gives zero index for distance matrix
+      unsigned int cur_int = locant_to_int(map_iter->first) - 1; // gives zero index for distance matrix
       for (WLNSymbol *child : current->children){
-        unsigned int child_int = locant_integer_map[locants_ch[child]] - 1;
+        unsigned int child_int = locant_to_int(locants_ch[child]) - 1;
         distance[cur_int* n+child_int] = 1;
         distance[child_int* n+cur_int] = 1;
       }
@@ -617,7 +617,7 @@ struct WLNRing
     // assume already assigned locants
     for (unsigned int i=1;i<=local_size;i++){
 
-      unsigned char loc = integer_locant_map[i];
+      unsigned char loc = int_to_locant(i);
 
       if(!locants[loc]){
         current = assign_locant(loc,'C');
@@ -679,7 +679,7 @@ struct WLNRing
     WLNSymbol *current = 0; 
     WLNSymbol *prev = 0; 
     for (unsigned int i=1;i<=size;i++){
-      unsigned char loc = integer_locant_map[i];
+      unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
         current = assign_locant(loc,'C');
         current->allowed_edges = 4;
@@ -773,14 +773,14 @@ struct WLNRing
     }
 
     // create a chain size of ring designator
-    unsigned int local_size = locant_integer_map[size_designator];
+    unsigned int local_size = locant_to_int(size_designator);
     size = local_size; 
 
     // create all the nodes in a large straight chain
     WLNSymbol *current = 0; 
     WLNSymbol *prev = 0; 
     for (unsigned int i=1;i<=size;i++){
-      unsigned char loc = integer_locant_map[i];
+      unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
         current = assign_locant(loc,'C');
         current->allowed_edges = 4;
@@ -1486,7 +1486,7 @@ struct WLNRing
       fprintf(stderr,"\n");
 
 
-      fprintf(stderr,"  size denotion: %c\n",ring_size_specifier);
+      fprintf(stderr,"  size denotion: %d\n",locant_to_int(ring_size_specifier));
       fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
 
     }
