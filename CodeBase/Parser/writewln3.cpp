@@ -1,4 +1,16 @@
+/**********************************************************************
+This file is part of the Open Babel project.
+For more information, see <http://openbabel.org/>
 
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation version 2 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+***********************************************************************/
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,10 +25,12 @@
 #include <sstream>
 
 #include <openbabel/mol.h>
+#include <openbabel/plugin.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/obconversion.h>
 #include <openbabel/obiter.h>
+#include <openbabel/kekulize.h>
 #include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
@@ -26,7 +40,7 @@
 #define INF 9999
 
 // --- inputs ---
-const char *wln;
+const char *cli_inp;
 const char *dotfile;
 
 // --- options ---
@@ -36,6 +50,7 @@ static bool opt_debug = false;
 static bool opt_convert = false;
 
 // --- globals ---
+const char *wln;
 struct WLNSymbol;
 struct WLNRing;
 
@@ -925,9 +940,6 @@ struct WLNRing
       fuses++;
     }
 
-
-
-
     return true; 
   }
 
@@ -1562,7 +1574,7 @@ void DeallocateWLNRing(WLNRing *ring)
 
 struct WLNGraph
 {
-
+  
   WLNSymbol *root;
 
   WLNGraph() : root{(WLNSymbol *)0} {};
@@ -2108,8 +2120,10 @@ struct WLNGraph
   }
 
   /* a global segmentation using both rule sets - start merging */
-  bool ParseWLNString(const char *wln, unsigned int len)
+  bool ParseWLNString()
   {
+    
+    unsigned int len = strlen(wln);
 
     std::stack<WLNRing *> ring_stack;   // access through symbol
     std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
@@ -3047,6 +3061,8 @@ struct WLNGraph
       Fatal(len);
     }
 
+
+    Reindex_lookups();
     return true;
   }
 
@@ -3102,6 +3118,104 @@ struct WLNGraph
   }
 };
 
+
+
+// holds all the functions for WLN graph conversion, mol object is assumed ALIVE AT ALL TIMES
+// uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
+struct BabelGraph{
+
+
+  BabelGraph(){};
+  ~BabelGraph(){};
+
+
+  OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,unsigned int charge=0)
+  {
+    OpenBabel::OBAtom* result = mol->NewAtom();
+    result->SetAtomicNum(elem);
+    if(charge)
+      result->SetFormalCharge(charge);
+
+    return result;
+  }
+
+  OpenBabel::OBBond* NMOBMolNewBond(OpenBabel::OBMol* mol,
+                                  OpenBabel::OBAtom* beg,
+                                  OpenBabel::OBAtom* end,
+                                  unsigned int order, bool arom)
+  {
+    if (!mol->AddBond(beg->GetIdx(), end->GetIdx(), order))
+        return nullptr;
+    OpenBabel::OBBond* bptr = mol->GetBond(mol->NumBonds() - 1);
+    if (arom)
+        bptr->SetAromatic();
+    return bptr;
+  }
+
+  bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
+  {
+    if (!OBKekulize(mol))
+        return false;
+    mol->SetAromaticPerceived(false);
+    mol->DeleteHydrogens();
+    return true;
+  }
+  
+
+
+  bool ConvertFromWLN(OpenBabel::OBMol* mol,WLNGraph &wln_graph){
+
+
+
+
+    return true;
+  }
+
+
+  bool ConvertToWLN(OpenBabel::OBMol* mol,WLNGraph &wln_graph){
+
+
+    return true;
+  }
+
+};
+
+
+bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
+{   
+  if(!ptr){
+    fprintf(stderr,"Error: could not read wln string pointer\n");
+    return false;
+  }
+  else 
+    wln = ptr; 
+
+  WLNGraph wln_graph;
+  wln_graph.ParseWLNString();
+
+
+    // create the wln dotfile
+  if (opt_wln2dot)
+  {
+    FILE *fp = 0;
+    fp = fopen("wln-graph.dot", "w");
+    if (!fp)
+    {
+      fprintf(stderr, "Error: could not open compiler dump file\n");
+      fclose(fp);
+      return 1;
+    }
+    else
+    {
+      wln_graph.WLNDumpToDot(fp);
+      fclose(fp);
+    }
+  }
+
+  return true;
+}
+
+
 static void DisplayHelp()
 {
   fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
@@ -3131,7 +3245,7 @@ static void ProcessCommandLine(int argc, char *argv[])
   const char *ptr = 0;
   int i, j;
 
-  wln = (const char *)0;
+  cli_inp = (const char *)0;
   dotfile = (const char *)0;
 
   if (argc < 2)
@@ -3201,7 +3315,7 @@ static void ProcessCommandLine(int argc, char *argv[])
       switch (j++)
       {
       case 0:
-        wln = ptr;
+        cli_inp = ptr;
         break;
       default:
         break;
@@ -3214,34 +3328,19 @@ static void ProcessCommandLine(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
-  if (!wln)
-  {
-    fprintf(stderr, "Error: no wln string - nullptr\n");
-    return 1;
-  }
+  
+  std::string res;
+  OpenBabel::OBMol* mol = new OpenBabel::OBMol;
+  ReadWLN(cli_inp,mol);
 
-  WLNGraph wln_graph;
 
-  wln_graph.ParseWLNString(wln, strlen(wln));
-  Reindex_lookups();
+  OpenBabel::OBConversion conv;
+  conv.SetOutFormat("smi");
 
-  // create the wln dotfile
-  if (opt_wln2dot)
-  {
-    FILE *fp = 0;
-    fp = fopen("wln-graph.dot", "w");
-    if (!fp)
-    {
-      fprintf(stderr, "Error: could not open compiler dump file\n");
-      fclose(fp);
-      return 1;
-    }
-    else
-    {
-      wln_graph.WLNDumpToDot(fp);
-      fclose(fp);
-    }
-  }
+  res = conv.WriteString(mol);
 
+  std::cout << res << std::endl;
+
+  delete mol; 
   return 0;
 }
