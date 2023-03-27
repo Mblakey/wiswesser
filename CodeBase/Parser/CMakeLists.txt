@@ -27,8 +27,6 @@ add_executable(wln-writer3 writewln3.cpp)
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
 
-set(BABEL_LIBDIR "${CMAKE_SOURCE_DIR}/../openbabel/build/lib")
-
 if(WIN32)
   message(ERROR "Unsupported operating system - windows")
 elseif(APPLE)

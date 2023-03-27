@@ -56,11 +56,15 @@ struct WLNRing;
 
 std::map<WLNSymbol *, unsigned int> index_lookup;
 std::map<unsigned int, WLNSymbol *> symbol_lookup;
-unsigned int glob_index = 0;
+
+std::map<unsigned int,OpenBabel::OBAtom*> babel_atom_lookup;
+
+unsigned int glob_index = 1; // babel starts from 1, keep consistent  
 
 // --- pools ---
 std::vector<WLNSymbol *> symbol_mempool;
 std::vector<WLNRing *> ring_mempool;
+
 
 enum WLNTYPE
 {
@@ -121,7 +125,7 @@ static void Fatal(unsigned int pos)
 
 static void Reindex_lookups()
 {
-  glob_index = 0;
+  glob_index = 1;
   for (WLNSymbol *node : symbol_mempool)
   {
     index_lookup[node] = glob_index;
@@ -130,22 +134,6 @@ static void Reindex_lookups()
   }
 }
 
-// should be all we need for a SCT XI connection table - obabel can handle coords
-struct Atom
-{
-  std::string symbol;
-  unsigned int atomic_num;
-
-  int charge;
-
-  std::vector<Atom> bonded;
-  std::vector<unsigned int> orders;
-};
-
-struct AtomGraph
-{
-  Atom *head;
-};
 
 struct WLNSymbol
 {
@@ -397,7 +385,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
   }
 
   if(child == parent){
-    fprintf(stderr,"Warning: aromaticty change for equal WLNSymbol pointers\n");
+    fprintf(stderr,"Warning: aromaticity change for equal WLNSymbol pointers\n");
     return true;
   }
 
@@ -525,6 +513,55 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
 }
 
 
+WLNSymbol* make_methyl(){
+
+  WLNSymbol *carbon = AllocateWLNSymbol('C');
+  carbon->allowed_edges = 4;
+
+  for (unsigned int i=0;i<3;i++){
+    WLNSymbol *hydrogen = AllocateWLNSymbol('H');
+    hydrogen->allowed_edges = 1;
+    link_symbols(hydrogen,carbon,1);
+  }
+
+  return carbon; 
+}
+
+/* bypasses allowed valences */
+bool add_hydrogens(WLNSymbol *target, unsigned int num){
+  for(unsigned int i=0;i<num;i++){
+    WLNSymbol *hydrogen = AllocateWLNSymbol('H');
+    hydrogen->allowed_edges = 1;
+    target->children.push_back(hydrogen);
+    target->orders.push_back(1);
+  }
+  return true;
+}
+
+
+
+/* resolve carbon methyl assumptions */
+bool resolve_methyls(WLNSymbol *target){
+
+  switch(target->ch){
+
+    case 'Y':
+    case 'X':
+    case 'K':
+      while(target->num_edges < target->allowed_edges){
+        WLNSymbol *methyl_head = make_methyl();
+        link_symbols(methyl_head,target,1);
+      }
+      target->num_edges = target->allowed_edges;
+      break;
+
+    default:
+      fprintf(stderr,"Error: resolving methyls performed on invalid symbol: %c\n",target->ch);
+      return false;
+  }
+
+  return true;
+}
 
 
 /* struct to hold pointers for the wln ring */
@@ -554,6 +591,8 @@ struct WLNRing
     locant = AllocateWLNSymbol(type);
     locants[loc] = locant; 
     locants_ch[locant] = loc;
+    
+    locant->type = RING;
     return locant; 
   } 
 
@@ -1155,8 +1194,14 @@ struct WLNRing
         case 'Y':
         case 'Z':
     
-          if(pending_large && positional_locant){
-            positional_locant += 23;
+          if(pending_large){
+            if(size_set == 1 && ring_size_specifier){
+              ring_size_specifier += 23; 
+              size_set = 2;
+            }
+            else if(positional_locant)
+              positional_locant += 23;
+
             pending_large = false;
           }
 
@@ -1318,8 +1363,14 @@ struct WLNRing
 
         case 'T':
 
-          if(pending_large && positional_locant){
-            positional_locant += 23;
+          if(pending_large){
+            if(size_set == 1 && ring_size_specifier){
+              ring_size_specifier += 23; 
+              size_set = 2;
+            }
+            else if(positional_locant)
+              positional_locant += 23;
+
             pending_large = false;
           }
 
@@ -1383,15 +1434,14 @@ struct WLNRing
         case 'J':
           end = i;
 
-          if(size_set == 1 && pending_large){
-            ring_size_specifier += 23;
-            size_set = 2;
-          }
-          else
-            size_set = 2;
+          if(pending_large){
+            if(size_set == 1 && ring_size_specifier){
+              ring_size_specifier += 23; 
+              size_set = 2;
+            }
+            else if(positional_locant)
+              positional_locant += 23;
 
-          if(pending_large && positional_locant){
-            positional_locant += 23;
             pending_large = false;
           }
 
@@ -1585,6 +1635,40 @@ struct WLNGraph
     for (WLNRing *ring : ring_mempool)
       delete ring;
   };
+
+  /* must be performed before sending to obabel graph*/
+  bool ExpandWLNGraph(){
+
+    unsigned int stop = symbol_mempool.size();
+    for (unsigned int i=0;i<stop;i++){
+      WLNSymbol *sym = symbol_mempool[i];
+
+      switch(sym->ch){
+
+        case 'C':
+          break;
+          
+        case 'Z':
+          break;
+
+        case 'M':
+          break;
+
+        case 'Y':
+        case 'X':
+        case 'K':
+          resolve_methyls(sym);
+          break;
+
+        default:
+          break; // ignore
+      }
+
+    }
+
+    Reindex_lookups();
+    return true; 
+  }
 
 
   WLNSymbol *define_element(std::vector<unsigned char> &special)
@@ -2096,6 +2180,8 @@ struct WLNGraph
   /*  Wraps the creation of locant and bonding back ring assignment */
   void create_locant(WLNSymbol *curr, std::stack<WLNRing *> &ring_stack, unsigned int i)
   {
+    
+    curr->type = LOCANT;
 
     WLNRing *s_ring = 0;
     unsigned char ch = wln[i];
@@ -2123,6 +2209,9 @@ struct WLNGraph
   bool ParseWLNString()
   {
     
+    if (opt_debug)
+      fprintf(stderr, "Parsing WLN notation:\n");
+
     unsigned int len = strlen(wln);
 
     std::stack<WLNRing *> ring_stack;   // access through symbol
@@ -2149,9 +2238,6 @@ struct WLNGraph
     for (unsigned int i = 0; i < len; i++)
     {
       unsigned char ch = wln[i];
-
-      if (opt_debug)
-        fprintf(stderr, "Parsing: %c\n", ch);
 
       switch (ch)
       {
@@ -3131,6 +3217,7 @@ struct BabelGraph{
 
   OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,unsigned int charge=0)
   {
+
     OpenBabel::OBAtom* result = mol->NewAtom();
     result->SetAtomicNum(elem);
     if(charge)
@@ -3139,34 +3226,202 @@ struct BabelGraph{
     return result;
   }
 
-  OpenBabel::OBBond* NMOBMolNewBond(OpenBabel::OBMol* mol,
-                                  OpenBabel::OBAtom* beg,
-                                  OpenBabel::OBAtom* end,
-                                  unsigned int order, bool arom)
+  void NMOBAtomSetAromatic(OpenBabel::OBAtom* atm, bool arom)
   {
-    if (!mol->AddBond(beg->GetIdx(), end->GetIdx(), order))
-        return nullptr;
+    OpenBabel::OBMol* mol = (OpenBabel::OBMol*)atm->GetParent();
+    if (mol && !mol->HasAromaticPerceived())
+        mol->SetAromaticPerceived();
+
+    atm->SetAromatic(arom);
+  }
+
+
+  bool NMOBMolNewBond(OpenBabel::OBMol* mol,
+                      OpenBabel::OBAtom* s,
+                      OpenBabel::OBAtom* e,
+                      unsigned int order, bool arom)
+  {
+    
+    if(!s || !e){
+      fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible\n");
+      return false;
+    }
+
+    if(opt_debug)
+      fprintf(stderr,"  bonding: atoms %3d --> %3d [%d]\n",s->GetIdx(),e->GetIdx(),order);
+    
+
+    if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)){
+      fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
+      return false;
+    }
+        
     OpenBabel::OBBond* bptr = mol->GetBond(mol->NumBonds() - 1);
-    if (arom)
-        bptr->SetAromatic();
-    return bptr;
+    if(!bptr){
+      fprintf(stderr,"Error: could not re-return bond for checking\n");
+      return false;
+    }
+
+    if (arom){
+      bptr->SetAromatic();
+      NMOBAtomSetAromatic(s,true);
+      NMOBAtomSetAromatic(e,true);
+    }
+    return true;
   }
 
   bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
-  {
+  { 
+
     if (!OBKekulize(mol))
         return false;
     mol->SetAromaticPerceived(false);
     mol->DeleteHydrogens();
     return true;
   }
-  
 
 
   bool ConvertFromWLN(OpenBabel::OBMol* mol,WLNGraph &wln_graph){
 
+    if(opt_debug)
+      fprintf(stderr,"Converting wln to obabel mol object: \n");
 
+    // set up atoms
+    for (WLNSymbol *sym: symbol_mempool){
 
+      if(sym->type != LOCANT && sym->type != LINKER){
+        
+        OpenBabel::OBAtom *atom = 0;
+
+        unsigned int atomic_num = 0;
+        unsigned int charge = 0; 
+        unsigned int h_count = 0;
+
+        switch(sym->ch){
+
+          case 'H':
+            atomic_num = 1;
+            h_count = 0;
+            break; 
+
+          case 'B':
+            atomic_num = 5;
+            break;
+
+          case 'C':
+          case 'X':
+          case 'Y':
+            atomic_num = 6; 
+            break;
+
+          case 'N':
+            atomic_num = 7;
+            break;
+
+          case 'M':
+            atomic_num = 7;
+            h_count = 1;
+            break;
+
+          case 'Z':
+            atomic_num = 7; 
+            h_count = 2;
+            break;
+
+          case 'K':
+            atomic_num = 7;
+            charge = 1; 
+            break;
+
+          case 'O':
+            atomic_num = 8;
+            break;
+          case 'Q':
+            atomic_num = 8;
+            h_count = 1;
+            break;
+
+          case 'F':
+            atomic_num = 9;
+            break;
+          
+          case 'P':
+            atomic_num = 15;
+            break;
+          
+          case 'S':
+            atomic_num = 16;
+            break;
+
+          case 'G':
+            atomic_num = 17;
+            break;
+
+          case 'E':
+            atomic_num = 35;
+            break;
+
+          case 'I':
+            atomic_num = 53;
+            break;
+        
+          case '*':
+            // parse special elem
+            break;
+
+          default:
+            fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
+            return false;
+        }
+
+        atom = NMOBMolNewAtom(mol,atomic_num,charge);
+        atom->SetImplicitHCount(h_count);
+
+        if(sym->type == RING)
+          atom->SetInRing();
+
+        babel_atom_lookup[index_lookup[sym]] = atom;
+        if(opt_debug)
+          fprintf(stderr,"  created: atom[%d] - atomic num(%d), charge(%d)\n",atom->GetIdx(),atomic_num,charge);
+      }
+
+    }
+
+    // set bonds
+    for(WLNSymbol *parent : symbol_mempool){
+
+      if(parent->type == LOCANT)
+        continue;
+
+      unsigned int parent_id = index_lookup[parent];
+      OpenBabel::OBAtom *par_atom = babel_atom_lookup[parent_id];
+
+      for (unsigned int i=0;i<parent->children.size();i++){
+        
+        WLNSymbol *child = parent->children[i];
+        unsigned int bond_order = 0; 
+    
+        // skip across locants
+        if(child->type == LOCANT){
+          bond_order = child->orders[0];
+          child = child->children[0]; // skip to the start of the chain
+        }
+        else
+          bond_order = parent->orders[i];
+      
+        unsigned int child_id = index_lookup[child];
+        OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
+        if(bond_order == 4){
+          
+          if(!NMOBMolNewBond(mol,par_atom,chi_atom,1,true))
+            return false;
+        }
+        else{
+          if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
+            return false;
+        }
+      }
+    }
 
     return true;
   }
@@ -3191,17 +3446,27 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     wln = ptr; 
 
   WLNGraph wln_graph;
-  wln_graph.ParseWLNString();
+  BabelGraph obabel; 
 
+  if(!wln_graph.ParseWLNString()){
+    fprintf(stderr,"Error: failed on wln graph formation\n");
+    return false;
+  }
 
-    // create the wln dotfile
+  if(!wln_graph.ExpandWLNGraph()){
+    fprintf(stderr,"Error: failed in expanding wln graph to SCT format\n");
+    return false;
+  }
+
+  // create the wln dotfile
   if (opt_wln2dot)
   {
+    fprintf(stderr,"Dumping wln graph to wln-graph.dot:\n");
     FILE *fp = 0;
     fp = fopen("wln-graph.dot", "w");
     if (!fp)
     {
-      fprintf(stderr, "Error: could not open compiler dump file\n");
+      fprintf(stderr, "Error: could not create dump .dot file\n");
       fclose(fp);
       return 1;
     }
@@ -3210,6 +3475,18 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
       wln_graph.WLNDumpToDot(fp);
       fclose(fp);
     }
+    fprintf(stderr,"  dumped\n");
+  }
+
+
+  if(!obabel.ConvertFromWLN(mol,wln_graph)){
+    fprintf(stderr,"Error: failed on obabel mol object formation\n");
+    return false;
+  }
+
+  if(!obabel.NMOBSanitizeMol(mol)){
+    fprintf(stderr,"Error: failed on mol sanitize\n");
+    return false; 
   }
 
   return true;
@@ -3331,7 +3608,8 @@ int main(int argc, char *argv[])
   
   std::string res;
   OpenBabel::OBMol* mol = new OpenBabel::OBMol;
-  ReadWLN(cli_inp,mol);
+  if(!ReadWLN(cli_inp,mol))
+    return 1;
 
 
   OpenBabel::OBConversion conv;
@@ -3339,7 +3617,7 @@ int main(int argc, char *argv[])
 
   res = conv.WriteString(mol);
 
-  std::cout << res << std::endl;
+  std::cout << res;
 
   delete mol; 
   return 0;
