@@ -381,6 +381,11 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
     return false;
   }
 
+  if(child == parent){
+    fprintf(stderr,"Warning: aromaticty change for equal WLNSymbol pointers\n");
+    return true;
+  }
+
   bool found = false;
   WLNSymbol *local_child = 0; 
   unsigned int i=0;
@@ -741,6 +746,8 @@ struct WLNRing
         bind_2 = highest_loc;
       }
 
+      if(opt_debug)
+        fprintf(stderr,"  fusing: %c <-- %c\n",bind_2,bind_1);
     
       if(!link_symbols(locants[bind_2],locants[bind_1],1)){
         fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
@@ -759,7 +766,7 @@ struct WLNRing
   }
 
 
-  /* fundamentally different from poly, some aspects or shared but the assignments need work*/
+  /* interesting here that the multicyclic points are not used, i should perform a check for them though */
   bool CreatePERI(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                   std::vector<bool> &aromaticity,
                   std::vector<unsigned char> &multicyclic_locants,
@@ -825,7 +832,8 @@ struct WLNRing
           
         consumed += comp_size;
       }
-      else if (size - consumed < comp_size){
+      else if (size - consumed < comp_size){ // ring wrap, which also needs to happen below
+        
         // travel as much as we can, then add locants from bind_1 to get the binding position
         // from the size designator
 
@@ -870,8 +878,11 @@ struct WLNRing
           ring_path.push_back(locants_ch[path]); // add the last symbol
 
           bind_2 = highest_loc;
-          bind_1 = multicyclic_locants[++eval]; // move to the next multicyclic position
           
+          
+          bind_1 += 1; // move to the next multicyclic position
+          eval++;
+
           ring_path.push_back(bind_1); // add the last symbol
           consumed += comp_size - 3;
         }
@@ -897,6 +908,9 @@ struct WLNRing
         
       }
 
+      if(opt_debug)
+        fprintf(stderr,"  fusing: %c <-- %c\n",bind_2,bind_1);
+      
 
       if(!link_symbols(locants[bind_2],locants[bind_1],1)){
         fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
@@ -946,7 +960,7 @@ struct WLNRing
 
         // try with the alternative
         if(!make_aromatic(locants[par],locants[chi])){
-          fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
+          fprintf(stderr,"Error: error in changing aromaticity - check ring notation [%c --> %c]\n",par,chi);
           return false;
         }
       }
@@ -954,7 +968,7 @@ struct WLNRing
 
     if(!make_aromatic(locants[ring_path.back()],locants[ring_path.front()],false)){
       if(!make_aromatic(locants[ring_path.front()],locants[ring_path.back()])){
-        fprintf(stderr,"Error: error in changing aromaticity - check ring notation\n");
+        fprintf(stderr,"Error: error in changing aromaticity - check ring notation [%c --> %c]\n",ring_path.front(),ring_path.back());
         return false; 
       }
     }
@@ -1119,6 +1133,7 @@ struct WLNRing
         case 'N':
         case 'O':
         case 'P':
+        case 'Q':
         case 'R':
         case 'S':
         case 'U':
@@ -2948,6 +2963,10 @@ struct WLNGraph
         break;
 
       case '-':
+        if (pending_closure || pending_special)
+        {
+          break;
+        }
         if (!pending_inline_ring)
         {
           pending_inline_ring = true;
