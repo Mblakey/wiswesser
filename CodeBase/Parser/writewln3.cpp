@@ -3154,9 +3154,7 @@ struct WLNGraph
 
   /* dump wln tree to a dotvis file */
   void WLNDumpToDot(FILE *fp)
-  {
-
-  
+  {  
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
     for (WLNSymbol *node : symbol_mempool)
@@ -3271,11 +3269,45 @@ struct BabelGraph{
   }
 
   bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
-  { 
+  {
+    
+    // some jiggery to handle hydrogens
+
+    mol->SetAromaticPerceived(true);
+
+    OpenBabel::OBAtom* atom = 0;
+    unsigned int valence = 0; 
+    unsigned int reducing = 0; // reducing hydrogens count
+    FOR_ATOMS_OF_MOL(atom,mol){
+      
+      bool aromatic = false;
+      if(atom->IsAromatic())
+        aromatic = true;
+
+      valence = atom->GetExplicitValence();
+
+      switch(atom->GetAtomicNum()){
+        
+        case 6: // carbon
+          reducing = 4;
+          break;
+
+        case 15: // phosphorus
+          reducing = 3;
+          break;
+
+
+        default:
+          break;
+      }
+
+      if(aromatic)
+        reducing--;
+      atom->SetImplicitHCount(reducing-valence);
+    }
 
     if (!OBKekulize(mol))
         return false;
-    mol->SetAromaticPerceived(false);
     mol->DeleteHydrogens();
     return true;
   }
