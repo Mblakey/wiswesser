@@ -516,14 +516,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
 WLNSymbol* make_methyl(){
 
   WLNSymbol *carbon = AllocateWLNSymbol('C');
-  carbon->allowed_edges = 4;
-
-  for (unsigned int i=0;i<3;i++){
-    WLNSymbol *hydrogen = AllocateWLNSymbol('H');
-    hydrogen->allowed_edges = 1;
-    link_symbols(hydrogen,carbon,1);
-  }
-
+  carbon->allowed_edges = 1;
   return carbon; 
 }
 
@@ -2576,8 +2569,6 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
-          branch_stack.push(curr);
-
           create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
@@ -3280,6 +3271,10 @@ struct BabelGraph{
     unsigned int reducing = 0; // reducing hydrogens count
     FOR_ATOMS_OF_MOL(atom,mol){
       
+      // allows for wln notation implicits
+      if(atom->GetImplicitHCount() > 0)
+        continue;
+      
       bool aromatic = false;
       if(atom->IsAromatic())
         aromatic = true;
@@ -3292,10 +3287,10 @@ struct BabelGraph{
           reducing = 4;
           break;
 
+        case 7:  // nitrogen
         case 15: // phosphorus
           reducing = 3;
           break;
-
 
         default:
           break;
@@ -3303,12 +3298,20 @@ struct BabelGraph{
 
       if(aromatic)
         reducing--;
+
+      unsigned int defined_charge = atom->GetFormalCharge();
+      if(defined_charge)
+        reducing+=defined_charge;
+        
       atom->SetImplicitHCount(reducing-valence);
     }
 
     if (!OBKekulize(mol))
         return false;
     mol->DeleteHydrogens();
+
+    // WLN has no inherent stereochemistry, this can be a flag but should be off by default
+    mol->SetChiralityPerceived(true);
     return true;
   }
 
@@ -3646,7 +3649,6 @@ int main(int argc, char *argv[])
 
   OpenBabel::OBConversion conv;
   conv.SetOutFormat("smi");
-
   res = conv.WriteString(mol);
 
   std::cout << res;
