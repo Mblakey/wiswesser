@@ -1,4 +1,7 @@
 /**********************************************************************
+ 
+Author : Michael Blakey
+
 This file is part of the Open Babel project.
 For more information, see <http://openbabel.org/>
 
@@ -140,19 +143,17 @@ struct WLNSymbol
 
   unsigned char ch;
   unsigned int type;
-
+ 
   unsigned int allowed_edges;
   unsigned int num_edges;
 
   WLNSymbol *previous;
-  std::vector<WLNSymbol *> children; // linked list of next terms chains
+  std::vector<WLNSymbol *> children; 
   std::vector<unsigned int> orders;
 
   // if 'ch='*'
   std::string special; // string for element, or ring
   
-  // dont hold the ring anymore!
-
   // if default needed
   WLNSymbol()
   {
@@ -418,24 +419,24 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
     case 'Y':
     case 'O':
     case 'M':
-      parent->allowed_edges = 2;
+      parent->set_edges(2);
       break;
     
     case 'X':
     case 'C':
     case 'N':
-      parent->allowed_edges = 3;
+      parent->set_edges(3);
       break;
 
     case 'K':
     case 'P':
     case 'S':
-      parent->allowed_edges = 4;
+      parent->set_edges(4);
       break;
 
     case '*':
-      fprintf(stderr,"Error: aromaticity for specific elemental definitions currently unsupported\n");
-      return false; 
+      parent->set_edges(8);
+      break;
     
     default:
       fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->ch);
@@ -448,24 +449,24 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
     case 'Y':
     case 'O':
     case 'M':
-      child->allowed_edges = 2;
+      child->set_edges(2);
       break;
 
     case 'X':
     case 'C':
     case 'N':
-      child->allowed_edges = 3;
+      child->set_edges(3);
       break;
 
     case 'K':
     case 'P':
     case 'S':
-      child->allowed_edges = 4;
+      child->set_edges(4);
       break;
 
     case '*':
-      fprintf(stderr,"Error: aromaticity for specific elemental definitions currently unsupported\n");
-      return false; 
+      child->set_edges(8);
+      break; 
     
     default:
       fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->ch);
@@ -516,21 +517,9 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
 WLNSymbol* make_methyl(){
 
   WLNSymbol *carbon = AllocateWLNSymbol('C');
-  carbon->allowed_edges = 1;
+  carbon->set_edges(1);
   return carbon; 
 }
-
-/* bypasses allowed valences */
-bool add_hydrogens(WLNSymbol *target, unsigned int num){
-  for(unsigned int i=0;i<num;i++){
-    WLNSymbol *hydrogen = AllocateWLNSymbol('H');
-    hydrogen->allowed_edges = 1;
-    target->children.push_back(hydrogen);
-    target->orders.push_back(1);
-  }
-  return true;
-}
-
 
 
 /* resolve carbon methyl assumptions */
@@ -554,6 +543,674 @@ bool resolve_methyls(WLNSymbol *target){
   }
 
   return true;
+}
+
+
+
+WLNSymbol* define_element(std::string special){
+    
+
+  WLNSymbol *created_wln = AllocateWLNSymbol('*');
+  created_wln->allowed_edges = INF; // allow anything for now;
+
+  switch (special[0]){
+
+    case 'A':
+      switch(special[1]){
+        case 'C':
+        case 'G':
+        case 'L':
+        case 'M':
+        case 'R':
+        case 'S':
+        case 'T':
+        case 'U':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'B':
+      switch(special[1]){
+        case 'A':
+        case 'E':
+        case 'H':
+        case 'I':
+        case 'K':
+        case 'R':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+      
+
+    case 'C':
+      switch(special[1]){
+        case 'A':
+        case 'D':
+        case 'E':
+        case 'F':
+        case 'M':
+        case 'N':
+        case 'O':
+        case 'R':
+        case 'S':
+        case 'U':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+      
+    case 'D':
+      switch(special[1]){
+        case 'B':
+        case 'S':
+        case 'Y':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'E':
+      switch(special[1]){
+        case 'R':
+        case 'S':
+        case 'U':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'F':
+      switch(special[1]){
+        case 'E':
+        case 'L':
+        case 'M':
+        case 'R':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'G':
+      switch(special[1]){
+        case 'A':
+        case 'D':
+        case 'E':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'H':
+      switch(special[1]){
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'O':
+        case 'S':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'I':
+      switch(special[1]){
+        case 'N':
+        case 'R':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'K':
+      if (special[1] == 'R')
+        created_wln->special = "Kr";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+        return (WLNSymbol *)0;
+      }
+      break;
+
+    case 'L':
+      switch(special[1]){
+        case 'A':
+        case 'I':
+        case 'R':
+        case 'U':
+        case 'V':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'M':
+      switch(special[1]){
+        case 'C':
+        case 'D':
+        case 'G':
+        case 'N':
+        case 'O':
+        case 'T':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'N':
+      switch(special[1]){
+        case 'A':
+        case 'B':
+        case 'D':
+        case 'E':
+        case 'H':
+        case 'I':
+        case 'O':
+        case 'P':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+
+    case 'O':
+      switch(special[1]){
+        case 'O':
+        case 'G':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'P':
+      switch(special[1]){
+        case 'A':
+        case 'B':
+        case 'D':
+        case 'M':
+        case 'O':
+        case 'R':
+        case 'T':
+        case 'U':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'R':
+      switch(special[1]){
+        case 'A':
+        case 'B':
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'H':
+        case 'n':
+        case 'U':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+     
+
+    case 'S':
+      switch(special[1]){
+        case 'B':
+        case 'C':
+        case 'E':
+        case 'G':
+        case 'I':
+        case 'M':
+        case 'N':
+        case 'R':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+
+    case 'T':
+      switch(special[1]){
+        case 'A':
+        case 'B':
+        case 'C':
+        case 'E':
+        case 'H':
+        case 'I':
+        case 'L':
+        case 'M':
+        case 'S':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+
+    case 'U':
+      if(special[1] == 'R')
+        created_wln->special = "UR";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+        return (WLNSymbol *)0;
+      }
+      break;
+
+    case 'V':
+      if (special[1] == 'A')
+        created_wln->special = "VA";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+        return (WLNSymbol *)0;
+      }
+      break;
+    
+    case 'W':
+      if(special[1] == 'T')
+        created_wln->special = "WT";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+        return (WLNSymbol *)0;
+      }
+      break;
+    
+
+    case 'X':
+      if (special[1] == 'E')
+        created_wln->special = "XE";
+      else
+      {
+        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+        return (WLNSymbol *)0;
+      }
+      break;
+
+    case 'Y':
+      switch(special[1]){
+        case 'B':
+        case 'T':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+      break;
+
+    case 'Z':
+      switch(special[1]){
+        case 'N':
+        case 'R':
+          created_wln->special = special;
+          return created_wln;
+          
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
+      }
+      break;
+
+    default:
+      fprintf(stderr, "Error: invalid character in special definition switch\n");
+      return (WLNSymbol *)0;
+  }
+
+  return 0;
+}
+
+
+/* checks are already made, this should just return*/
+unsigned int special_element_atm(std::string &special){
+  
+  switch (special[0]){
+
+    case 'A':
+      if (special[1] == 'C')
+        return 89;
+      else if (special[1] == 'G')
+        return 47;
+      else if (special[1] == 'L')
+        return 13;
+      else if (special[1] == 'M')
+        return 95;
+      else if (special[1] == 'R')
+        return 18;
+      else if (special[1] == 'S')
+        return 33;
+      else if (special[1] == 'T')
+        return 85;
+      else if (special[1] == 'U')
+        return 79;
+      break;
+
+    case 'B':
+      if (special[1] == 'A')
+        return 56;
+      else if (special[1] == 'E')
+        return 4;
+      else if (special[1] == 'H')
+        return 107;
+      else if (special[1] == 'I')
+        return 83;
+      else if (special[1] == 'K')
+        return 97;
+      else if (special[1] == 'R')
+        return 35;
+      break;
+
+    case 'C':
+      if (special[1] == 'A')
+        return 20;
+      else if (special[1] == 'D')
+        return 48;
+      else if (special[1] == 'E')
+        return 58;
+      else if (special[1] == 'F')
+        return 98;
+      else if (special[1] == 'M')
+        return 96;
+      else if (special[1] == 'N')
+        return 112;
+      else if (special[1] == 'O')
+        return 27;
+      else if (special[1] == 'R')
+        return 24;
+      else if (special[1] == 'S')
+        return 55;
+      else if (special[1] == 'U')
+        return 29;
+      break;
+
+    case 'D':
+      if (special[1] == 'B')
+        return 105;
+      else if (special[1] == 'S')
+        return 110;
+      else if (special[1] == 'Y')
+        return 66;
+      break;
+
+    case 'E':
+      if (special[1] == 'R')
+        return 68;
+      else if (special[1] == 'S')
+        return 99; 
+      else if (special[1] == 'U')
+        return 63;
+      break;
+
+    case 'F':
+      if (special[1] == 'E')
+        return 26;
+      else if (special[1] == 'L')
+        return 114;
+      else if (special[1] == 'M')
+        return 100;
+      else if (special[1] == 'R')
+        return 97;
+      break;
+
+    case 'G':
+      if (special[1] == 'A')
+        return 31;
+      else if (special[1] == 'D')
+        return 64;
+      else if (special[1] == 'E')
+        return 32;
+      break;
+
+    case 'H':
+      if (special[1] == 'E')
+        return 2;
+      else if (special[1] == 'F')
+        return 72;
+      else if (special[1] == 'G')
+        return 80;
+      else if (special[1] == 'O')
+        return 67;
+      else if (special[1] == 'S')
+        return 108;
+
+      break;
+
+    case 'I':
+      if (special[1] == 'N')
+        return 49;
+      else if (special[1] == 'R')
+        return 77;
+      break;
+
+    case 'K':
+      if (special[1] == 'R')
+        return 39;
+      break;
+
+    case 'L':
+      if (special[1] == 'A')
+        return 57;
+      else if (special[1] == 'I')
+        return 3;
+      else if (special[1] == 'R')
+        return 103;
+      else if (special[1] == 'U')
+        return 71;
+      else if (special[1] == 'V')
+        return 116;
+      break;
+
+    case 'M':
+      if (special[1] == 'C')
+        return 115;
+      else if (special[1] == 'D')
+        return 101;
+      else if (special[1] == 'G')
+        return 12;
+      else if (special[1] == 'N')
+        return 25;
+      else if (special[1] == 'O')
+        return 42;
+      else if (special[1] == 'T')
+        return 109;
+      break;
+
+    case 'N':
+      if (special[1] == 'A')
+       return 11;
+      else if (special[1] == 'B')
+        return 41;
+      else if (special[1] == 'D')
+        return 60;
+      else if (special[1] == 'E')
+        return 10;
+      else if (special[1] == 'H')
+        return 113;
+      else if (special[1] == 'I')
+        return 28;
+      else if (special[1] == 'O')
+        return 102;
+      else if (special[1] == 'P')
+        return 93;
+      break;
+
+    case 'O':
+      if (special[1] == 'G')
+        return 118;
+      else if (special[1] == 'S')
+        return 76;
+      break;
+
+    case 'P':
+      if (special[1] == 'A')
+        return 91;       
+      else if (special[1] == 'B')
+        return 82;
+      else if (special[1] == 'D')
+        return 46;
+      else if (special[1] == 'M')
+        return 61;
+      else if (special[1] == 'O')
+        return 84;
+      else if (special[1] == 'R')
+        return 59;
+      else if (special[1] == 'T')
+        return 97;
+      else if (special[1] == 'U')
+        return 94;
+      
+      break;
+
+    case 'R':
+      if (special[1] == 'A')
+        return 88;
+      else if (special[1] == 'B')
+        return 37;
+      else if (special[1] == 'E')
+        return 75;
+      else if (special[1] == 'F')
+        return 104;
+      else if (special[1] == 'G')
+        return 111;
+      else if (special[1] == 'H')
+        return 45;
+      else if (special[1] == 'N')
+        return 86;
+      else if (special[1] == 'U')
+        return 44;
+      break;
+
+    case 'S':
+      if (special[1] == 'B')
+        return 51;
+      else if (special[1] == 'C')
+        return 21;
+      else if (special[1] == 'E')
+        return 34;
+      else if (special[1] == 'G')
+        return 106;
+      else if (special[1] == 'I')
+        return 14;
+      else if (special[1] == 'M')
+        return 62;
+      else if (special[1] == 'N')
+        return 50;
+      else if (special[1] == 'R')
+        return 38;
+      
+      break;
+
+    case 'T':
+      if (special[1] == 'A')
+        return 73;
+      else if (special[1] == 'B')
+        return 65;
+      else if (special[1] == 'C')
+        return 43;
+      else if (special[1] == 'E')
+        return 52;
+      else if (special[1] == 'H')
+        return 90;
+      else if (special[1] == 'I')
+        return 22;
+      else if (special[1] == 'L')
+        return 81;
+      else if (special[1] == 'M')
+        return 69;
+      else if (special[1] == 'S')
+        return 117;
+
+      break;
+
+    case 'U':
+      if(special[1] == 'R')
+        return 92;
+      break;
+
+    case 'V':
+      if(special[1] == 'A')
+        return 23;
+      break;
+
+    case 'X':
+      if (special[1] == 'E')
+        return 54;
+      break;
+
+    case 'Y':
+      if(special[1] == 'T')
+        return 39;
+      else if (special[1] == 'B')
+        return 70;
+      break;
+
+    case 'Z':
+      if (special[1] == 'N')
+        return 30;
+      else if (special[1] == 'R')
+        return 40;
+  
+      break;
+
+    default:
+      fprintf(stderr, "Error: invalid character in special definition switch\n");
+      return 0;
+  }
+
+  
+  return 0;
 }
 
 
@@ -665,6 +1322,7 @@ struct WLNRing
     bool state = true;
 
     size = local_size; // set for locant bonding outside of ring functions
+  
     
     // assume already assigned locants
     for (unsigned int i=1;i<=local_size;i++){
@@ -673,7 +1331,7 @@ struct WLNRing
 
       if(!locants[loc]){
         current = assign_locant(loc,'C');
-        current->allowed_edges = 4;
+        current->set_edges(4);
       }
       else
         current = locants[loc];
@@ -734,7 +1392,7 @@ struct WLNRing
       unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
         current = assign_locant(loc,'C');
-        current->allowed_edges = 4;
+        current->set_edges(4);
       }
       else
         current = locants[loc];
@@ -837,7 +1495,7 @@ struct WLNRing
       unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
         current = assign_locant(loc,'C');
-        current->allowed_edges = 4;
+        current->set_edges(4);
       }
       else
         current = locants[loc];
@@ -1025,10 +1683,12 @@ struct WLNRing
   void FormWLNRing(std::string &block, unsigned int start){
 
     enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
+    const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
+
     unsigned int ring_type = MONO;   // start in mono and climb up
     unsigned int end = 0;
 
-    bool warned = false;              // limit warning messages to console
+    bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
 
     // -- stages --
@@ -1037,23 +1697,26 @@ struct WLNRing
     bool multi_completed    = false;
   
     // -- paths -- 
-    bool pending_component  = false;
     bool pending_multi      = false; 
     bool pending_pseudo     = false; 
     bool pending_bridge     = false;
     bool pending_aromatics  = false;
     bool pending_large      = false; // for '&<x>' locant expansion
+    bool pending_special    = false;
     
+    unsigned int expecting_component  = 0; // 0 - false, 1- standard, 2- large
 
     unsigned int size_set               = 0; 
     unsigned int expected_locants       = 0;
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0'; 
 
+    // allows stoi use
+    std::string expanded_size; 
+    std::string special; 
 
     std::vector<bool> aromaticity; 
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
-
 
     std::vector<unsigned char> fuses; // read as pairs
     std::vector<unsigned char> bridge_locants;
@@ -1061,11 +1724,11 @@ struct WLNRing
     
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
-     
     for (unsigned int i=0;i<block.size();i++){
       unsigned char ch = block[i];
 
       switch(ch){
+        case '0':
         case '1':
         case '2':
         case '3':
@@ -1075,7 +1738,7 @@ struct WLNRing
         case '7':
         case '8':
         case '9':
-          if (pending_component){
+          if (expecting_component == 1){
             if(!positional_locant)
               ring_components.push_back({ch - '0','A'});
             else{
@@ -1083,6 +1746,14 @@ struct WLNRing
               positional_locant = '\0'; // reset the assigner
             }
             break;
+          }
+          else if(expecting_component == 2){
+            expanded_size.push_back(ch);
+            break;
+          }
+          else if (pending_special){
+            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
+            Fatal(start+i);
           }
           else{
             pending_multi   = true;
@@ -1092,6 +1763,10 @@ struct WLNRing
           
             
         case '/':
+          if(pending_special){
+            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
+            Fatal(start+i);
+          }
           expected_locants = 2; 
           pending_pseudo = true;
           ring_type = PSDBRIDGED; 
@@ -1111,10 +1786,42 @@ struct WLNRing
             // resolve large to come
             pending_aromatics = true;
           }
+          else if (expecting_component == 2){
+            if(!positional_locant)
+              ring_components.push_back({std::stoi(expanded_size),'A'});
+            else{
+              ring_components.push_back({std::stoi(expanded_size),positional_locant});
+              positional_locant = '\0'; // reset the assigner
+            }
+            expanded_size.clear();
+            expecting_component = 1;
+          }
+          else if (expecting_component == 1)
+            expecting_component = 2;
+          else if (positional_locant){
+            // opens up inter ring special definition
+            if(!pending_special){
+              pending_bridge = false;
+              expecting_component = 0;
+
+              pending_special = true; 
+            }
+            else{
+              locants[positional_locant] = define_element(special);
+              locants[positional_locant]->type = RING;
+              special.clear();
+            }
+
+          }
           break;
 
         // aromatics and locant expansion
         case '&':
+          if(pending_special){
+            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
+            Fatal(start+i);
+          }
+
           if(pending_aromatics)
             aromaticity.push_back(true);
           else if(pending_large){
@@ -1131,6 +1838,10 @@ struct WLNRing
           break;
 
         case ' ':
+          if(pending_special){
+            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
+            Fatal(start+i);
+          }
           if(expected_locants){
             fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
             Fatal(start+i);
@@ -1159,7 +1870,7 @@ struct WLNRing
           }
           
           pending_pseudo    = false;
-          pending_component = false;
+          expecting_component = 0;
           positional_locant = '\0'; // hard reset the positional locant
           break;
 
@@ -1186,17 +1897,6 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
-    
-          if(pending_large){
-            if(size_set == 1 && ring_size_specifier){
-              ring_size_specifier += 23; 
-              size_set = 2;
-            }
-            else if(positional_locant)
-              positional_locant += 23;
-
-            pending_large = false;
-          }
 
           if(expected_locants){
 
@@ -1214,6 +1914,25 @@ struct WLNRing
             }
             break;
           }
+          else if (pending_special){
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
+          else if (pending_large){
+            if(size_set == 1 && ring_size_specifier){
+              ring_size_specifier += 23; 
+              size_set = 2;
+            }
+            else if(positional_locant)
+              positional_locant += 23;
+
+            pending_large = false;
+            break;
+          }
           else if(block[i-1] == ' '){
 
             if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
@@ -1223,7 +1942,7 @@ struct WLNRing
             }
             else{
               positional_locant = ch;
-              pending_component = true;
+              expecting_component = 0;
               pending_bridge = true;
             }
             break;
@@ -1231,7 +1950,7 @@ struct WLNRing
           else if (positional_locant){
 
             pending_bridge = false;
-            pending_component = false;
+            expecting_component = 0; 
 
             if (opt_debug)
               fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
@@ -1244,27 +1963,26 @@ struct WLNRing
                 if(!heterocyclic)
                   warned = true;
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 5;
-
+                new_locant->set_edges(5);
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'Y':
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 3;
+                new_locant->set_edges(3);
                 positional_locant++; // allows inline defition continuation
                 break;
               case 'N':
                 if(!heterocyclic)
                   warned = true;
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 3;
+                new_locant->set_edges(3);
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'V':
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 2;
+                new_locant->set_edges(2);
                 positional_locant++; // allows inline defition continuation
                 break;
 
@@ -1273,13 +1991,13 @@ struct WLNRing
                 if(!heterocyclic)
                   warned = true;
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 2;
+                new_locant->set_edges(2);
                 positional_locant++; // allows inline defition continuation
                 break;
 
               case 'X':
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 4;
+                new_locant->set_edges(4);
                 positional_locant++; // allows inline defition continuation
                 break;
               case 'K':
@@ -1287,7 +2005,7 @@ struct WLNRing
                   warned = true;
 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->allowed_edges = 4;
+                new_locant->set_edges(4);
                 positional_locant++; // allows inline defition continuation
                 break;
 
@@ -1316,7 +2034,7 @@ struct WLNRing
 
           if(i==0){
            heterocyclic = false; 
-           pending_component = true;
+           expecting_component = 1;
            break;
           }
           else if(expected_locants){
@@ -1335,6 +2053,14 @@ struct WLNRing
             }
             break;
           }
+          else if (pending_special){
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
           else if(block[i-1] == ' '){
 
             if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
@@ -1344,7 +2070,7 @@ struct WLNRing
             }
             else{
               positional_locant = ch;
-              pending_component = true;
+              expecting_component = 1;
               pending_bridge = true;
             }
             break;
@@ -1369,8 +2095,16 @@ struct WLNRing
 
           if(i==0){
             heterocyclic = true; 
-            pending_component = true;
+            expecting_component = 1;
             break; 
+          }
+          else if (pending_special){
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
           }
           if(expected_locants){
 
@@ -1413,7 +2147,7 @@ struct WLNRing
             }
             else{
               positional_locant = ch;
-              pending_component = true;
+              expecting_component = 1;
               pending_bridge = true;
             }
             break;
@@ -1461,6 +2195,14 @@ struct WLNRing
             }
             break;
           }
+          else if (pending_special){
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
           else if(block[i-1] == ' '){
 
             if(multi_completed && !ring_size_specifier){
@@ -1469,7 +2211,7 @@ struct WLNRing
               positional_locant = ch;
             }
             else{
-              pending_component = true;
+              expecting_component = 1;
               pending_bridge = true;
               positional_locant = ch;
             }
@@ -1493,7 +2235,6 @@ struct WLNRing
       ring_type = POLY;
     
 
-
     // shorthand aromatic conditions
     if (aromaticity.size() == 1 && aromaticity[0] == false){
       while(aromaticity.size() < ring_components.size())
@@ -1507,27 +2248,20 @@ struct WLNRing
     // reverse the aromaticity assignments, how the notation works
     std::reverse(aromaticity.begin(), aromaticity.end());
 
+
+    if(warned)
+      fprintf(stderr,"Warning: heterocyclic ring notation required for inter atom assignment, change starting 'L' to 'T'\n");
+    
+    if(ring_components.empty()){
+      fprintf(stderr,"Error: error in reading ring components, check numerals in ring notation\n");
+      Fatal(start+end);
+    }
+
     // debug here
     if (opt_debug){
       
-      switch(ring_type){
-        case 0:
-          fprintf(stderr,"  ring type: MONO\n");
-          break;
-        case 1:
-          fprintf(stderr,"  ring type: POLY\n");
-          break;
-        case 2:
-          fprintf(stderr,"  ring type: PERI\n");
-          break;
-        case 3:
-          fprintf(stderr,"  ring type: BRIDGED\n");
-          break;
-        case 4:
-          fprintf(stderr,"  ring type: PSDBRIDGED\n");
-          break;
-      }
-      
+      fprintf(stderr,"  ring type: %s",ring_strings[ring_type]);
+
       fprintf(stderr,"  ring components: ");
       for (std::pair<unsigned int, unsigned char> comp : ring_components)
         fprintf(stderr,"%d(%c) ",comp.first,comp.second);
@@ -1555,15 +2289,11 @@ struct WLNRing
         fprintf(stderr,"(%c --> %c) ",fuses[i-1],fuses[i]);
       fprintf(stderr,"\n");
 
-
-      fprintf(stderr,"  size denotion: %d\n",locant_to_int(ring_size_specifier));
+      
+      fprintf(stderr,"  size denotion: %d\n",ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
       fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
-
     }
 
-    if(warned)
-      fprintf(stderr,"Warning: heterocyclic ring notation required for inter atom assignment, change starting 'L' to 'T'\n");
-      
     
     bool state = true;
     switch(ring_type){
@@ -1582,7 +2312,7 @@ struct WLNRing
     }
 
     if (!state)
-      Fatal(end);
+      Fatal(start+end);
 
     for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases)
       increase_bond_order(locants[bond_pair.second],locants[bond_pair.first]);
@@ -1629,24 +2359,67 @@ struct WLNGraph
       delete ring;
   };
 
+  bool expand_carbon_chain(WLNSymbol *head,unsigned int size){
+
+    if (size > REASONABLE)
+      fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
+          
+    head->ch = 'C';
+    head->set_edges(4);
+    head->num_edges = 0;
+
+    WLNSymbol *tmp = 0;
+    unsigned int tmp_order = 0;
+    // hold the bonds
+
+    if(!head->children.empty()){
+      tmp = head->children[0];
+      tmp_order = head->orders[0];
+      head->children.clear();
+      head->orders.clear();
+    }
+          
+    WLNSymbol *prev = head;
+    for(unsigned int i=0;i<size-1;i++){
+      WLNSymbol* carbon = AllocateWLNSymbol('C');
+      carbon->set_edges(4); // allows hydrogen resolve
+      link_symbols(carbon,prev,1);
+      prev = carbon;
+    } 
+
+    if(tmp){
+      prev->children.push_back(tmp);
+      prev->orders.push_back(tmp_order);
+    }
+
+    return true;
+  }
+
   /* must be performed before sending to obabel graph*/
   bool ExpandWLNGraph(){
 
+ 
     unsigned int stop = symbol_mempool.size();
     for (unsigned int i=0;i<stop;i++){
       WLNSymbol *sym = symbol_mempool[i];
 
       switch(sym->ch){
 
-        case 'C':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          if (!sym->special.empty())
+            expand_carbon_chain(sym,std::stoi(sym->special));
+          else
+            expand_carbon_chain(sym,sym->ch - '0');
           break;
-          
-        case 'Z':
-          break;
-
-        case 'M':
-          break;
-
+        
         case 'Y':
         case 'X':
         case 'K':
@@ -1663,399 +2436,6 @@ struct WLNGraph
     return true; 
   }
 
-
-  WLNSymbol *define_element(std::vector<unsigned char> &special)
-  {
-
-    // allocate a special wln
-    WLNSymbol *created_wln = AllocateWLNSymbol('*');
-
-    // some fancy switching
-
-    switch (special[0])
-    {
-
-    case 'A':
-      if (special[1] == 'C')
-        created_wln->special = "Ac";
-      else if (special[1] == 'G')
-        created_wln->special = "Ag";
-      else if (special[1] == 'L')
-        created_wln->special = "Al";
-      else if (special[1] == 'M')
-        created_wln->special = "Am";
-      else if (special[1] == 'R')
-        created_wln->special = "Ar";
-      else if (special[1] == 'S')
-        created_wln->special = "As";
-      else if (special[1] == 'T')
-        created_wln->special = "At";
-      else if (special[1] == 'U')
-        created_wln->special = "Au";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'B':
-      if (special[1] == 'A')
-        created_wln->special = "Ba";
-      else if (special[1] == 'E')
-        created_wln->special = "Be";
-      else if (special[1] == 'H')
-        created_wln->special = "Bh";
-      else if (special[1] == 'I')
-        created_wln->special = "Bi";
-      else if (special[1] == 'K')
-        created_wln->special = "Bk";
-      else if (special[1] == 'R')
-        created_wln->special = "Br";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'C':
-      if (special[1] == 'A')
-        created_wln->special = "Ca";
-      else if (special[1] == 'D')
-        created_wln->special = "Cd";
-      else if (special[1] == 'E')
-        created_wln->special = "Ce";
-      else if (special[1] == 'F')
-        created_wln->special = "Cf";
-      else if (special[1] == 'M')
-        created_wln->special = "Cm";
-      else if (special[1] == 'N')
-        created_wln->special = "Cn";
-      else if (special[1] == 'O')
-        created_wln->special = "Co";
-      else if (special[1] == 'R')
-        created_wln->special = "Cr";
-      else if (special[1] == 'S')
-        created_wln->special = "Cs";
-      else if (special[1] == 'U')
-        created_wln->special = "Cu";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'D':
-      if (special[1] == 'B')
-        created_wln->special = "Db";
-      else if (special[1] == 'S')
-        created_wln->special = "Ds";
-      else if (special[1] == 'Y')
-        created_wln->special = "Dy";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'E':
-      if (special[1] == 'R')
-        created_wln->special = "Er";
-      else if (special[1] == 'S')
-        created_wln->special = "Es";
-      else if (special[1] == 'U')
-        created_wln->special = "Eu";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'F':
-      if (special[1] == 'E')
-        created_wln->special = "Fe";
-      else if (special[1] == 'L')
-        created_wln->special = "Fl";
-      else if (special[1] == 'M')
-        created_wln->special = "Fm";
-      else if (special[1] == 'R')
-        created_wln->special = "Fr";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'G':
-      if (special[1] == 'A')
-        created_wln->special = "Ga";
-      else if (special[1] == 'D')
-        created_wln->special = "Gd";
-      else if (special[1] == 'E')
-        created_wln->special = "Ge";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'H':
-      if (special[1] == 'E')
-        created_wln->special = "Ha";
-      else if (special[1] == 'F')
-        created_wln->special = "Hf";
-      else if (special[1] == 'G')
-        created_wln->special = "Hg";
-      else if (special[1] == 'O')
-        created_wln->special = "Ho";
-      else if (special[1] == 'S')
-        created_wln->special = "Hs";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'I':
-      if (special[1] == 'N')
-        created_wln->special = "In";
-      else if (special[1] == 'R')
-        created_wln->special = "Ir";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'K':
-      if (special[1] == 'R')
-        created_wln->special = "Kr";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'L':
-      if (special[1] == 'A')
-        created_wln->special = "La";
-      else if (special[1] == 'I')
-        created_wln->special = "Li";
-      else if (special[1] == 'R')
-        created_wln->special = "Lr";
-      else if (special[1] == 'U')
-        created_wln->special = "Lu";
-      else if (special[1] == 'V')
-        created_wln->special = "Lv";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'M':
-      if (special[1] == 'C')
-        created_wln->special = "Mc";
-      else if (special[1] == 'D')
-        created_wln->special = "Md";
-      else if (special[1] == 'G')
-        created_wln->special = "Mg";
-      else if (special[1] == 'N')
-        created_wln->special = "Mn";
-      else if (special[1] == 'O')
-        created_wln->special = "Mo";
-      else if (special[1] == 'T')
-        created_wln->special = "Mt";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'N':
-      if (special[1] == 'A')
-        created_wln->special = "Na";
-      else if (special[1] == 'B')
-        created_wln->special = "Nb";
-      else if (special[1] == 'D')
-        created_wln->special = "Nd";
-      else if (special[1] == 'E')
-        created_wln->special = "Ne";
-      else if (special[1] == 'H')
-        created_wln->special = "Nh";
-      else if (special[1] == 'I')
-        created_wln->special = "Ni";
-      else if (special[1] == 'O')
-        created_wln->special = "No";
-      else if (special[1] == 'P')
-        created_wln->special = "Np";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'O':
-      if (special[1] == 'G')
-        created_wln->special = "Og";
-      else if (special[1] == 'S')
-        created_wln->special = "Os";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'P':
-      if (special[1] == 'A')
-        created_wln->special = "Pa";
-      else if (special[1] == 'B')
-        created_wln->special = "Pb";
-      else if (special[1] == 'D')
-        created_wln->special = "Pd";
-      else if (special[1] == 'M')
-        created_wln->special = "Pm";
-      else if (special[1] == 'O')
-        created_wln->special = "Po";
-      else if (special[1] == 'R')
-        created_wln->special = "Pr";
-      else if (special[1] == 'T')
-        created_wln->special = "Pt";
-      else if (special[1] == 'U')
-        created_wln->special = "Pu";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'R':
-      if (special[1] == 'A')
-        created_wln->special = "Ra";
-      else if (special[1] == 'B')
-        created_wln->special = "Rb";
-      else if (special[1] == 'E')
-        created_wln->special = "Re";
-      else if (special[1] == 'F')
-        created_wln->special = "Rf";
-      else if (special[1] == 'G')
-        created_wln->special = "Rg";
-      else if (special[1] == 'H')
-        created_wln->special = "Rh";
-      else if (special[1] == 'N')
-        created_wln->special = "Rn";
-      else if (special[1] == 'U')
-        created_wln->special = "Ru";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'S':
-      if (special[1] == 'B')
-        created_wln->special = "Sb";
-      else if (special[1] == 'C')
-        created_wln->special = "Sc";
-      else if (special[1] == 'E')
-        created_wln->special = "Se";
-      else if (special[1] == 'I')
-        created_wln->special = "Si";
-      else if (special[1] == 'M')
-        created_wln->special = "Sm";
-      else if (special[1] == 'N')
-        created_wln->special = "Sn";
-      else if (special[1] == 'R')
-        created_wln->special = "Sr";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'T':
-      if (special[1] == 'A')
-        created_wln->special = "Ta";
-      else if (special[1] == 'B')
-        created_wln->special = "Tb";
-      else if (special[1] == 'C')
-        created_wln->special = "Tc";
-      else if (special[1] == 'E')
-        created_wln->special = "Te";
-      else if (special[1] == 'H')
-        created_wln->special = "Th";
-      else if (special[1] == 'I')
-        created_wln->special = "Ti";
-      else if (special[1] == 'L')
-        created_wln->special = "Tl";
-      else if (special[1] == 'M')
-        created_wln->special = "Tm";
-      else if (special[1] == 'S')
-        created_wln->special = "Ts";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'X':
-      if (special[1] == 'E')
-        created_wln->special = "Xe";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'Y':
-      if (special[1] == 'B')
-        created_wln->special = "Yb";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'Z':
-      if (special[1] == 'N')
-        created_wln->special = "Zn";
-      else if (special[1] == 'R')
-        created_wln->special = "Zr";
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition\n");
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    default:
-      fprintf(stderr, "Error: invalid character in special definition switch\n");
-      return (WLNSymbol *)0;
-    }
-
-    created_wln->allowed_edges = 8; // allow on octet default for these species.
-
-    return created_wln;
-  }
 
   WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack)
   {
@@ -2221,6 +2601,8 @@ struct WLNGraph
     bool pending_inline_ring = false;
     bool pending_spiro = false;
 
+    std::string special;
+
     // allows consumption of notation after block parses
     unsigned int block_start = 0;
     unsigned int block_end = 0;
@@ -2236,19 +2618,14 @@ struct WLNGraph
       {
 
       case '0': // cannot be lone, must be an addition to another num
-        if (pending_closure || pending_special)
+        if (pending_closure)
         {
           break;
         }
-        if (i == 0)
-          Fatal(i);
-        else if (i > 0 && !std::isdigit(wln[i - 1]))
-          Fatal(i);
+        if(prev && std::isdigit(prev->ch))
+          prev->special.push_back(ch);
         else
-        {
-          curr = AllocateWLNSymbol(ch);
-        }
-
+          Fatal(i);
         break;
 
       case '1':
@@ -2260,33 +2637,45 @@ struct WLNGraph
       case '7':
       case '8':
       case '9':
+        if (pending_closure)
+          break;
+        else if(pending_special){
+          fprintf(stderr,"Error: character %c in special elemental definition are not allowed\n",ch);
+          Fatal(i);
+        }
+        
         if (pop_ticks)
         {
           prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
           pop_ticks = 0;
         }
 
-        if (pending_closure || pending_special)
-        {
-          break;
+        if(!std::isdigit(prev->ch)){
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(4);
+
+          curr->special.push_back(ch); // prepare for a n > 10 chain
+
+          create_bond(curr, prev, bond_ticks, i);
+          prev = curr;
         }
-
-        curr = AllocateWLNSymbol(ch);
-        curr->set_type(STANDARD);
-        curr->set_edges(3);
-
-        create_bond(curr, prev, bond_ticks, i);
-
-        prev = curr;
+        else 
+          prev->special.push_back(ch);
         break;
 
-        // carbons
-
       case 'Y':
-
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2326,9 +2715,17 @@ struct WLNGraph
         break;
 
       case 'X':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2370,9 +2767,17 @@ struct WLNGraph
         // oxygens
 
       case 'O':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2412,9 +2817,17 @@ struct WLNGraph
         break;
 
       case 'Q':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2456,9 +2869,17 @@ struct WLNGraph
 
       case 'V':
       case 'W':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2497,9 +2918,17 @@ struct WLNGraph
         // nitrogens
 
       case 'N':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2538,9 +2967,17 @@ struct WLNGraph
         break;
 
       case 'M':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2577,9 +3014,17 @@ struct WLNGraph
         break;
 
       case 'K':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2618,9 +3063,17 @@ struct WLNGraph
         break;
 
       case 'Z':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2666,9 +3119,17 @@ struct WLNGraph
       case 'G':
       case 'F':
       case 'I':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2712,9 +3173,17 @@ struct WLNGraph
         // inorganics
 
       case 'B':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2758,9 +3227,17 @@ struct WLNGraph
 
       case 'P':
       case 'S':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2807,10 +3284,17 @@ struct WLNGraph
       case 'A':
       case 'C':
       case 'D':
-      case 'H':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2827,17 +3311,70 @@ struct WLNGraph
           prev = curr;
           pending_locant = false;
         }
-        else
+        else{
+          fprintf(stderr,"Error: locant only symbol used in atomic definition\n");
           Fatal(i);
+        }
+        break;
+          
+          
+      // hydrogens explicit
 
+      case 'H':
+        if(pending_closure)
+          break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
+        }
+        else if (pending_locant)
+        {
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else{
+          // explicit hydrogens
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(1);
+
+          create_bond(curr, prev, bond_ticks, i);
+
+          bond_ticks = 0;
+          
+          // this will automatically return a branch like a terminator
+          prev = return_open_branch(branch_stack);
+        }
         break;
 
         // ring notation
 
       case 'J':
-        if (pending_special)
-        {
-          break;
+        if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         if (pending_locant)
         {
@@ -2890,16 +3427,27 @@ struct WLNGraph
           bond_ticks = 0;
           pending_closure = false;
         }
-        else
+        else{
+          fprintf(stderr,"Error: J notation used outside of a ring definition is undefined\n");
           Fatal(i);
+        }
+          
 
         break;
 
       case 'L':
       case 'T':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2935,9 +3483,17 @@ struct WLNGraph
         break;
 
       case 'R':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2978,9 +3534,17 @@ struct WLNGraph
         // bonding
 
       case 'U':
-        if (pending_closure || pending_special)
-        {
+        if(pending_closure)
           break;
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3008,11 +3572,13 @@ struct WLNGraph
         {
           break;
         }
-        if (pending_special)
+        if (pending_inline_ring)
         {
-          pending_special = false;
-          block_start = 0;
-          block_end = 0;
+          pending_special = false; // these are set at the same time
+
+          // send the linker into its own stack
+          if (!branch_stack.empty() && (branch_stack.top()->num_edges < branch_stack.top()->allowed_edges))
+            linker_stack.push(branch_stack.top());
         }
 
         // clear the branch stack betweek locants and ions
@@ -3031,11 +3597,8 @@ struct WLNGraph
         break;
 
       case '&':
-        if (pending_closure || pending_special)
-        {
+        if (pending_closure)
           break;
-        }
-
         if (pending_inline_ring)
         {
           // spiro notation open
@@ -3054,18 +3617,8 @@ struct WLNGraph
         break;
 
       case '-':
-        if (pending_closure || pending_special)
-        {
+        if (pending_closure)
           break;
-        }
-        if (!pending_inline_ring)
-        {
-          pending_inline_ring = true;
-
-          // send the linker into its own stack
-          if (!branch_stack.empty() && (branch_stack.top()->num_edges < branch_stack.top()->allowed_edges))
-            linker_stack.push(branch_stack.top());
-        }
 
         else if (pending_inline_ring)
         {
@@ -3081,12 +3634,8 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          block_end = i;
-          curr = AllocateWLNSymbol('*');
-          curr->add_special(block_start, block_end);
-
-          block_start = 0;
-          block_end = 0;
+          curr = define_element(special);
+          special.clear();
 
           create_bond(curr, prev, bond_ticks, i);
 
@@ -3094,15 +3643,20 @@ struct WLNGraph
           prev = curr;
           pending_special = false;
         }
-        else if (!pending_special)
+        else{
+          pending_inline_ring = true;
           pending_special = true;
-
+        }
         break;
 
+
+
       case '/':
-        if (pending_closure || pending_special)
-        {
+        if (pending_closure)
           break;
+        else if (pending_special){
+          fprintf(stderr,"Error: character %c in special elemental definition are not allowed\n",ch);
+          Fatal(i);
         }
         prev = curr;
         curr = AllocateWLNSymbol(ch);
@@ -3160,8 +3714,17 @@ struct WLNGraph
         fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
       else if (node->type == LINKER)
         fprintf(fp, "[shape=circle,label=\"%c\",color=red];\n", node->ch);
-      else
-        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+      else{
+        if(std::isdigit(node->ch)){
+          if (!node->special.empty())
+            fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+          else
+            fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+        } 
+        else
+          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+      }
+        
 
       for(unsigned int i = 0; i<node->children.size(); i++){
         WLNSymbol *child = node->children[i];
@@ -3259,18 +3822,12 @@ struct BabelGraph{
     return true;
   }
 
-  bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
-  {
-    
-    // some jiggery to handle hydrogens
-
-    mol->SetAromaticPerceived(true);
+  bool MBOBReduceSpecies(OpenBabel::OBMol* mol){
 
     OpenBabel::OBAtom* atom = 0;
+    int reducing = 0; // reducing hydrogens count
     unsigned int valence = 0; 
-    unsigned int reducing = 0; // reducing hydrogens count
     FOR_ATOMS_OF_MOL(atom,mol){
-      
       // allows for wln notation implicits
       if(atom->GetImplicitHCount() > 0)
         continue;
@@ -3296,15 +3853,31 @@ struct BabelGraph{
           break;
       }
 
+  
       if(aromatic)
         reducing--;
 
-      unsigned int defined_charge = atom->GetFormalCharge();
-      if(defined_charge)
-        reducing+=defined_charge;
+      if(reducing > 0){
+        unsigned int defined_charge = atom->GetFormalCharge();
+        if(defined_charge)
+          reducing+=defined_charge;
         
-      atom->SetImplicitHCount(reducing-valence);
+        atom->SetImplicitHCount(reducing-valence);
+      }
+
+      
     }
+
+    return true;
+  }
+
+  bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
+  {
+    
+
+    mol->SetAromaticPerceived(true);
+
+    MBOBReduceSpecies(mol);
 
     if (!OBKekulize(mol))
         return false;
@@ -3401,7 +3974,7 @@ struct BabelGraph{
             break;
         
           case '*':
-            // parse special elem
+            atomic_num = special_element_atm(sym->special);
             break;
 
           default:
@@ -3457,13 +4030,6 @@ struct BabelGraph{
         }
       }
     }
-
-    return true;
-  }
-
-
-  bool ConvertToWLN(OpenBabel::OBMol* mol,WLNGraph &wln_graph){
-
 
     return true;
   }
