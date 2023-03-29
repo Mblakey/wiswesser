@@ -54,15 +54,15 @@ CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
 CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 
 //C compiler
-CMAKE_C_COMPILER:FILEPATH=/usr/bin/cc
+CMAKE_C_COMPILER:STRING=/usr/bin/gcc-12
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
-CMAKE_C_COMPILER_AR:FILEPATH=/usr/bin/gcc-ar-11
+CMAKE_C_COMPILER_AR:FILEPATH=/usr/bin/gcc-ar-12
 
 //A wrapper around 'ranlib' adding the appropriate '--plugin' option
 // for the GCC compiler
-CMAKE_C_COMPILER_RANLIB:FILEPATH=/usr/bin/gcc-ranlib-11
+CMAKE_C_COMPILER_RANLIB:FILEPATH=/usr/bin/gcc-ranlib-12
 
 //Flags used by the C compiler during all build types.
 CMAKE_C_FLAGS:STRING=
