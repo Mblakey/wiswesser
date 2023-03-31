@@ -1719,6 +1719,7 @@ struct WLNRing
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
 
     std::vector<unsigned char> fuses; // read as pairs
+    std::vector<unsigned char> broken_locants; // for '<X>-' locant defintions
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
     
@@ -1839,8 +1840,17 @@ struct WLNRing
 
         case ' ':
           if(pending_special){
-            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
-            Fatal(start+i);
+            
+            // this reads the broken path locants
+            if (!positional_locant){
+              fprintf(stderr,"Error: broken locant path definition requires a locant character\n");
+              Fatal(start+i);
+            }
+            else{
+              broken_locants.push_back(positional_locant);
+              pending_special = false;
+            }
+            break;
           }
           if(expected_locants){
             fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
@@ -2280,6 +2290,12 @@ struct WLNRing
 
       fprintf(stderr,"  bridge points: ");
       for (unsigned char loc : bridge_locants){
+        fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
+      }
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  broken locant paths: ");
+      for (unsigned char loc : broken_locants){
         fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
       }
       fprintf(stderr,"\n");
