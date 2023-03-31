@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/home/mikey/Workspace/freycompchem/wisswesser/src/parser/include -I/home/mikey/Workspace/freycompchem/wisswesser/src/parser/src -I/home/mikey/Workspace/freycompchem/wisswesser/src/parser/../openbabel/build/include -I/home/mikey/Workspace/freycompchem/wisswesser/src/parser/../openbabel/include
 
-CXX_FLAGS =  -Wall -O3 -std=c++11
+CXX_FLAGS =  -Wall -O3 -std=c++11 -g
 
