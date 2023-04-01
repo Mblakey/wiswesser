@@ -54,6 +54,7 @@ static bool opt_convert = false;
 
 // --- globals ---
 const char *wln;
+struct Char; // can hold modifiers, needed for expansion notation
 struct WLNSymbol;
 struct WLNRing;
 
@@ -65,8 +66,8 @@ std::map<unsigned int,OpenBabel::OBAtom*> babel_atom_lookup;
 unsigned int glob_index = 1; // babel starts from 1, keep consistent  
 
 // --- pools ---
-std::vector<WLNSymbol *> symbol_mempool;
-std::vector<WLNRing *> ring_mempool;
+std::vector<WLNSymbol *>  symbol_mempool;
+std::vector<WLNRing *>    ring_mempool;
 
 
 enum WLNTYPE
@@ -137,13 +138,38 @@ static void Reindex_lookups()
   }
 }
 
+/* a char struct that allows character modifiers - solves a lot of problems */
+struct Char{
+  unsigned char ch; 
+  std::vector<unsigned char> modifiers; 
+
+  Char(){
+    ch = '\0';
+  };
+  ~Char(){};
+
+  void init(unsigned char inp){
+    ch = inp; 
+  }
+
+  void add_modifier(unsigned char mod){
+    modifiers.push_back(mod);
+  }
+
+  void print_char(){
+    fprintf(stderr,"%c",ch);
+    for (unsigned char mod : modifiers){
+      fprintf(stderr,"%c",mod);
+    }
+    fprintf(stderr,"\n");
+  }
+};
 
 struct WLNSymbol
 {
+  Char *character;
 
-  unsigned char ch;
   unsigned int type;
- 
   unsigned int allowed_edges;
   unsigned int num_edges;
 
@@ -157,13 +183,24 @@ struct WLNSymbol
   // if default needed
   WLNSymbol()
   {
-    ch = '\0';
+    character = 0;
     allowed_edges = 0;
     num_edges = 0;
     previous = 0;
     special = "";
   }
-  ~WLNSymbol(){};
+  ~WLNSymbol(){
+    if(character){
+      delete character;
+      character = 0; 
+    }
+  };
+
+  bool init_char(unsigned char ch){
+    character = new Char; 
+    character->init(ch);
+    return true;
+  }
 
   void set_edges(unsigned int edges)
   {
@@ -175,13 +212,6 @@ struct WLNSymbol
     type = i;
   }
 
-  // resets the symbol
-  void reset()
-  {
-    ch = '\0';
-    allowed_edges = 0;
-    num_edges = 0;
-  }
 
   void add_special(unsigned int s, unsigned int e)
   {
@@ -200,7 +230,7 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 
   WLNSymbol *wln = new WLNSymbol;
   symbol_mempool.push_back(wln);
-  wln->ch = ch;
+  wln->init_char(ch);
 
   index_lookup[wln] = glob_index;
   symbol_lookup[glob_index] = wln;
@@ -211,9 +241,8 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 // these are expensive, but needed for some edge case notations
 void DeallocateWLNSymbol(WLNSymbol *node)
 {
-
   if (opt_debug)
-    fprintf(stderr, "  manual deallocation: %c\n", node->ch);
+    fprintf(stderr, "  manual deallocation: %c\n", node->character->ch);
 
   // find the node in the mem pool
   unsigned int i = 0;
@@ -231,7 +260,7 @@ void DeallocateWLNSymbol(WLNSymbol *node)
 WLNSymbol *copy_symbol(WLNSymbol *src)
 {
 
-  WLNSymbol *copy = AllocateWLNSymbol(src->ch);
+  WLNSymbol *copy = AllocateWLNSymbol(src->character->ch);
   copy->allowed_edges = src->allowed_edges;
   copy->num_edges = src->num_edges;
 
@@ -256,13 +285,13 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
   // if the child cannot handle the new valence
   if ((child->num_edges + bond) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+bond, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->character->ch,child->num_edges+bond, child->allowed_edges);
     return false;
   }
   // same for the parent
   if ((parent->num_edges + bond) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+bond, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->character->ch,parent->num_edges+bond, parent->allowed_edges);
     return false;
   }
 
@@ -311,13 +340,13 @@ bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond){
   // same checks
   if ((child->num_edges + diff) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+diff, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->character->ch,child->num_edges+diff, child->allowed_edges);
     return false;
   }
   
   if ((parent->num_edges + diff) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+diff, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->character->ch,parent->num_edges+diff, parent->allowed_edges);
     return false;
   }
 
@@ -359,13 +388,13 @@ bool increase_bond_order(WLNSymbol *child, WLNSymbol *parent){
 
   if ((child->num_edges + 1) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->character->ch,child->num_edges+1, child->allowed_edges);
     return false;
   }
   
   if ((parent->num_edges + 1) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->character->ch,parent->num_edges+1, parent->allowed_edges);
     return false;
   }
 
@@ -414,7 +443,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
     return true; // save some work
 
   // set aromatics
-  switch(parent->ch){
+  switch(parent->character->ch){
 
     case 'Y':
     case 'O':
@@ -439,12 +468,12 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       break;
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->ch);
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->character->ch);
       return false;
   }
 
   // set aromatics
-  switch(child->ch){
+  switch(child->character->ch){
     
     case 'Y':
     case 'O':
@@ -469,21 +498,20 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       break; 
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->ch);
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->character->ch);
       return false;
   }
 
   
-
   if (child->num_edges > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->character->ch,child->num_edges, child->allowed_edges);
     return false;
   }
 
   if (parent->num_edges > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->character->ch,parent->num_edges, parent->allowed_edges);
     return false;
   }
 
@@ -525,7 +553,7 @@ WLNSymbol* make_methyl(){
 /* resolve carbon methyl assumptions */
 bool resolve_methyls(WLNSymbol *target){
 
-  switch(target->ch){
+  switch(target->character->ch){
 
     case 'Y':
     case 'X':
@@ -538,7 +566,7 @@ bool resolve_methyls(WLNSymbol *target){
       break;
 
     default:
-      fprintf(stderr,"Error: resolving methyls performed on invalid symbol: %c\n",target->ch);
+      fprintf(stderr,"Error: resolving methyls performed on invalid symbol: %c\n",target->character->ch);
       return false;
   }
 
@@ -1214,6 +1242,7 @@ unsigned int special_element_atm(std::string &special){
 }
 
 
+
 /* struct to hold pointers for the wln ring */
 struct WLNRing
 {
@@ -1719,7 +1748,6 @@ struct WLNRing
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
 
     std::vector<unsigned char> fuses; // read as pairs
-    std::vector<unsigned char> broken_locants; // for '<X>-' locant defintions
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
     
@@ -1839,27 +1867,12 @@ struct WLNRing
           break;
 
         case ' ':
-          if(pending_special){
-            
-            // this reads the broken path locants
-            if (!positional_locant){
-              fprintf(stderr,"Error: broken locant path definition requires a locant character\n");
-              Fatal(start+i);
-            }
-            else{
-              broken_locants.push_back(positional_locant);
-              pending_special = false;
-            }
-            break;
-          }
+
           if(expected_locants){
             fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
             Fatal(start+i);
           }
-          if(block[i-1] == ' '){
-            fprintf(stderr,"Error: double spacing in ring notation is not allowed\n");
-            Fatal(start+i);
-          }
+
           if(!size_set && ring_size_specifier)
             size_set = true;
 
@@ -1952,7 +1965,7 @@ struct WLNRing
             }
             else{
               positional_locant = ch;
-              expecting_component = 0;
+              expecting_component = 1;
               pending_bridge = true;
             }
             break;
@@ -2047,6 +2060,16 @@ struct WLNRing
            expecting_component = 1;
            break;
           }
+          else if(pending_large){
+            if(size_set == 1 && ring_size_specifier){
+              ring_size_specifier += 23; 
+              size_set = 2;
+            }
+            else if(positional_locant)
+              positional_locant += 23;
+
+            pending_large = false;
+          }
           else if(expected_locants){
 
             if(pending_multi){
@@ -2091,8 +2114,12 @@ struct WLNRing
           }
 
         case 'T':
-
-          if(pending_large){
+          if(i==0){
+            heterocyclic = true; 
+            expecting_component = 1;
+            break; 
+          }
+          else if(pending_large){
             if(size_set == 1 && ring_size_specifier){
               ring_size_specifier += 23; 
               size_set = 2;
@@ -2101,12 +2128,6 @@ struct WLNRing
               positional_locant += 23;
 
             pending_large = false;
-          }
-
-          if(i==0){
-            heterocyclic = true; 
-            expecting_component = 1;
-            break; 
           }
           else if (pending_special){
             special.push_back(ch);
@@ -2294,12 +2315,6 @@ struct WLNRing
       }
       fprintf(stderr,"\n");
 
-      fprintf(stderr,"  broken locant paths: ");
-      for (unsigned char loc : broken_locants){
-        fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
-      }
-      fprintf(stderr,"\n");
-
       fprintf(stderr,"  hard fuses: ");
       for (unsigned int i=1;i<fuses.size();i+=2)
         fprintf(stderr,"(%c --> %c) ",fuses[i-1],fuses[i]);
@@ -2380,7 +2395,7 @@ struct WLNGraph
     if (size > REASONABLE)
       fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
           
-    head->ch = 'C';
+    head->character->ch = 'C';
     head->set_edges(4);
     head->num_edges = 0;
 
@@ -2419,7 +2434,7 @@ struct WLNGraph
     for (unsigned int i=0;i<stop;i++){
       WLNSymbol *sym = symbol_mempool[i];
 
-      switch(sym->ch){
+      switch(sym->character->ch){
 
         case '1':
         case '2':
@@ -2433,7 +2448,7 @@ struct WLNGraph
           if (!sym->special.empty())
             expand_carbon_chain(sym,std::stoi(sym->special));
           else
-            expand_carbon_chain(sym,sym->ch - '0');
+            expand_carbon_chain(sym,sym->character->ch - '0');
           break;
         
         case 'Y':
@@ -2505,7 +2520,7 @@ struct WLNGraph
       hard = true;
 
     if (opt_debug)
-      fprintf(stderr, "  popping %d symbols down the stack: mode(%d) prev[%c]\n", pops, hard, prev->ch);
+      fprintf(stderr, "  popping %d symbols down the stack: mode(%d) prev[%c]\n", pops, hard, prev->character->ch);
 
     if (hard)
     {
@@ -2638,7 +2653,7 @@ struct WLNGraph
         {
           break;
         }
-        if(prev && std::isdigit(prev->ch))
+        if(prev && std::isdigit(prev->character->ch))
           prev->special.push_back(ch);
         else
           Fatal(i);
@@ -2666,7 +2681,7 @@ struct WLNGraph
           pop_ticks = 0;
         }
 
-        if(!std::isdigit(prev->ch)){
+        if(!std::isdigit(prev->character->ch)){
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(4);
@@ -2913,7 +2928,6 @@ struct WLNGraph
         }
         else
         {
-
           if (pop_ticks)
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
@@ -3431,8 +3445,8 @@ struct WLNGraph
           // does the incoming locant check
           if (prev)
           {
-            if (ring->locants[prev->ch])
-              create_bond(ring->locants[prev->ch],prev,bond_ticks,i);
+            if (ring->locants[prev->character->ch])
+              create_bond(ring->locants[prev->character->ch],prev,bond_ticks,i);
             else
             {
               fprintf(stderr, "Error: attaching inline ring with out of bounds locant assignment\n");
@@ -3722,23 +3736,23 @@ struct WLNGraph
     {
 
       fprintf(fp, "  %d", index_lookup[node]);
-      if (node->ch == '*')
+      if (node->character->ch == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
       else if(node->type == LOCANT)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
+        fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->character->ch);
       else if (node->type == RING)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
+        fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->character->ch);
       else if (node->type == LINKER)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=red];\n", node->ch);
+        fprintf(fp, "[shape=circle,label=\"%c\",color=red];\n", node->character->ch);
       else{
-        if(std::isdigit(node->ch)){
+        if(std::isdigit(node->character->ch)){
           if (!node->special.empty())
             fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
           else
-            fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+            fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->character->ch);
         } 
         else
-          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->character->ch);
       }
         
 
@@ -3921,7 +3935,7 @@ struct BabelGraph{
         unsigned int charge = 0; 
         unsigned int h_count = 0;
 
-        switch(sym->ch){
+        switch(sym->character->ch){
 
           case 'H':
             atomic_num = 1;
@@ -3994,7 +4008,7 @@ struct BabelGraph{
             break;
 
           default:
-            fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
+            fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->character->ch);
             return false;
         }
 
