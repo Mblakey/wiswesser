@@ -69,13 +69,14 @@ std::vector<WLNSymbol *>  symbol_mempool;
 std::vector<WLNRing *>    ring_mempool;
 
 
+// allows comp as string type
 enum WLNTYPE
 {
   STANDARD = 0,
-  LOCANT = 1,
-  LINKER = 2,
-  RING = 3,
-  SPECIAL = 4
+  CHAIN = 1, 
+  LOCANT = 2,   
+  RING = 3,     
+  ELEMENT = 4
 };
 
 
@@ -142,6 +143,10 @@ static void Reindex_lookups()
 struct WLNSymbol
 {
   std::string value; // allows easy modifiers
+  std::string special; // string for element, or ring, if value = '*'
+
+  // will deprecate special i think, and switch the first char of 
+  // the value for graph expansion
 
   unsigned int type;
   unsigned int allowed_edges;
@@ -151,11 +156,6 @@ struct WLNSymbol
   std::vector<WLNSymbol *> children; 
   std::vector<unsigned int> orders;
 
-  // if 'ch='*'
-  std::string special; // string for element, or ring
-
-  // can deprecate special
-  
   // if default needed
   WLNSymbol()
   {
@@ -163,15 +163,16 @@ struct WLNSymbol
     allowed_edges = 0;
     num_edges = 0;
     previous = 0;
-    special = "";
   }
   ~WLNSymbol(){};
 
   unsigned char get_ch(){
-    if(!value.empty())
-      return value[0];
-    else
+    if(value.empty()){
+      fprintf(stderr,"Error: accessing empty value\n");
       return 0;
+    }
+    else
+      return value[0];
   }
 
   void add_modifier(unsigned char mod){
@@ -1594,16 +1595,13 @@ struct WLNRing
 
           ring_path.push_back(locants_ch[path]); // add the last symbol
           bind_2 = highest_loc;
-
           consumed += comp_size - 2;
         }          
-        
       }
 
       if(opt_debug)
         fprintf(stderr,"  fusing: %c <-- %c\n",bind_2,bind_1);
       
-
       if(!link_symbols(locants[bind_2],locants[bind_1],1)){
         fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
         return false;
@@ -1617,6 +1615,7 @@ struct WLNRing
       fuses++;
     }
 
+
     return true; 
   }
 
@@ -1625,16 +1624,12 @@ struct WLNRing
                        std::vector<unsigned int> &numerics,
                        unsigned int size)
   {
-    
     unsigned int i = 1; 
     while (i < fuses.size()){
-
       if(opt_debug)
         fprintf(stderr,"  fusing: %c - %c\n",fuses[i-1],fuses[i]);
-
       i+=2;
     }
-  
     return true; 
   }
 
@@ -3395,8 +3390,8 @@ struct WLNGraph
 
           if (pending_spiro)
           {
-            prev->type = LINKER; // spiros are normal rings with dual linker notation
-            prev->previous->type = LINKER;
+            prev->type = LOCANT; // spiros are normal rings with dual linker notation
+            prev->previous->type = LOCANT;
             pending_spiro = false;
           }
 
@@ -3692,7 +3687,6 @@ struct WLNGraph
     fprintf(fp, "  rankdir = LR;\n");
     for (WLNSymbol *node : symbol_mempool)
     {
-
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->get_ch() == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
@@ -3700,8 +3694,6 @@ struct WLNGraph
         fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->get_ch());
       else if (node->type == RING)
         fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->get_ch());
-      else if (node->type == LINKER)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=red];\n", node->get_ch());
       else{
         if(std::isdigit(node->get_ch())){
           if (!node->special.empty())
@@ -3713,12 +3705,10 @@ struct WLNGraph
           fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->get_ch());
       }
         
-
       for(unsigned int i = 0; i<node->children.size(); i++){
         WLNSymbol *child = node->children[i];
         unsigned int bond_order = node->orders[i];
         
-
         // aromatic
         if(bond_order == 4){
           fprintf(fp, "  %d", index_lookup[node]);
@@ -3737,7 +3727,7 @@ struct WLNGraph
           fprintf(fp, " -> ");
           fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
         }
-         
+       
       }
     }
     fprintf(fp, "}\n");
@@ -3885,7 +3875,7 @@ struct BabelGraph{
     // set up atoms
     for (WLNSymbol *sym: symbol_mempool){
 
-      if(sym->type != LOCANT && sym->type != LINKER){
+      if(sym->type != LOCANT){
         
         OpenBabel::OBAtom *atom = 0;
 
