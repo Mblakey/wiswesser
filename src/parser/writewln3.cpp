@@ -145,7 +145,7 @@ struct WLNSymbol
   std::string value; // allows easy modifiers
   std::string special; // string for element, or ring, if value = '*'
 
-  // will deprecate special i think, and switch the first char of 
+  // will deprecate special DEFO, and switch the first char of 
   // the value for graph expansion
 
   unsigned int type;
@@ -1661,6 +1661,25 @@ struct WLNRing
     return true;
   }
 
+  bool handle_ring_component( unsigned char positional_locant,
+                              unsigned int expecting_modifier,
+                              unsigned int size_modifier,
+                              std::vector<std::pair<unsigned int, unsigned char>> &ring_components)
+  {
+    if(positional_locant){
+      positional_locant += (size_modifier * 23);
+      ring_components.push_back({expecting_modifier,positional_locant});
+    }
+    else{
+      if(size_modifier){
+        fprintf(stderr,"Error: unknown size modification read but not evaluated/n");
+        return false;
+      }
+      ring_components.push_back({expecting_modifier,'A'});
+    }
+    return true;
+  }
+
 
   void FormWLNRing(std::string &block, unsigned int start){
 
@@ -1673,23 +1692,21 @@ struct WLNRing
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
 
-    // -- stages --
 
-    // based off certain rules, we can enforce ordering
-    bool multi_completed    = false;
-  
-    // -- paths -- 
-    bool pending_multi      = false; 
-    bool pending_pseudo     = false; 
-    bool pending_bridge     = false;
-    bool pending_aromatics  = false;
-    bool pending_large      = false; // for '&<x>' locant expansion
-    bool pending_special    = false;
+    // -- paths -- // int allows way more description in states
+    unsigned int pending_multi        = 0; 
+    unsigned int pending_pseudo       = 0; 
+    unsigned int pending_bridge       = 0;
+    unsigned int pending_aromatics    = 0;
+    unsigned int pending_special      = 0;
     
-    unsigned int expecting_component  = 0; // 0 - false, 1- standard, 2- large
+    unsigned int  expecting_modifier  = 0;
+    unsigned int  expecting_locants   = 0;
 
-    unsigned int size_set               = 0; 
-    unsigned int expected_locants       = 0;
+    unsigned int completed_multi    = 0;
+
+    unsigned int  size_set              = 0; 
+    unsigned int  size_modifier         = 0;       // multiple of 23 to move along for locant
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0'; 
 
@@ -1720,71 +1737,80 @@ struct WLNRing
         case '7':
         case '8':
         case '9':
-          if (expecting_component == 1){
-            if(!positional_locant)
-              ring_components.push_back({ch - '0','A'});
-            else{
-              ring_components.push_back({ch - '0',positional_locant});
-              positional_locant = '\0'; // reset the assigner
-            }
+          if(expecting_modifier){
+            if(!handle_ring_component(positional_locant,expecting_modifier,size_modifier,ring_components))
+              Fatal(start+i);
+
+            size_modifier = 0;
+            positional_locant = '\0';
+            expecting_modifier = ch - '0'; // set to the next for modifier
             break;
           }
-          else if(expecting_component == 2){
-            expanded_size.push_back(ch);
+          else if (i > 1 && block[i-1] != ' '){
+            expecting_modifier = ch - '0'; // set the ring size to be modified
             break;
           }
-          else if (pending_special){
-            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
-            Fatal(start+i);
-          }
+          else if (i > 1 && block[i-1] == ' '){
+            pending_multi   = 1;
+            expecting_locants = ch - '0';
+            break;
+          }    
           else{
-            pending_multi   = true;
-            expected_locants = ch - '0';
-            break;
+            fprintf(stderr,"Error: unrecognised numeric notation state\n");
+            Fatal(start+i);
           }
           
             
         case '/':
+          if(expecting_modifier){
+            if(positional_locant){
+              positional_locant += (size_modifier * 23);
+              ring_components.push_back({expecting_modifier,positional_locant});
+              positional_locant = '\0'; // reset the assigner
+            }
+            else{
+              if(size_modifier){
+                fprintf(stderr,"Error: unknown size modification read but not evaluated/n");
+                Fatal(i+start);
+              }
+              ring_components.push_back({expecting_modifier,'A'});
+            }
+            size_set = 0;
+            expecting_modifier = 0;
+          }
+
           if(pending_special){
             fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
             Fatal(start+i);
           }
-          expected_locants = 2; 
+
+          expecting_locants = 2; 
           pending_pseudo = true;
           ring_type = PSDBRIDGED; 
           break; 
 
         case '-':
-          if(pending_large){
-
-            if(size_set == 1 && ring_size_specifier){
-              ring_size_specifier += 23; 
-              size_set = 2;
-            }
-            else 
-              fprintf(stderr,"Error: unknown use of - in ring notation - TMP MESSAGE\n");
-              
-
-            // resolve large to come
-            pending_aromatics = true;
-          }
-          else if (expecting_component == 2){
-            if(!positional_locant)
-              ring_components.push_back({std::stoi(expanded_size),'A'});
-            else{
-              ring_components.push_back({std::stoi(expanded_size),positional_locant});
+          if(expecting_modifier){
+            if(positional_locant){
+              positional_locant += (size_modifier * 23);
+              ring_components.push_back({expecting_modifier,positional_locant});
               positional_locant = '\0'; // reset the assigner
             }
-            expanded_size.clear();
-            expecting_component = 1;
+            else{
+              if(size_modifier){
+                fprintf(stderr,"Error: unknown size modification read but not evaluated/n");
+                Fatal(i+start);
+              }
+              ring_components.push_back({expecting_modifier,'A'});
+            }
+            size_set = 0;
+            expecting_modifier = 0;
           }
-          else if (expecting_component == 1)
-            expecting_component = 2;
           else if (positional_locant){
             // opens up inter ring special definition
             if(!pending_special){
               pending_bridge = false;
-              expecting_component = 0;
+              //expecting_component = 0;
 
               pending_special = true; 
             }
@@ -1799,32 +1825,29 @@ struct WLNRing
 
         // aromatics and locant expansion
         case '&':
+          if(expecting_modifier){
+            size_set++;
+            break;
+          }
+
           if(pending_special){
             fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
             Fatal(start+i);
           }
-
           if(pending_aromatics)
             aromaticity.push_back(true);
-          else if(pending_large){
-            pending_large = false;
-            aromaticity.push_back(true);
-            aromaticity.push_back(true);
-            pending_aromatics = true;
-          }
           else if (positional_locant)
-            pending_large = true;
-          else
             pending_aromatics = true;
           
           break;
 
         case ' ':
 
-          if(expected_locants){
-            fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
+          if(expecting_locants){
+            fprintf(stderr,"Error: %d more locants expected before space seperator\n",expecting_locants);
             Fatal(start+i);
           }
+
 
           if(!size_set && ring_size_specifier)
             size_set = true;
@@ -1832,8 +1855,7 @@ struct WLNRing
           // resets any pendings and set states
           if(pending_multi){
             pending_multi     = false;
-            multi_completed   = true;
-
+            completed_multi   = true;
             if(ring_type < PERI)
               ring_type = PERI; 
           }
@@ -1846,7 +1868,7 @@ struct WLNRing
           }
           
           pending_pseudo    = false;
-          expecting_component = 0;
+          //expecting_component = 0;
           positional_locant = '\0'; // hard reset the positional locant
           break;
 
@@ -1873,16 +1895,24 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
+          if(expecting_modifier){
+            if(!handle_ring_component(positional_locant,expecting_modifier,size_modifier,ring_components))
+              Fatal(start+i);
+              
+            size_modifier = 0;
+            positional_locant = '\0';
+            expecting_modifier = 0; 
+          }
 
-          if(expected_locants){
+          if(expecting_locants){
 
             if(pending_multi){
               multicyclic_locants.push_back(ch);
-              expected_locants--;
+              expecting_locants--;
             }
             else if (pending_pseudo){
               fuses.push_back(ch);
-              expected_locants--; 
+              expecting_locants--; 
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -1890,44 +1920,16 @@ struct WLNRing
             }
             break;
           }
-          else if (pending_special){
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
-            break;
-          }
-          else if (pending_large){
-            if(size_set == 1 && ring_size_specifier){
-              ring_size_specifier += 23; 
-              size_set = 2;
-            }
-            else if(positional_locant)
-              positional_locant += 23;
 
-            pending_large = false;
-            break;
-          }
           else if(block[i-1] == ' '){
-
-            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
+            if(completed_multi && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
               size_set = 1; 
-              positional_locant = ch;
             }
-            else{
-              positional_locant = ch;
-              expecting_component = 1;
-              pending_bridge = true;
-            }
+            positional_locant = ch;
             break;
           }
           else if (positional_locant){
-
-            pending_bridge = false;
-            expecting_component = 0; 
-
             if (opt_debug)
               fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
@@ -2007,31 +2009,44 @@ struct WLNRing
 
         // openers 
         case 'L':
+          if(expecting_modifier){
+            if(!handle_ring_component(positional_locant,expecting_modifier,size_modifier,ring_components))
+              Fatal(start+i);
+              
+            size_modifier = 0;
+            positional_locant = '\0';
+            expecting_modifier = 0; 
+          }          
 
           if(i==0){
            heterocyclic = false; 
-           expecting_component = 1;
            break;
           }
-          else if(pending_large){
-            if(size_set == 1 && ring_size_specifier){
-              ring_size_specifier += 23; 
-              size_set = 2;
+          else if(expecting_modifier){
+            if(positional_locant){
+              positional_locant += (size_modifier * 23);
+              ring_components.push_back({expecting_modifier,positional_locant});
+              positional_locant = '\0'; // reset the assigner
             }
-            else if(positional_locant)
-              positional_locant += 23;
-
-            pending_large = false;
+            else{
+              if(size_modifier){
+                fprintf(stderr,"Error: unknown size modification read but not evaluated/n");
+                Fatal(i+start);
+              }
+              ring_components.push_back({expecting_modifier,'A'});
+            }
+            size_set = 0;
+            expecting_modifier = 0;
           }
-          else if(expected_locants){
+          else if(expecting_locants){
 
             if(pending_multi){
               multicyclic_locants.push_back(ch);
-              expected_locants--;
+              expecting_locants--;
             }
             else if (pending_pseudo){
               fuses.push_back(ch);
-              expected_locants--; 
+              expecting_locants--; 
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2049,14 +2064,13 @@ struct WLNRing
           }
           else if(block[i-1] == ' '){
 
-            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
+            if(completed_multi && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
               size_set = 1; 
               positional_locant = ch;
             }
             else{
               positional_locant = ch;
-              expecting_component = 1;
               pending_bridge = true;
             }
             break;
@@ -2067,20 +2081,37 @@ struct WLNRing
           }
 
         case 'T':
+          if(expecting_modifier){
+            if(!handle_ring_component(positional_locant,expecting_modifier,size_modifier,ring_components))
+              Fatal(start+i);
+              
+            size_modifier = 0;
+            positional_locant = '\0';
+            expecting_modifier = 0; 
+          }    
+          
           if(i==0){
             heterocyclic = true; 
-            expecting_component = 1;
             break; 
           }
-          else if(pending_large){
-            if(size_set == 1 && ring_size_specifier){
-              ring_size_specifier += 23; 
-              size_set = 2;
-            }
-            else if(positional_locant)
-              positional_locant += 23;
 
-            pending_large = false;
+
+          else if(expecting_modifier){
+            if(positional_locant){
+              positional_locant += (size_modifier * 23);
+              ring_components.push_back({expecting_modifier,positional_locant});
+              positional_locant = '\0'; // reset the assigner
+            }
+            else{
+              if(size_modifier){
+                fprintf(stderr,"Error: unknown size modification read but not evaluated/n");
+                Fatal(i+start);
+              }
+              ring_components.push_back({expecting_modifier,'A'});
+            }
+            size_set = 0;
+            expecting_modifier = 0;
+            break;
           }
           else if (pending_special){
             special.push_back(ch);
@@ -2090,15 +2121,15 @@ struct WLNRing
             } 
             break;
           }
-          if(expected_locants){
+          if(expecting_locants){
 
             if(pending_multi){
               multicyclic_locants.push_back(ch);
-              expected_locants--;
+              expecting_locants--;
             }
             else if (pending_pseudo){
               fuses.push_back(ch);
-              expected_locants--; 
+              expecting_locants--; 
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2111,12 +2142,6 @@ struct WLNRing
             break;
           }
           else if (positional_locant || std::isdigit(block[i-1])){
-            
-            if(pending_large){
-              pending_large=false;
-              aromaticity.push_back(true);
-            }
-
             pending_aromatics = true;
             aromaticity.push_back(false);
             positional_locant = ch;
@@ -2124,14 +2149,13 @@ struct WLNRing
           }
           else if(block[i-1] == ' '){
 
-            if(multi_completed && !ring_size_specifier){ // a size specifier is always needed
+            if(completed_multi && !ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
               size_set = 1;
               positional_locant = ch;
             }
             else{
               positional_locant = ch;
-              expecting_component = 1;
               pending_bridge = true;
             }
             break;
@@ -2145,15 +2169,21 @@ struct WLNRing
         case 'J':
           end = i;
 
-          if(pending_large){
-            if(size_set == 1 && ring_size_specifier){
-              ring_size_specifier += 23; 
-              size_set = 2;
+          if(expecting_modifier){
+            if(positional_locant){
+              positional_locant += (size_modifier * 23);
+              ring_components.push_back({expecting_modifier,positional_locant});
+              positional_locant = '\0'; // reset the assigner
             }
-            else if(positional_locant)
-              positional_locant += 23;
-
-            pending_large = false;
+            else{
+              if(size_modifier){
+                fprintf(stderr,"Error: unknown size modification read but not evaluated/n");
+                Fatal(i+start);
+              }
+              ring_components.push_back({expecting_modifier,'A'});
+            }
+            size_set = 0;
+            expecting_modifier = 0;
           }
 
           if(i==block.size() - 1){
@@ -2163,15 +2193,14 @@ struct WLNRing
             }
             break;
           }
-          else if(expected_locants){
-
+          else if(expecting_locants){
             if(pending_multi){
               multicyclic_locants.push_back(ch);
-              expected_locants--;
+              expecting_locants--;
             }
             else if (pending_pseudo){
               fuses.push_back(ch);
-              expected_locants--; 
+              expecting_locants--; 
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2189,13 +2218,12 @@ struct WLNRing
           }
           else if(block[i-1] == ' '){
 
-            if(multi_completed && !ring_size_specifier){
+            if(completed_multi && !ring_size_specifier){
               ring_size_specifier = ch; 
               size_set = 1;
               positional_locant = ch;
             }
             else{
-              expecting_component = 1;
               pending_bridge = true;
               positional_locant = ch;
             }
@@ -2206,7 +2234,6 @@ struct WLNRing
             break;
           }
             
-
         default:
           fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
           Fatal(start + i);
