@@ -1670,29 +1670,25 @@ struct WLNRing
 
 
   void FormWLNRing(std::string &block, unsigned int start){
-
+    unsigned int end = 0;
     enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
     const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
-
-    unsigned int ring_type = MONO;   // start in mono and climb up
-    unsigned int end = 0;
 
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
 
+    unsigned int ring_type = MONO;   // start in mono and climb up
 
     // -- paths -- // int allows way more description in states
-    unsigned int pending_multi        = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
-    unsigned int pending_pseudo       = 0; 
-    unsigned int pending_bridge       = 0;
-    unsigned int pending_aromatics    = 0;
+    unsigned int state_multi        = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
+    unsigned int state_pseudo       = 0; 
+    unsigned int state_bridge       = 0;
+    unsigned int state_aromatics    = 0;
     unsigned int pending_special      = 0;
     
     unsigned int expected_locants     = 0;
     unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
 
-    unsigned int  size_set              = 0; 
-    
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0'; 
 
@@ -1729,7 +1725,7 @@ struct WLNRing
           }
 
           if (i > 1 && block[i-1] == ' '){
-            pending_multi   = 1;
+            state_multi   = 1;
             expected_locants = ch - '0';
             break;
           }    
@@ -1756,7 +1752,7 @@ struct WLNRing
           }
 
           expected_locants = 2; 
-          pending_pseudo = true;
+          state_pseudo = true;
           ring_type = PSDBRIDGED; 
           break; 
 
@@ -1769,7 +1765,7 @@ struct WLNRing
           if (positional_locant){
             // opens up inter ring special definition
             if(!pending_special){
-              pending_bridge = false;
+              state_bridge = false;
               //expecting_component = 0;
 
               pending_special = true; 
@@ -1797,25 +1793,21 @@ struct WLNRing
             Fatal(start+i);
           }
 
-
-          if(!size_set && ring_size_specifier)
-            size_set = true;
-
           // resets any pendings and set states
-          if(pending_multi){
-            pending_multi     = false;
+          if(state_multi){
+            state_multi     = false;
             if(ring_type < PERI)
               ring_type = PERI; 
           }
-          else if (pending_bridge){
+          else if (state_bridge){
             if(ring_type < BRIDGED && positional_locant)
               ring_type = BRIDGED; 
 
             bridge_locants.push_back(positional_locant);
-            pending_bridge = false; 
+            state_bridge = false; 
           }
           
-          pending_pseudo    = false;
+          state_pseudo    = false;
           //expecting_component = 0;
           positional_locant = '\0'; // hard reset the positional locant
           break;
@@ -1849,11 +1841,11 @@ struct WLNRing
           }
 
           if(expected_locants){
-            if(pending_multi){
+            if(state_multi){
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
-            else if (pending_pseudo){
+            else if (state_pseudo){
               fuses.push_back(ch);
               expected_locants--; 
             }
@@ -1965,11 +1957,11 @@ struct WLNRing
          
           else if(expected_locants){
 
-            if(pending_multi){
+            if(state_multi){
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
-            else if (pending_pseudo){
+            else if (state_pseudo){
               fuses.push_back(ch);
               expected_locants--; 
             }
@@ -1990,13 +1982,12 @@ struct WLNRing
           else if(block[i-1] == ' '){
 
             if(!ring_size_specifier){ // a size specifier is always needed
-              ring_size_specifier = ch;
-              size_set = 1; 
+              ring_size_specifier = ch; 
               positional_locant = ch;
             }
             else{
               positional_locant = ch;
-              pending_bridge = true;
+              state_bridge = true;
             }
             break;
           }
@@ -2027,11 +2018,11 @@ struct WLNRing
           }
           if(expected_locants){
 
-            if(pending_multi){
+            if(state_multi){
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
-            else if (pending_pseudo){
+            else if (state_pseudo){
               fuses.push_back(ch);
               expected_locants--; 
             }
@@ -2041,12 +2032,12 @@ struct WLNRing
             }
             break;
           }
-          else if (pending_aromatics){
+          else if (state_aromatics){
             aromaticity.push_back(false); // simple here
             break;
           }
           else if (positional_locant || std::isdigit(block[i-1])){
-            pending_aromatics = true;
+            state_aromatics = true;
             aromaticity.push_back(false);
             positional_locant = ch;
             break;
@@ -2055,12 +2046,11 @@ struct WLNRing
 
             if(!ring_size_specifier){ // a size specifier is always needed
               ring_size_specifier = ch;
-              size_set = 1;
               positional_locant = ch;
             }
             else{
               positional_locant = ch;
-              pending_bridge = true;
+              state_bridge = true;
             }
             break;
           }
@@ -2074,11 +2064,11 @@ struct WLNRing
           end = i;
   
           if(expected_locants){
-            if(pending_multi){
+            if(state_multi){
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
-            else if (pending_pseudo){
+            else if (state_pseudo){
               fuses.push_back(ch);
               expected_locants--; 
             }
@@ -2100,11 +2090,10 @@ struct WLNRing
 
             if(!ring_size_specifier){
               ring_size_specifier = ch; 
-              size_set = 1;
               positional_locant = ch;
             }
             else{
-              pending_bridge = true;
+              state_bridge = true;
               positional_locant = ch;
             }
             break;
