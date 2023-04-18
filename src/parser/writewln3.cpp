@@ -1655,18 +1655,41 @@ struct WLNRing
     return positional_locant;
   }
 
+  WLNSymbol* hypervalent_element(unsigned char sym){
+
+    WLNSymbol *new_symbol = 0;
+    switch(sym){
+      
+      case 'P':
+      case 'S':
+      case 'G':
+      case 'E':
+      case 'I':
+      case 'F':
+        new_symbol = AllocateWLNSymbol(sym);
+        new_symbol->set_edges(6);            // allows FCl6
+        new_symbol->set_type(STANDARD);
+        return new_symbol;
+
+      default:
+        fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
+    }
+    
+    return 0;
+  }
+
   
   void FormWLNRing(std::string &block, unsigned int start){
-    unsigned int end = 0;
+
+
     enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
     const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
+    unsigned int ring_type = MONO;   // start in mono and climb up
+
 
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
     bool skip               = false;  // allows a size skipper 
-
-
-    unsigned int ring_type = MONO;   // start in mono and climb up
 
     
     // -- paths -- // 
@@ -1677,7 +1700,7 @@ struct WLNRing
     unsigned int state_pseudo       = 0; 
     unsigned int state_bridge       = 0;
     unsigned int state_aromatics    = 0;
-    unsigned int pending_special    = 0;
+    unsigned int state_special      = 0; // 0 - closed, 1 - open, 2 - open for element, 3 - open for expanded ring size
     
     unsigned int expected_locants     = 0;
     unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
@@ -1692,7 +1715,7 @@ struct WLNRing
     std::vector<bool> aromaticity; 
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
 
-    std::vector<unsigned char> fuses; // read as pairs
+    std::vector<unsigned char> pseudo_locants; // read as pairs
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
     
@@ -1705,7 +1728,7 @@ struct WLNRing
 
     while(ch){
       
-      fprintf(stderr,"%c: %d\n",ch,state_multi);
+      fprintf(stderr,"%c (%d): %d\n",ch,ch,state_multi);
 
       switch(ch){
 
@@ -1717,9 +1740,30 @@ struct WLNRing
             Fatal(i+start);
           }
 
-          if(state_multi == 1)
-            state_multi = 2;
+        
+          if(state_multi == 1){
+            if(state_special){
+              // this is a extra branch locant added
+              // going to go backwards from 252, seems like it should be okay 99% of the time
+              unsigned char branch_break = multicyclic_locants.back();
+              branch_break = 252 - locant_to_int(branch_break);
+              multicyclic_locants.back() = branch_break; 
+              state_special = 0;
+            }
+            else
+               state_multi = 2;
+          }
+          else if(state_special){
+            // can we assume this came from a ring assignment
+            if(special.size() == 1 && std::stoi(special)){
+              unsigned char branch_break = ring_components.back().second;
+              branch_break = 252 - locant_to_int(branch_break);
+              ring_components.back().second = branch_break; 
+              state_special = 0;
+            }
+          }
 
+          positional_locant = '\0'; // hard resets on spaces
           break;
 
         case '&':
@@ -1728,19 +1772,78 @@ struct WLNRing
 
           }
           else{
-            ch += 23; 
-            if (state_multi == 3)
-              ring_size_specifier = ch;
+            if(ch > 232){
+              fprintf(stderr,"Error: creating molecule with atoms > 252, is this reasonable?\n");
+              Fatal(i+start);
+            }
 
-            skip = true;
+            ch = block[i-1] + 23; 
+
+            if(state_multi == 3){
+              ring_size_specifier = ch;
+              break;
+            }
+            if(positional_locant){
+              positional_locant = ch;
+              break;
+            }
           }
           
           break;
 
         case '/':
-          break;
+          expected_locants = 2; 
+          state_pseudo = true;
+          break; 
+
           
         case '-':
+
+          if(expected_locants){
+            // can only happen in designated chain
+            if(state_multi){
+              // this is a extra branch locant added
+              // going to go backwards from 252, seems like it should be okay 99% of the time
+              unsigned char branch_break = multicyclic_locants.back();
+              branch_break = 252 - locant_to_int(branch_break);
+              multicyclic_locants.back() = branch_break; 
+              state_special = 0;
+            }
+
+            break;
+          }
+
+          if(!state_special){
+            state_special = 1;
+          }
+          else if(state_special){
+
+            if(state_special == 3){
+              if(positional_locant)
+                ring_components.push_back({std::stoi(special),positional_locant});
+              else
+                ring_components.push_back({std::stoi(special),'A'});
+            }
+            else if (state_special == 2 && positional_locant){
+
+              if(special.size() == 1)
+                locants[positional_locant] = hypervalent_element(special[0]);
+              else if(special.size() == 2)
+                locants[positional_locant] = define_element(special);
+              
+              if(!locants[positional_locant])
+                Fatal(i+start);
+  
+              locants[positional_locant]->type = RING;
+            }
+            else{
+              fprintf(stderr,"Error: unable to create special element - positional locant error\n");
+              Fatal(i+start);
+            }
+
+            state_special = 0; //reset state
+            special.clear();
+          }
           break;
 
         // numerals - easy access
@@ -1758,6 +1861,16 @@ struct WLNRing
           if (i > 1 && block[i-1] == ' '){
             state_multi   = 1; // enter multi state
             expected_locants = ch - '0';
+          }
+          else if (state_special){
+            if (state_special == 2){
+              fprintf(stderr,"Error: cannot mix element and expanded ring notation in the same syntax\n");
+              Fatal(i+start);
+            }
+
+            state_special = 3;
+            special.push_back(ch);
+            break;
           }    
           else{
             if(positional_locant) // numbers can never be expanded by '&' characters
@@ -1799,7 +1912,7 @@ struct WLNRing
               expected_locants--;
             }
             else if (state_pseudo){
-              fuses.push_back(ch);
+              pseudo_locants.push_back(ch);
               expected_locants--; 
             }
             else{
@@ -1808,465 +1921,287 @@ struct WLNRing
             }
             break;
           }
+          else if (state_special){
+            state_special = 2;
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
+          else if(state_multi){
+            if(state_multi == 2){
+              state_multi = 3;
+              ring_size_specifier = ch;
+              break;
+            }
+             else if(state_multi == 3){
+              state_multi = 0; // reset the multi state
+              positional_locant = ch;
+            }
+          }
+          else if (positional_locant){
+           
+            if (opt_debug)
+              fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
-          if(state_multi == 2){
-            state_multi = 3;
-            ring_size_specifier = ch;
+            WLNSymbol *new_locant = 0; 
+
+            switch(ch){
+              case 'S':
+              case 'P':
+                if(!heterocyclic)
+                  warned = true;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(5);
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'Y':
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(3);
+                positional_locant++; // allows inline defition continuation
+                break;
+              case 'N':
+                if(!heterocyclic)
+                  warned = true;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(3);
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'V':
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(2);
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'M':
+              case 'O':
+                if(!heterocyclic)
+                  warned = true;
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(2);
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'X':
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(4);
+                positional_locant++; // allows inline defition continuation
+                break;
+              case 'K':
+                if(!heterocyclic)
+                  warned = true;
+
+                new_locant = assign_locant(positional_locant,ch);
+                new_locant->set_edges(4);
+                positional_locant++; // allows inline defition continuation
+                break;
+
+              case 'U':
+                if(opt_debug)
+                  fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
+
+                bond_increases.push_back({positional_locant,positional_locant+1});
+                break;
+
+              default:
+                fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
+                Fatal(start+i);
+            }
+
           }
-          else if(state_multi == 3){
-            ring_type = PERI;
-            state_multi = 0; // reset the multi state
-          }
-            
+          else
+            positional_locant = ch;
 
           break;
 
 
         case 'L':
-        case 'T':
-
-          if(state_multi == 3){
-            ring_type = PERI;
-            state_multi = 0; // reset the multi state
+          if(i==0){
+            heterocyclic = false; 
+            break;
           }
-            
+          else if(expected_locants){
+            if(state_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (state_pseudo){
+              pseudo_locants.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+            break;
+          }
+          else if (state_special){
+            state_special = 2;
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
+          else if(state_multi){
+            if(state_multi == 2){
+              state_multi = 3;
+              ring_size_specifier = ch;
+              break;
+            }
+            else if(state_multi == 3){
+              state_multi = 0; // reset the multi state
+              positional_locant = ch;
+            }
+              
+          }
+          else 
+            positional_locant = ch;
 
           break;
 
 
-        case 'J':
-
-          if(state_multi == 3){
-            ring_type = PERI;
-            state_multi = 0; // reset the multi state
+        case 'T':
+          if(i==0){
+            heterocyclic = true; 
+            break;
           }
 
+          if(expected_locants){
+            if(state_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (state_pseudo){
+              pseudo_locants.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+            break;
+          }
+          else if (state_special){
+            state_special = 2;
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
+          else if(state_multi){
+            if(state_multi == 2){
+              state_multi = 3;
+              ring_size_specifier = ch;
+              break;
+            }
+            else if(state_multi == 3){
+              // AROMATIC CAN GO HERE
+              state_multi = 0; // reset the multi state
+              positional_locant = ch;
+            }
+          }
+          else
+            positional_locant = ch;
+            
+
+          break;
+
+        
+        // CLOSE
+
+        case 'J':
+          if (i == block.size()-1){
+
+            if(ring_components.empty()){
+              fprintf(stderr,"Error: error in reading ring components, check numerals in ring notation\n");
+              Fatal(start+i);
+            }
+
+            if (pseudo_locants.size() > 1)
+              ring_type = PSDBRIDGED;
+
+            if (multicyclic_locants.size() > 1 && ring_type < PSDBRIDGED)
+              ring_type = PERI;
+
+            if (ring_components.size() > 1 && ring_type < PERI)
+              ring_type = POLY;
+
+
+            if (aromaticity.size() == 1 && aromaticity[0] == false){
+              while(aromaticity.size() < ring_components.size())
+                aromaticity.push_back(false);
+            }
+            else if (aromaticity.empty()){
+              while(aromaticity.size() < ring_components.size())
+                aromaticity.push_back(true);
+            }
+
+            // reverse the aromaticity assignments, how the notation works
+            std::reverse(aromaticity.begin(), aromaticity.end());
+          }
+          else if(expected_locants){
+            if(state_multi){
+              multicyclic_locants.push_back(ch);
+              expected_locants--;
+            }
+            else if (state_pseudo){
+              pseudo_locants.push_back(ch);
+              expected_locants--; 
+            }
+            else{
+              fprintf(stderr,"Error: unhandled locant rule\n");
+              Fatal(start+i);
+            }
+            break;
+          }
+          else if (state_special){
+            state_special = 2;
+            special.push_back(ch);
+            if(special.size() > 2){
+              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              Fatal(start+i);
+            } 
+            break;
+          }
+          else if(state_multi){
+            if(state_multi == 2){
+              state_multi = 3;
+              ring_size_specifier = ch;
+              break;
+            }
+            else if(state_multi == 3){
+              // AROMATIC CAN GO HERE
+              state_multi = 0; // reset the multi state
+              positional_locant = ch;
+            }
+          }
+          else 
+            positional_locant = ch;
+          
           break;
 
         default:
           // these can only be expanded chars
-          positional_locant = ch;
-          break;
+          fprintf(stderr,"WARNING: SWITCH UNCLOSED\n");
+  
       }
       
-      if(skip){
-        i++;
-        skip = false; // means we dont update i
-      }
-      else{
-        i++;
-        ch = *(block_str++);
-      }
-    }
-
   
-    // for (unsigned int i=0;i<block.size();i++){
-    //   ch = block[i];
-        
-    //   switch(ch){
-    //     case '0':
-    //     case '1':
-    //     case '2':
-    //     case '3':
-    //     case '4':
-    //     case '5':
-    //     case '6':
-    //     case '7':
-    //     case '8':
-    //     case '9':
-    //       if (i > 1 && block[i-1] == ' '){
-    //         state_multi   = 1;
-    //         expected_locants = ch - '0';
-            
-    //       }    
-    //       else{
-    //         if(positional_locant)
-    //           ring_components.push_back({ch-'0',positional_locant});
-    //         else
-    //           ring_components.push_back({ch-'0','A'});
-
-    //         positional_locant = '\0';
-            
-    //       }
-
-    //       break;
-          
- 
-    //     case '/':
-
-    //       if(pending_special){
-    //         fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
-    //         Fatal(start+i);
-    //       }
-
-    //       expected_locants = 2; 
-    //       state_pseudo = true;
-    //       ring_type = PSDBRIDGED; 
-    //       break; 
-
-    //     case '-':
-  
-    //       if (positional_locant){
-    //         // opens up inter ring special definition
-    //         if(!pending_special){
-    //           state_bridge = false;
-    //           //expecting_component = 0;
-
-    //           pending_special = true; 
-    //         }
-    //         else{
-    //           locants[positional_locant] = define_element(special);
-    //           locants[positional_locant]->type = RING;
-    //           special.clear();
-    //         }
-
-    //       }
-    //       break;
-
-    //     // aromatics and locant expansion
-    //     case '&':
-    //       if(positional_locant)
-    //         size_modifier++;
-    //       break;
-
-    //     case ' ':
-
-    //       if(expected_locants){
-    //         fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
-    //         Fatal(start+i);
-    //       }
-
-    //       // resets any pendings and set states
-    //       if(state_multi == 1){
-    //         state_multi =  2; // increase to now get the size denotion
-    //         if(ring_type < PERI)
-    //           ring_type = PERI; 
-    //       }
-    //       else if (state_bridge){
-    //         if(ring_type < BRIDGED && positional_locant)
-    //           ring_type = BRIDGED; 
-
-    //         bridge_locants.push_back(positional_locant);
-    //         state_bridge = false; 
-    //       }
-          
-    //       state_pseudo    = false;
-    //       //expecting_component = 0;
-    //       positional_locant = '\0'; // hard reset the positional locant
-    //       break;
-
-    //     case 'A':
-    //     case 'B':
-    //     case 'C':
-    //     case 'D':
-    //     case 'E':
-    //     case 'F':
-    //     case 'G':
-    //     case 'H':
-    //     case 'I':
-    //     case 'K':
-    //     case 'M':
-    //     case 'N':
-    //     case 'O':
-    //     case 'P':
-    //     case 'Q':
-    //     case 'R':
-    //     case 'S':
-    //     case 'U':
-    //     case 'V':
-    //     case 'W':
-    //     case 'X':
-    //     case 'Y':
-    //     case 'Z':
-
-    //       if(expected_locants){
-    //         if(state_multi){
-    //           multicyclic_locants.push_back(ch);
-    //           expected_locants--;
-    //         }
-    //         else if (state_pseudo){
-    //           fuses.push_back(ch);
-    //           expected_locants--; 
-    //         }
-    //         else{
-    //           fprintf(stderr,"Error: unhandled locant rule\n");
-    //           Fatal(start+i);
-    //         }
-    //         break;
-    //       }
-
-    //       else if(block[i-1] == ' '){
-    //         // if(completed_multi && !ring_size_specifier){ // a size specifier is always needed
-    //         //   ring_size_specifier = ch;
-    //         //   size_set = 1; 
-    //         // }
-    //         positional_locant = ch;
-    //         break;
-    //       }
-    //       else if (positional_locant){
-    //         if (opt_debug)
-    //           fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
-
-    //         WLNSymbol *new_locant = 0; 
-
-    //         switch(ch){
-    //           case 'S':
-    //           case 'P':
-    //             if(!heterocyclic)
-    //               warned = true;
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(5);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-
-    //           case 'Y':
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(3);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-    //           case 'N':
-    //             if(!heterocyclic)
-    //               warned = true;
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(3);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-
-    //           case 'V':
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(2);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-
-    //           case 'M':
-    //           case 'O':
-    //             if(!heterocyclic)
-    //               warned = true;
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(2);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-
-    //           case 'X':
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(4);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-    //           case 'K':
-    //             if(!heterocyclic)
-    //               warned = true;
-
-    //             new_locant = assign_locant(positional_locant,ch);
-    //             new_locant->set_edges(4);
-    //             positional_locant++; // allows inline defition continuation
-    //             break;
-
-    //           case 'U':
-    //             if(opt_debug)
-    //               fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
-
-    //             bond_increases.push_back({positional_locant,positional_locant+1});
-    //             break;
-
-              
-    //           default:
-    //             fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
-    //             Fatal(start+i);
-    //         }            
-    //         break;
-    //       }
-    //       else{
-    //         positional_locant = ch;
-    //         break;
-    //       }
-          
-
-    //     // openers 
-    //     case 'L':
-
-    //       if(i==0){
-    //        heterocyclic = false; 
-    //        break;
-    //       }
-         
-    //       else if(expected_locants){
-
-    //         if(state_multi){
-    //           multicyclic_locants.push_back(ch);
-    //           expected_locants--;
-    //         }
-    //         else if (state_pseudo){
-    //           fuses.push_back(ch);
-    //           expected_locants--; 
-    //         }
-    //         else{
-    //           fprintf(stderr,"Error: unhandled locant rule\n");
-    //           Fatal(start+i);
-    //         }
-    //         break;
-    //       }
-    //       else if (pending_special){
-    //         special.push_back(ch);
-    //         if(special.size() > 2){
-    //           fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-    //           Fatal(start+i);
-    //         } 
-    //         break;
-    //       }
-    //       else if(block[i-1] == ' '){
-
-    //         if(!ring_size_specifier){ // a size specifier is always needed
-    //           ring_size_specifier = ch; 
-    //           positional_locant = ch;
-    //         }
-    //         else{
-    //           positional_locant = ch;
-    //           state_bridge = true;
-    //         }
-    //         break;
-    //       }
-    //       else{
-    //         positional_locant = ch;
-    //         break;
-    //       }
-
-    //     case 'T':
- 
-          
-    //       if(i==0){
-    //         heterocyclic = true; 
-    //         break; 
-    //       }
-
-
-    //       else if (pending_special){
-    //         special.push_back(ch);
-    //         if(special.size() > 2){
-    //           fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-    //           Fatal(start+i);
-    //         } 
-    //         break;
-    //       }
-    //       if(expected_locants){
-
-    //         if(state_multi){
-    //           multicyclic_locants.push_back(ch);
-    //           expected_locants--;
-    //         }
-    //         else if (state_pseudo){
-    //           fuses.push_back(ch);
-    //           expected_locants--; 
-    //         }
-    //         else{
-    //           fprintf(stderr,"Error: unhandled locant rule\n");
-    //           Fatal(start+i);
-    //         }
-    //         break;
-    //       }
-    //       else if (state_aromatics){
-    //         aromaticity.push_back(false); // simple here
-    //         break;
-    //       }
-    //       else if (positional_locant || std::isdigit(block[i-1])){
-    //         state_aromatics = true;
-    //         aromaticity.push_back(false);
-    //         positional_locant = ch;
-    //         break;
-    //       }
-    //       else if(block[i-1] == ' '){
-
-    //         if(!ring_size_specifier){ // a size specifier is always needed
-    //           ring_size_specifier = ch;
-    //           positional_locant = ch;
-    //         }
-    //         else{
-    //           positional_locant = ch;
-    //           state_bridge = true;
-    //         }
-    //         break;
-    //       }
-    //       else{
-    //         positional_locant = ch;
-    //         break;
-    //       }
-
-    //     //closure
-    //     case 'J':
-    //       end = i;
-  
-    //       if(expected_locants){
-    //         if(state_multi){
-    //           multicyclic_locants.push_back(ch);
-    //           expected_locants--;
-    //         }
-    //         else if (state_pseudo){
-    //           fuses.push_back(ch);
-    //           expected_locants--; 
-    //         }
-    //         else{
-    //           fprintf(stderr,"Error: unhandled locant rule\n");
-    //           Fatal(start+i);
-    //         }
-    //         break;
-    //       }
-    //       else if (pending_special){
-    //         special.push_back(ch);
-    //         if(special.size() > 2){
-    //           fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-    //           Fatal(start+i);
-    //         } 
-    //         break;
-    //       }
-    //       else if(block[i-1] == ' '){
-
-    //         if(!ring_size_specifier){
-    //           ring_size_specifier = ch; 
-    //           positional_locant = ch;
-    //         }
-    //         else{
-    //           state_bridge = true;
-    //           positional_locant = ch;
-    //         }
-    //         break;
-    //       }
-    //       else{
-    //         positional_locant = ch;
-    //         break;
-    //       }
-            
-    //     default:
-    //       fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
-    //       Fatal(start + i);
-    //   }
-       
-    // }
-
-    // set the ring type if not handled in parser
-    if (ring_components.size() > 1 && ring_type < PERI)
-      ring_type = POLY;
-    
-
-    // shorthand aromatic conditions
-    if (aromaticity.size() == 1 && aromaticity[0] == false){
-      while(aromaticity.size() < ring_components.size())
-        aromaticity.push_back(false);
+      i++;
+      ch = *(block_str++);
     }
-    else if (aromaticity.empty()){
-      while(aromaticity.size() < ring_components.size())
-        aromaticity.push_back(true);
-    }
-
-    // reverse the aromaticity assignments, how the notation works
-    std::reverse(aromaticity.begin(), aromaticity.end());
-
 
     if(warned)
       fprintf(stderr,"Warning: heterocyclic ring notation required for inter atom assignment, change starting 'L' to 'T'\n");
     
-    if(ring_components.empty()){
-      fprintf(stderr,"Error: error in reading ring components, check numerals in ring notation\n");
-      Fatal(start+end);
-    }
 
     // debug here
     if (opt_debug){
@@ -2295,9 +2230,9 @@ struct WLNRing
       }
       fprintf(stderr,"\n");
 
-      fprintf(stderr,"  hard fuses: ");
-      for (unsigned int i=1;i<fuses.size();i+=2)
-        fprintf(stderr,"(%c --> %c) ",fuses[i-1],fuses[i]);
+      fprintf(stderr,"  pseudo bridge points: ");
+      for (unsigned int i=1;i<pseudo_locants.size();i+=2)
+        fprintf(stderr,"(%c --> %c) ",pseudo_locants[i-1],pseudo_locants[i]);
       fprintf(stderr,"\n");
 
       
@@ -2323,7 +2258,7 @@ struct WLNRing
     }
 
     if (!state)
-      Fatal(start+end);
+      Fatal(start+i);
 
     for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases)
       increase_bond_order(locants[bond_pair.second],locants[bond_pair.first]);
@@ -3401,7 +3336,7 @@ struct WLNGraph
           pending_locant = false;
         }
 
-        else if (pending_closure)
+        else if (pending_closure && ( (i<len-1 && wln[i+1] == ' ') || i == len -1))
         {
           block_end = i;
 
@@ -3437,12 +3372,7 @@ struct WLNGraph
           bond_ticks = 0;
           pending_closure = false;
         }
-        else{
-          fprintf(stderr,"Error: J notation used outside of a ring definition is undefined\n");
-          Fatal(i);
-        }
-          
-
+        
         break;
 
       case 'L':
