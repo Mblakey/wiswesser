@@ -142,7 +142,7 @@ static void Reindex_lookups()
 
 struct WLNSymbol
 {
-  std::string value; // allows easy modifiers
+  unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
 
   // will deprecate special DEFO, and switch the first char of 
@@ -159,25 +159,12 @@ struct WLNSymbol
   // if default needed
   WLNSymbol()
   {
-    value = "";
+    ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
     previous = 0;
   }
   ~WLNSymbol(){};
-
-  unsigned char get_ch(){
-    if(value.empty()){
-      fprintf(stderr,"Error: accessing empty value\n");
-      return 0;
-    }
-    else
-      return value[0];
-  }
-
-  void add_modifier(unsigned char mod){
-    value.push_back(mod);
-  }
 
   void set_edges(unsigned int edges)
   {
@@ -188,7 +175,6 @@ struct WLNSymbol
   {
     type = i;
   }
-
 
   void add_special(unsigned int s, unsigned int e)
   {
@@ -207,7 +193,7 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 
   WLNSymbol *wln = new WLNSymbol;
   symbol_mempool.push_back(wln);
-  wln->value = ch;
+  wln->ch = ch;
 
   index_lookup[wln] = glob_index;
   symbol_lookup[glob_index] = wln;
@@ -219,7 +205,7 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 void DeallocateWLNSymbol(WLNSymbol *node)
 {
   if (opt_debug)
-    fprintf(stderr, "  manual deallocation: %c\n", node->get_ch());
+    fprintf(stderr, "  manual deallocation: %c\n", node->ch);
 
   // find the node in the mem pool
   unsigned int i = 0;
@@ -237,7 +223,7 @@ void DeallocateWLNSymbol(WLNSymbol *node)
 WLNSymbol *copy_symbol(WLNSymbol *src)
 {
 
-  WLNSymbol *copy = AllocateWLNSymbol(src->get_ch());
+  WLNSymbol *copy = AllocateWLNSymbol(src->ch);
   copy->allowed_edges = src->allowed_edges;
   copy->num_edges = src->num_edges;
 
@@ -262,13 +248,13 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
   // if the child cannot handle the new valence
   if ((child->num_edges + bond) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->get_ch(),child->num_edges+bond, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+bond, child->allowed_edges);
     return false;
   }
   // same for the parent
   if ((parent->num_edges + bond) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->get_ch(),parent->num_edges+bond, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+bond, parent->allowed_edges);
     return false;
   }
 
@@ -317,13 +303,13 @@ bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond){
   // same checks
   if ((child->num_edges + diff) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->get_ch(),child->num_edges+diff, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+diff, child->allowed_edges);
     return false;
   }
   
   if ((parent->num_edges + diff) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->get_ch(),parent->num_edges+diff, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+diff, parent->allowed_edges);
     return false;
   }
 
@@ -365,13 +351,13 @@ bool increase_bond_order(WLNSymbol *child, WLNSymbol *parent){
 
   if ((child->num_edges + 1) > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->get_ch(),child->num_edges+1, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
     return false;
   }
   
   if ((parent->num_edges + 1) > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->get_ch(),parent->num_edges+1, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
     return false;
   }
 
@@ -420,7 +406,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
     return true; // save some work
 
   // set aromatics
-  switch(parent->get_ch()){
+  switch(parent->ch){
 
     case 'Y':
     case 'O':
@@ -445,12 +431,12 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       break;
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->get_ch());
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->ch);
       return false;
   }
 
   // set aromatics
-  switch(child->get_ch()){
+  switch(child->ch){
     
     case 'Y':
     case 'O':
@@ -475,20 +461,20 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       break; 
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->get_ch());
+      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->ch);
       return false;
   }
 
   
   if (child->num_edges > child->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->get_ch(),child->num_edges, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges, child->allowed_edges);
     return false;
   }
 
   if (parent->num_edges > parent->allowed_edges)
   {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->get_ch(),parent->num_edges, parent->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges, parent->allowed_edges);
     return false;
   }
 
@@ -530,7 +516,7 @@ WLNSymbol* make_methyl(){
 /* resolve carbon methyl assumptions */
 bool resolve_methyls(WLNSymbol *target){
 
-  switch(target->get_ch()){
+  switch(target->ch){
 
     case 'Y':
     case 'X':
@@ -543,7 +529,7 @@ bool resolve_methyls(WLNSymbol *target){
       break;
 
     default:
-      fprintf(stderr,"Error: resolving methyls performed on invalid symbol: %c\n",target->get_ch());
+      fprintf(stderr,"Error: resolving methyls performed on invalid symbol: %c\n",target->ch);
       return false;
   }
 
@@ -1663,12 +1649,13 @@ struct WLNRing
     return true;
   }
 
-  unsigned char modifiy_locant(unsigned char positional_locant,unsigned int size_modifier){
-    positional_locant += (size_modifier * 23);
+
+  unsigned char modifiy_locant(unsigned char positional_locant){
+    positional_locant += (23);
     return positional_locant;
   }
 
-
+  
   void FormWLNRing(std::string &block, unsigned int start){
     unsigned int end = 0;
     enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
@@ -1676,15 +1663,21 @@ struct WLNRing
 
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
+    bool skip               = false;  // allows a size skipper 
+
 
     unsigned int ring_type = MONO;   // start in mono and climb up
 
-    // -- paths -- // int allows way more description in states
-    unsigned int state_multi        = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
+    
+    // -- paths -- // 
+    // int allows way more description in states
+
+
+    unsigned int state_multi        = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation, 3 - holding size denotation
     unsigned int state_pseudo       = 0; 
     unsigned int state_bridge       = 0;
     unsigned int state_aromatics    = 0;
-    unsigned int pending_special      = 0;
+    unsigned int pending_special    = 0;
     
     unsigned int expected_locants     = 0;
     unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
@@ -1705,10 +1698,53 @@ struct WLNRing
     
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
-    for (unsigned int i=0;i<block.size();i++){
-      unsigned char ch = block[i];
+
+    const char *block_str = block.c_str();
+    unsigned int i = 0; 
+    unsigned char ch = *block_str++;
+
+    while(ch){
+      
+      fprintf(stderr,"%c: %d\n",ch,state_multi);
 
       switch(ch){
+
+        // specials
+
+        case ' ':
+          if(expected_locants){
+            fprintf(stderr,"Error: %d locants expected before space character\n");
+            Fatal(i+start);
+          }
+
+          if(state_multi == 1)
+            state_multi = 2;
+
+          break;
+
+        case '&':
+          if (state_aromatics){
+
+
+          }
+          else{
+            ch += 23; 
+            if (state_multi == 3)
+              ring_size_specifier = ch;
+
+            skip = true;
+          }
+          
+          break;
+
+        case '/':
+          break;
+          
+        case '-':
+          break;
+
+        // numerals - easy access
+
         case '0':
         case '1':
         case '2':
@@ -1719,97 +1755,18 @@ struct WLNRing
         case '7':
         case '8':
         case '9':
-          if(size_modifier && positional_locant){
-            modifiy_locant(positional_locant,size_modifier);
-            size_modifier = 0;
-          }
-
           if (i > 1 && block[i-1] == ' '){
-            state_multi   = 1;
+            state_multi   = 1; // enter multi state
             expected_locants = ch - '0';
-            break;
           }    
           else{
-            if(positional_locant)
+            if(positional_locant) // numbers can never be expanded by '&' characters
               ring_components.push_back({ch-'0',positional_locant});
             else
               ring_components.push_back({ch-'0','A'});
 
             positional_locant = '\0';
-            break;
           }
-          
-            
-        case '/':
-          if(size_modifier && positional_locant){
-            modifiy_locant(positional_locant,size_modifier);
-            size_modifier = 0;
-          }
-
-          if(pending_special){
-            fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
-            Fatal(start+i);
-          }
-
-          expected_locants = 2; 
-          state_pseudo = true;
-          ring_type = PSDBRIDGED; 
-          break; 
-
-        case '-':
-          if(size_modifier && positional_locant){
-            modifiy_locant(positional_locant,size_modifier);
-            size_modifier = 0;
-          }
-
-          if (positional_locant){
-            // opens up inter ring special definition
-            if(!pending_special){
-              state_bridge = false;
-              //expecting_component = 0;
-
-              pending_special = true; 
-            }
-            else{
-              locants[positional_locant] = define_element(special);
-              locants[positional_locant]->type = RING;
-              special.clear();
-            }
-
-          }
-          break;
-
-        // aromatics and locant expansion
-        case '&':
-          if(positional_locant)
-            size_modifier++;
-
-          break;
-
-        case ' ':
-
-          if(expected_locants){
-            fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
-            Fatal(start+i);
-          }
-
-          // resets any pendings and set states
-          if(state_multi){
-            state_multi     = false;
-            if(ring_type < PERI)
-              ring_type = PERI; 
-          }
-          else if (state_bridge){
-            if(ring_type < BRIDGED && positional_locant)
-              ring_type = BRIDGED; 
-
-            bridge_locants.push_back(positional_locant);
-            state_bridge = false; 
-          }
-          
-          state_pseudo    = false;
-          //expecting_component = 0;
-          positional_locant = '\0'; // hard reset the positional locant
           break;
 
         case 'A':
@@ -1835,10 +1792,6 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
-          if(size_modifier && positional_locant){
-            modifiy_locant(positional_locant,size_modifier);
-            size_modifier = 0;
-          }
 
           if(expected_locants){
             if(state_multi){
@@ -1856,259 +1809,437 @@ struct WLNRing
             break;
           }
 
-          else if(block[i-1] == ' '){
-            // if(completed_multi && !ring_size_specifier){ // a size specifier is always needed
-            //   ring_size_specifier = ch;
-            //   size_set = 1; 
-            // }
-            positional_locant = ch;
-            break;
+          if(state_multi == 2){
+            state_multi = 3;
+            ring_size_specifier = ch;
           }
-          else if (positional_locant){
-            if (opt_debug)
-              fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
-
-            WLNSymbol *new_locant = 0; 
-
-            switch(ch){
-              case 'S':
-              case 'P':
-                if(!heterocyclic)
-                  warned = true;
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(5);
-                positional_locant++; // allows inline defition continuation
-                break;
-
-              case 'Y':
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(3);
-                positional_locant++; // allows inline defition continuation
-                break;
-              case 'N':
-                if(!heterocyclic)
-                  warned = true;
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(3);
-                positional_locant++; // allows inline defition continuation
-                break;
-
-              case 'V':
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(2);
-                positional_locant++; // allows inline defition continuation
-                break;
-
-              case 'M':
-              case 'O':
-                if(!heterocyclic)
-                  warned = true;
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(2);
-                positional_locant++; // allows inline defition continuation
-                break;
-
-              case 'X':
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(4);
-                positional_locant++; // allows inline defition continuation
-                break;
-              case 'K':
-                if(!heterocyclic)
-                  warned = true;
-
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(4);
-                positional_locant++; // allows inline defition continuation
-                break;
-
-              case 'U':
-                if(opt_debug)
-                  fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
-
-                bond_increases.push_back({positional_locant,positional_locant+1});
-                break;
-
-              
-              default:
-                fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
-                Fatal(start+i);
-            }            
-            break;
-          }
-          else{
-            positional_locant = ch;
-            break;
-          }
-          
-
-        // openers 
-        case 'L':
-          if(size_modifier && positional_locant){
-            modifiy_locant(positional_locant,size_modifier);
-            size_modifier = 0;
-          }
-
-
-          if(i==0){
-           heterocyclic = false; 
-           break;
-          }
-         
-          else if(expected_locants){
-
-            if(state_multi){
-              multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              fuses.push_back(ch);
-              expected_locants--; 
-            }
-            else{
-              fprintf(stderr,"Error: unhandled locant rule\n");
-              Fatal(start+i);
-            }
-            break;
-          }
-          else if (pending_special){
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
-            break;
-          }
-          else if(block[i-1] == ' '){
-
-            if(!ring_size_specifier){ // a size specifier is always needed
-              ring_size_specifier = ch; 
-              positional_locant = ch;
-            }
-            else{
-              positional_locant = ch;
-              state_bridge = true;
-            }
-            break;
-          }
-          else{
-            positional_locant = ch;
-            break;
-          }
-
-        case 'T':
-          if(size_modifier && positional_locant){
-            modifiy_locant(positional_locant,size_modifier);
-            size_modifier = 0;
-          }
-          
-          if(i==0){
-            heterocyclic = true; 
-            break; 
-          }
-
-
-          else if (pending_special){
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
-            break;
-          }
-          if(expected_locants){
-
-            if(state_multi){
-              multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              fuses.push_back(ch);
-              expected_locants--; 
-            }
-            else{
-              fprintf(stderr,"Error: unhandled locant rule\n");
-              Fatal(start+i);
-            }
-            break;
-          }
-          else if (state_aromatics){
-            aromaticity.push_back(false); // simple here
-            break;
-          }
-          else if (positional_locant || std::isdigit(block[i-1])){
-            state_aromatics = true;
-            aromaticity.push_back(false);
-            positional_locant = ch;
-            break;
-          }
-          else if(block[i-1] == ' '){
-
-            if(!ring_size_specifier){ // a size specifier is always needed
-              ring_size_specifier = ch;
-              positional_locant = ch;
-            }
-            else{
-              positional_locant = ch;
-              state_bridge = true;
-            }
-            break;
-          }
-          else{
-            positional_locant = ch;
-            break;
-          }
-
-        //closure
-        case 'J':
-          end = i;
-  
-          if(expected_locants){
-            if(state_multi){
-              multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              fuses.push_back(ch);
-              expected_locants--; 
-            }
-            else{
-              fprintf(stderr,"Error: unhandled locant rule\n");
-              Fatal(start+i);
-            }
-            break;
-          }
-          else if (pending_special){
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
-            break;
-          }
-          else if(block[i-1] == ' '){
-
-            if(!ring_size_specifier){
-              ring_size_specifier = ch; 
-              positional_locant = ch;
-            }
-            else{
-              state_bridge = true;
-              positional_locant = ch;
-            }
-            break;
-          }
-          else{
-            positional_locant = ch;
-            break;
+          else if(state_multi == 3){
+            ring_type = PERI;
+            state_multi = 0; // reset the multi state
           }
             
+
+          break;
+
+
+        case 'L':
+        case 'T':
+
+          if(state_multi == 3){
+            ring_type = PERI;
+            state_multi = 0; // reset the multi state
+          }
+            
+
+          break;
+
+
+        case 'J':
+
+          if(state_multi == 3){
+            ring_type = PERI;
+            state_multi = 0; // reset the multi state
+          }
+
+          break;
+
         default:
-          fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
-          Fatal(start + i);
+          // these can only be expanded chars
+          positional_locant = ch;
+          break;
       }
-       
+      
+      if(skip){
+        i++;
+        skip = false; // means we dont update i
+      }
+      else{
+        i++;
+        ch = *(block_str++);
+      }
     }
+
+  
+    // for (unsigned int i=0;i<block.size();i++){
+    //   ch = block[i];
+        
+    //   switch(ch){
+    //     case '0':
+    //     case '1':
+    //     case '2':
+    //     case '3':
+    //     case '4':
+    //     case '5':
+    //     case '6':
+    //     case '7':
+    //     case '8':
+    //     case '9':
+    //       if (i > 1 && block[i-1] == ' '){
+    //         state_multi   = 1;
+    //         expected_locants = ch - '0';
+            
+    //       }    
+    //       else{
+    //         if(positional_locant)
+    //           ring_components.push_back({ch-'0',positional_locant});
+    //         else
+    //           ring_components.push_back({ch-'0','A'});
+
+    //         positional_locant = '\0';
+            
+    //       }
+
+    //       break;
+          
+ 
+    //     case '/':
+
+    //       if(pending_special){
+    //         fprintf(stderr,"Error: character %c is not allowed in '-<A><A>-' format where A is an uppercase letter\n",ch);
+    //         Fatal(start+i);
+    //       }
+
+    //       expected_locants = 2; 
+    //       state_pseudo = true;
+    //       ring_type = PSDBRIDGED; 
+    //       break; 
+
+    //     case '-':
+  
+    //       if (positional_locant){
+    //         // opens up inter ring special definition
+    //         if(!pending_special){
+    //           state_bridge = false;
+    //           //expecting_component = 0;
+
+    //           pending_special = true; 
+    //         }
+    //         else{
+    //           locants[positional_locant] = define_element(special);
+    //           locants[positional_locant]->type = RING;
+    //           special.clear();
+    //         }
+
+    //       }
+    //       break;
+
+    //     // aromatics and locant expansion
+    //     case '&':
+    //       if(positional_locant)
+    //         size_modifier++;
+    //       break;
+
+    //     case ' ':
+
+    //       if(expected_locants){
+    //         fprintf(stderr,"Error: %d more locants expected before space seperator\n",expected_locants);
+    //         Fatal(start+i);
+    //       }
+
+    //       // resets any pendings and set states
+    //       if(state_multi == 1){
+    //         state_multi =  2; // increase to now get the size denotion
+    //         if(ring_type < PERI)
+    //           ring_type = PERI; 
+    //       }
+    //       else if (state_bridge){
+    //         if(ring_type < BRIDGED && positional_locant)
+    //           ring_type = BRIDGED; 
+
+    //         bridge_locants.push_back(positional_locant);
+    //         state_bridge = false; 
+    //       }
+          
+    //       state_pseudo    = false;
+    //       //expecting_component = 0;
+    //       positional_locant = '\0'; // hard reset the positional locant
+    //       break;
+
+    //     case 'A':
+    //     case 'B':
+    //     case 'C':
+    //     case 'D':
+    //     case 'E':
+    //     case 'F':
+    //     case 'G':
+    //     case 'H':
+    //     case 'I':
+    //     case 'K':
+    //     case 'M':
+    //     case 'N':
+    //     case 'O':
+    //     case 'P':
+    //     case 'Q':
+    //     case 'R':
+    //     case 'S':
+    //     case 'U':
+    //     case 'V':
+    //     case 'W':
+    //     case 'X':
+    //     case 'Y':
+    //     case 'Z':
+
+    //       if(expected_locants){
+    //         if(state_multi){
+    //           multicyclic_locants.push_back(ch);
+    //           expected_locants--;
+    //         }
+    //         else if (state_pseudo){
+    //           fuses.push_back(ch);
+    //           expected_locants--; 
+    //         }
+    //         else{
+    //           fprintf(stderr,"Error: unhandled locant rule\n");
+    //           Fatal(start+i);
+    //         }
+    //         break;
+    //       }
+
+    //       else if(block[i-1] == ' '){
+    //         // if(completed_multi && !ring_size_specifier){ // a size specifier is always needed
+    //         //   ring_size_specifier = ch;
+    //         //   size_set = 1; 
+    //         // }
+    //         positional_locant = ch;
+    //         break;
+    //       }
+    //       else if (positional_locant){
+    //         if (opt_debug)
+    //           fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
+
+    //         WLNSymbol *new_locant = 0; 
+
+    //         switch(ch){
+    //           case 'S':
+    //           case 'P':
+    //             if(!heterocyclic)
+    //               warned = true;
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(5);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+
+    //           case 'Y':
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(3);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+    //           case 'N':
+    //             if(!heterocyclic)
+    //               warned = true;
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(3);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+
+    //           case 'V':
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(2);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+
+    //           case 'M':
+    //           case 'O':
+    //             if(!heterocyclic)
+    //               warned = true;
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(2);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+
+    //           case 'X':
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(4);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+    //           case 'K':
+    //             if(!heterocyclic)
+    //               warned = true;
+
+    //             new_locant = assign_locant(positional_locant,ch);
+    //             new_locant->set_edges(4);
+    //             positional_locant++; // allows inline defition continuation
+    //             break;
+
+    //           case 'U':
+    //             if(opt_debug)
+    //               fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
+
+    //             bond_increases.push_back({positional_locant,positional_locant+1});
+    //             break;
+
+              
+    //           default:
+    //             fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
+    //             Fatal(start+i);
+    //         }            
+    //         break;
+    //       }
+    //       else{
+    //         positional_locant = ch;
+    //         break;
+    //       }
+          
+
+    //     // openers 
+    //     case 'L':
+
+    //       if(i==0){
+    //        heterocyclic = false; 
+    //        break;
+    //       }
+         
+    //       else if(expected_locants){
+
+    //         if(state_multi){
+    //           multicyclic_locants.push_back(ch);
+    //           expected_locants--;
+    //         }
+    //         else if (state_pseudo){
+    //           fuses.push_back(ch);
+    //           expected_locants--; 
+    //         }
+    //         else{
+    //           fprintf(stderr,"Error: unhandled locant rule\n");
+    //           Fatal(start+i);
+    //         }
+    //         break;
+    //       }
+    //       else if (pending_special){
+    //         special.push_back(ch);
+    //         if(special.size() > 2){
+    //           fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+    //           Fatal(start+i);
+    //         } 
+    //         break;
+    //       }
+    //       else if(block[i-1] == ' '){
+
+    //         if(!ring_size_specifier){ // a size specifier is always needed
+    //           ring_size_specifier = ch; 
+    //           positional_locant = ch;
+    //         }
+    //         else{
+    //           positional_locant = ch;
+    //           state_bridge = true;
+    //         }
+    //         break;
+    //       }
+    //       else{
+    //         positional_locant = ch;
+    //         break;
+    //       }
+
+    //     case 'T':
+ 
+          
+    //       if(i==0){
+    //         heterocyclic = true; 
+    //         break; 
+    //       }
+
+
+    //       else if (pending_special){
+    //         special.push_back(ch);
+    //         if(special.size() > 2){
+    //           fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+    //           Fatal(start+i);
+    //         } 
+    //         break;
+    //       }
+    //       if(expected_locants){
+
+    //         if(state_multi){
+    //           multicyclic_locants.push_back(ch);
+    //           expected_locants--;
+    //         }
+    //         else if (state_pseudo){
+    //           fuses.push_back(ch);
+    //           expected_locants--; 
+    //         }
+    //         else{
+    //           fprintf(stderr,"Error: unhandled locant rule\n");
+    //           Fatal(start+i);
+    //         }
+    //         break;
+    //       }
+    //       else if (state_aromatics){
+    //         aromaticity.push_back(false); // simple here
+    //         break;
+    //       }
+    //       else if (positional_locant || std::isdigit(block[i-1])){
+    //         state_aromatics = true;
+    //         aromaticity.push_back(false);
+    //         positional_locant = ch;
+    //         break;
+    //       }
+    //       else if(block[i-1] == ' '){
+
+    //         if(!ring_size_specifier){ // a size specifier is always needed
+    //           ring_size_specifier = ch;
+    //           positional_locant = ch;
+    //         }
+    //         else{
+    //           positional_locant = ch;
+    //           state_bridge = true;
+    //         }
+    //         break;
+    //       }
+    //       else{
+    //         positional_locant = ch;
+    //         break;
+    //       }
+
+    //     //closure
+    //     case 'J':
+    //       end = i;
+  
+    //       if(expected_locants){
+    //         if(state_multi){
+    //           multicyclic_locants.push_back(ch);
+    //           expected_locants--;
+    //         }
+    //         else if (state_pseudo){
+    //           fuses.push_back(ch);
+    //           expected_locants--; 
+    //         }
+    //         else{
+    //           fprintf(stderr,"Error: unhandled locant rule\n");
+    //           Fatal(start+i);
+    //         }
+    //         break;
+    //       }
+    //       else if (pending_special){
+    //         special.push_back(ch);
+    //         if(special.size() > 2){
+    //           fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+    //           Fatal(start+i);
+    //         } 
+    //         break;
+    //       }
+    //       else if(block[i-1] == ' '){
+
+    //         if(!ring_size_specifier){
+    //           ring_size_specifier = ch; 
+    //           positional_locant = ch;
+    //         }
+    //         else{
+    //           state_bridge = true;
+    //           positional_locant = ch;
+    //         }
+    //         break;
+    //       }
+    //       else{
+    //         positional_locant = ch;
+    //         break;
+    //       }
+            
+    //     default:
+    //       fprintf(stderr,"Error: unrecognised symbol in ring definition: %c\n",ch);
+    //       Fatal(start + i);
+    //   }
+       
+    // }
 
     // set the ring type if not handled in parser
     if (ring_components.size() > 1 && ring_type < PERI)
@@ -2244,7 +2375,7 @@ struct WLNGraph
     if (size > REASONABLE)
       fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
           
-    head->value = 'C';
+    head->ch = 'C';
     head->set_edges(4);
     head->num_edges = 0;
 
@@ -2283,7 +2414,7 @@ struct WLNGraph
     for (unsigned int i=0;i<stop;i++){
       WLNSymbol *sym = symbol_mempool[i];
 
-      switch(sym->get_ch()){
+      switch(sym->ch){
 
         case '1':
         case '2':
@@ -2297,7 +2428,7 @@ struct WLNGraph
           if (!sym->special.empty())
             expand_carbon_chain(sym,std::stoi(sym->special));
           else
-            expand_carbon_chain(sym,sym->get_ch() - '0');
+            expand_carbon_chain(sym,sym->ch - '0');
           break;
         
         case 'Y':
@@ -2369,7 +2500,7 @@ struct WLNGraph
       hard = true;
 
     if (opt_debug)
-      fprintf(stderr, "  popping %d symbols down the stack: mode(%d) prev[%c]\n", pops, hard, prev->get_ch());
+      fprintf(stderr, "  popping %d symbols down the stack: mode(%d) prev[%c]\n", pops, hard, prev->ch);
 
     if (hard)
     {
@@ -2502,7 +2633,7 @@ struct WLNGraph
         {
           break;
         }
-        if(prev && std::isdigit(prev->get_ch()))
+        if(prev && std::isdigit(prev->ch))
           prev->special.push_back(ch);
         else
           Fatal(i);
@@ -2530,7 +2661,7 @@ struct WLNGraph
           pop_ticks = 0;
         }
 
-        if(!std::isdigit(prev->get_ch())){
+        if(prev && !std::isdigit(prev->ch)){
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(4);
@@ -2541,7 +2672,7 @@ struct WLNGraph
           prev = curr;
         }
         else 
-          prev->special.push_back(ch);
+          special.push_back(ch);
         break;
 
       case 'Y':
@@ -3294,8 +3425,8 @@ struct WLNGraph
           // does the incoming locant check
           if (prev)
           {
-            if (ring->locants[prev->get_ch()])
-              create_bond(ring->locants[prev->get_ch()],prev,bond_ticks,i);
+            if (ring->locants[prev->ch])
+              create_bond(ring->locants[prev->ch],prev,bond_ticks,i);
             else
             {
               fprintf(stderr, "Error: attaching inline ring with out of bounds locant assignment\n");
@@ -3584,21 +3715,21 @@ struct WLNGraph
     for (WLNSymbol *node : symbol_mempool)
     {
       fprintf(fp, "  %d", index_lookup[node]);
-      if (node->get_ch() == '*')
+      if (node->ch == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
       else if(node->type == LOCANT)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->get_ch());
+        fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
       else if (node->type == RING)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->get_ch());
+        fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
       else{
-        if(std::isdigit(node->get_ch())){
+        if(std::isdigit(node->ch)){
           if (!node->special.empty())
             fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
           else
-            fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->get_ch());
+            fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
         } 
         else
-          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->get_ch());
+          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
       }
         
       for(unsigned int i = 0; i<node->children.size(); i++){
@@ -3779,7 +3910,7 @@ struct BabelGraph{
         unsigned int charge = 0; 
         unsigned int h_count = 0;
 
-        switch(sym->get_ch()){
+        switch(sym->ch){
 
           case 'H':
             atomic_num = 1;
@@ -3852,7 +3983,7 @@ struct BabelGraph{
             break;
 
           default:
-            fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->get_ch());
+            fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
             return false;
         }
 
