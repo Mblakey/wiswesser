@@ -237,13 +237,14 @@ WLNSymbol *copy_symbol(WLNSymbol *src)
 
 /* should handle all bonding modes, adds child to parent->children
 'UU' bonding also added here - needs a bond specied! 1 for single */
-bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool aromatic = false)
+bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool aromatic = false, bool reverse = false)
 {
 
   if(!child || !parent){
-    fprintf(stderr,"Error: attempting bond of non-existent symbols\n");
+    fprintf(stderr,"Error: attempting bond of non-existent symbols - %s|%s is dead\n",child ? "":"child",parent ? "":"parent");
     return false;
   }
+
 
   // if the child cannot handle the new valence
   if ((child->num_edges + bond) > child->allowed_edges)
@@ -262,11 +263,20 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
   child->num_edges += bond;
   parent->num_edges += bond;
   parent->children.push_back(child);
-  
+
   if(aromatic)
     parent->orders.push_back(4);
   else
     parent->orders.push_back(bond);
+
+  if(reverse){
+    child->children.push_back(parent);
+    if(aromatic)
+      child->orders.push_back(4);
+    else
+      child->orders.push_back(bond);
+  }
+    
   return true;
 }
 
@@ -1341,13 +1351,10 @@ struct WLNRing
   }
 
   /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
-  bool CreatePOLY(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, std::vector<bool> &aromaticity){
+  bool CreatePOLY(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+                  std::vector<bool> &aromaticity)
+    {
      
-    // perform the aromatic denotion check
-    if (ring_assignments.size() != aromaticity.size()){
-      fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
-      return false; 
-    }
 
     unsigned int local_size = 0; 
     for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -1450,14 +1457,11 @@ struct WLNRing
   bool CreatePERI(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                   std::vector<bool> &aromaticity,
                   std::vector<unsigned char> &multicyclic_locants,
+                  std::vector<unsigned char> &broken_locants,
                   unsigned char size_designator)
   {
-
-    // perform the aromatic denotion check
-    if (ring_assignments.size() != aromaticity.size()){
-      fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
-      return false; 
-    }
+    
+    bool broken = false; // just for a warning message function
 
     // create a chain size of ring designator
     unsigned int local_size = locant_to_int(size_designator);
@@ -1483,6 +1487,36 @@ struct WLNRing
       prev = current;
     }
 
+    // bind the broken locant to its parents character 'J- will bond to 'J'
+    // positions relative in the graph must be calculated before fuse otherwise
+    // broken graph breaks the algorithm 
+
+
+    if(!broken_locants.empty()){
+      broken = true;
+      // create the atoms, 
+      for (unsigned char loc_broken : broken_locants){
+        unsigned char parent = int_to_locant(252 - loc_broken); // relative positioning
+        if(!locants[loc_broken]){
+      
+          WLNSymbol *broken = assign_locant(loc_broken,'C');
+          broken->set_edges(4);
+
+          if(opt_debug){
+            if (locants[loc_broken])
+              fprintf(stderr,"  creating broken locant attaching to %c at value %d\n",parent,loc_broken);
+          }
+
+          if(!link_symbols(broken,locants[parent],1,false,true)){
+            fprintf(stderr,"Error: could not attach broken locant to its parent\n");
+            return false;
+          }
+
+        }
+      }
+    }
+
+
     // calculate bindings and then traversals round the loops
     unsigned int comp_size = 0;
     unsigned char bind_1 = '\0';
@@ -1491,6 +1525,8 @@ struct WLNRing
     bool aromatic = false;
 
     unsigned int eval = 0; // for multicyclic
+    
+    std::map<unsigned char,bool> consumed_map; 
     unsigned int consumed = 0; 
    
     for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -1500,7 +1536,6 @@ struct WLNRing
 
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
-
       std::vector<unsigned char> ring_path;
 
       // first pair can be calculated directly without a path travel
@@ -1508,85 +1543,118 @@ struct WLNRing
         bind_2 = bind_1 + comp_size - 1; // includes start atom
         for (unsigned int i=0; i<comp_size;i++)
           ring_path.push_back(bind_1+i);
-          
-        consumed += comp_size;
       }
-      else if (local_size - consumed < comp_size){ // ring wrap, which also needs to happen below
-        
-        // travel as much as we can, then add locants from bind_1 to get the binding position
-        // from the size designator
+      else if (local_size - consumed < comp_size){ 
+        // ring wrapper algorithm
+        // this is crazy if it works generally 
 
-        unsigned char highest_loc = '\0';  
-        unsigned int track = 1; // include start
-        while(!path->children.empty()){  
-          track++;
-          ring_path.push_back(locants_ch[path]);
-          for (WLNSymbol *child : path->children){
-            unsigned char child_loc = locants_ch[child];
-            if(child_loc > highest_loc)
-              highest_loc = child_loc;
-          }    
-          path = locants[highest_loc];
+        unsigned int track = 1; // inclused start atom
+        unsigned char last_char = int_to_locant(consumed);
+        while(locants[last_char]->num_edges == 3){
+          last_char++;
+          track ++;
         }
-        ring_path.push_back(locants_ch[path]); // add the last symbol
+        bind_2 = last_char;   
+        
+        while(locants[bind_1]->num_edges == 3){
+          bind_1++;
+          track++;
+        }
 
+        while(track < comp_size - 1){
+          bind_2++;
+          track++;
+          if(locant_to_int(bind_2) == local_size)
+            break;
+        }
 
-        // from the start locant, we move bind_1 diff spaces
-        unsigned int diff = comp_size - track;
-
-        bind_1 += diff; 
-        bind_2 = size_designator; // created closure
-
-        ring_path.push_back(bind_1);
+        fprintf(stderr,"track: %d\n",track);
       }
       else{
         
         if(path->num_edges == 3){ // standard multicylic points define a 3 ring share position, branching specials are handled differently
 
-          unsigned char highest_loc = '\0';  
+          unsigned char highest_loc = '\0'; 
+          std::map<WLNSymbol*, bool> visited; 
+
           for (unsigned int i=0;i<comp_size - 2; i++){  // 2 points are already defined
             ring_path.push_back(locants_ch[path]);
-
+            unsigned char potential = '\0';
             for (WLNSymbol *child : path->children){
+              
+              if(visited[child])
+                continue;
+              else
+                visited[child] = true;
+
               unsigned char child_loc = locants_ch[child];
               if(child_loc > highest_loc)
                 highest_loc = child_loc;
             }    
+
             path = locants[highest_loc];
           }
           ring_path.push_back(locants_ch[path]); // add the last symbol
 
-          bind_2 = highest_loc;
-          
-          
-          bind_1 += 1; // move to the next multicyclic position
-          eval++;
+          // move to the next avaliable multicyclic position
+          // while(eval < multicyclic_locants.size()){
+          //   bind_1 = multicyclic_locants[eval]; 
+          //   if(locants[bind_1]->num_edges == 3)
+          //     eval++;
+          //   else
+          //     break;
+          // }
+          bind_1 += 1;
 
-          ring_path.push_back(bind_1); // add the last symbol
-          consumed += comp_size - 3;
+          bind_2 = highest_loc; 
+          ring_path.insert(ring_path.begin(),bind_1);
         }
 
         else{
+
+          std::map<WLNSymbol*, bool> visited; 
           unsigned char highest_loc = '\0';
           for (unsigned int i=0;i<comp_size - 1; i++){
             ring_path.push_back(locants_ch[path]);
 
-            for (WLNSymbol *child : path->children){
-              unsigned char child_loc = locants_ch[child];
-              if(child_loc > highest_loc)
-                highest_loc = child_loc;
-            }    
+            if (!path->children.empty()){
+              for (WLNSymbol *child : path->children){
+
+                if(visited[child])
+                  continue;
+                else
+                  visited[child] = true;
+
+                unsigned char child_loc = locants_ch[child];
+                if(child_loc > highest_loc)
+                  highest_loc = child_loc;   
+              }
+            }
+            
             path = locants[highest_loc];
           }
 
           ring_path.push_back(locants_ch[path]); // add the last symbol
           bind_2 = highest_loc;
-          consumed += comp_size - 2;
         }          
       }
 
-      if(opt_debug)
-        fprintf(stderr,"  fusing: %c <-- %c\n",bind_2,bind_1);
+      // keep track of consumed tokens
+      for (unsigned char path : ring_path){
+        if(!consumed_map[path]){
+          consumed_map[path] = true;
+          consumed++;  
+        }
+      }
+    
+      if(opt_debug){
+        fprintf(stderr,"  fusing: %c <-- %c   [",bind_2,bind_1);
+        for (unsigned char path : ring_path){
+          fprintf(stderr," %c",path);
+        }
+        fprintf(stderr," ]\n");
+      }
+        
       
       if(!link_symbols(locants[bind_2],locants[bind_1],1)){
         fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
@@ -1691,7 +1759,6 @@ struct WLNRing
     bool heterocyclic       = false;  // L|T designator can throw warnings
     bool skip               = false;  // allows a size skipper 
 
-    
     // -- paths -- // 
     // int allows way more description in states
 
@@ -1718,6 +1785,7 @@ struct WLNRing
     std::vector<unsigned char> pseudo_locants; // read as pairs
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
+    std::vector<unsigned char> broken_locants; // used in conjuction with other means
     
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
@@ -1748,6 +1816,7 @@ struct WLNRing
               unsigned char branch_break = multicyclic_locants.back();
               branch_break = 252 - locant_to_int(branch_break);
               multicyclic_locants.back() = branch_break; 
+              broken_locants.push_back(branch_break);
               state_special = 0;
             }
             else
@@ -1759,6 +1828,7 @@ struct WLNRing
               unsigned char branch_break = ring_components.back().second;
               branch_break = 252 - locant_to_int(branch_break);
               ring_components.back().second = branch_break; 
+              broken_locants.push_back(branch_break);
               state_special = 0;
             }
           }
@@ -1807,6 +1877,7 @@ struct WLNRing
               unsigned char branch_break = multicyclic_locants.back();
               branch_break = 252 - locant_to_int(branch_break);
               multicyclic_locants.back() = branch_break; 
+              broken_locants.push_back(branch_break);
               state_special = 0;
             }
 
@@ -1925,7 +1996,7 @@ struct WLNRing
             state_special = 2;
             special.push_back(ch);
             if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
+              fprintf(stderr,"Error: special elemental notation can have two characters maximum\n");
               Fatal(start+i);
             } 
             break;
@@ -2144,8 +2215,15 @@ struct WLNRing
                 aromaticity.push_back(true);
             }
 
+            // perform the aromatic denotion check
+            if (ring_components.size() != aromaticity.size()){
+              fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments\n");
+              Fatal(i+start);
+            }
+
             // reverse the aromaticity assignments, how the notation works
             std::reverse(aromaticity.begin(), aromaticity.end());
+
           }
           else if(expected_locants){
             if(state_multi){
@@ -2206,7 +2284,7 @@ struct WLNRing
     // debug here
     if (opt_debug){
       
-      fprintf(stderr,"  ring type: %s",ring_strings[ring_type]);
+      fprintf(stderr,"  ring type: %s\n",ring_strings[ring_type]);
 
       fprintf(stderr,"  ring components: ");
       for (std::pair<unsigned int, unsigned char> comp : ring_components)
@@ -2250,7 +2328,7 @@ struct WLNRing
         state = CreatePOLY(ring_components,aromaticity);
         break;
       case PERI:
-        state = CreatePERI(ring_components,aromaticity,multicyclic_locants,ring_size_specifier);
+        state = CreatePERI(ring_components,aromaticity,multicyclic_locants,broken_locants,ring_size_specifier);
         break;
       case BRIDGED:
       case PSDBRIDGED:
