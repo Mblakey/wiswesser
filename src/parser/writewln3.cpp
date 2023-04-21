@@ -1506,12 +1506,13 @@ struct WLNRing
     }
 
     // bind the broken locant to its parents character 'J- will bond to 'J'
-    // positions relative in the graph must be calculated before fuse otherwise
-    // broken graph breaks the algorithm 
 
-    // use a map for potential look up
+    // broken locants have an intergration marker, they can only be considered in 
+    // the path after all prior rings have been evaulated to that point
 
-    std::map<unsigned char,unsigned char> broken_values; // allows value interpretation
+    std::map<unsigned char,unsigned char> broken_values;    // allows value interpretation
+    std::map<unsigned char, unsigned int> broken_position;  // allows fuse ordering
+
     if(!broken_locants.empty()){
       // create the atoms, 
       for (unsigned char loc_broken : broken_locants){
@@ -1524,6 +1525,16 @@ struct WLNRing
             if (locants[loc_broken])
               fprintf(stderr,"  creating broken locant attaching to %c at value %d\n",parent,loc_broken);
           }
+
+          // needed for relative ring wrap position
+          for (unsigned int i=0;i<ring_assignments.size();i++){
+            std::pair<unsigned int,unsigned char> component = ring_assignments[i];
+            if(component.second == loc_broken){
+              broken_position[loc_broken] = i;
+              break;
+            }
+          }
+
           broken_values[parent] = loc_broken;
 
           if(!link_symbols(broken,locants[parent],1)){
@@ -1543,7 +1554,7 @@ struct WLNRing
 
     unsigned int eval = 0; // for multicyclic
     
-    std::map<unsigned char,bool> consumed_map; 
+    std::map<unsigned char,bool> consumed_map; // extra locants should not be added to the map
     unsigned int consumed = 0; 
    
     for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -1551,33 +1562,46 @@ struct WLNRing
       comp_size = component.first;
       bind_1 = component.second;
 
+      consumed = consumed_map.size() -1;
+
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
 
       bool ring_path[252] = {false}; // default init
 
-      if (local_size - consumed < comp_size){ 
+      if ( (local_size - consumed) < comp_size){ 
         // ring wrapper algorithm
-        // this is crazy if it works generally 
+
 
         unsigned int track = 1; // inclused start atom
+
+        // does the bind_1 have a extra attached?
+        if(broken_values[bind_1])
+          track++;
+
         unsigned char last_char = int_to_locant(consumed);
+        consumed_map[last_char] = true;
+        
+        // whilst simple, we do still need to go through the graph
         while(locants[last_char]->num_edges == 3){
           last_char++;
-          track ++;
+          track++;
         }
-        bind_2 = last_char;   
-        
+        bind_2 = last_char;
+
         while(locants[bind_1]->num_edges == 3){
           bind_1++;
           track++;
         }
+
         while(track < comp_size - 1){
           bind_2++;
           track++;
+          consumed_map[bind_2] = true;
           if(locant_to_int(bind_2) == local_size)
             break;
         }
+
       }
       else{
         
@@ -1585,6 +1609,7 @@ struct WLNRing
         
           unsigned char highest_loc = '\0'; 
           for (unsigned int i=0;i<comp_size - 2; i++){  // 2 points are already defined
+            
             ring_path[locants_ch[path]] = true;
             
             if (highest_loc > int_to_locant(local_size))
@@ -1592,6 +1617,12 @@ struct WLNRing
 
             for (WLNSymbol *child : path->children){
               unsigned char child_loc = locants_ch[child];
+
+              if (child_loc > int_to_locant(local_size)){
+                if(fuses < broken_position[child_loc])
+                  continue;
+              }
+
               if(child_loc >= highest_loc)
                 highest_loc = child_loc;
             }
@@ -1630,6 +1661,23 @@ struct WLNRing
               return false;
             }
           }
+          else if(broken_values[bind_1]){
+            // force the path through here
+            bind_1 = broken_values[bind_1];
+            
+            unsigned char end_token = '\0';
+            unsigned char prev_token = '\0';
+
+            // take one off the ring path -> get second the last element
+            for(unsigned int k=0;k<252;k++){
+              if(ring_path[k]){
+                prev_token = end_token;
+                end_token = k;
+              }
+            }
+
+            bind_2 = prev_token;
+          }
 
           ring_path[bind_1] = true;
         }
@@ -1643,11 +1691,19 @@ struct WLNRing
             if (highest_loc > int_to_locant(local_size))
               highest_loc = broken_values[highest_loc];
             
+              
             for (WLNSymbol *child : path->children){
               unsigned char child_loc = locants_ch[child];
+
+              if (child_loc > int_to_locant(local_size)){
+                if(fuses < broken_position[child_loc])
+                  continue;
+              }
+
               if(child_loc >= highest_loc)
                 highest_loc = child_loc;
             }
+
 
             if(!highest_loc){
               fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
@@ -1667,15 +1723,13 @@ struct WLNRing
       for (unsigned int i=0; i < 252;i++){
         if(ring_path[i]){
           rings_shared[i]++;
-          if(!consumed_map[i]){
+          if(!consumed_map[i] && i < int_to_locant(local_size))
             consumed_map[i] = true;
-            consumed++;  
-          }
         }
       }
     
       if(opt_debug){
-        fprintf(stderr,"  fusing: %c <-- %c   [",bind_2,bind_1);
+        fprintf(stderr,"%d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
         for (unsigned int i=0; i < 252;i++){
           if(ring_path[i])
             fprintf(stderr," %c(%d)",i,i);
@@ -1689,10 +1743,6 @@ struct WLNRing
         return false;
       }
 
-      // if(aromatic){
-      //   // if(!AssignAromatics(ring_path))
-      //   //   return false;
-      // }
 
       fuses++;
     }
@@ -1852,7 +1902,7 @@ struct WLNRing
           else if(state_special){
             // can we assume this came from a ring assignment
             if(special.size() == 1 && std::stoi(special)){
-              unsigned char branch_break = ring_components.back().second;
+              unsigned char branch_break = positional_locant;
               branch_break = 252 - locant_to_int(branch_break);
               ring_components.push_back({std::stoi(special),branch_break});
               broken_locants.push_back(branch_break);
@@ -1901,6 +1951,7 @@ struct WLNRing
               // this is a extra branch locant added
               // going to go backwards from 252, seems like it should be okay 99% of the time
               unsigned char branch_break = multicyclic_locants.back();
+              
               branch_break = 252 - locant_to_int(branch_break);
               multicyclic_locants.back() = branch_break; 
               broken_locants.push_back(branch_break);
@@ -2223,13 +2274,13 @@ struct WLNRing
               Fatal(start+i);
             }
 
-            if (pseudo_locants.size() > 1)
+            if (pseudo_locants.size() > 0)
               ring_type = PSDBRIDGED;
 
-            if (multicyclic_locants.size() > 1 && ring_type < PSDBRIDGED)
+            if (multicyclic_locants.size() > 0 && ring_type < PSDBRIDGED)
               ring_type = PERI;
 
-            if (ring_components.size() > 1 && ring_type < PERI)
+            if (ring_components.size() > 0 && ring_type < PERI)
               ring_type = POLY;
 
 
@@ -2326,6 +2377,12 @@ struct WLNRing
       fprintf(stderr,"  multicyclic points: ");
       for (unsigned char loc : multicyclic_locants){
         fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
+      }
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  broken path points: ");
+      for (unsigned char loc : broken_locants){
+        fprintf(stderr,"%d ",loc);
       }
       fprintf(stderr,"\n");
 
