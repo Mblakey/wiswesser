@@ -1595,6 +1595,7 @@ struct WLNRing
         }
 
         while(track < comp_size - 1){
+          fprintf(stderr,"bind_2: %c\n",bind_2);
           bind_2++;
           track++;
           consumed_map[bind_2] = true;
