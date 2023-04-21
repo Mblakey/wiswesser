@@ -1510,17 +1510,15 @@ struct WLNRing
     // broken locants have an intergration marker, they can only be considered in 
     // the path after all prior rings have been evaulated to that point
 
-    std::map<unsigned char,unsigned char> broken_values;    // allows value interpretation
-    std::map<unsigned char, unsigned int> broken_position;  // allows fuse ordering
-
 
     // parent -> all dead ends, e.g 'B' --> {B-, B-&}
     std::map<unsigned char,std::vector<unsigned char>> broken_lookup;
+    std::map<unsigned char,unsigned char> broken_values;    // allows value interpretation
+    
 
     if(!broken_locants.empty()){
       // create the atoms, 
       for (unsigned char loc_broken : broken_locants){
-        
         unsigned char calculate_origin = loc_broken;
         while( (calculate_origin + 23) < 252){
           calculate_origin += 23;
@@ -1531,28 +1529,14 @@ struct WLNRing
           WLNSymbol *broken = assign_locant(loc_broken,'C');
           broken->set_edges(4);
 
-          // needed for relative ring wrap position
-          for (unsigned int i=0;i<ring_assignments.size();i++){
-            std::pair<unsigned int,unsigned char> component = ring_assignments[i];
-            if(component.second == loc_broken){
-              broken_position[loc_broken] = i;
-              break;
-            }
-          }
-
+          broken_values[loc_broken] = parent;
           broken_lookup[parent].push_back(loc_broken);
-
-          broken_values[parent] = loc_broken;
-
-          // if(!link_symbols(broken,locants[parent],1)){
-          //   fprintf(stderr,"Error: error in making linking broken locant\n");
-          //   return false;
-          // }
         }
         else{
           fprintf(stderr,"Error: branching locants are overlapping created elements already in the locant path\n");
           return false;
         }
+        
       }
     }
 
