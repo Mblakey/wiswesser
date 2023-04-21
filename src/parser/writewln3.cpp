@@ -1569,156 +1569,118 @@ struct WLNRing
 
       bool ring_path[252] = {false}; // default init
 
-      if ( (local_size - consumed) < comp_size){ 
-        // ring wrapper algorithm
+      if(path->num_edges > 2){ // standard multicylic points define a 3 ring share position, branching specials are handled differently
+      
+        unsigned char highest_loc = '\0'; 
+        for (unsigned int i=0;i<comp_size - 2; i++){  // 2 points are already defined
+          
+          ring_path[locants_ch[path]] = true;
+          
+          if (highest_loc > int_to_locant(local_size))
+            highest_loc = broken_values[highest_loc];
 
+          for (WLNSymbol *child : path->children){
+            unsigned char child_loc = locants_ch[child];
 
-        unsigned int track = 1; // inclused start atom
+            if (child_loc > int_to_locant(local_size)){
+              if(fuses < broken_position[child_loc])
+                continue;
+            }
 
-        // does the bind_1 have a extra attached?
-        if(broken_values[bind_1])
-          track++;
+            if(child_loc >= highest_loc)
+              highest_loc = child_loc;
+          }
 
-        unsigned char last_char = int_to_locant(consumed);
-        consumed_map[last_char] = true;
+          if(!highest_loc){
+            fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
+            return false;
+          }
+
+          path = locants[highest_loc];
+        }
         
-        // whilst simple, we do still need to go through the graph
-        while(locants[last_char]->num_edges == 3){
-          last_char++;
-          track++;
-        }
-        bind_2 = last_char;
+        ring_path[locants_ch[path]] = true; // add the last symbol
 
-        while(locants[bind_1]->num_edges == 3){
-          bind_1++;
-          track++;
-        }
+        bind_1 += 1; // handles all multicyclic denototions
+        bind_2 = highest_loc; 
 
-        while(track < comp_size - 1){
-          fprintf(stderr,"bind_2: %c\n",bind_2);
-          bind_2++;
-          track++;
-          consumed_map[bind_2] = true;
-          if(locant_to_int(bind_2) == local_size)
-            break;
+        // can we perform some cool checks here?
+        if(ring_path[bind_1]){
+          unsigned char start_token = '\0';
+          
+          // whats at the start?
+          for(unsigned int k=0;k<252;k++){
+            if(ring_path[k]){
+              start_token = k;
+              break;
+            }
+          }
+
+          // does the start token have a broken locant?
+          unsigned char potential = broken_values[start_token];
+          if(potential){
+            bind_1 = potential;
+          }
+          else{
+            fprintf(stderr,"Error: unknown resolution to ring path symbol duplication\n");
+            return false;
+          }
+        }
+        else if(broken_values[bind_1]){
+          // force the path through here
+          bind_1 = broken_values[bind_1];
+          
+          unsigned char end_token = '\0';
+          unsigned char prev_token = '\0';
+
+          // take one off the ring path -> get second the last element
+          for(unsigned int k=0;k<252;k++){
+            if(ring_path[k]){
+              prev_token = end_token;
+              end_token = k;
+            }
+          }
+
+          bind_2 = prev_token;
         }
 
       }
       else{
         
-        if(path->num_edges > 2){ // standard multicylic points define a 3 ring share position, branching specials are handled differently
-        
-          unsigned char highest_loc = '\0'; 
-          for (unsigned int i=0;i<comp_size - 2; i++){  // 2 points are already defined
-            
-            ring_path[locants_ch[path]] = true;
-            
-            if (highest_loc > int_to_locant(local_size))
-              highest_loc = broken_values[highest_loc];
-
-            for (WLNSymbol *child : path->children){
-              unsigned char child_loc = locants_ch[child];
-
-              if (child_loc > int_to_locant(local_size)){
-                if(fuses < broken_position[child_loc])
-                  continue;
-              }
-
-              if(child_loc >= highest_loc)
-                highest_loc = child_loc;
-            }
-
-            if(!highest_loc){
-              fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
-              return false;
-            }
-
-            path = locants[highest_loc];
-          }
-          ring_path[locants_ch[path]] = true; // add the last symbol
-
-          bind_1 += 1; // handles all multicyclic denototions
-          bind_2 = highest_loc; 
-
-          // can we perform some cool checks here?
-          if(ring_path[bind_1]){
-            unsigned char start_token = '\0';
-            
-            // whats at the start?
-            for(unsigned int k=0;k<252;k++){
-              if(ring_path[k]){
-                start_token = k;
-                break;
-              }
-            }
-
-            // does the start token have a broken locant?
-            unsigned char potential = broken_values[start_token];
-            if(potential){
-              bind_1 = potential;
-            }
-            else{
-              fprintf(stderr,"Error: unknown resolution to ring path symbol duplication\n");
-              return false;
-            }
-          }
-          else if(broken_values[bind_1]){
-            // force the path through here
-            bind_1 = broken_values[bind_1];
-            
-            unsigned char end_token = '\0';
-            unsigned char prev_token = '\0';
-
-            // take one off the ring path -> get second the last element
-            for(unsigned int k=0;k<252;k++){
-              if(ring_path[k]){
-                prev_token = end_token;
-                end_token = k;
-              }
-            }
-
-            bind_2 = prev_token;
-          }
-
-          ring_path[bind_1] = true;
-        }
-        else{
+        unsigned char highest_loc = '\0';
+        for (unsigned int i=0;i<comp_size - 1; i++){
           
-          unsigned char highest_loc = '\0';
-          for (unsigned int i=0;i<comp_size - 1; i++){
+          ring_path[locants_ch[path]] = true;
+
+          if (highest_loc > int_to_locant(local_size))
+            highest_loc = broken_values[highest_loc];
+          
             
-            ring_path[locants_ch[path]] = true;
+          for (WLNSymbol *child : path->children){
+            unsigned char child_loc = locants_ch[child];
 
-            if (highest_loc > int_to_locant(local_size))
-              highest_loc = broken_values[highest_loc];
-            
-              
-            for (WLNSymbol *child : path->children){
-              unsigned char child_loc = locants_ch[child];
-
-              if (child_loc > int_to_locant(local_size)){
-                if(fuses < broken_position[child_loc])
-                  continue;
-              }
-
-              if(child_loc >= highest_loc)
-                highest_loc = child_loc;
+            if (child_loc > int_to_locant(local_size)){
+              if(fuses < broken_position[child_loc])
+                continue;
             }
 
-
-            if(!highest_loc){
-              fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
-              return false;
-            }
-                        
-            path = locants[highest_loc];
+            if(child_loc >= highest_loc)
+              highest_loc = child_loc;
           }
 
 
-          ring_path[locants_ch[path]] = true; // add the last symbol
-          bind_2 = highest_loc;
-        }          
-      }
+          if(!highest_loc){
+            fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
+            return false;
+          }
+                      
+          path = locants[highest_loc];
+        }
+
+        ring_path[locants_ch[path]] = true; // add the last symbol
+        bind_2 = highest_loc;
+      }          
+      
 
       // keep track of consumed tokens --> update shared rings
       for (unsigned int i=0; i < 252;i++){
