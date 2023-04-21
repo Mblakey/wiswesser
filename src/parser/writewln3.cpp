@@ -1524,7 +1524,6 @@ struct WLNRing
             if (locants[loc_broken])
               fprintf(stderr,"  creating broken locant attaching to %c at value %d\n",parent,loc_broken);
           }
-
           broken_values[parent] = loc_broken;
 
           if(!link_symbols(broken,locants[parent],1)){
@@ -1554,7 +1553,8 @@ struct WLNRing
 
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
-      std::vector<unsigned char> ring_path;
+
+      bool ring_path[252] = {false}; // default init
 
       if (local_size - consumed < comp_size){ 
         // ring wrapper algorithm
@@ -1580,67 +1580,105 @@ struct WLNRing
         }
       }
       else{
-
+        
         if(path->num_edges > 2){ // standard multicylic points define a 3 ring share position, branching specials are handled differently
-
+        
           unsigned char highest_loc = '\0'; 
           for (unsigned int i=0;i<comp_size - 2; i++){  // 2 points are already defined
-            ring_path.push_back(locants_ch[path]);
-            unsigned char potential = '\0';
+            ring_path[locants_ch[path]] = true;
+            
+            if (highest_loc > int_to_locant(local_size))
+              highest_loc = broken_values[highest_loc];
+
             for (WLNSymbol *child : path->children){
               unsigned char child_loc = locants_ch[child];
-              if(child_loc > highest_loc)
+              if(child_loc >= highest_loc)
                 highest_loc = child_loc;
-            }    
+            }
+
+            if(!highest_loc){
+              fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
+              return false;
+            }
+
             path = locants[highest_loc];
           }
-          ring_path.push_back(locants_ch[path]); // add the last symbol
+          ring_path[locants_ch[path]] = true; // add the last symbol
 
           bind_1 += 1; // handles all multicyclic denototions
           bind_2 = highest_loc; 
-          ring_path.insert(ring_path.begin(),bind_1);
+
+          // can we perform some cool checks here?
+          if(ring_path[bind_1]){
+            unsigned char start_token = '\0';
+            
+            // whats at the start?
+            for(unsigned int k=0;k<252;k++){
+              if(ring_path[k]){
+                start_token = k;
+                break;
+              }
+            }
+
+            // does the start token have a broken locant?
+            unsigned char potential = broken_values[start_token];
+            if(potential){
+              bind_1 = potential;
+            }
+            else{
+              fprintf(stderr,"Error: unknown resolution to ring path symbol duplication\n");
+              return false;
+            }
+          }
+
+          ring_path[bind_1] = true;
         }
-
         else{
-
+          
           unsigned char highest_loc = '\0';
           for (unsigned int i=0;i<comp_size - 1; i++){
             
-            ring_path.push_back(locants_ch[path]);
+            ring_path[locants_ch[path]] = true;
 
+            if (highest_loc > int_to_locant(local_size))
+              highest_loc = broken_values[highest_loc];
+            
             for (WLNSymbol *child : path->children){
               unsigned char child_loc = locants_ch[child];
-              unsigned int interp = child_loc; 
-
-              if (interp > int_to_locant(local_size))
-                interp = broken_values[interp];
-              
-              if(interp > highest_loc)
+              if(child_loc >= highest_loc)
                 highest_loc = child_loc;
+            }
+
+            if(!highest_loc){
+              fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
+              return false;
             }
                         
             path = locants[highest_loc];
           }
 
 
-          ring_path.push_back(locants_ch[path]); // add the last symbol
+          ring_path[locants_ch[path]] = true; // add the last symbol
           bind_2 = highest_loc;
         }          
       }
 
       // keep track of consumed tokens --> update shared rings
-      for (unsigned char path : ring_path){
-        rings_shared[path]++;
-        if(!consumed_map[path]){
-          consumed_map[path] = true;
-          consumed++;  
+      for (unsigned int i=0; i < 252;i++){
+        if(ring_path[i]){
+          rings_shared[i]++;
+          if(!consumed_map[i]){
+            consumed_map[i] = true;
+            consumed++;  
+          }
         }
       }
     
       if(opt_debug){
         fprintf(stderr,"  fusing: %c <-- %c   [",bind_2,bind_1);
-        for (unsigned char path : ring_path){
-          fprintf(stderr," %c(%d)",path,path);
+        for (unsigned int i=0; i < 252;i++){
+          if(ring_path[i])
+            fprintf(stderr," %c(%d)",i,i);
         }
         fprintf(stderr," ]\n");
       }
@@ -1651,10 +1689,10 @@ struct WLNRing
         return false;
       }
 
-      if(aromatic){
-        if(!AssignAromatics(ring_path))
-          return false;
-      }
+      // if(aromatic){
+      //   // if(!AssignAromatics(ring_path))
+      //   //   return false;
+      // }
 
       fuses++;
     }
