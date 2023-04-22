@@ -19,12 +19,14 @@ GNU General Public License for more details.
 #include <stdio.h>
 #include <string.h>
 
+#include <set>
+#include <deque>
 #include <vector>
 #include <stack>
 #include <map>
+
 #include <utility> // std::pair
 #include <iterator>
-#include <set>
 #include <sstream>
 
 #include <openbabel/mol.h>
@@ -103,6 +105,7 @@ static bool isdigit_str(const std::string &s)
   }
   return true;
 }
+
 
 std::string get_notation(unsigned int s, unsigned int e)
 {
@@ -1472,7 +1475,7 @@ struct WLNRing
   }
 
 
-  /* interesting here that the multicyclic points are not used, i should perform a check for them though */
+  /* interesting here that the multicyclic points are not explicitly used */
   bool CreatePERI(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                   std::vector<bool> &aromaticity,
                   std::vector<unsigned char> &multicyclic_locants,
@@ -1513,30 +1516,26 @@ struct WLNRing
 
     // parent -> all dead ends, e.g 'B' --> {B-, B-&}
     std::map<unsigned char,std::vector<unsigned char>> broken_lookup;
-    std::map<unsigned char,unsigned char> broken_values;    // allows value interpretation
-    
 
     if(!broken_locants.empty()){
       // create the atoms, 
       for (unsigned char loc_broken : broken_locants){
         unsigned char calculate_origin = loc_broken;
-        while( (calculate_origin + 23) < 252){
-          calculate_origin += 23;
+        while( (calculate_origin - 23) > 128){
+          calculate_origin += -23;
         }
-        unsigned char parent = int_to_locant(252 - calculate_origin); // relative positioning
+        unsigned char parent = int_to_locant(128 + calculate_origin); // relative positioning
 
         if(!locants[loc_broken]){
           WLNSymbol *broken = assign_locant(loc_broken,'C');
           broken->set_edges(4);
 
-          broken_values[loc_broken] = parent;
           broken_lookup[parent].push_back(loc_broken);
         }
         else{
           fprintf(stderr,"Error: branching locants are overlapping created elements already in the locant path\n");
           return false;
         }
-        
       }
     }
 
@@ -1565,18 +1564,16 @@ struct WLNRing
       std::deque<unsigned char> ring_path; // need push and pop function at both ends
       unsigned int predefined = 1;
 
+    
       if(path->num_edges > 2)
         predefined++; 
 
+      ring_path.push_back(locants_ch[path]);
 
-       
       unsigned char highest_loc = '\0'; 
       for (unsigned int i=0;i<comp_size - predefined; i++){  // 2 points are already defined
         
-        ring_path.push_back(locants_ch[path]);
-        
-        if (highest_loc > int_to_locant(local_size))
-          highest_loc = broken_values[highest_loc];
+        highest_loc = '\0'; // highest of each child iteration 
 
         for (WLNSymbol *child : path->children){
           unsigned char child_loc = locants_ch[child];
@@ -1591,45 +1588,62 @@ struct WLNRing
         }
 
         path = locants[highest_loc];
+        ring_path.push_back(locants_ch[path]);
       }
 
-      ring_path.push_back(locants_ch[path]);
-
-    
       bind_2 = highest_loc; 
 
       if(locants[bind_1]->num_edges > 2){
-        bind_1 += 1; // handles all multicyclic denototions
-        ring_path.push_front(bind_1);
-      }
-    
-      // check are we going to make this a multi point with a look up?
-      if(locants[bind_1]->num_edges >= 2 && !broken_lookup[bind_1].empty()){
-        
-        // broken locants should only have a set 3 valence
-        WLNSymbol *broken = 0;
-        for (unsigned char broken_ch : broken_lookup[bind_1]){
-          if(locants[broken_ch]->num_edges < 3){
-            broken = locants[broken_ch];
-            break;
+        bool shift = true;
+        if(!broken_lookup[bind_1].empty()){
+          // check if maxed out, if so - shift as standard
+          for (unsigned char extra :broken_lookup[bind_1]){
+            if(locants[extra]->num_edges < 3){
+              shift = false;
+              break;
+            }
           }
         }
+        if(shift){
+          bind_1 += 1; // handles all normal  multicyclic denototions
+          ring_path.push_front(bind_1);
+        }
+      }
 
-        // if this is true, lets bond the multi point in as a child
-        if(!link_symbols(broken,locants[bind_1],1)){
-          fprintf(stderr,"Error: error in linking broken locant to parent\n");
-          return false;
+#ifndef EXPERIMENTAL  
+      // check are we going to make this a multi point with a look up?
+      if(locants[bind_1]->num_edges >= 2 && !broken_lookup[bind_1].empty()){
+              
+        // this should actually be calculatable
+
+        unsigned int brancher = locants[bind_1]->num_edges - 2;
+        if(brancher < broken_lookup[bind_1].size()){
+          WLNSymbol *broken = 0;
+          broken = locants[broken_lookup[bind_1].at(brancher)];
+          if(!broken){
+            fprintf(stderr,"Error: cannot access broken locant from locant %c at position %d\n",bind_1,brancher);
+            return false;
+          }
+          // if this is true, lets bond the multi point in as a child
+          if(!link_symbols(broken,locants[bind_1],1)){
+            fprintf(stderr,"Error: error in linking broken locant to parent\n");
+            return false;
+          } // this should only proc once per bond
+
+          // since we've added a symbol to path we need to push and pop
+          ring_path.push_front(locants_ch[broken]);
+        
+          while(ring_path.size() != comp_size)
+            ring_path.pop_back();
         }
         
-        // since we've added a symbol to path we need to push and pop
-        ring_path.push_front(locants_ch[broken]);
-        ring_path.pop_back();
-
+      
         // the new path should be set
         bind_1 = ring_path.front();
         bind_2 = ring_path.back();
       }
-
+      
+#endif
       
       // keep track of consumed tokens --> update shared rings
       for (unsigned char ch : ring_path){
@@ -1710,9 +1724,14 @@ struct WLNRing
   }
 
   unsigned char create_relative_position(unsigned char parent, unsigned int multiplier){
-    unsigned int scale = 252 - (23 * multiplier);
-    unsigned char branch_break = scale - locant_to_int(parent);
-    return branch_break;
+    // A = 129
+    unsigned int relative = 128 + locant_to_int(parent) + (23 * multiplier);
+    if(relative > 252){
+      fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
+      return '\0';
+    }
+    else
+      return relative;
   }
 
   WLNSymbol* hypervalent_element(unsigned char sym){
@@ -1780,10 +1799,10 @@ struct WLNRing
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
     std::set<unsigned char> broken_locants; // used in conjuction with other means
+    // broken locants start at A = 129 for extended ascii 
     
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
-
     const char *block_str = block.c_str();
     unsigned int i = 0; 
     unsigned char ch = *block_str++;
@@ -2221,7 +2240,7 @@ struct WLNRing
 
             // reverse the aromaticity assignments, how the notation works
             std::reverse(aromaticity.begin(), aromaticity.end());
-
+        
           }
           else if(expected_locants){
             if(state_multi){
