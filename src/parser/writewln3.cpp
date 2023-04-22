@@ -1232,7 +1232,6 @@ unsigned int special_element_atm(std::string &special){
       return 0;
   }
 
-  
   return 0;
 }
 
@@ -1244,6 +1243,19 @@ struct WLNRing
   std::vector<unsigned int> rings;
   std::map<unsigned char, WLNSymbol *> locants;
   std::map<WLNSymbol*,unsigned char> locants_ch;
+
+  // some bridge notation is index dependent
+  struct indexed_pair{
+    unsigned char bind_1 = '\0';
+    unsigned char bind_2 = '\0';
+    unsigned int index   = 0;
+
+    void set(unsigned char a, unsigned char b, unsigned int p){
+      bind_1 = a;
+      bind_2 = b;
+      index = p;
+    }
+  };
 
   WLNRing(){}
   ~WLNRing(){};
@@ -1326,7 +1338,7 @@ struct WLNRing
   }
 
 
-  bool CreateMono(unsigned int local_size, bool aromatic){
+  bool CreateMonoCyclic(unsigned int local_size, bool aromatic){
 
     WLNSymbol *head = 0; 
     WLNSymbol *prev = 0;
@@ -1373,7 +1385,7 @@ struct WLNRing
   }
 
   /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
-  bool CreatePOLY(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+  bool CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                   std::vector<bool> &aromaticity)
     {
      
@@ -1476,9 +1488,10 @@ struct WLNRing
 
 
   /* interesting here that the multicyclic points are not explicitly used */
-  bool CreatePERI(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+  bool CreateMultiCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                   std::vector<bool> &aromaticity,
                   std::vector<unsigned char> &multicyclic_locants,
+                  std::vector<indexed_pair> &pseudo_locants,
                   std::set<unsigned char> &broken_locants,
                   unsigned char size_designator)
   {
@@ -1506,6 +1519,15 @@ struct WLNRing
         }
       }
       prev = current;
+    }
+
+
+    // have these as indexed lookups in the component pass
+
+    // kick back if pairs are occupying the same index
+    std::map<unsigned int,std::vector<indexed_pair>> pseudo_lookup;
+    for (indexed_pair psd_pair : pseudo_locants){
+      pseudo_lookup[psd_pair.index].push_back(psd_pair);
     }
 
     // bind the broken locant to its parents character 'J- will bond to 'J'
@@ -1563,8 +1585,9 @@ struct WLNRing
     unsigned int fuses = 0; 
     bool aromatic = false;
 
-    unsigned int eval = 0; // for multicyclic
+    unsigned int mult_point = 0; // for multicyclic
     
+  
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       comp_size = component.first;
@@ -1578,6 +1601,64 @@ struct WLNRing
 
       if(path->num_edges > 2)
         predefined++; 
+
+
+      // bridge given pairs only block
+      if(!pseudo_lookup[i].empty()){
+        indexed_pair psd_pair = pseudo_lookup[i].front(); // should only be 1
+        
+        bind_1 = psd_pair.bind_1;
+        bind_2 = psd_pair.bind_2;
+
+        
+        if(!link_symbols(locants[bind_2],locants[bind_1],1)){
+          fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
+          return false;
+        }
+
+        // a ring path then needs to be calculated for aromaticity assignment
+        // should be only one path
+
+        WLNSymbol *path = locants[bind_1];
+        unsigned char highest_loc = '\0'; // highest of each child iteration 
+
+        ring_path.push_back(locants_ch[path]);
+        for (unsigned int i=0;i<comp_size - predefined; i++){
+          for (WLNSymbol *child : path->children){
+            unsigned char child_loc = locants_ch[child];
+
+            // cannot be the bound symbol
+            if(child_loc == bind_2)
+              continue;
+
+            if(child_loc >= highest_loc)
+              highest_loc = child_loc;
+          }
+
+          path = locants[highest_loc];
+          ring_path.push_back(locants_ch[path]);
+        }
+
+        if(ring_path.back() != bind_2)
+          ring_path.push_back(bind_2);
+
+        if(opt_debug){
+          fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
+          for (unsigned char ch : ring_path){
+            fprintf(stderr," %c(%d)",ch,ch);
+          }
+          fprintf(stderr," ]\n");
+        }
+
+        fuses++;
+       
+        // skip the proper algorithmic block
+        continue;      
+      }
+      
+
+
+      // MULTI ALGORITHM
 
       ring_path.push_back(locants_ch[path]);
 
@@ -1621,12 +1702,10 @@ struct WLNRing
           }
         }
         if(shift){
-          
           bind_1 += 1; // handles all normal  multicyclic denototions
           while(locants[bind_1]->num_edges > 2){
             bind_1 += 1;
           }
-
           ring_path.push_front(bind_1);
         }
       }
@@ -1665,6 +1744,18 @@ struct WLNRing
         bind_1 = ring_path.front();
         bind_2 = ring_path.back();
       }
+
+
+      // annoying catch needed for bridge notation that is 'implied' 
+      if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
+        unsigned char back = ring_path.back();
+        while(back != int_to_locant(local_size)){
+          back++;
+          ring_path.pop_front();
+        }
+        bind_2 = back;
+        bind_1 = ring_path.front();
+      }
       
 
       if(opt_debug){
@@ -1688,19 +1779,6 @@ struct WLNRing
     return true; 
   }
 
-
-  bool CreatePSDBRIDGE(std::vector<unsigned char> &fuses,
-                       std::vector<unsigned int> &numerics,
-                       unsigned int size)
-  {
-    unsigned int i = 1; 
-    while (i < fuses.size()){
-      if(opt_debug)
-        fprintf(stderr,"  fusing: %c - %c\n",fuses[i-1],fuses[i]);
-      i+=2;
-    }
-    return true; 
-  }
 
   bool AssignAromatics(std::vector<unsigned char> &ring_path){
     
@@ -1776,11 +1854,10 @@ struct WLNRing
   
   void FormWLNRing(std::string &block, unsigned int start){
 
-
+  
     enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
     const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
     unsigned int ring_type = MONO;   // start in mono and climb up
-
 
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
@@ -1788,7 +1865,6 @@ struct WLNRing
 
     // -- paths -- // 
     // int allows way more description in states
-
 
     unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation, 3 - holding size denotation
     unsigned int state_pseudo         = 0; 
@@ -1811,7 +1887,8 @@ struct WLNRing
     std::vector<bool> aromaticity; 
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
 
-    std::vector<unsigned char> pseudo_locants; // read as pairs
+    std::vector<unsigned char> pseudo_locants;
+    std::vector<unsigned int> pseudo_positions; 
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
     std::set<unsigned char> broken_locants;
@@ -1819,8 +1896,9 @@ struct WLNRing
     // broken locants start at A = 129 for extended ascii 
     // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
 
-    std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
-   
+    std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
+    std::vector<indexed_pair>                            indexed_bindings;  
+    
     const char *block_str = block.c_str();
     unsigned int i = 0; 
     unsigned char ch = *block_str++;
@@ -1834,7 +1912,7 @@ struct WLNRing
         case ' ':
           if(expected_locants){
 
-            if(state_special){
+            if(state_special && state_multi){
               // this is a extra branch locant added
               // going to go backwards from 252, seems like it should be okay 99% of the time
               unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
@@ -1845,17 +1923,25 @@ struct WLNRing
               broken_locants.insert(branch_break);
               expected_locants--;
 
-              state_special = 0;
-              breaking_modifier = 0; 
               state_multi = 2;
+            }
+            else if(state_special && state_pseudo){
+              // this is a extra branch locant added
+              // going to go backwards from 252, seems like it should be okay 99% of the time
+              unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
+              if(!branch_break)
+                Fatal(i+start);
+
+              pseudo_locants.back() = branch_break; 
+              broken_locants.insert(branch_break);
+              expected_locants--;
             }
             else{
               fprintf(stderr,"Error: %d locants expected before space character\n");
               Fatal(i+start);
             }
           }
-
-          if(state_multi == 1){
+          else if(state_multi == 1){
             if(state_special){
               // this is a extra branch locant added
               // going to go backwards from 252, seems like it should be okay 99% of the time
@@ -1868,6 +1954,16 @@ struct WLNRing
             }
             state_multi = 2;
           }
+          else if(state_pseudo == 1){
+            if(state_special){
+              unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
+              if(!branch_break)
+                Fatal(i+start);
+
+              pseudo_locants.back() = branch_break; 
+              broken_locants.insert(branch_break);
+            }
+          }
           else if(state_special){
             // can we assume this came from a ring assignment
             if(special.size() == 1 && std::stoi(special)){
@@ -1877,16 +1973,17 @@ struct WLNRing
 
               ring_components.push_back({std::stoi(special),branch_break});
               broken_locants.insert(branch_break);
-              breaking_modifier = 0;
             }
             else{
               fprintf(stderr,"Error: incomplete special definition - %d characters in special\n",special.size());
               Fatal(i+start);
             }
           }
-
+      
           special.clear();
           state_special = 0;
+          state_pseudo = 0;
+          breaking_modifier = 0; 
           positional_locant = '\0'; // hard resets on spaces
           break;
 
@@ -1919,13 +2016,17 @@ struct WLNRing
           break;
 
         case '/':
+          if(!pseudo_positions.empty() && pseudo_positions.back() == ring_components.size() -1){
+            for (unsigned int p=0;p<pseudo_positions.size();p++){
+              pseudo_positions[p] += - 1; // back shift;
+            }
+          }
+          pseudo_positions.push_back(ring_components.size() -1); // which ring has the pseudo?
           expected_locants = 2; 
-          state_pseudo = true;
+          state_pseudo = 1;
           break; 
-
           
         case '-':
-
           if(!state_special){
             state_special = 1;
           }
@@ -1955,7 +2056,6 @@ struct WLNRing
               break;
             }
             else{
-              fprintf(stderr,"state special is: %d\n",expected_locants);
               fprintf(stderr,"Error: unable to create special element - positional locant error\n");
               Fatal(i+start);
             }
@@ -2045,8 +2145,21 @@ struct WLNRing
               expected_locants--;
             }
             else if (state_pseudo){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                pseudo_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                breaking_modifier = 0;
+                state_special = 0;
+              }
+              
               pseudo_locants.push_back(ch);
-              expected_locants--; 
+              expected_locants--;
+  
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2178,8 +2291,21 @@ struct WLNRing
               expected_locants--;
             }
             else if (state_pseudo){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                pseudo_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                breaking_modifier = 0;
+                state_special = 0;
+              }
+              
               pseudo_locants.push_back(ch);
-              expected_locants--; 
+              expected_locants--;
+  
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2238,8 +2364,21 @@ struct WLNRing
               expected_locants--;
             }
             else if (state_pseudo){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                pseudo_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                breaking_modifier = 0;
+                state_special = 0;
+              }
+              
               pseudo_locants.push_back(ch);
-              expected_locants--; 
+              expected_locants--;
+  
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2310,6 +2449,13 @@ struct WLNRing
               Fatal(i+start);
             }
 
+            // create the bindings needed for pseudo bridges
+            for (unsigned int i=0; i< pseudo_positions.size();i++){
+              indexed_pair pseudo; 
+              pseudo.set(pseudo_locants[i+i],pseudo_locants[i+i+1],pseudo_positions[i]);
+              indexed_bindings.push_back(pseudo);
+            }
+
             // reverse the aromaticity assignments, how the notation works
             std::reverse(aromaticity.begin(), aromaticity.end());
         
@@ -2332,8 +2478,19 @@ struct WLNRing
               expected_locants--;
             }
             else if (state_pseudo){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                pseudo_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                breaking_modifier = 0;
+                state_special = 0;
+              }
               pseudo_locants.push_back(ch);
-              expected_locants--; 
+              expected_locants--;
             }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
@@ -2425,11 +2582,11 @@ struct WLNRing
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  pseudo bridge points: ");
-      for (unsigned int i=1;i<pseudo_locants.size();i+=2)
-        fprintf(stderr,"(%c --> %c) ",pseudo_locants[i-1],pseudo_locants[i]);
+      for (unsigned int i=0; i< pseudo_positions.size();i++){
+        fprintf(stderr,"(%d)[%c <-- %c] ",pseudo_positions[i],pseudo_locants[i+i],pseudo_locants[i+i+1]);
+      }
       fprintf(stderr,"\n");
-
-      
+  
       fprintf(stderr,"  size denotion: %d\n",ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
       fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
     }
@@ -2437,16 +2594,19 @@ struct WLNRing
     bool state = true;
     switch(ring_type){
       case MONO:
-        state = CreateMono(ring_components[0].first,aromaticity[0]);
+        state = CreateMonoCyclic(ring_components[0].first,aromaticity[0]);
         break;
       case POLY:
-        state = CreatePOLY(ring_components,aromaticity);
+        state = CreatePolyCyclic(ring_components,aromaticity);
         break;
       case PERI:
-        state = CreatePERI(ring_components,aromaticity,multicyclic_locants,broken_locants,ring_size_specifier);
+      case PSDBRIDGED:
+        state = CreateMultiCyclic(ring_components,aromaticity,
+                                  multicyclic_locants,indexed_bindings,
+                                  broken_locants,
+                                  ring_size_specifier);
         break;
       case BRIDGED:
-      case PSDBRIDGED:
         break;
     }
 
