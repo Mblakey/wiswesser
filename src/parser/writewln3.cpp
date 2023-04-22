@@ -1513,24 +1513,41 @@ struct WLNRing
     // broken locants have an intergration marker, they can only be considered in 
     // the path after all prior rings have been evaulated to that point
 
-
-    // parent -> all dead ends, e.g 'B' --> {B-, B-&}
+    // parent -> all dead ends, e.g 'B' --> {B-, B-&, B--, B--&}
     std::map<unsigned char,std::vector<unsigned char>> broken_lookup;
+    std::map<unsigned char,bool>                       resolved;
 
     if(!broken_locants.empty()){
       // create the atoms, 
       for (unsigned char loc_broken : broken_locants){
         unsigned char calculate_origin = loc_broken;
+        unsigned int pos = 0;
         while( (calculate_origin - 23) > 128){
           calculate_origin += -23;
+          pos++;
         }
-        unsigned char parent = int_to_locant(128 + calculate_origin); // relative positioning
+
+        // position here decodes where to link them
+
+        unsigned char parent = '\0';
+        parent = int_to_locant(128 + calculate_origin); // relative positioning
+        if(pos == 2 || pos == 3)
+          parent = locant_to_int(parent) + 128;
+        else if(pos > 3){
+          fprintf(stderr,"Error: non-locant links past a two-level tree are unsuitable for this parser\n");
+          return false;
+        }
+
+        if(opt_debug){
+          fprintf(stderr,"  ghost linking %d to parent %d\n",loc_broken,parent);
+        }
 
         if(!locants[loc_broken]){
           WLNSymbol *broken = assign_locant(loc_broken,'C');
           broken->set_edges(4);
 
           broken_lookup[parent].push_back(loc_broken);
+          resolved[loc_broken] = false;
         }
         else{
           fprintf(stderr,"Error: branching locants are overlapping created elements already in the locant path\n");
@@ -1548,15 +1565,10 @@ struct WLNRing
 
     unsigned int eval = 0; // for multicyclic
     
-    std::map<unsigned char,bool> consumed_map; // extra locants should not be added to the map
-    unsigned int consumed = 0; 
-   
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       comp_size = component.first;
       bind_1 = component.second;
-
-      consumed = consumed_map.size() -1;
 
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
@@ -1564,7 +1576,6 @@ struct WLNRing
       std::deque<unsigned char> ring_path; // need push and pop function at both ends
       unsigned int predefined = 1;
 
-    
       if(path->num_edges > 2)
         predefined++; 
 
@@ -1583,8 +1594,13 @@ struct WLNRing
         }
 
         if(!highest_loc){
-          fprintf(stderr,"Error: locant path formation is broken in ring definition\n");
-          return false;
+          
+          if(locant_to_int(locants_ch[path]) == local_size)
+            highest_loc = locants_ch[path];
+          else{
+            fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c'\n",locants_ch[path]);
+            return false;
+          }
         }
 
         path = locants[highest_loc];
@@ -1605,25 +1621,32 @@ struct WLNRing
           }
         }
         if(shift){
+          
           bind_1 += 1; // handles all normal  multicyclic denototions
+          while(locants[bind_1]->num_edges > 2){
+            bind_1 += 1;
+          }
+
           ring_path.push_front(bind_1);
         }
       }
 
-#ifndef EXPERIMENTAL  
       // check are we going to make this a multi point with a look up?
       if(locants[bind_1]->num_edges >= 2 && !broken_lookup[bind_1].empty()){
-              
-        // this should actually be calculatable
 
-        unsigned int brancher = locants[bind_1]->num_edges - 2;
-        if(brancher < broken_lookup[bind_1].size()){
+        // while loop allows multiple decends if needed
+        while(!broken_lookup[bind_1].empty()){
+          
           WLNSymbol *broken = 0;
-          broken = locants[broken_lookup[bind_1].at(brancher)];
-          if(!broken){
-            fprintf(stderr,"Error: cannot access broken locant from locant %c at position %d\n",bind_1,brancher);
-            return false;
+          for (unsigned int k=0;k<broken_lookup[bind_1].size();k++){
+            broken = locants[broken_lookup[bind_1].at(k)];
+            if(!resolved[broken_lookup[bind_1].at(k)]){
+              resolved[broken_lookup[bind_1].at(k)] = true;
+              break;
+            }
+              
           }
+
           // if this is true, lets bond the multi point in as a child
           if(!link_symbols(broken,locants[bind_1],1)){
             fprintf(stderr,"Error: error in linking broken locant to parent\n");
@@ -1632,25 +1655,18 @@ struct WLNRing
 
           // since we've added a symbol to path we need to push and pop
           ring_path.push_front(locants_ch[broken]);
-        
-          while(ring_path.size() != comp_size)
-            ring_path.pop_back();
+          bind_1 = locants_ch[broken];
         }
-        
+
+        while(ring_path.size() != comp_size)
+          ring_path.pop_back();
       
         // the new path should be set
         bind_1 = ring_path.front();
         bind_2 = ring_path.back();
       }
       
-#endif
-      
-      // keep track of consumed tokens --> update shared rings
-      for (unsigned char ch : ring_path){
-        if(!consumed_map[ch] && ch < int_to_locant(local_size))
-          consumed_map[ch] = true;
-      }
-    
+
       if(opt_debug){
         fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
         for (unsigned char ch : ring_path){
@@ -1659,7 +1675,6 @@ struct WLNRing
         fprintf(stderr," ]\n");
       }
         
-      
       if(!link_symbols(locants[bind_2],locants[bind_1],1)){
         fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
         return false;
@@ -1734,6 +1749,7 @@ struct WLNRing
       return relative;
   }
 
+
   WLNSymbol* hypervalent_element(unsigned char sym){
 
     WLNSymbol *new_symbol = 0;
@@ -1798,9 +1814,11 @@ struct WLNRing
     std::vector<unsigned char> pseudo_locants; // read as pairs
     std::vector<unsigned char> bridge_locants;
     std::vector<unsigned char> multicyclic_locants;
-    std::set<unsigned char> broken_locants; // used in conjuction with other means
-    // broken locants start at A = 129 for extended ascii 
+    std::set<unsigned char> broken_locants;
     
+    // broken locants start at A = 129 for extended ascii 
+    // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
+
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components; 
    
     const char *block_str = block.c_str();
@@ -1815,8 +1833,26 @@ struct WLNRing
 
         case ' ':
           if(expected_locants){
-            fprintf(stderr,"Error: %d locants expected before space character\n");
-            Fatal(i+start);
+
+            if(state_special){
+              // this is a extra branch locant added
+              // going to go backwards from 252, seems like it should be okay 99% of the time
+              unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
+              if(!branch_break)
+                Fatal(i+start);
+
+              multicyclic_locants.back() = branch_break; 
+              broken_locants.insert(branch_break);
+              expected_locants--;
+
+              state_special = 0;
+              breaking_modifier = 0; 
+              state_multi = 2;
+            }
+            else{
+              fprintf(stderr,"Error: %d locants expected before space character\n");
+              Fatal(i+start);
+            }
           }
 
           if(state_multi == 1){
@@ -1824,6 +1860,9 @@ struct WLNRing
               // this is a extra branch locant added
               // going to go backwards from 252, seems like it should be okay 99% of the time
               unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
+              if(!branch_break)
+                Fatal(i+start);
+
               multicyclic_locants.back() = branch_break; 
               broken_locants.insert(branch_break);
             }
@@ -1833,6 +1872,9 @@ struct WLNRing
             // can we assume this came from a ring assignment
             if(special.size() == 1 && std::stoi(special)){
               unsigned char branch_break = create_relative_position(positional_locant,breaking_modifier);
+              if(!branch_break)
+                Fatal(i+start);
+
               ring_components.push_back({std::stoi(special),branch_break});
               broken_locants.insert(branch_break);
               breaking_modifier = 0;
@@ -1884,22 +1926,6 @@ struct WLNRing
           
         case '-':
 
-          if(expected_locants){
-            // can only happen in designated chain
-            if(state_multi){
-              // this is a extra branch locant added
-              // going to go backwards from 252, seems like it should be okay 99% of the time
-              unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-              if(!branch_break)
-                Fatal(i+start);
-              multicyclic_locants.back() = branch_break; 
-              broken_locants.insert(branch_break);
-              state_special = 0;
-            }
-
-            break;
-          }
-
           if(!state_special){
             state_special = 1;
           }
@@ -1923,7 +1949,13 @@ struct WLNRing
   
               locants[positional_locant]->type = RING;
             }
+            else if (state_special == 1 && (positional_locant || expected_locants || state_multi)){
+              // can only come directly after another 
+              breaking_modifier = 2;
+              break;
+            }
             else{
+              fprintf(stderr,"state special is: %d\n",expected_locants);
               fprintf(stderr,"Error: unable to create special element - positional locant error\n");
               Fatal(i+start);
             }
@@ -1996,6 +2028,19 @@ struct WLNRing
 
           if(expected_locants){
             if(state_multi){
+
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                multicyclic_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                breaking_modifier = 0;
+                state_special = 0;
+              }
+              
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
@@ -2010,6 +2055,9 @@ struct WLNRing
             break;
           }
           else if (state_special){
+            
+            // need to move the multi arrangements here for a many symbol defintion
+          
             state_special = 2;
             special.push_back(ch);
             if(special.size() > 2){
@@ -2114,6 +2162,18 @@ struct WLNRing
           }
           else if(expected_locants){
             if(state_multi){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                multicyclic_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                state_special = 0;
+                breaking_modifier = 0;
+              }
+           
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
@@ -2162,6 +2222,18 @@ struct WLNRing
 
           if(expected_locants){
             if(state_multi){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                multicyclic_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                state_special = 0;
+                breaking_modifier = 0;
+              }
+              
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
@@ -2244,6 +2316,18 @@ struct WLNRing
           }
           else if(expected_locants){
             if(state_multi){
+              if(state_special){
+                // this is a extra branch locant added
+                // going to go backwards from 252, seems like it should be okay 99% of the time
+                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
+                if(!branch_break)
+                  Fatal(i+start);
+                multicyclic_locants.back() = branch_break; 
+                broken_locants.insert(branch_break);
+                state_special = 0;
+                breaking_modifier = 0;
+              }
+              
               multicyclic_locants.push_back(ch);
               expected_locants--;
             }
@@ -2349,7 +2433,6 @@ struct WLNRing
       fprintf(stderr,"  size denotion: %d\n",ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
       fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
     }
-
     
     bool state = true;
     switch(ring_type){
