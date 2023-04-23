@@ -1603,7 +1603,8 @@ struct WLNRing
         predefined++; 
 
 
-      // bridge given pairs only block
+      // GIVEN BRIDGE LOCANTS ONLY
+      
       if(!pseudo_lookup[i].empty()){
         indexed_pair psd_pair = pseudo_lookup[i].front(); // should only be 1
         
@@ -1816,9 +1817,9 @@ struct WLNRing
     return positional_locant;
   }
 
-  unsigned char create_relative_position(unsigned char parent, unsigned int multiplier){
+  unsigned char create_relative_position(unsigned char parent){
     // A = 129
-    unsigned int relative = 128 + locant_to_int(parent) + (23 * multiplier);
+    unsigned int relative = 128 + locant_to_int(parent);
     if(relative > 252){
       fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
       return '\0';
@@ -1870,19 +1871,15 @@ struct WLNRing
     unsigned int state_pseudo         = 0; 
     unsigned int state_bridge         = 0;
     unsigned int state_aromatics      = 0;
-    unsigned int state_special        = 0; // 0 - closed, 1 - open, 2 - open for element, 3 - open for expanded ring size
-    
+   
     unsigned int expected_locants     = 0;
     unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
-    unsigned int breaking_modifier    = 0;
-
+ 
+    unsigned int  evaluating_break     = 0;
     unsigned char ring_size_specifier   = '\0';
-    unsigned char positional_locant     = '\0'; 
+    unsigned char positional_locant     = '\0';
 
-
-    // allows stoi use
-    std::string expanded_size; 
-    std::string special; 
+    std::string special;  
 
     std::vector<bool> aromaticity; 
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
@@ -1899,8 +1896,10 @@ struct WLNRing
     std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
     std::vector<indexed_pair>                            indexed_bindings;  
     
-    const char *block_str = block.c_str();
+
     unsigned int i = 0; 
+    const char *block_str = block.c_str();
+    unsigned int len = block.size();
     unsigned char ch = *block_str++;
 
     while(ch){
@@ -1910,80 +1909,30 @@ struct WLNRing
         // specials
 
         case ' ':
-          if(expected_locants){
+          if(evaluating_break){
+            broken_locants.insert(positional_locant);
 
-            if(state_special && state_multi){
-              // this is a extra branch locant added
-              // going to go backwards from 252, seems like it should be okay 99% of the time
-              unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-              if(!branch_break)
-                Fatal(i+start);
-
-              multicyclic_locants.back() = branch_break; 
-              broken_locants.insert(branch_break);
-              expected_locants--;
-
+            if(state_multi == 1 && expected_locants){
+              multicyclic_locants.back() = positional_locant;
               state_multi = 2;
-            }
-            else if(state_special && state_pseudo){
-              // this is a extra branch locant added
-              // going to go backwards from 252, seems like it should be okay 99% of the time
-              unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
-              if(!branch_break)
-                Fatal(i+start);
-
-              pseudo_locants.back() = branch_break; 
-              broken_locants.insert(branch_break);
               expected_locants--;
             }
-            else{
-              fprintf(stderr,"Error: %d locants expected before space character\n");
-              Fatal(i+start);
+            else if(state_pseudo == 1 && expected_locants){
+              pseudo_locants.back() = positional_locant;
+              expected_locants--;
             }
+
+            evaluating_break = 0;
+          }
+          if(expected_locants){
+            fprintf(stderr,"Error: %d locants expected before space character\n");
+            Fatal(i+start);
           }
           else if(state_multi == 1){
-            if(state_special){
-              // this is a extra branch locant added
-              // going to go backwards from 252, seems like it should be okay 99% of the time
-              unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-              if(!branch_break)
-                Fatal(i+start);
-
-              multicyclic_locants.back() = branch_break; 
-              broken_locants.insert(branch_break);
-            }
             state_multi = 2;
           }
-          else if(state_pseudo == 1){
-            if(state_special){
-              unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
-              if(!branch_break)
-                Fatal(i+start);
 
-              pseudo_locants.back() = branch_break; 
-              broken_locants.insert(branch_break);
-            }
-          }
-          else if(state_special){
-            // can we assume this came from a ring assignment
-            if(special.size() == 1 && std::stoi(special)){
-              unsigned char branch_break = create_relative_position(positional_locant,breaking_modifier);
-              if(!branch_break)
-                Fatal(i+start);
-
-              ring_components.push_back({std::stoi(special),branch_break});
-              broken_locants.insert(branch_break);
-            }
-            else{
-              fprintf(stderr,"Error: incomplete special definition - %d characters in special\n",special.size());
-              Fatal(i+start);
-            }
-          }
-      
-          special.clear();
-          state_special = 0;
           state_pseudo = 0;
-          breaking_modifier = 0; 
           positional_locant = '\0'; // hard resets on spaces
           break;
 
@@ -1992,13 +1941,13 @@ struct WLNRing
 
 
           }
-          else if(state_special){
+          else if(positional_locant){
             // can only be an extension of a positional multiplier for a branch
-            breaking_modifier++;
+            positional_locant += 23;
           }
           else{
-            if(ch > 232){
-              fprintf(stderr,"Error: creating molecule with atoms > 252, is this reasonable?\n");
+            if(ch > 252){
+              fprintf(stderr,"Error: creating molecule with atoms > 252, is this a reasonable for WLN?\n");
               Fatal(i+start);
             }
 
@@ -2025,45 +1974,135 @@ struct WLNRing
           expected_locants = 2; 
           state_pseudo = 1;
           break; 
+        
+
+        // turn this into a look ahead type bias in order to significantly tidy this up
+        case '-':{
+
+          // gives us a local working copy
+          char local_arr [strlen(block_str)+1] = {'\0'}; 
+          const char *local = local_arr;
+          memcpy(local_arr,block_str,strlen(block_str)+1);
+
+          unsigned char local_ch = *local++; // moved it over
+          unsigned int gap = 0; 
+          bool found_next = false;
           
-        case '-':
-          if(!state_special){
-            state_special = 1;
-          }
-          else if(state_special){
-
-            if(state_special == 3){
-              if(positional_locant)
-                ring_components.push_back({std::stoi(special),positional_locant});
-              else
-                ring_components.push_back({std::stoi(special),'A'});
-            }
-            else if (state_special == 2 && positional_locant){
-
-              if(special.size() == 1)
-                locants[positional_locant] = hypervalent_element(special[0]);
-              else if(special.size() == 2)
-                locants[positional_locant] = define_element(special);
-              
-              if(!locants[positional_locant])
-                Fatal(i+start);
-  
-              locants[positional_locant]->type = RING;
-            }
-            else if (state_special == 1 && (positional_locant || expected_locants || state_multi)){
-              // can only come directly after another 
-              breaking_modifier = 2;
+          while(local_ch != '\0'){
+            if(local_ch == ' ')
+              break;
+            if(local_ch == '-'){
+              // this calculates the gap to the next '-'
+              found_next = true;
               break;
             }
-            else{
-              fprintf(stderr,"Error: unable to create special element - positional locant error\n");
-              Fatal(i+start);
+            special.push_back(local_ch);
+            gap++;
+            local_ch = *local++;
+          }
+
+          // could ignore gap zeros as they will come back round again, therefore need a size check
+
+          if(found_next){
+            
+            // pointer is moved by 1 at the bottom, so its positions -1 
+            switch(gap){
+              case 0:
+                // we resolve only the first one
+                evaluating_break = 1; // on a space, number or character, we push to broken_locants
+
+                if(positional_locant){
+                  if(positional_locant < 128){
+                    positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
+                    if(!positional_locant)
+                      Fatal(i+start);
+                  }
+                  else{
+                    // this means its already been moved, so we move the locant 23+23 across
+                    if(positional_locant + 46 > 252){
+                      fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
+                      Fatal(start+i);
+                    }
+                    positional_locant += 46;
+                    // no need to move the global pointer here
+                  }
+                }
+                else{
+                  fprintf(stderr,"Error: trying to branch out character without starting point\n");
+                  Fatal(start+i);  
+                }
+
+                break;
+              case 1:
+                // this can only be hypervalent element
+                break;
+              case 2:
+                if(std::isdigit(special[0])){
+                  for(unsigned char dig_check : special){
+                    if(!std::isdigit(dig_check)){
+                      fprintf(stderr,"Error: mixing numerical and alphabetical special defintions is not allowed\n");
+                      Fatal(start+i);
+                    }
+                  }
+                  if(positional_locant)
+                    ring_components.push_back({std::stoi(special),positional_locant}); //big ring
+                  else
+                    ring_components.push_back({std::stoi(special),'A'});
+                }
+                else{
+                  if(positional_locant){
+                    locants[positional_locant] = define_element(special);  // elemental definition
+                    if(!locants[positional_locant])
+                      Fatal(i+start);
+
+                    positional_locant++; // allow inline definition
+                  }
+                  else{
+                    fprintf(stderr,"Error: trying to assign element without starting point\n");
+                    Fatal(start+i);  
+                  }
+                }
+
+                block_str+=3; 
+                i+=3;              
+                break;
+              case 3:
+                break;
+              default:
+                fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n");
+                Fatal(start+i);
             }
 
-            state_special = 0; //reset state
-            special.clear();
           }
+          else{
+            // if there wasnt any other symbol, it must be a notation extender
+            evaluating_break = 1; // on a space, number or character, we push to broken_locants
+
+            if(positional_locant){
+              if(positional_locant < 128){
+                positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
+                if(!positional_locant)
+                  Fatal(i+start);
+              }
+              else{
+                // this means its already been moved, so we move the locant 23+23 across
+                if(positional_locant + 46 > 252){
+                  fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
+                  Fatal(start+i);
+                }
+                positional_locant += 46;
+                // no need to move the global pointer here
+              }
+            }
+            else{
+              fprintf(stderr,"Error: trying to branch out character without starting point\n");
+              Fatal(start+i);  
+            }
+
+          }
+          special.clear();
           break;
+        }
 
         // numerals - easy access
 
@@ -2077,20 +2116,25 @@ struct WLNRing
         case '7':
         case '8':
         case '9':
+          if(evaluating_break){
+            broken_locants.insert(positional_locant);
+
+            if(state_multi == 1 && expected_locants){
+              multicyclic_locants.back() = positional_locant;
+              state_multi = 2;
+              expected_locants--;
+            }
+            else if(state_pseudo == 1 && expected_locants){
+              pseudo_locants.back() = positional_locant;
+              expected_locants--;
+            }
+
+            evaluating_break = 0;
+          }
           if (i > 1 && block[i-1] == ' '){
             state_multi   = 1; // enter multi state
             expected_locants = ch - '0';
-          }
-          else if (state_special){
-            if (state_special == 2){
-              fprintf(stderr,"Error: cannot mix element and expanded ring notation in the same syntax\n");
-              Fatal(i+start);
-            }
-
-            state_special = 3;
-            special.push_back(ch);
-            break;
-          }    
+          }  
           else{
 
             if(positional_locant)
@@ -2125,58 +2169,35 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
+          if(evaluating_break){
+            broken_locants.insert(positional_locant);
+
+            if(state_multi == 1 && expected_locants){
+              multicyclic_locants.back() = positional_locant;
+              state_multi = 2;
+              expected_locants--;
+            }
+            else if(state_pseudo == 1 && expected_locants){
+              pseudo_locants.back() = positional_locant;
+              expected_locants--;
+            }
+
+            evaluating_break = 0;
+          }
 
           if(expected_locants){
-            if(state_multi){
 
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                multicyclic_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                breaking_modifier = 0;
-                state_special = 0;
-              }
-              
+            positional_locant = ch; // use for look back
+            expected_locants--;
+
+            if(state_multi)
               multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                pseudo_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                breaking_modifier = 0;
-                state_special = 0;
-              }
-              
+            else if (state_pseudo)
               pseudo_locants.push_back(ch);
-              expected_locants--;
-  
-            }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
               Fatal(start+i);
             }
-            break;
-          }
-          else if (state_special){
-            
-            // need to move the multi arrangements here for a many symbol defintion
-          
-            state_special = 2;
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation can have two characters maximum\n");
-              Fatal(start+i);
-            } 
             break;
           }
           else if(state_multi){
@@ -2269,57 +2290,40 @@ struct WLNRing
 
 
         case 'L':
+          if(evaluating_break){
+            broken_locants.insert(positional_locant);
+
+            if(state_multi == 1 && expected_locants){
+              multicyclic_locants.back() = positional_locant;
+              state_multi = 2;
+              expected_locants--;
+            }
+            else if(state_pseudo == 1 && expected_locants){
+              pseudo_locants.back() = positional_locant;
+              expected_locants--;
+            }
+
+            evaluating_break = 0;
+          }
+
           if(i==0){
             heterocyclic = false; 
             break;
           }
-          else if(expected_locants){
-            if(state_multi){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                multicyclic_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                state_special = 0;
-                breaking_modifier = 0;
-              }
-           
+          if(expected_locants){
+
+            positional_locant = ch; // use for look back
+            expected_locants--;
+
+            if(state_multi)
               multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                pseudo_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                breaking_modifier = 0;
-                state_special = 0;
-              }
-              
+            else if (state_pseudo)
               pseudo_locants.push_back(ch);
-              expected_locants--;
-  
-            }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
               Fatal(start+i);
             }
-            break;
-          }
-          else if (state_special){
-            state_special = 2;
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
+
             break;
           }
           else if(state_multi){
@@ -2332,7 +2336,6 @@ struct WLNRing
               state_multi = 0; // reset the multi state
               positional_locant = ch;
             }
-              
           }
           else 
             positional_locant = ch;
@@ -2341,58 +2344,40 @@ struct WLNRing
 
 
         case 'T':
+          if(evaluating_break){
+            broken_locants.insert(positional_locant);
+
+            if(state_multi == 1 && expected_locants){
+              multicyclic_locants.back() = positional_locant;
+              state_multi = 2;
+              expected_locants--;
+            }
+            else if(state_pseudo == 1 && expected_locants){
+              pseudo_locants.back() = positional_locant;
+              expected_locants--;
+            }
+
+            evaluating_break = 0;
+          }
+
           if(i==0){
             heterocyclic = true; 
             break;
           }
 
           if(expected_locants){
-            if(state_multi){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                multicyclic_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                state_special = 0;
-                breaking_modifier = 0;
-              }
-              
+
+            positional_locant = ch; // use for look back
+            expected_locants--;
+
+            if(state_multi)
               multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                pseudo_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                breaking_modifier = 0;
-                state_special = 0;
-              }
-              
+            else if (state_pseudo)
               pseudo_locants.push_back(ch);
-              expected_locants--;
-  
-            }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
               Fatal(start+i);
             }
-            break;
-          }
-          else if (state_special){
-            state_special = 2;
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
             break;
           }
           else if(state_multi){
@@ -2417,6 +2402,22 @@ struct WLNRing
         // CLOSE
 
         case 'J':
+          if(evaluating_break){
+            broken_locants.insert(positional_locant);
+
+            if(state_multi == 1 && expected_locants){
+              multicyclic_locants.back() = positional_locant;
+              state_multi = 2;
+              expected_locants--;
+            }
+            else if(state_pseudo == 1 && expected_locants){
+              pseudo_locants.back() = positional_locant;
+              expected_locants--;
+            }
+
+            evaluating_break = 0;
+          }
+
           if (i == block.size()-1){
 
             if(ring_components.empty()){
@@ -2460,51 +2461,19 @@ struct WLNRing
             std::reverse(aromaticity.begin(), aromaticity.end());
         
           }
-          else if(expected_locants){
-            if(state_multi){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(multicyclic_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                multicyclic_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                state_special = 0;
-                breaking_modifier = 0;
-              }
-              
+          if(expected_locants){
+
+            positional_locant = ch; // use for look back
+            expected_locants--;
+
+            if(state_multi)
               multicyclic_locants.push_back(ch);
-              expected_locants--;
-            }
-            else if (state_pseudo){
-              if(state_special){
-                // this is a extra branch locant added
-                // going to go backwards from 252, seems like it should be okay 99% of the time
-                unsigned char branch_break = create_relative_position(pseudo_locants.back(),breaking_modifier);
-                if(!branch_break)
-                  Fatal(i+start);
-                pseudo_locants.back() = branch_break; 
-                broken_locants.insert(branch_break);
-                breaking_modifier = 0;
-                state_special = 0;
-              }
+            else if (state_pseudo)
               pseudo_locants.push_back(ch);
-              expected_locants--;
-            }
             else{
               fprintf(stderr,"Error: unhandled locant rule\n");
               Fatal(start+i);
             }
-            break;
-          }
-          else if (state_special){
-            state_special = 2;
-            special.push_back(ch);
-            if(special.size() > 2){
-              fprintf(stderr,"Error: special elemental notation must only have two characters\n");
-              Fatal(start+i);
-            } 
             break;
           }
           else if(state_multi){
@@ -2527,10 +2496,8 @@ struct WLNRing
         default:
           // these can only be expanded chars
           fprintf(stderr,"WARNING: SWITCH UNCLOSED\n");
-  
       }
       
-  
       i++;
       ch = *(block_str++);
     }
@@ -4263,6 +4230,7 @@ struct BabelGraph{
         
           case '*':
             atomic_num = special_element_atm(sym->special);
+            fprintf(stderr,"atomic num: %d\n",atomic_num);
             break;
 
           default:
