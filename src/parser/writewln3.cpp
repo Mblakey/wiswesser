@@ -1253,9 +1253,10 @@ WLNSymbol* define_hypervalent_element(unsigned char sym){
 
     default:
       fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
+      break;
   }
   
-  return 0;
+  return new_symbol;
 }
 
 
@@ -1296,6 +1297,10 @@ struct WLNRing
 
   // both lookups needed for QOL in ring building
   WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant){
+    
+    if(!locant)
+      return 0;
+    
     locants[loc] = locant; 
     locants_ch[locant] = loc;
     locant->type = RING;
@@ -2842,10 +2847,17 @@ struct WLNGraph
     unsigned int pop_ticks = 0;  // '&' style popping
     unsigned int bond_ticks = 0; // 'U' style bonding
 
-    for (unsigned int i = 0; i < len; i++)
+    // local copy
+    char wln_str[len+1] = {'\0'};
+    memcpy(wln_str,wln,len);
+    const char * wln_ptr = wln_str;
+    
+    unsigned int i=0;
+    unsigned char ch = *wln_ptr;
+    
+    while(ch)
     {
-      unsigned char ch = wln[i];
-
+      
       switch (ch)
       {
 
@@ -3838,7 +3850,10 @@ struct WLNGraph
         }
         else
         {
-          pop_ticks++; // set the number of pops to do
+          if(curr->type == LOCANT)
+            curr->ch += 23;
+          else
+            pop_ticks++; // set the number of pops to do
         }
         break;
 
@@ -3860,7 +3875,14 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = define_element(special);
+          if(special.size() == 2)
+            curr = define_element(special);
+          else if (special.size() == 1)
+            curr = define_hypervalent_element(special[0]);
+
+          if(!curr)
+            Fatal(i);
+
           special.clear();
 
           create_bond(curr, prev, bond_ticks, i);
@@ -3870,11 +3892,23 @@ struct WLNGraph
           pending_special = false;
         }
         else{
-          pending_inline_ring = true;
-          pending_special = true;
+
+
+          if(curr->type == LOCANT){
+
+            if(curr->ch < 128){
+              ch = locant_to_int(ch) + 128;
+            }
+            else{
+              ch += 46; // magic numbers explained in ring functions
+            }
+          }
+          else{
+            pending_inline_ring = true;
+            pending_special = true;
+          }
         }
         break;
-
 
 
       case '/':
@@ -3889,9 +3923,12 @@ struct WLNGraph
         break;
 
       default:
-        fprintf(stderr, "Error: unallowed character! - [A-Z][0-1][&-/' ']\n");
+        fprintf(stderr, "Error: unallowed character! - alphabet: [A-Z][0-1][&-/' ']\n");
         Fatal(i);
       }
+
+      i++;
+      ch = *(++wln_ptr);
     }
 
     if (pending_closure)
