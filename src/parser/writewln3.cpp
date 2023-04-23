@@ -1235,6 +1235,29 @@ unsigned int special_element_atm(std::string &special){
   return 0;
 }
 
+WLNSymbol* define_hypervalent_element(unsigned char sym){
+
+  WLNSymbol *new_symbol = 0;
+  switch(sym){
+    
+    case 'P':
+    case 'S':
+    case 'G':
+    case 'E':
+    case 'I':
+    case 'F':
+      new_symbol = AllocateWLNSymbol(sym);
+      new_symbol->set_edges(6);            // allows FCl6
+      new_symbol->set_type(STANDARD);
+      return new_symbol;
+
+    default:
+      fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
+  }
+  
+  return 0;
+}
+
 
 
 /* struct to hold pointers for the wln ring */
@@ -1269,7 +1292,15 @@ struct WLNRing
     
     locant->type = RING;
     return locant; 
-  } 
+  }
+
+  // both lookups needed for QOL in ring building
+  WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant){
+    locants[loc] = locant; 
+    locants_ch[locant] = loc;
+    locant->type = RING;
+    return locant; 
+  }  
 
   void debug_locants(){
     std::map<unsigned char, WLNSymbol *>::iterator locant_itr;
@@ -1812,11 +1843,6 @@ struct WLNRing
   }
 
 
-  unsigned char modifiy_locant(unsigned char positional_locant){
-    positional_locant += (23);
-    return positional_locant;
-  }
-
   unsigned char create_relative_position(unsigned char parent){
     // A = 129
     unsigned int relative = 128 + locant_to_int(parent);
@@ -1826,30 +1852,6 @@ struct WLNRing
     }
     else
       return relative;
-  }
-
-
-  WLNSymbol* hypervalent_element(unsigned char sym){
-
-    WLNSymbol *new_symbol = 0;
-    switch(sym){
-      
-      case 'P':
-      case 'S':
-      case 'G':
-      case 'E':
-      case 'I':
-      case 'F':
-        new_symbol = AllocateWLNSymbol(sym);
-        new_symbol->set_edges(6);            // allows FCl6
-        new_symbol->set_type(STANDARD);
-        return new_symbol;
-
-      default:
-        fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
-    }
-    
-    return 0;
   }
 
   
@@ -1867,7 +1869,7 @@ struct WLNRing
     // -- paths -- // 
     // int allows way more description in states
 
-    unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation, 3 - holding size denotation
+    unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
     unsigned int state_pseudo         = 0; 
     unsigned int state_bridge         = 0;
     unsigned int state_aromatics      = 0;
@@ -1875,7 +1877,7 @@ struct WLNRing
     unsigned int expected_locants     = 0;
     unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
  
-    unsigned int  evaluating_break     = 0;
+    unsigned int  evaluating_break      = 0;
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0';
 
@@ -1931,7 +1933,6 @@ struct WLNRing
           else if(state_multi == 1){
             state_multi = 2;
           }
-
           state_pseudo = 0;
           positional_locant = '\0'; // hard resets on spaces
           break;
@@ -1940,6 +1941,9 @@ struct WLNRing
           if (state_aromatics){
 
 
+          }
+          else if (state_multi == 3){
+            ring_size_specifier += 23;
           }
           else if(positional_locant){
             // can only be an extension of a positional multiplier for a branch
@@ -1953,10 +1957,6 @@ struct WLNRing
 
             ch = block[i-1] + 23; 
 
-            if(state_multi == 3){
-              ring_size_specifier = ch;
-              break;
-            }
             if(positional_locant){
               positional_locant = ch;
               break;
@@ -1981,10 +1981,11 @@ struct WLNRing
 
           // gives us a local working copy
           char local_arr [strlen(block_str)+1] = {'\0'}; 
+          memcpy(local_arr,block_str,strlen(block_str));
           const char *local = local_arr;
-          memcpy(local_arr,block_str,strlen(block_str)+1);
 
-          unsigned char local_ch = *local++; // moved it over
+      
+          unsigned char local_ch = *(local)++; // moved it over
           unsigned int gap = 0; 
           bool found_next = false;
           
@@ -2035,6 +2036,22 @@ struct WLNRing
                 break;
               case 1:
                 // this can only be hypervalent element
+                if(positional_locant){
+                  assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
+                  if(!locants[positional_locant])
+                    Fatal(i+start);
+                  
+                  if(opt_debug)
+                    fprintf(stderr,"  assigning hypervalent %c to position %c\n",special[0],positional_locant);
+
+                  positional_locant++; // allow inline definition
+                }
+                else{
+                  fprintf(stderr,"Error: trying to assign element without starting point\n");
+                  Fatal(start+i);  
+                }
+                block_str+=2; 
+                i+=2; 
                 break;
               case 2:
                 if(std::isdigit(special[0])){
@@ -2051,9 +2068,12 @@ struct WLNRing
                 }
                 else{
                   if(positional_locant){
-                    locants[positional_locant] = define_element(special);  // elemental definition
+                    assign_locant(positional_locant,define_element(special));  // elemental definition
                     if(!locants[positional_locant])
                       Fatal(i+start);
+
+                    if(opt_debug)
+                      fprintf(stderr,"  assigning element %s to position %c\n",special.c_str(),positional_locant);
 
                     positional_locant++; // allow inline definition
                   }
@@ -2062,11 +2082,8 @@ struct WLNRing
                     Fatal(start+i);  
                   }
                 }
-
                 block_str+=3; 
                 i+=3;              
-                break;
-              case 3:
                 break;
               default:
                 fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n");
@@ -2121,7 +2138,6 @@ struct WLNRing
 
             if(state_multi == 1 && expected_locants){
               multicyclic_locants.back() = positional_locant;
-              state_multi = 2;
               expected_locants--;
             }
             else if(state_pseudo == 1 && expected_locants){
@@ -2172,16 +2188,11 @@ struct WLNRing
           if(evaluating_break){
             broken_locants.insert(positional_locant);
 
-            if(state_multi == 1 && expected_locants){
+            if(state_multi == 1 && expected_locants)
               multicyclic_locants.back() = positional_locant;
-              state_multi = 2;
-              expected_locants--;
-            }
-            else if(state_pseudo == 1 && expected_locants){
+            else if(state_pseudo == 1 && expected_locants)
               pseudo_locants.back() = positional_locant;
-              expected_locants--;
-            }
-
+            
             evaluating_break = 0;
           }
 
@@ -2200,16 +2211,9 @@ struct WLNRing
             }
             break;
           }
-          else if(state_multi){
-            if(state_multi == 2){
-              state_multi = 3;
-              ring_size_specifier = ch;
-              break;
-            }
-             else if(state_multi == 3){
-              state_multi = 0; // reset the multi state
-              positional_locant = ch;
-            }
+          else if(state_multi == 2){
+            ring_size_specifier = ch;
+            state_multi = 3;
           }
           else if (positional_locant){
            
@@ -2293,15 +2297,10 @@ struct WLNRing
           if(evaluating_break){
             broken_locants.insert(positional_locant);
 
-            if(state_multi == 1 && expected_locants){
+            if(state_multi == 1 && expected_locants)
               multicyclic_locants.back() = positional_locant;
-              state_multi = 2;
-              expected_locants--;
-            }
-            else if(state_pseudo == 1 && expected_locants){
+            else if(state_pseudo == 1 && expected_locants)
               pseudo_locants.back() = positional_locant;
-              expected_locants--;
-            }
 
             evaluating_break = 0;
           }
@@ -2326,16 +2325,9 @@ struct WLNRing
 
             break;
           }
-          else if(state_multi){
-            if(state_multi == 2){
-              state_multi = 3;
-              ring_size_specifier = ch;
-              break;
-            }
-            else if(state_multi == 3){
-              state_multi = 0; // reset the multi state
-              positional_locant = ch;
-            }
+          else if(state_multi == 2){
+            ring_size_specifier = ch;
+            state_multi = 3;
           }
           else 
             positional_locant = ch;
@@ -2347,15 +2339,10 @@ struct WLNRing
           if(evaluating_break){
             broken_locants.insert(positional_locant);
 
-            if(state_multi == 1 && expected_locants){
+            if(state_multi == 1 && expected_locants)
               multicyclic_locants.back() = positional_locant;
-              state_multi = 2;
-              expected_locants--;
-            }
-            else if(state_pseudo == 1 && expected_locants){
+            else if(state_pseudo == 1 && expected_locants)
               pseudo_locants.back() = positional_locant;
-              expected_locants--;
-            }
 
             evaluating_break = 0;
           }
@@ -2380,17 +2367,9 @@ struct WLNRing
             }
             break;
           }
-          else if(state_multi){
-            if(state_multi == 2){
-              state_multi = 3;
-              ring_size_specifier = ch;
-              break;
-            }
-            else if(state_multi == 3){
-              // AROMATIC CAN GO HERE
-              state_multi = 0; // reset the multi state
-              positional_locant = ch;
-            }
+          else if(state_multi == 2){
+            ring_size_specifier = ch;
+            state_multi = 3;
           }
           else
             positional_locant = ch;
@@ -2405,15 +2384,10 @@ struct WLNRing
           if(evaluating_break){
             broken_locants.insert(positional_locant);
 
-            if(state_multi == 1 && expected_locants){
+            if(state_multi == 1 && expected_locants)
               multicyclic_locants.back() = positional_locant;
-              state_multi = 2;
-              expected_locants--;
-            }
-            else if(state_pseudo == 1 && expected_locants){
+            else if(state_pseudo == 1 && expected_locants)
               pseudo_locants.back() = positional_locant;
-              expected_locants--;
-            }
 
             evaluating_break = 0;
           }
@@ -2476,17 +2450,9 @@ struct WLNRing
             }
             break;
           }
-          else if(state_multi){
-            if(state_multi == 2){
-              state_multi = 3;
-              ring_size_specifier = ch;
-              break;
-            }
-            else if(state_multi == 3){
-              // AROMATIC CAN GO HERE
-              state_multi = 0; // reset the multi state
-              positional_locant = ch;
-            }
+          else if(state_multi == 2){
+            ring_size_specifier = ch;
+            state_multi = 3;
           }
           else 
             positional_locant = ch;
