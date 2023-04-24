@@ -1990,7 +1990,6 @@ struct WLNRing
           memcpy(local_arr,block_str,strlen(block_str));
           const char *local = local_arr;
 
-      
           unsigned char local_ch = *(local)++; // moved it over
           unsigned int gap = 0; 
           bool found_next = false;
@@ -2006,6 +2005,11 @@ struct WLNRing
             special.push_back(local_ch);
             gap++;
             local_ch = *local++;
+          }
+
+          // this will change on metallocenes defintions
+          if( (state_multi || state_pseudo) && expected_locants){
+           gap = 0;
           }
 
           // could ignore gap zeros as they will come back round again, therefore need a size check
@@ -3461,6 +3465,8 @@ struct WLNGraph
         if(pending_closure)
           break;
         else if(pending_special){
+          fprintf(stderr,"HERE\n");
+
           pending_inline_ring = false; // resets
           special.push_back(ch);
           if(special.size() > 2){
@@ -3552,13 +3558,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3597,13 +3601,11 @@ struct WLNGraph
       case 'J':
         if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         if (pending_locant)
         {
@@ -3665,13 +3667,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
+          special.push_back(ch);
           if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3711,13 +3711,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
+          special.push_back(ch);
           if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3762,13 +3760,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3840,6 +3836,7 @@ struct WLNGraph
             curr->ch += 23;
           else
             pop_ticks++; // set the number of pops to do
+          
         }
         break;
 
@@ -3854,12 +3851,15 @@ struct WLNGraph
         }
         else if (pending_special)
         {
-
+          
+          
           if (pop_ticks)
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
             pop_ticks = 0;
           }
+          else
+            prev = curr;
 
           if(special.size() == 2)
             curr = define_element(special);
@@ -3881,19 +3881,10 @@ struct WLNGraph
         }
         else{
 
-          if(curr->type == LOCANT){
+          // not sure what the special assignment rules are?
 
-            if(curr->ch < 128){
-              ch = locant_to_int(ch) + 128;
-            }
-            else{
-              ch += 46; // magic numbers explained in ring functions
-            }
-          }
-          else{
-            pending_inline_ring = true;
-            pending_special = true;
-          }
+          pending_inline_ring = true;
+          pending_special = true;
         }
         break;
 
