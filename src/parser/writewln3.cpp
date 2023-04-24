@@ -1985,7 +1985,8 @@ struct WLNRing
         case '-':{
 
           // gives us a local working copy
-          char local_arr [strlen(block_str)+1] = {'\0'}; 
+          char local_arr [strlen(block_str)+1]; 
+          memset(local_arr,'\0',strlen(block_str)+1);
           memcpy(local_arr,block_str,strlen(block_str));
           const char *local = local_arr;
 
@@ -2848,7 +2849,8 @@ struct WLNGraph
     unsigned int bond_ticks = 0; // 'U' style bonding
 
     // local copy
-    char wln_str[len+1] = {'\0'};
+    char wln_str[len+1];
+    memset(wln_str,'\0',len+1);
     memcpy(wln_str,wln,len);
     const char * wln_ptr = wln_str;
     
@@ -2857,7 +2859,7 @@ struct WLNGraph
     
     while(ch)
     {
-      
+
       switch (ch)
       {
 
@@ -2913,13 +2915,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -2963,13 +2963,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3015,13 +3013,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3065,13 +3061,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3108,6 +3102,8 @@ struct WLNGraph
 
           bond_ticks = 0;
           prev = return_open_branch(branch_stack);
+          if(!prev)
+            prev = curr;
         }
         break;
 
@@ -3165,13 +3161,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3214,13 +3208,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3261,13 +3253,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3310,13 +3300,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3353,6 +3341,8 @@ struct WLNGraph
 
           bond_ticks = 0;
           prev = return_open_branch(branch_stack);
+          if(!prev)
+            prev = curr;
         }
         break;
 
@@ -3366,13 +3356,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3410,6 +3398,8 @@ struct WLNGraph
           bond_ticks = 0;
 
           prev = return_open_branch(branch_stack);
+          if(!prev)
+            prev = curr;
         }
         break;
 
@@ -3420,13 +3410,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
+          special.push_back(ch);
           if(special.size() == 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3474,13 +3462,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3531,13 +3517,11 @@ struct WLNGraph
           break;
         else if(pending_special){
           pending_inline_ring = false; // resets
-          
-          if(special.size() == 2){
+          special.push_back(ch);
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
-          else
-            special.push_back(ch);
         }
         else if (pending_locant)
         {
@@ -3603,6 +3587,8 @@ struct WLNGraph
           
           // this will automatically return a branch like a terminator
           prev = return_open_branch(branch_stack);
+          if(!prev)
+            prev = curr;
         }
         break;
 
@@ -3680,7 +3666,7 @@ struct WLNGraph
         else if(pending_special){
           pending_inline_ring = false; // resets
           
-          if(special.size() == 2){
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
@@ -3726,7 +3712,7 @@ struct WLNGraph
         else if(pending_special){
           pending_inline_ring = false; // resets
           
-          if(special.size() == 2){
+          if(special.size() > 2){
             fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
             Fatal(i);
           }
@@ -3877,9 +3863,11 @@ struct WLNGraph
 
           if(special.size() == 2)
             curr = define_element(special);
-          else if (special.size() == 1)
+          else if (special.size() == 1){
             curr = define_hypervalent_element(special[0]);
-
+            branch_stack.push(curr);
+          }
+            
           if(!curr)
             Fatal(i);
 
@@ -3892,7 +3880,6 @@ struct WLNGraph
           pending_special = false;
         }
         else{
-
 
           if(curr->type == LOCANT){
 
