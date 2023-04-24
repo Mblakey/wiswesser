@@ -155,7 +155,6 @@ struct WLNSymbol
   unsigned int allowed_edges;
   unsigned int num_edges;
 
-
   WLNSymbol *previous;
   std::vector<WLNSymbol *> children; 
   std::vector<unsigned int> orders;
@@ -464,7 +463,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       break;
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",parent->ch);
+      fprintf(stderr,"Error: cannot make %c symbol aromatic, please check definitions\n",parent->ch);
       return false;
   }
 
@@ -494,7 +493,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       break; 
     
     default:
-      fprintf(stderr,"Error: can not make %c symbol aromatic, please check definitions\n",child->ch);
+      fprintf(stderr,"Error: cannot make %c symbol aromatic, please check definitions\n",child->ch);
       return false;
   }
 
@@ -1319,61 +1318,6 @@ struct WLNRing
     fprintf(stderr,"\n");
   }
 
-  void print_distance(unsigned int *distance, unsigned int n){
-    for (unsigned int i=0;i<n;i++){
-      for (unsigned int j=0;j<n;j++){
-        fprintf(stderr,"%d ",distance[i* n+j]); 
-      }
-      fprintf(stderr,"\n");
-    }
-  }
-
-  /* creates distance matrix from connected grap */
-  unsigned int *distance_matrix(unsigned int n){
-
-    // distance is nxn matrix of a n vertices connected graph
-
-    unsigned int *distance = (unsigned int*)malloc((n*n) *sizeof(unsigned int));
-
-    // set the diagonal elements to zero dij = dii, other weights here are default 1
-    for (unsigned int i=0;i<n;i++){
-      for (unsigned int j=0;j<n;j++){
-        if(i == j)
-          distance[i* n+j] = 0; 
-        else  
-          distance[i* n+j] = INF; // n+1 for infinite 
-      }
-    }
-
-    /*
-    all other elements are the minimum 'steps' from one node to the next
-    use Floyd-warshall to calculate distances, any 'infinites' here would indiciate a broken graph
-    */
-
-    // set the distance 1 pairs
-    std::map<unsigned char,WLNSymbol*>::iterator map_iter;
-    for (map_iter = locants.begin(); map_iter != locants.end(); map_iter++){
-      WLNSymbol *current = map_iter->second; 
-      unsigned int cur_int = locant_to_int(map_iter->first) - 1; // gives zero index for distance matrix
-      for (WLNSymbol *child : current->children){
-        unsigned int child_int = locant_to_int(locants_ch[child]) - 1;
-        distance[cur_int* n+child_int] = 1;
-        distance[child_int* n+cur_int] = 1;
-      }
-    } 
-
-    for (unsigned int k=0;k<n;k++){
-      for (unsigned int i=0;i<n;i++){
-        for (unsigned int j=0;j<n;j++){
-          if(distance[i* n+j] > distance[i* n+k] + distance[k* n+j])
-            distance[i* n+j] = distance[i* n+k] + distance[k* n+j];
-        }
-      }
-    }
-    
-    return distance; 
-  }
-
 
   bool CreateMonoCyclic(unsigned int local_size, bool aromatic){
 
@@ -1934,6 +1878,8 @@ struct WLNRing
     unsigned int len = block.size();
     unsigned int aromatic_position = FindAromatics(block_str,len); // should be a copy so no effect on pointer
 
+
+
     unsigned char ch = *block_str++;
 
 
@@ -1941,7 +1887,7 @@ struct WLNRing
 
       if(i >= aromatic_position)
         state_aromatics = 1;
-      
+
       switch(ch){
 
         // specials
@@ -2002,7 +1948,7 @@ struct WLNRing
 
         case '/':
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' can not be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
             Fatal(i+start);
           }
 
@@ -2084,10 +2030,14 @@ struct WLNRing
 
                 break;
               case 1:
+                if(!implied_assignment_used){
+                  implied_assignment_used = true;
+                  positional_locant = 'A';
+                }
                 // this can only be hypervalent element
                 if(positional_locant){
                   WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
-                  if(new_locant)
+                  if(!new_locant)
                     Fatal(i+start);
 
                   string_positions[start+i + 1] = new_locant; // attaches directly
@@ -2105,6 +2055,11 @@ struct WLNRing
                 i+=2; 
                 break;
               case 2:
+                if(!implied_assignment_used){
+                  implied_assignment_used = true;
+                  positional_locant = 'A';
+                }
+
                 if(std::isdigit(special[0])){
                   for(unsigned char dig_check : special){
                     if(!std::isdigit(dig_check)){
@@ -2120,7 +2075,7 @@ struct WLNRing
                 else{
                   if(positional_locant){
                     WLNSymbol* new_locant = assign_locant(positional_locant,define_element(special));  // elemental definition
-                    if(new_locant)
+                    if(!new_locant)
                       Fatal(i+start);
 
                     string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
@@ -2193,7 +2148,7 @@ struct WLNRing
         case '8':
         case '9':
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' can not be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
             Fatal(i+start);
           }
 
@@ -2249,8 +2204,9 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
+
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' can not be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
             Fatal(i+start);
           }
 
@@ -2360,7 +2316,7 @@ struct WLNRing
 
             if(i>0 && block[i-1] == ' '){
               if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
                 Fatal(i+start);
               }
               else
@@ -2448,7 +2404,7 @@ struct WLNRing
 
         case 'L':
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' can not be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
             Fatal(i+start);
           }
 
@@ -2490,7 +2446,7 @@ struct WLNRing
           else{
             if(i>0 && block[i-1] == ' '){
               if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
                 Fatal(i+start);
               }
               else
@@ -2549,7 +2505,7 @@ struct WLNRing
           else{
             if(i>0 && block[i-1] == ' '){
               if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
                 Fatal(i+start);
               }
               else
@@ -2622,8 +2578,6 @@ struct WLNRing
               indexed_bindings.push_back(pseudo);
             }
 
-            // reverse the aromaticity assignments, how the notation works
-            std::reverse(aromaticity.begin(), aromaticity.end());
             break;
           }
           if(expected_locants){
@@ -2648,7 +2602,7 @@ struct WLNRing
           else{
             if(i>0 && block[i-1] == ' '){
               if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
                 Fatal(i+start);
               }
               else
@@ -2845,6 +2799,59 @@ struct WLNGraph
     return true;
   }
 
+
+  bool MergeSpiros(){
+
+    for (WLNSymbol *sym : symbol_mempool){
+
+      if(sym->type == LOCANT){
+
+        if(sym->children.size() == 1 && sym->children[0]->type == LOCANT){
+          WLNSymbol *head = sym->previous;
+          WLNSymbol *tail = sym->children[0]->children[0]; 
+          WLNSymbol *head_locant = sym;
+          WLNSymbol *tail_locant = sym->children[0];
+
+          if(head->ch != tail->ch){
+            fprintf(stderr,"Error: trying to perform a spiro merge operation on differing atom types\n");
+            return false;
+          }
+
+          unsigned int erase_pos = 0; 
+          for (WLNSymbol *hchild : head->children){
+            if(hchild == head_locant){
+              break;
+            }
+            erase_pos++;
+          }
+          head->children.erase(head->children.begin()+erase_pos);
+          head->orders.erase(head->orders.begin()+erase_pos);
+          tail_locant->children.clear();
+
+          // should be disconnected
+
+          // take the tail connections and but them in head
+
+          for (WLNSymbol *tchild : tail->children)
+            head->children.push_back(tchild);
+
+          for (unsigned int bond_order : tail->orders)
+            head->orders.push_back(bond_order);
+          
+          tail->children.clear();
+          tail->orders.clear();
+
+          // gets ignored in the babel molecule build
+          tail->type = LOCANT;
+        }
+
+      }
+
+    }
+
+    return true;
+  }
+
   /* must be performed before sending to obabel graph*/
   bool ExpandWLNGraph(){
 
@@ -2909,16 +2916,6 @@ struct WLNGraph
     return top;
   }
 
-  bool check_unbroken(unsigned int i)
-  {
-    if (i > 1 && !(wln[i - 1] == '&' && wln[i - 2] == ' '))
-    {
-      fprintf(stderr, "Error: broken graph without ionic notation, check branches|locants and '&' count\n");
-      return false;
-    }
-
-    return true;
-  }
 
   WLNRing *pop_ringstack(unsigned int pops, std::stack<WLNRing *> &stack)
   {
@@ -3000,11 +2997,6 @@ struct WLNGraph
     if (prev)
     {
       if (!link_symbols(curr, prev, 1 + bond_ticks))
-        Fatal(i);
-    }
-    else
-    {
-      if (!check_unbroken(i))
         Fatal(i);
     }
   }
@@ -3090,7 +3082,7 @@ struct WLNGraph
           charges.push_back({std::stoi(position_1),1});
         
         if(std::stoi(position_2) != 0)
-          charges.push_back({std::stoi(position_1),-1});
+          charges.push_back({std::stoi(position_2),-1});
 
         if(!first_instance)
           first_instance = i;
@@ -3212,18 +3204,28 @@ struct WLNGraph
           pop_ticks = 0;
         }
 
-        if(prev && !std::isdigit(prev->ch)){
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(4);
+        // moves naturally, so end on the last number
+        curr = AllocateWLNSymbol(ch);
+        curr->set_type(STANDARD);
+        curr->set_edges(3);
 
-          curr->special.push_back(ch); // prepare for a n > 10 chain
+        curr->special.push_back(ch);
 
-          create_bond(curr, prev, bond_ticks, i);
-          prev = curr;
+
+        while(*(wln_ptr+1)){
+          if(!std::isdigit(*(wln_ptr+1)))
+            break;
+
+          fprintf(stderr,"moving\n");
+          curr->special.push_back(*wln_ptr);
+          wln_ptr++;
+          i++;
         }
-        else 
-          special.push_back(ch);
+
+        create_bond(curr, prev, bond_ticks, i);
+
+        bond_ticks = 0;
+        prev = curr;
         break;
 
       case 'Y':
@@ -4347,11 +4349,14 @@ struct BabelGraph{
   ~BabelGraph(){};
 
 
-  OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,unsigned int charge=0)
+  OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,unsigned int charge=0,unsigned int hcount=0)
   {
 
     OpenBabel::OBAtom* result = mol->NewAtom();
+    
     result->SetAtomicNum(elem);
+    result->SetImplicitHCount(hcount);
+
     if(charge)
       result->SetFormalCharge(charge);
 
@@ -4402,74 +4407,28 @@ struct BabelGraph{
     return true;
   }
 
-  bool MBOBReduceSpecies(OpenBabel::OBMol* mol){
-
-    OpenBabel::OBAtom* atom = 0;
-    int reducing = 0; // reducing hydrogens count
-    unsigned int valence = 0; 
-    FOR_ATOMS_OF_MOL(atom,mol){
-      // allows for wln notation implicits
-      if(atom->GetImplicitHCount() > 0)
-        continue;
-      
-      bool aromatic = false;
-      if(atom->IsAromatic())
-        aromatic = true;
-
-      valence = atom->GetExplicitValence();
-
-      switch(atom->GetAtomicNum()){
-        
-        case 6: // carbon
-          reducing = 4;
-          break;
-
-        case 7:  // nitrogen
-        case 15: // phosphorus
-          reducing = 3;
-          break;
-
-        default:
-          break;
-      }
-
-  
-      if(aromatic)
-        reducing--;
-
-      if(reducing > 0){
-        unsigned int defined_charge = atom->GetFormalCharge();
-        if(defined_charge)
-          reducing+=defined_charge;
-        
-        atom->SetImplicitHCount(reducing-valence);
-      }
-
-      
-    }
-
-    return true;
-  }
 
   bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
   {
     
-
     mol->SetAromaticPerceived(true);
 
-    MBOBReduceSpecies(mol);
-
-    if (!OBKekulize(mol))
-        return false;
-    mol->DeleteHydrogens();
-
+    if(!OBKekulize(mol)){
+      fprintf(stderr,"Error: failed on kekulize mol\n");
+      return false;
+    }
+      
+    
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
     mol->SetChiralityPerceived(true);
+    
     return true;
   }
 
 
   bool ConvertFromWLN(OpenBabel::OBMol* mol,WLNGraph &wln_graph){
+
+    // aromaticity is handled by reducing the edges
 
     if(opt_debug)
       fprintf(stderr,"Converting wln to obabel mol object: \n");
@@ -4478,18 +4437,20 @@ struct BabelGraph{
     for (WLNSymbol *sym: symbol_mempool){
 
       if(sym->type != LOCANT){
+
+        unsigned int children = sym->children.size();
         
         OpenBabel::OBAtom *atom = 0;
 
         unsigned int atomic_num = 0;
         unsigned int charge = 0; 
-        unsigned int h_count = 0;
+        unsigned int hcount = 0;
 
         switch(sym->ch){
 
           case 'H':
             atomic_num = 1;
-            h_count = 0;
+            hcount = 0;
             break; 
 
           case 'B':
@@ -4497,60 +4458,95 @@ struct BabelGraph{
             break;
 
           case 'C':
+            atomic_num = 6;
+            while(sym->num_edges < sym->allowed_edges){
+              hcount++;
+              sym->num_edges++;
+            }
+            break;
+
           case 'X':
+            atomic_num = 6;
+            hcount = 0; // this must have 4 + methyl
+
           case 'Y':
-            atomic_num = 6; 
+            atomic_num = 6;
+            hcount = 1;
             break;
 
           case 'N':
             atomic_num = 7;
+            while(sym->num_edges < sym->allowed_edges){
+              hcount++;
+              sym->num_edges++;
+            }
             break;
 
           case 'M':
             atomic_num = 7;
-            h_count = 1;
+            hcount = 1;
             break;
 
           case 'Z':
             atomic_num = 7; 
-            h_count = 2;
+            hcount = 2;
             break;
 
           case 'K':
             atomic_num = 7;
             charge = 1; 
+            hcount = 0;
             break;
 
           case 'O':
             atomic_num = 8;
+            if(!children)
+              charge = -1;
             break;
+
           case 'Q':
             atomic_num = 8;
-            h_count = 1;
+            hcount = 1;
             break;
 
           case 'F':
             atomic_num = 9;
+            if(!children)
+              charge = -1;
             break;
           
           case 'P':
             atomic_num = 15;
+            while(sym->num_edges < 3){
+              hcount++;
+              sym->num_edges++;
+            }
             break;
           
           case 'S':
-            atomic_num = 16;
+            while(sym->num_edges < 3){
+              hcount++;
+              sym->num_edges++;
+            }
             break;
 
           case 'G':
             atomic_num = 17;
+            if(!children)
+              charge = -1;
+
             break;
 
           case 'E':
             atomic_num = 35;
+            if(!children)
+              charge = -1;
             break;
 
           case 'I':
             atomic_num = 53;
+            if(!children)
+              charge = -1;
             break;
         
           case '*':
@@ -4562,13 +4558,16 @@ struct BabelGraph{
             return false;
         }
 
-        // ionic notation
+        // ionic notation - overides any given formal charge
         if(charge_additions[sym]){
-          charge += charge_additions[sym];
+          charge = charge_additions[sym];
         }
 
-        atom = NMOBMolNewAtom(mol,atomic_num,charge);
-        atom->SetImplicitHCount(h_count);
+        atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
+        if(!atom){
+          fprintf(stderr,"Error: formation of obabel atom object\n");
+          return false;
+        }
 
         if(sym->type == RING)
           atom->SetInRing();
@@ -4634,11 +4633,11 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
-  if(!wln_graph.ParseWLNString()){
-    fprintf(stderr,"Error: failed on wln graph formation\n");
+  if(!wln_graph.ParseWLNString())
     return false;
-  }
 
+  if(!wln_graph.MergeSpiros())
+    return false;
 
   // create the wln dotfile
   if (opt_wln2dot)
@@ -4660,21 +4659,19 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     fprintf(stderr,"  dumped\n");
   }
 
-  if(!wln_graph.ExpandWLNGraph()){
-    fprintf(stderr,"Error: failed in expanding wln graph to SCT format\n");
+
+  if(!wln_graph.ExpandWLNGraph())
     return false;
-  }
+  
 
 
-  if(!obabel.ConvertFromWLN(mol,wln_graph)){
-    fprintf(stderr,"Error: failed on obabel mol object formation\n");
+  if(!obabel.ConvertFromWLN(mol,wln_graph))
     return false;
-  }
+  
 
-  if(!obabel.NMOBSanitizeMol(mol)){
-    fprintf(stderr,"Error: failed on mol sanitize\n");
+  if(!obabel.NMOBSanitizeMol(mol))
     return false; 
-  }
+  
 
   return true;
 }
