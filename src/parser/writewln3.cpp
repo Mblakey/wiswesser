@@ -61,10 +61,13 @@ struct WLNRing;
 
 std::map<WLNSymbol *, unsigned int> index_lookup;
 std::map<unsigned int, WLNSymbol *> symbol_lookup;
-
 std::map<unsigned int,OpenBabel::OBAtom*> babel_atom_lookup;
 
 unsigned int glob_index = 1; // babel starts from 1, keep consistent  
+
+// ionic parsing
+std::map<unsigned int,WLNSymbol*> string_positions; 
+std::map<WLNSymbol*,int> charge_additions;
 
 // --- pools ---
 std::vector<WLNSymbol *>  symbol_mempool;
@@ -148,12 +151,10 @@ struct WLNSymbol
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
 
-  // will deprecate special DEFO, and switch the first char of 
-  // the value for graph expansion
-
   unsigned int type;
   unsigned int allowed_edges;
   unsigned int num_edges;
+
 
   WLNSymbol *previous;
   std::vector<WLNSymbol *> children; 
@@ -1455,10 +1456,9 @@ struct WLNRing
         current = locants[loc];
 
       if(prev){
-        if(!link_symbols(current,prev,1)){
-          fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
+        if(!link_symbols(current,prev,1))
           return false; 
-        }
+  
       }
       prev = current;
     }
@@ -1516,11 +1516,9 @@ struct WLNRing
         fprintf(stderr," ]\n");
       }
     
-      if(!link_symbols(locants[bind_2],locants[bind_1],1)){
-        fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
+      if(!link_symbols(locants[bind_2],locants[bind_1],1))
         return false;
-      }
-
+      
       if(aromatic){
         if(!AssignAromatics(ring_path))
           return false;
@@ -1559,10 +1557,8 @@ struct WLNRing
         current = locants[loc];
 
       if(prev){
-        if(!link_symbols(current,prev,1)){
-          fprintf(stderr, "Error: inter-ring creating and bonding failed\n");
+        if(!link_symbols(current,prev,1))
           return false; 
-        }
       }
       prev = current;
     }
@@ -1658,11 +1654,9 @@ struct WLNRing
         bind_2 = psd_pair.bind_2;
 
         
-        if(!link_symbols(locants[bind_2],locants[bind_1],1)){
-          fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
+        if(!link_symbols(locants[bind_2],locants[bind_1],1))
           return false;
-        }
-
+        
         // a ring path then needs to be calculated for aromaticity assignment
         // should be only one path
 
@@ -1813,10 +1807,9 @@ struct WLNRing
         fprintf(stderr," ]\n");
       }
         
-      if(!link_symbols(locants[bind_2],locants[bind_1],1)){
-        fprintf(stderr,"Error: error in bonding locants together, check ring notation\n");
+      if(!link_symbols(locants[bind_2],locants[bind_1],1))
         return false;
-      }
+      
 
       if(aromatic){
         if(!AssignAromatics(ring_path))
@@ -1908,6 +1901,8 @@ struct WLNRing
     unsigned int state_pseudo         = 0; 
     unsigned int state_bridge         = 0;
     unsigned int state_aromatics      = 0;
+
+    bool implied_assignment_used       = 0; // allows a shorthand if wanted, but not mixing
    
     unsigned int expected_locants     = 0;
     unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
@@ -2091,10 +2086,12 @@ struct WLNRing
               case 1:
                 // this can only be hypervalent element
                 if(positional_locant){
-                  assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
-                  if(!locants[positional_locant])
+                  WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
+                  if(new_locant)
                     Fatal(i+start);
-                  
+
+                  string_positions[start+i + 1] = new_locant; // attaches directly
+
                   if(opt_debug)
                     fprintf(stderr,"  assigning hypervalent %c to position %c\n",special[0],positional_locant);
 
@@ -2122,9 +2119,11 @@ struct WLNRing
                 }
                 else{
                   if(positional_locant){
-                    assign_locant(positional_locant,define_element(special));  // elemental definition
-                    if(!locants[positional_locant])
+                    WLNSymbol* new_locant = assign_locant(positional_locant,define_element(special));  // elemental definition
+                    if(new_locant)
                       Fatal(i+start);
+
+                    string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
 
                     if(opt_debug)
                       fprintf(stderr,"  assigning element %s to position %c\n",special.c_str(),positional_locant);
@@ -2355,10 +2354,94 @@ struct WLNRing
                 fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
                 Fatal(start+i);
             }
-
+            string_positions[start+i] = new_locant;
           }
-          else
-            positional_locant = ch;
+          else{
+
+            if(i>0 && block[i-1] == ' '){
+              if(implied_assignment_used){
+                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                Fatal(i+start);
+              }
+              else
+                positional_locant = ch;
+            }
+            else{
+              implied_assignment_used = true;
+              positional_locant = 'A';
+
+              if (opt_debug)
+                fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
+
+              WLNSymbol *new_locant = 0; 
+
+              switch(ch){
+                case 'S':
+                case 'P':
+                  if(!heterocyclic)
+                    warned = true;
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(5);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+
+                case 'Y':
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(3);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+                case 'N':
+                  if(!heterocyclic)
+                    warned = true;
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(3);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+
+                case 'V':
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(2);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+
+                case 'M':
+                case 'O':
+                  if(!heterocyclic)
+                    warned = true;
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(2);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+
+                case 'X':
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(4);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+
+                case 'K':
+                  if(!heterocyclic)
+                    warned = true;
+                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(4);
+                  positional_locant++; // allows inline defition continuation
+                  break;
+
+                case 'U':
+                  if(opt_debug)
+                    fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
+
+                bond_increases.push_back({positional_locant,positional_locant+1});
+                break;
+
+                default:
+                  fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
+                  Fatal(start+i);
+              }
+
+              string_positions[start+i] = new_locant;
+            }
+          }
 
           break;
 
@@ -2404,9 +2487,21 @@ struct WLNRing
             ring_size_specifier = ch;
             state_multi = 3;
           }
-          else 
-            positional_locant = ch;
-
+          else{
+            if(i>0 && block[i-1] == ' '){
+              if(implied_assignment_used){
+                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                Fatal(i+start);
+              }
+              else
+                positional_locant = ch;
+            }
+            else{
+              fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
+              Fatal(i+start);
+            }
+          }
+        
           break;
 
 
@@ -2451,8 +2546,20 @@ struct WLNRing
             ring_size_specifier = ch;
             state_multi = 3;
           }
-          else
-            positional_locant = ch;
+          else{
+            if(i>0 && block[i-1] == ' '){
+              if(implied_assignment_used){
+                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                Fatal(i+start);
+              }
+              else
+                positional_locant = ch;
+            }
+            else{
+              fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
+              Fatal(i+start);
+            }
+          }
             
 
           break;
@@ -2517,7 +2624,7 @@ struct WLNRing
 
             // reverse the aromaticity assignments, how the notation works
             std::reverse(aromaticity.begin(), aromaticity.end());
-        
+            break;
           }
           if(expected_locants){
 
@@ -2538,8 +2645,20 @@ struct WLNRing
             ring_size_specifier = ch;
             state_multi = 3;
           }
-          else 
-            positional_locant = ch;
+          else{
+            if(i>0 && block[i-1] == ' '){
+              if(implied_assignment_used){
+                fprintf(stderr,"Error: specific locant assignment can not be mixed with the implied 'A' start notation, please use one or the other\n");
+                Fatal(i+start);
+              }
+              else
+                positional_locant = ch;
+            }
+            else{
+              fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
+              Fatal(i+start);
+            }
+          }
           
           break;
 
@@ -2682,10 +2801,9 @@ struct WLNGraph
       oxygen->set_edges(2);
       oxygen->set_type(head->type);
 
-      if(!link_symbols(oxygen, head,2,false)){
-        fprintf(stderr,"Error: could not expand 'V' into oxygen for babel graph\n");
+      if(!link_symbols(oxygen, head,2,false))
         return false;
-      };
+
     }
 
     return true;
@@ -2921,7 +3039,7 @@ struct WLNGraph
 
   /* backwards search for tentative ionic rule procedures */
   unsigned int search_ionic(const char *wln_ptr, unsigned int len,
-                           std::map<unsigned int, int> &charges)
+                           std::vector<std::pair<unsigned int, int>> &charges)
   {
     unsigned int first_instance = 0;
   
@@ -2967,16 +3085,12 @@ struct WLNGraph
         else 
           continue;
 
-        if(opt_debug){
-          fprintf(stderr,"  charge  %d added to wln letter position %d\n",1,std::stoi(position_1));
-          fprintf(stderr,"  charge %d added to wln letter position %d\n",-1,std::stoi(position_2));
-        }
-
+        
         if(std::stoi(position_1) != 0)
-          charges[std::stoi(position_1)]++;
+          charges.push_back({std::stoi(position_1),1});
         
         if(std::stoi(position_2) != 0)
-          charges[std::stoi(position_2)]--;
+          charges.push_back({std::stoi(position_1),-1});
 
         if(!first_instance)
           first_instance = i;
@@ -2986,15 +3100,33 @@ struct WLNGraph
     return first_instance;
   }
 
+  /* uses the global position map */
+  bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges){
+    if(charges.empty())
+      return true;
+
+    for (std::pair<unsigned int, int> pos_charge : charges){
+      WLNSymbol *assignment = string_positions[pos_charge.first - 1]; // reindex as wln 1 is string 0
+      if(!assignment){
+        fprintf(stderr,"Error: trying to assign ionic charge to unavaliable element, check that character %d is avaliable for assigment\n",pos_charge.first);
+        return false;
+      }
+      else{
+        charge_additions[assignment] += pos_charge.second;
+
+        if(opt_debug){
+          fprintf(stderr, "  character at position [%d] has the following charge addition - %d\n",pos_charge.first,pos_charge.second);
+        }
+      }
+    }
+    return true;
+  }
+
+
   /* a global segmentation using both rule sets - start merging */
   bool ParseWLNString()
   {
     
-    enum letter_classes{STANDARD=0,RING=1,LOCANT=2};
-    const char *letter_strings [3]{"STANDARD","RING","LOCANT"};
-    std::map<unsigned int,unsigned int> notation_type; // used for ionic edge cases 
-    
-
     if (opt_debug)
       fprintf(stderr, "Parsing WLN notation:\n");
 
@@ -3004,7 +3136,7 @@ struct WLNGraph
     std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
     std::stack<WLNSymbol *> linker_stack; // used for branching ring systems
 
-    std::map<unsigned int, int> ionic_charges;
+    std::vector<std::pair<unsigned int, int>> ionic_charges;
     
     WLNSymbol *curr = 0;
     WLNSymbol *prev = 0;
@@ -3037,7 +3169,7 @@ struct WLNGraph
     
     while(ch)
     { 
-      notation_type[i] = letter_classes::STANDARD; // default behaviour
+
       // dont read any ionic notation
       if(zero_position && zero_position == i)
         break;
@@ -3047,10 +3179,8 @@ struct WLNGraph
 
       case '0': // cannot be lone, must be an addition to another num
         if (pending_closure)
-        {
-          notation_type[i] = letter_classes::RING;
           break;
-        }
+        
         if(prev && std::isdigit(prev->ch)){
           prev->special.push_back(ch);
         }
@@ -3067,10 +3197,9 @@ struct WLNGraph
       case '7':
       case '8':
       case '9':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
           
         else if(pending_special){
           fprintf(stderr,"Error: character %c in special elemental definition are not allowed\n",ch);
@@ -3098,10 +3227,9 @@ struct WLNGraph
         break;
 
       case 'Y':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3112,7 +3240,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3127,7 +3254,6 @@ struct WLNGraph
         }
         else
         {
-
           if (pop_ticks)
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
@@ -3148,10 +3274,9 @@ struct WLNGraph
         break;
 
       case 'X':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3162,7 +3287,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3177,7 +3301,6 @@ struct WLNGraph
         }
         else
         {
-
           if (pop_ticks)
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
@@ -3200,10 +3323,9 @@ struct WLNGraph
         // oxygens
 
       case 'O':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3214,7 +3336,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3240,6 +3361,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
+          string_positions[i] = curr;
+
           branch_stack.push(curr);
 
           create_bond(curr, prev, bond_ticks, i);
@@ -3250,10 +3373,9 @@ struct WLNGraph
         break;
 
       case 'Q':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3264,7 +3386,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3294,6 +3415,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(1);
 
+          string_positions[i] = curr;
+
           create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
@@ -3305,10 +3428,9 @@ struct WLNGraph
 
       case 'V':
       case 'W':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           
@@ -3321,7 +3443,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3346,6 +3467,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
+          string_positions[i] = curr;
+
           create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
@@ -3356,10 +3479,9 @@ struct WLNGraph
         // nitrogens
 
       case 'N':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3370,7 +3492,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3396,6 +3517,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(3);
 
+          string_positions[i] = curr;
+
           branch_stack.push(curr);
 
           create_bond(curr, prev, bond_ticks, i);
@@ -3406,10 +3529,9 @@ struct WLNGraph
         break;
 
       case 'M':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3420,7 +3542,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3446,6 +3567,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
+          string_positions[i] = curr;
+
           create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
@@ -3454,10 +3577,9 @@ struct WLNGraph
         break;
 
       case 'K':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3468,7 +3590,7 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
+
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3494,6 +3616,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(4);
 
+          string_positions[i] = curr;
+
           branch_stack.push(curr);
 
           create_bond(curr, prev, bond_ticks, i);
@@ -3504,10 +3628,9 @@ struct WLNGraph
         break;
 
       case 'Z':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3518,7 +3641,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3547,6 +3669,8 @@ struct WLNGraph
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(1);
+
+          string_positions[i] = curr;
 
           create_bond(curr, prev, bond_ticks, i);
 
@@ -3563,10 +3687,9 @@ struct WLNGraph
       case 'G':
       case 'F':
       case 'I':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3577,7 +3700,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3607,6 +3729,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(1);
 
+          string_positions[i] = curr;
+
           create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
@@ -3620,10 +3744,9 @@ struct WLNGraph
         // inorganics
 
       case 'B':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+      
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3634,7 +3757,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3664,6 +3786,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(3);
 
+          string_positions[i] = curr;
+
           branch_stack.push(curr);
 
           create_bond(curr, prev, bond_ticks, i);
@@ -3675,12 +3799,10 @@ struct WLNGraph
 
       case 'P':
       case 'S':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
-          fprintf(stderr,"HERE\n");
 
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3691,7 +3813,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3721,6 +3842,8 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(6);
 
+          string_positions[i] = curr;
+
           branch_stack.push(curr);
 
           create_bond(curr, prev, bond_ticks, i);
@@ -3735,10 +3858,9 @@ struct WLNGraph
       case 'A':
       case 'C':
       case 'D':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3749,7 +3871,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3772,10 +3893,8 @@ struct WLNGraph
       // hydrogens explicit
 
       case 'H':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3786,7 +3905,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3829,7 +3947,6 @@ struct WLNGraph
         }
         if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3845,8 +3962,6 @@ struct WLNGraph
 
         else if (pending_closure && ( (i<len-1 && wln[i+1] == ' ') || i == len -1))
         {
-          
-          notation_type[i] = letter_classes::RING;
           block_end = i;
           
           ring = AllocateWLNRing();
@@ -3885,10 +4000,9 @@ struct WLNGraph
 
       case 'L':
       case 'T':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3899,7 +4013,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3914,11 +4027,10 @@ struct WLNGraph
         }
         else
         {
-          if (i == 0){
-            notation_type[i] = letter_classes::RING;
+          if (i == 0)
             pending_inline_ring = true;
-          }
-            
+          
+        
           if (!pending_inline_ring)
           {
             fprintf(stderr, "Error: ring notation started without '-' denotion\n");
@@ -3933,10 +4045,9 @@ struct WLNGraph
         break;
 
       case 'R':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3947,7 +4058,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3984,10 +4094,9 @@ struct WLNGraph
         // bonding
 
       case 'U':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         else if(pending_special){
           pending_inline_ring = false; // resets
           special.push_back(ch);
@@ -3998,7 +4107,6 @@ struct WLNGraph
         }
         else if (pending_locant)
         {
-          notation_type[i] = letter_classes::LOCANT;
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -4020,10 +4128,8 @@ struct WLNGraph
 
       case ' ':
         if (pending_closure)
-        {
-          notation_type[i] = letter_classes::RING;
           break;
-        }
+        
         if (pending_inline_ring)
         {
           pending_special = false; // these are set at the same time
@@ -4049,10 +4155,9 @@ struct WLNGraph
         break;
 
       case '&':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
         if (pending_inline_ring)
         {
           // spiro notation open
@@ -4061,7 +4166,6 @@ struct WLNGraph
         else if (pending_locant)
         {
           // ionic species or spiro, reset the linkings
-          notation_type[i] = letter_classes::LOCANT;
           prev = 0;
           pending_locant = false;
         }
@@ -4076,10 +4180,9 @@ struct WLNGraph
         break;
 
       case '-':
-        if (pending_closure){
-          notation_type[i] = letter_classes::RING;
+        if (pending_closure)
           break;
-        }
+        
 
         else if (pending_inline_ring)
         {
@@ -4096,10 +4199,13 @@ struct WLNGraph
           else
             prev = curr;
 
-          if(special.size() == 2)
+          if(special.size() == 2){
             curr = define_element(special);
+            string_positions[i-2] = curr;
+          }
           else if (special.size() == 1){
             curr = define_hypervalent_element(special[0]);
+            string_positions[i-1] = curr;
             branch_stack.push(curr);
           }
             
@@ -4117,7 +4223,6 @@ struct WLNGraph
         else{
 
           // not sure what the special assignment rules are?
-
           pending_inline_ring = true;
           pending_special = true;
         }
@@ -4126,7 +4231,6 @@ struct WLNGraph
 
       case '/':
         if (pending_closure){
-          notation_type[i] = letter_classes::RING;
           break;
         }
         else if (pending_special){
@@ -4170,18 +4274,9 @@ struct WLNGraph
       Fatal(len);
     }
 
-    fprintf(stderr,"%s\n",wln);
-    for (unsigned int i=0;i<len;i++){
-      
-      if(notation_type[i] == 0)
-        fprintf(stderr,"s");
-      if(notation_type[i] == 1)
-        fprintf(stderr,"r");
-      if(notation_type[i] == 2)
-        fprintf(stderr,"l");
-    }
-    fprintf(stderr,"\n");
 
+    if(!AssignCharges(ionic_charges))
+      Fatal(len);
 
     Reindex_lookups();
     return true;
@@ -4465,6 +4560,11 @@ struct BabelGraph{
           default:
             fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
             return false;
+        }
+
+        // ionic notation
+        if(charge_additions[sym]){
+          charge += charge_additions[sym];
         }
 
         atom = NMOBMolNewAtom(mol,atomic_num,charge);
