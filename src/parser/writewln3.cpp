@@ -2782,6 +2782,7 @@ struct WLNGraph
           
           tail->children.clear();
           tail->orders.clear();
+          head->num_edges++; // always gains at edge
 
           // gets ignored in the babel molecule build
           tail->type = LOCANT;
@@ -2803,6 +2804,9 @@ struct WLNGraph
     unsigned int stop = symbol_mempool.size();
     for (unsigned int i=0;i<stop;i++){
       WLNSymbol *sym = symbol_mempool[i];
+
+      if(sym->type == LOCANT)
+        continue;
 
       switch(sym->ch){
 
