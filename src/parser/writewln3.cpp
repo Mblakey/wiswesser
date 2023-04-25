@@ -265,8 +265,6 @@ bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool a
     return true; 
   }
     
-  
-
 
   // if the child cannot handle the new valence
   if ((child->num_edges + bond) > child->allowed_edges)
@@ -348,6 +346,44 @@ bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond){
   child->num_edges += diff;
   parent->num_edges += diff;
   parent->orders[i] = bond;
+  return true; 
+}
+
+
+/* expensive but needed sometimes */
+bool unlink_symbols(WLNSymbol*child, WLNSymbol *parent){
+  
+  if(!child || !parent){
+    fprintf(stderr,"Error: attempting to remove a link that does not exist\n");
+    return false;
+  }
+
+  bool found = false;
+  WLNSymbol *local_child = 0; 
+  unsigned int i=0;
+  for (i=0; i<parent->children.size();i++){
+    local_child = parent->children[i];
+    if(local_child == child){
+      found = true;
+      break;
+    }
+  }
+
+  if(!found){
+    fprintf(stderr,"Error: attempting to remove a link that does not exist\n");
+    return false;
+  }
+
+  unsigned int order_removed = parent->orders[0];
+
+  parent->children.erase(parent->children.begin() + i);
+  parent->orders.erase(parent->orders.begin() + i);
+
+  parent->num_edges += - order_removed;
+  child->num_edges += - order_removed; 
+
+  child->previous = 0; 
+  
   return true; 
 }
 
@@ -2736,6 +2772,7 @@ struct WLNGraph
     if(tmp){
       prev->children.push_back(tmp);
       prev->orders.push_back(tmp_order);
+      tmp->previous = prev;
     }
 
     return true;
@@ -2759,15 +2796,9 @@ struct WLNGraph
             return false;
           }
 
-          unsigned int erase_pos = 0; 
-          for (WLNSymbol *hchild : head->children){
-            if(hchild == head_locant){
-              break;
-            }
-            erase_pos++;
-          }
-          head->children.erase(head->children.begin()+erase_pos);
-          head->orders.erase(head->orders.begin()+erase_pos);
+          if(!unlink_symbols(head_locant,head))
+            return false;
+
           tail_locant->children.clear();
 
           // should be disconnected
@@ -2831,21 +2862,10 @@ struct WLNGraph
           resolve_methyls(sym);
           break;
 
-        case 'V':
-          // does 'V' have something i can attach to or not?
-          sym->ch = 'C';
-          sym->set_edges(4);
-          if(!add_hydroxy(sym,1))
-            return false;
-          break;
-
-
         default:
           break; // ignore
       }
-
     }
-
     Reindex_lookups();
     return true; 
   }
@@ -3066,7 +3086,7 @@ struct WLNGraph
   /* a global segmentation using both rule sets - start merging */
   bool ParseWLNString()
   {
-    
+
     if (opt_debug)
       fprintf(stderr, "Parsing WLN notation:\n");
 
@@ -3082,11 +3102,13 @@ struct WLNGraph
     WLNSymbol *prev = 0;
     WLNRing   *ring = 0;
 
-    bool pending_locant = false;
-    bool pending_special = false;
-    bool pending_closure = false;
-    bool pending_inline_ring = false;
-    bool pending_spiro = false;
+    bool pending_locant           = false;
+    bool pending_special          = false;
+    bool pending_closure          = false;
+    bool pending_inline_ring      = false;
+    bool pending_spiro            = false;
+    
+    unsigned int pending_hydroxy  = 0; // 1 - single, 2 - double  
 
     std::string special;
 
@@ -3413,13 +3435,9 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(2);
+          if(ch = 'W'){
 
-          string_positions[i] = curr;
-
-          create_bond(curr, prev, bond_ticks, i);
+          }
 
           bond_ticks = 0;
           prev = curr;
@@ -4448,7 +4466,7 @@ struct BabelGraph{
 
           case 'O':
             atomic_num = 8;
-            if(!children)
+            if(!sym->num_edges)
               charge = -1;
             break;
 
@@ -4459,7 +4477,7 @@ struct BabelGraph{
 
           case 'F':
             atomic_num = 9;
-            if(!children)
+            if(!sym->num_edges)
               charge = -1;
             break;
           
@@ -4472,6 +4490,7 @@ struct BabelGraph{
             break;
           
           case 'S':
+            atomic_num = 16;
             while(sym->num_edges < 3){
               hcount++;
               sym->num_edges++;
@@ -4480,20 +4499,19 @@ struct BabelGraph{
 
           case 'G':
             atomic_num = 17;
-            if(!children)
+            if(!sym->num_edges)
               charge = -1;
-
             break;
 
           case 'E':
             atomic_num = 35;
-            if(!children)
+            if(!sym->num_edges)
               charge = -1;
             break;
 
           case 'I':
             atomic_num = 53;
-            if(!children)
+            if(!sym->num_edges)
               charge = -1;
             break;
         
@@ -4587,6 +4605,9 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   if(!wln_graph.MergeSpiros())
     return false;
 
+  if(!wln_graph.ExpandWLNGraph())
+    return false;
+
   // create the wln dotfile
   if (opt_wln2dot)
   {
@@ -4606,11 +4627,6 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     }
     fprintf(stderr,"  dumped\n");
   }
-
-
-  if(!wln_graph.ExpandWLNGraph())
-    return false;
-  
 
 
   if(!obabel.ConvertFromWLN(mol,wln_graph))
