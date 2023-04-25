@@ -605,11 +605,19 @@ bool resolve_methyls(WLNSymbol *target){
 }
 
 
-
-WLNSymbol* define_element(std::string special){
+/* allocate new or override exisiting node*/
+WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
     
+  WLNSymbol *created_wln = 0;
 
-  WLNSymbol *created_wln = AllocateWLNSymbol('*');
+  if(!remake)
+    WLNSymbol *created_wln = AllocateWLNSymbol('*');
+  else{
+    created_wln = remake;
+    created_wln->ch = '*';
+  }
+   
+
   created_wln->allowed_edges = INF; // allow anything for now;
 
   switch (special[0]){
@@ -1271,9 +1279,16 @@ unsigned int special_element_atm(std::string &special){
   return 0;
 }
 
-WLNSymbol* define_hypervalent_element(unsigned char sym){
+WLNSymbol* define_hypervalent_element(unsigned char sym,WLNSymbol *override=0){
 
   WLNSymbol *new_symbol = 0;
+  if(!override)
+    new_symbol = AllocateWLNSymbol(sym);
+  else{
+    new_symbol = override;
+    new_symbol->ch = sym;
+  }
+
   switch(sym){
     
     case 'P':
@@ -1282,7 +1297,6 @@ WLNSymbol* define_hypervalent_element(unsigned char sym){
     case 'E':
     case 'I':
     case 'F':
-      new_symbol = AllocateWLNSymbol(sym);
       new_symbol->set_edges(6);            // allows FCl6
       new_symbol->set_type(STANDARD);
       return new_symbol;
@@ -4268,6 +4282,7 @@ struct WLNGraph
           if (prev)
             create_bond(curr, prev, bond_ticks, i);
 
+          prev = ring->locants['A'];
           bond_ticks = 0;
         }
         break;
@@ -4380,12 +4395,7 @@ struct WLNGraph
       case '-':
         if (pending_closure)
           break;
-        
-        else if (pending_diazo){
-          fprintf(stderr,"Error: diazo assignment followed by an inline seperator is a disallowed bond type\n");
-          Fatal(i);
-        }
-
+      
         else if (pending_inline_ring)
         {
           fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
@@ -4401,22 +4411,43 @@ struct WLNGraph
           else
             prev = curr;
 
-          if(special.size() == 2){
-            curr = define_element(special);
-            string_positions[i-2] = curr;
-          }
-          else if (special.size() == 1){
-            curr = define_hypervalent_element(special[0]);
-            string_positions[i-1] = curr;
-            branch_stack.push(curr);
-          }
+        
+
+          if(pending_diazo){
             
-          if(!curr)
-            Fatal(i);
+            if(special.size() == 2){
+              curr = define_element(special,prev);
+              string_positions[i-2] = curr;
+            }
+            else if (special.size() == 1){
+              curr = define_hypervalent_element(special[0],prev);
+              string_positions[i-1] = curr;
+              branch_stack.push(curr);
+            }
+          
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+      
+            pending_diazo = false;
+          }
+          else{
+            if(special.size() == 2){
+              curr = define_element(special);
+              string_positions[i-2] = curr;
+            }
+            else if (special.size() == 1){
+              curr = define_hypervalent_element(special[0]);
+              string_positions[i-1] = curr;
+              branch_stack.push(curr);
+            }
+            
+            if(!curr)
+              Fatal(i);
+
+            create_bond(curr, prev, bond_ticks, i);
+          }
 
           special.clear();
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
