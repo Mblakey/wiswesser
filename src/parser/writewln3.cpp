@@ -1319,57 +1319,6 @@ struct WLNRing
   }
 
 
-  bool CreateMonoCyclic(unsigned int local_size, bool aromatic){
-
-    WLNSymbol *head = 0; 
-    WLNSymbol *prev = 0;
-    WLNSymbol *current = 0; 
-
-    bool state = true;
-    std::deque<unsigned char> ring_path; 
-
-    // assume already assigned locants
-    for (unsigned int i=1;i<=local_size;i++){
-
-      unsigned char loc = int_to_locant(i);
-      ring_path.push_back(loc);
-
-
-      if(!locants[loc]){
-        current = assign_locant(loc,'C');
-        current->set_edges(4);
-      }
-      else
-        current = locants[loc];
-
-      current->type = RING;
-
-      if(aromatic)
-        current->allowed_edges--; // take off 1 due to aromaticity.
-
-      if (!head)
-        head = current; 
-
-      if(prev){
-        if(!aromatic)
-          state = link_symbols(current,prev,1);
-        else
-          state = link_symbols(current,prev,1,true);
-      }
-        
-      prev = current;
-    }
-
-    state = link_symbols(head,prev,1,true);
-
-    if(aromatic){
-      if(!AssignAromatics(ring_path))
-        return false;
-    }
-
-    return state; 
-  }
-
   /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
   bool CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                   std::vector<bool> &aromaticity)
@@ -1830,9 +1779,9 @@ struct WLNRing
   void FormWLNRing(std::string &block, unsigned int start){
 
   
-    enum RingType{ MONO=0, POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
+    enum RingType{ POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
     const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
-    unsigned int ring_type = MONO;   // start in mono and climb up
+    unsigned int ring_type = POLY;   // start in mono and climb up
 
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
@@ -2552,10 +2501,6 @@ struct WLNRing
             if (multicyclic_locants.size() > 0 && ring_type < PSDBRIDGED)
               ring_type = PERI;
 
-            if (ring_components.size() > 0 && ring_type < PERI)
-              ring_type = POLY;
-
-
             if (aromaticity.size() == 1 && aromaticity[0] == false){
               while(aromaticity.size() < ring_components.size())
                 aromaticity.push_back(false);
@@ -2683,9 +2628,6 @@ struct WLNRing
     
     bool state = true;
     switch(ring_type){
-      case MONO:
-        state = CreateMonoCyclic(ring_components[0].first,aromaticity[0]);
-        break;
       case POLY:
         state = CreatePolyCyclic(ring_components,aromaticity);
         break;
@@ -2843,8 +2785,10 @@ struct WLNGraph
 
           // gets ignored in the babel molecule build
           tail->type = LOCANT;
+          break;
         }
 
+        
       }
 
     }
