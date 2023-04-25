@@ -576,7 +576,7 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
 WLNSymbol* make_methyl(){
 
   WLNSymbol *carbon = AllocateWLNSymbol('C');
-  carbon->set_edges(1);
+  carbon->set_edges(4); // used for hydrogens
   return carbon; 
 }
 
@@ -2728,15 +2728,23 @@ struct WLNGraph
 
   bool add_hydroxy(WLNSymbol *head, unsigned int n){
 
-    for (unsigned int i=0; i<n;i++){
+    if(n >= 1){
       WLNSymbol *oxygen = AllocateWLNSymbol('O');
       oxygen->set_edges(2);
       oxygen->set_type(head->type);
 
       if(!link_symbols(oxygen, head,2,false))
         return false;
-
     }
+
+    if(n == 2){
+      WLNSymbol *oxygen = AllocateWLNSymbol('O');
+      oxygen->set_edges(2);
+      oxygen->set_type(head->type);
+
+      if(!link_symbols(oxygen, head,1,false))
+        return false;
+    }  
 
     return true;
   }
@@ -2745,34 +2753,39 @@ struct WLNGraph
 
     if (size > REASONABLE)
       fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
-          
+      
     head->ch = 'C';
     head->set_edges(4);
-    head->num_edges = 0;
 
     WLNSymbol *tmp = 0;
     unsigned int tmp_order = 0;
     // hold the bonds
 
+
+    // if the chain has any children
     if(!head->children.empty()){
+      // hold it
       tmp = head->children[0];
       tmp_order = head->orders[0];
-      head->children.clear();
-      head->orders.clear();
+
+      if(!unlink_symbols(head->children[0],head))
+        return false;
     }
           
     WLNSymbol *prev = head;
     for(unsigned int i=0;i<size-1;i++){
       WLNSymbol* carbon = AllocateWLNSymbol('C');
       carbon->set_edges(4); // allows hydrogen resolve
-      link_symbols(carbon,prev,1);
+      carbon->set_type(STANDARD);
+      if(!link_symbols(carbon,prev,1))
+        return false;
+
       prev = carbon;
     } 
 
     if(tmp){
-      prev->children.push_back(tmp);
-      prev->orders.push_back(tmp_order);
-      tmp->previous = prev;
+     if(!link_symbols(tmp,prev,tmp_order))
+      return false;
     }
 
     return true;
@@ -2861,6 +2874,21 @@ struct WLNGraph
         case 'K':
           resolve_methyls(sym);
           break;
+
+        case 'V':
+          sym->ch = 'C';
+          sym->set_edges(4);
+          if(!add_hydroxy(sym,1))
+            return false;
+          break;
+        
+        case 'W':
+          sym->ch = 'C';
+          sym->set_edges(4);
+          if(!add_hydroxy(sym,2))
+            return false;
+          break;
+
 
         default:
           break; // ignore
@@ -3068,7 +3096,7 @@ struct WLNGraph
     for (std::pair<unsigned int, int> pos_charge : charges){
       WLNSymbol *assignment = string_positions[pos_charge.first - 1]; // reindex as wln 1 is string 0
       if(!assignment){
-        fprintf(stderr,"Error: trying to assign ionic charge to unavaliable element, check that character %d is avaliable for assigment\n",pos_charge.first);
+        fprintf(stderr,"Error: trying to assign ionic charge to unavaliable element, check that character %d is avaliable for assignment\n",pos_charge.first);
         return false;
       }
       else{
@@ -3107,9 +3135,8 @@ struct WLNGraph
     bool pending_closure          = false;
     bool pending_inline_ring      = false;
     bool pending_spiro            = false;
+    bool pending_diazo            = false;
     
-    unsigned int pending_hydroxy  = 0; // 1 - single, 2 - double  
-
     std::string special;
 
     // allows consumption of notation after block parses
@@ -3131,6 +3158,7 @@ struct WLNGraph
     
     while(ch)
     { 
+      
 
       // dont read any ionic notation
       if(zero_position && zero_position == i)
@@ -3162,25 +3190,39 @@ struct WLNGraph
         if (pending_closure)
           break;
         
-          
         else if(pending_special){
           fprintf(stderr,"Error: character %c in special elemental definition are not allowed\n",ch);
           Fatal(i);
         }
-        
+
         if (pop_ticks)
         {
           prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
           pop_ticks = 0;
         }
 
+        if(pending_diazo){
+            // do a hydroxy transform here
+            
+          curr = prev; // might be overkill 
+          curr->set_edges(4);
+
+          if(!add_hydroxy(curr,2))
+            Fatal(i-1);
+            
+          curr->ch = ch;
+          pending_diazo = false;
+        }
+        else{
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(STANDARD);
+          curr->set_edges(4);
+          create_bond(curr, prev, bond_ticks, i);
+        }
+        
         // moves naturally, so end on the last number
-        curr = AllocateWLNSymbol(ch);
-        curr->set_type(STANDARD);
-        curr->set_edges(3);
-
+   
         curr->special.push_back(ch);
-
 
         while(*(wln_ptr+1)){
           if(!std::isdigit(*(wln_ptr+1)))
@@ -3192,11 +3234,11 @@ struct WLNGraph
           i++;
         }
 
-        create_bond(curr, prev, bond_ticks, i);
-
         bond_ticks = 0;
         prev = curr;
         break;
+
+        
 
       case 'Y':
         if (pending_closure)
@@ -3226,19 +3268,33 @@ struct WLNGraph
         }
         else
         {
+          
           if (pop_ticks)
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(3);
+          if(pending_diazo){
+            curr = prev; 
+            curr->set_edges(3);
+
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+              
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
+            curr->set_edges(3);
+            create_bond(curr, prev, bond_ticks, i);
+          }
+
+          string_positions[i] = curr;
 
           branch_stack.push(curr);
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
@@ -3279,13 +3335,26 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(4);
+          if(pending_diazo){
+            curr = prev; 
+            curr->set_edges(3);
+
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+              
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
+            curr->set_edges(4);
+            create_bond(curr, prev, bond_ticks, i);
+          }
+
+          string_positions[i] = curr;
 
           branch_stack.push(curr);
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
@@ -3327,6 +3396,11 @@ struct WLNGraph
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
             pop_ticks = 0;
+          }
+
+          if(pending_diazo){
+            fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
+            Fatal(i);
           }
 
           curr = AllocateWLNSymbol(ch);
@@ -3383,6 +3457,11 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
+          if(pending_diazo){
+            fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
+            Fatal(i);
+          }
+
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(1);
@@ -3399,6 +3478,58 @@ struct WLNGraph
         break;
 
       case 'V':
+        if (pending_closure)
+          break;
+        
+        else if(pending_special){
+          pending_inline_ring = false; // resets
+          
+          if(special.size() == 2){
+            fprintf(stderr,"Error: special element definition must follow format '-<A><A>-' where A is an uppercase letter\n");
+            Fatal(i);
+          }
+          else
+            special.push_back(ch);
+        }
+        else if (pending_locant)
+        {
+          curr = AllocateWLNSymbol(ch);
+          curr->set_type(LOCANT);
+          curr->set_edges(2); // locants always have two edges
+
+          if (pending_inline_ring)
+            create_bond(curr, prev, bond_ticks, i);
+          else
+            create_locant(curr, ring_stack, i);
+
+          prev = curr;
+          pending_locant = false;
+        }
+        else
+        {
+          if (pop_ticks)
+          {
+            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
+            pop_ticks = 0;
+          }
+
+          if(pending_diazo){
+            fprintf(stderr,"Error: diazo assignment to an carbonyl is a disallowed bond type\n");
+            Fatal(i);
+          }
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edges(2);
+          curr->set_type(STANDARD);
+          create_bond(curr,prev,bond_ticks,i);
+
+          string_positions[i] = curr;
+          
+          bond_ticks = 0;
+          prev = curr;
+        }
+        break;
+
       case 'W':
         if (pending_closure)
           break;
@@ -3435,9 +3566,26 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          if(ch = 'W'){
-
+          if(pending_diazo){
+            fprintf(stderr,"Error: double diazo assignment is a disallowed bond type\n");
+            Fatal(i);
           }
+
+          if(prev){
+            prev->allowed_edges++;
+            if(!add_hydroxy(prev,2))
+              Fatal(i);
+              break;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edges(2);
+            curr->set_type(STANDARD);
+            create_bond(curr,prev,bond_ticks,i);
+            pending_diazo = true;
+          }
+
+          string_positions[i] = curr;
 
           bond_ticks = 0;
           prev = curr;
@@ -3481,15 +3629,28 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(3);
+          if(pending_diazo){
+        
+            curr = prev;
+            curr->set_edges(4); // 'x-NW' is allowed 
 
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+            
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
+            curr->set_edges(3);
+
+            create_bond(curr, prev, bond_ticks, i);
+          }
+         
           string_positions[i] = curr;
 
           branch_stack.push(curr);
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
@@ -3529,6 +3690,11 @@ struct WLNGraph
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
             pop_ticks = 0;
+          }
+
+          if(pending_diazo){
+            fprintf(stderr,"Error: diazo assignment to NH is a disallowed bond type\n");
+            Fatal(i);
           }
 
           curr = AllocateWLNSymbol(ch);
@@ -3580,15 +3746,26 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(4);
+          if(pending_diazo){
+            curr = prev; 
+            curr->set_edges(5);
+
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+              
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
+            curr->set_edges(4);
+            create_bond(curr, prev, bond_ticks, i);
+          }
 
           string_positions[i] = curr;
 
           branch_stack.push(curr);
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
@@ -3632,6 +3809,11 @@ struct WLNGraph
           {
             prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
             pop_ticks = 0;
+          }
+
+          if(pending_diazo){
+            fprintf(stderr,"Error: diazo assignment to NH2 is a disallowed bond type\n");
+            Fatal(i);
           }
 
           curr = AllocateWLNSymbol(ch);
@@ -3693,6 +3875,11 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
+          if(pending_diazo){
+            fprintf(stderr,"Error: diazo assignment to a non expanded valence halogen is a disallowed bond type\n");
+            Fatal(i);
+          }
+
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(1);
@@ -3750,15 +3937,26 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(3);
+          if(pending_diazo){
+            curr = prev; 
+            curr->set_edges(3);
+
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+              
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
+            curr->set_edges(3);
+            create_bond(curr, prev, bond_ticks, i);            
+          }
 
           string_positions[i] = curr;
 
           branch_stack.push(curr);
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
@@ -3806,15 +4004,26 @@ struct WLNGraph
             pop_ticks = 0;
           }
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(6);
+          if(pending_diazo){
+            curr = prev; 
+            curr->set_edges(6); // might be overkill 
+
+            if(!add_hydroxy(curr,2))
+              Fatal(i-1);
+            
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_type(STANDARD);
+            curr->set_edges(6);
+
+            create_bond(curr, prev, bond_ticks, i);
+          }
 
           string_positions[i] = curr;
-
           branch_stack.push(curr);
-
-          create_bond(curr, prev, bond_ticks, i);
 
           bond_ticks = 0;
           prev = curr;
@@ -3886,6 +4095,7 @@ struct WLNGraph
           pending_locant = false;
         }
         else{
+
           // explicit hydrogens
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
@@ -4052,6 +4262,9 @@ struct WLNGraph
           ring->FormWLNRing(r_notation,i);
           ring_stack.push(ring);
 
+          if( !(wln_ptr + 1))
+            ring->locants['A']->num_edges++; // will place a minus charge on the centre carbon
+
           if (prev)
             create_bond(curr, prev, bond_ticks, i);
 
@@ -4087,8 +4300,14 @@ struct WLNGraph
           prev = curr;
           pending_locant = false;
         }
+        else if (pending_diazo){
+          fprintf(stderr,"Error: diazo assignment followed by a bond increase is a disallowed bond type\n");
+          Fatal(i);
+        }
         else
           bond_ticks++;
+        
+         
 
         break;
 
@@ -4097,6 +4316,11 @@ struct WLNGraph
       case ' ':
         if (pending_closure)
           break;
+        
+        else if (pending_diazo){
+          fprintf(stderr,"Error: diazo assignment followed by a space seperator is a disallowed bond type\n");
+          Fatal(i);
+        }
         
         if (pending_inline_ring)
         {
@@ -4123,6 +4347,11 @@ struct WLNGraph
         break;
 
       case '&':
+        if (pending_diazo){
+          fprintf(stderr,"Error: diazo assignment followed by a branch terminator is a disallowed bond type\n");
+          Fatal(i);
+        }
+
         if (pending_closure)
           break;
         
@@ -4141,9 +4370,10 @@ struct WLNGraph
         {
           if(curr->type == LOCANT)
             curr->ch += 23;
-          else
+          else{
             pop_ticks++; // set the number of pops to do
-          
+          }
+            
         }
         break;
 
@@ -4151,6 +4381,10 @@ struct WLNGraph
         if (pending_closure)
           break;
         
+        else if (pending_diazo){
+          fprintf(stderr,"Error: diazo assignment followed by an inline seperator is a disallowed bond type\n");
+          Fatal(i);
+        }
 
         else if (pending_inline_ring)
         {
@@ -4200,6 +4434,10 @@ struct WLNGraph
       case '/':
         if (pending_closure){
           break;
+        }
+        else if (pending_diazo){
+          fprintf(stderr,"Error: diazo assignment followed by a multiplier is a disallowed bond type\n");
+          Fatal(i);
         }
         else if (pending_special){
           fprintf(stderr,"Error: character %c in special elemental definition are not allowed\n",ch);
