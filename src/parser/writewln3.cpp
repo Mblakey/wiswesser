@@ -99,16 +99,6 @@ unsigned int static locant_to_int(unsigned char loc){
   return loc - 64;
 }
 
-static bool isdigit_str(const std::string &s)
-{
-  for (char const &ch : s)
-  {
-    if (std::isdigit(ch) == 0)
-      return false;
-  }
-  return true;
-}
-
 
 std::string get_notation(unsigned int s, unsigned int e)
 {
@@ -573,11 +563,16 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
 }
 
 
-WLNSymbol* make_methyl(){
+bool add_methyl(WLNSymbol *head){
 
   WLNSymbol *carbon = AllocateWLNSymbol('C');
   carbon->set_edges(4); // used for hydrogens
-  return carbon; 
+  carbon->set_type(STANDARD);
+
+  if(!link_symbols(carbon,head,1))
+    return false;
+
+  return true; 
 }
 
 
@@ -590,8 +585,8 @@ bool resolve_methyls(WLNSymbol *target){
     case 'X':
     case 'K':
       while(target->num_edges < target->allowed_edges){
-        WLNSymbol *methyl_head = make_methyl();
-        link_symbols(methyl_head,target,1);
+        if(!add_methyl(target))
+          return false;
       }
       target->num_edges = target->allowed_edges;
       break;
@@ -611,7 +606,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
   WLNSymbol *created_wln = 0;
 
   if(!remake)
-    WLNSymbol *created_wln = AllocateWLNSymbol('*');
+    created_wln = AllocateWLNSymbol('*');
   else{
     created_wln = remake;
     created_wln->ch = '*';
@@ -1570,9 +1565,6 @@ struct WLNRing
     unsigned int fuses = 0; 
     bool aromatic = false;
 
-    unsigned int mult_point = 0; // for multicyclic
-    
-  
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       comp_size = component.first;
@@ -1835,7 +1827,6 @@ struct WLNRing
 
     bool warned             = false;  // limit warning messages to console
     bool heterocyclic       = false;  // L|T designator can throw warnings
-    bool skip               = false;  // allows a size skipper 
 
     // -- paths -- // 
     // int allows way more description in states
@@ -1848,8 +1839,7 @@ struct WLNRing
     bool implied_assignment_used       = 0; // allows a shorthand if wanted, but not mixing
    
     unsigned int expected_locants     = 0;
-    unsigned int size_modifier        = 0;       // multiple of 23 to move along for locant
- 
+
     unsigned int  evaluating_break      = 0;
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0';
@@ -1908,7 +1898,7 @@ struct WLNRing
             evaluating_break = 0;
           }
           if(expected_locants){
-            fprintf(stderr,"Error: %d locants expected before space character\n");
+            fprintf(stderr,"Error: %d locants expected before space character\n",expected_locants);
             Fatal(i+start);
           }
           else if(state_multi == 1){
@@ -1947,7 +1937,7 @@ struct WLNRing
 
         case '/':
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
             Fatal(i+start);
           }
 
@@ -2093,7 +2083,7 @@ struct WLNRing
                 i+=3;              
                 break;
               default:
-                fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n");
+                fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n",gap);
                 Fatal(start+i);
             }
 
@@ -2147,7 +2137,7 @@ struct WLNRing
         case '8':
         case '9':
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
             Fatal(i+start);
           }
 
@@ -2205,7 +2195,7 @@ struct WLNRing
         case 'Z':
 
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
             Fatal(i+start);
           }
 
@@ -2403,7 +2393,7 @@ struct WLNRing
 
         case 'L':
           if(state_aromatics){
-            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n");
+            fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
             Fatal(i+start);
           }
 
@@ -2562,7 +2552,7 @@ struct WLNRing
 
             // perform the aromatic denotion check
             if (ring_components.size() != aromaticity.size()){
-              fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments - %d vs expected %d\n",aromaticity.size(),ring_components.size());
+              fprintf(stderr,"Error: mismatch between number of rings and aromatic assignments - %ld vs expected %ld\n",aromaticity.size(),ring_components.size());
               Fatal(i+start);
             }
 
@@ -2767,10 +2757,16 @@ struct WLNGraph
 
     if (size > REASONABLE)
       fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
-      
+
+
+    fprintf(stderr,"size: %d\n",size);
+
     head->ch = 'C';
     head->set_edges(4);
 
+    if(size == 1)
+      return true;
+    
     WLNSymbol *tmp = 0;
     unsigned int tmp_order = 0;
     // hold the bonds
@@ -2877,10 +2873,18 @@ struct WLNGraph
         case '7':
         case '8':
         case '9':
-          if (!sym->special.empty())
-            expand_carbon_chain(sym,std::stoi(sym->special));
-          else
-            expand_carbon_chain(sym,sym->ch - '0');
+          if (!sym->special.empty()){
+            if(!expand_carbon_chain(sym,std::stoi(sym->special))){
+              fprintf(stderr,"Error: error in expanding out numeral to carbon chain\n");
+              return false;
+            }
+          }
+          else{
+            if(!expand_carbon_chain(sym,sym->ch - '0')){
+              fprintf(stderr,"Error: error in expanding out numeral to carbon chain\n");
+              return false;
+            }
+          }
           break;
         
         case 'Y':
@@ -2912,93 +2916,25 @@ struct WLNGraph
     return true; 
   }
 
-
-  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack)
-  {
-
+  // this one pops based on bond numbers
+  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack){
+     // only used for characters that can 'act' like a '&' symbol
+    
+    WLNSymbol *top = 0;
     if (branch_stack.empty())
-      return (WLNSymbol *)0;
+      return top;
 
-    WLNSymbol *top = branch_stack.top();
-
-    // doesnt pop here, only '&' can pop the stack
+    while(!branch_stack.empty()){
+      top = branch_stack.top();
+      if(top->num_edges == top->allowed_edges)
+        branch_stack.pop();
+      else
+        return top;
+    }
 
     return top;
   }
 
-
-  WLNRing *pop_ringstack(unsigned int pops, std::stack<WLNRing *> &stack)
-  {
-
-    if (pops >= stack.size())
-    {
-      fprintf(stderr, "Error: trying to pop too many rings check '&' count\n");
-      return (WLNRing *)0;
-    }
-
-    for (unsigned int i = 0; i < pops; i++)
-      stack.pop();
-
-    return stack.top();
-  }
-
-  // this has a return clause in it and needs previous
-  WLNSymbol *pop_branchstack(unsigned int pops, std::stack<WLNSymbol *> &stack, WLNSymbol *prev)
-  {
-
-    if (!prev)
-      fprintf(stderr, "Error: popping with no previous symbol\n");
-
-    bool hard = false;
-
-    if (prev == stack.top())
-      hard = true;
-
-    if (opt_debug)
-      fprintf(stderr, "  popping %d symbols down the stack: mode(%d) prev[%c]\n", pops, hard, prev->ch);
-
-    if (hard)
-    {
-      if (pops >= stack.size())
-      {
-        fprintf(stderr, "Error: to many stack pops - check '&' count\n");
-        return 0;
-      }
-      for (unsigned int i = 0; i < pops; i++)
-        stack.pop();
-    }
-    else
-    {
-      if (pops > stack.size())
-      {
-        fprintf(stderr, "Error: to many stack pops - check '&' count\n");
-        return 0;
-      }
-      for (unsigned int i = 1; i < pops; i++)
-        stack.pop();
-    }
-    return stack.top();
-  }
-
-  /* wraps popping for the linker and branch stacks */
-  WLNSymbol *pop_standard_stacks(unsigned int pop_ticks,
-                                 std::stack<WLNSymbol *> &branch_stack,
-                                 std::stack<WLNSymbol *> &linker_stack,
-                                 WLNSymbol *prev, unsigned int i)
-  {
-    WLNSymbol *ret = 0;
-    if (!branch_stack.empty())
-      ret = pop_branchstack(pop_ticks, branch_stack, prev);
-    else if (!linker_stack.empty())
-      ret = pop_branchstack(pop_ticks, linker_stack, prev);
-    else
-    {
-      fprintf(stderr, "Error: popping empty stacks - check '&' count\n");
-      Fatal(i);
-    }
-
-    return ret;
-  }
 
   /* wraps the linking and graph checking functions */
   void create_bond(WLNSymbol *curr, WLNSymbol *prev,
@@ -3157,7 +3093,6 @@ struct WLNGraph
     unsigned int block_start = 0;
     unsigned int block_end = 0;
 
-    unsigned int pop_ticks = 0;  // '&' style popping
     unsigned int bond_ticks = 0; // 'U' style bonding
 
     // local copy
@@ -3209,11 +3144,6 @@ struct WLNGraph
           Fatal(i);
         }
 
-        if (pop_ticks)
-        {
-          prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-          pop_ticks = 0;
-        }
 
         if(pending_diazo){
             // do a hydroxy transform here
@@ -3283,12 +3213,6 @@ struct WLNGraph
         else
         {
           
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-
           if(pending_diazo){
             curr = prev; 
             curr->set_edges(3);
@@ -3343,15 +3267,10 @@ struct WLNGraph
         }
         else
         {
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           if(pending_diazo){
             curr = prev; 
-            curr->set_edges(3);
+            curr->set_edges(4);
 
             if(!add_hydroxy(curr,2))
               Fatal(i-1);
@@ -3406,12 +3325,6 @@ struct WLNGraph
         else
         {
 
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
             Fatal(i);
@@ -3465,12 +3378,6 @@ struct WLNGraph
         else
         {
 
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
             Fatal(i);
@@ -3521,11 +3428,7 @@ struct WLNGraph
         }
         else
         {
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
+
 
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an carbonyl is a disallowed bond type\n");
@@ -3574,11 +3477,6 @@ struct WLNGraph
         }
         else
         {
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           if(pending_diazo){
             fprintf(stderr,"Error: double diazo assignment is a disallowed bond type\n");
@@ -3589,7 +3487,7 @@ struct WLNGraph
             prev->allowed_edges++;
             if(!add_hydroxy(prev,2))
               Fatal(i);
-              break;
+  
           }
           else{
             curr = AllocateWLNSymbol(ch);
@@ -3636,12 +3534,6 @@ struct WLNGraph
         }
         else
         {
-
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           if(pending_diazo){
         
@@ -3700,12 +3592,6 @@ struct WLNGraph
         else
         {
 
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to NH is a disallowed bond type\n");
             Fatal(i);
@@ -3753,12 +3639,6 @@ struct WLNGraph
         }
         else
         {
-
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           if(pending_diazo){
             curr = prev; 
@@ -3819,12 +3699,6 @@ struct WLNGraph
         else
         {
 
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to NH2 is a disallowed bond type\n");
             Fatal(i);
@@ -3883,12 +3757,6 @@ struct WLNGraph
         else
         {
 
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to a non expanded valence halogen is a disallowed bond type\n");
             Fatal(i);
@@ -3944,12 +3812,6 @@ struct WLNGraph
         }
         else
         {
-
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           if(pending_diazo){
             curr = prev; 
@@ -4011,12 +3873,6 @@ struct WLNGraph
         }
         else
         {
-
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           if(pending_diazo){
             curr = prev; 
@@ -4264,11 +4120,6 @@ struct WLNGraph
         }
         else
         {
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
 
           ring = AllocateWLNRing();
 
@@ -4322,8 +4173,6 @@ struct WLNGraph
         else
           bond_ticks++;
         
-         
-
         break;
 
         // specials
@@ -4350,14 +4199,6 @@ struct WLNGraph
         while (!branch_stack.empty())
           branch_stack.pop();
 
-        if (pop_ticks)
-        {
-          ring = pop_ringstack(pop_ticks, ring_stack);
-          if (!prev)
-            Fatal(i);
-          pop_ticks = 0;
-        }
-
         pending_locant = true;
         break;
 
@@ -4381,14 +4222,54 @@ struct WLNGraph
           prev = 0;
           pending_locant = false;
         }
+        else if(curr->type == LOCANT)
+          curr->ch += 23;
         else
         {
-          if(curr->type == LOCANT)
-            curr->ch += 23;
-          else{
-            pop_ticks++; // set the number of pops to do
+          // this must be a branch stack notation 
+
+          WLNSymbol *top = 0;
+          if(!branch_stack.empty())
+            top = branch_stack.top();
+          
+          if(!top){
+            fprintf(stderr,"Error: '&' punctuation outside of branching characters is disallowed notation\n");
+            Fatal(i);
           }
+
+          // this means a <Y|X|..>'&' so handle methyl
+          if(prev && prev == top){
             
+            switch(prev->ch){
+              // methyl contractions
+              case 'X':
+              case 'Y':
+              case 'K':
+                if(prev->num_edges < prev->allowed_edges){
+                  if(!add_methyl(prev))
+                    Fatal(i);
+
+                  prev = return_open_branch(branch_stack);
+                }
+                else{ 
+                  // we pop it as all contractions / bonds are made
+                  prev = return_open_branch(branch_stack);
+                }
+                break;
+
+              // no contractions possible, we pop the stack
+              default:
+                prev = return_open_branch(branch_stack);
+                break;
+            }
+
+          }
+          else{
+            // means a closure is done, we return to the first avaliable symbol on the branch stack
+            prev = return_open_branch(branch_stack);
+          }
+        
+        
         }
         break;
 
@@ -4403,15 +4284,8 @@ struct WLNGraph
         }
         else if (pending_special)
         {
-          if (pop_ticks)
-          {
-            prev = pop_standard_stacks(pop_ticks, branch_stack, linker_stack, prev, i);
-            pop_ticks = 0;
-          }
-          else
-            prev = curr;
-
-        
+          
+          prev = curr;
 
           if(pending_diazo){
             
@@ -4673,8 +4547,6 @@ struct BabelGraph{
 
       if(sym->type != LOCANT){
 
-        unsigned int children = sym->children.size();
-        
         OpenBabel::OBAtom *atom = 0;
 
         unsigned int atomic_num = 0;
@@ -4703,6 +4575,7 @@ struct BabelGraph{
           case 'X':
             atomic_num = 6;
             hcount = 0; // this must have 4 + methyl
+            break;
 
           case 'Y':
             atomic_num = 6;
