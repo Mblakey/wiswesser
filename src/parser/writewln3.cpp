@@ -2336,11 +2336,14 @@ struct WLNRing
                 break;
 
               case 'U':
-
-                if(opt_debug)
-                  fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
-
-                bond_increases.push_back({positional_locant,positional_locant+1});
+                // no need to put this in implied, it has to be specified
+                if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
+                  bond_increases.push_back({positional_locant,block[i+3]});
+                  block_str += 3;
+                  i += 3;
+                }
+                else
+                  bond_increases.push_back({positional_locant,positional_locant+1});
                 break;
 
               case 'W':
@@ -2403,6 +2406,7 @@ struct WLNRing
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
+                  new_locant->set_edges(3);
                   break;
 
                 case 'V':
@@ -2444,10 +2448,10 @@ struct WLNRing
                   break;
 
                 case 'U':
-                  if(opt_debug)
-                    fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
 
-                bond_increases.push_back({positional_locant,positional_locant+1});
+                  if(i < len )
+                  
+                  bond_increases.push_back({positional_locant,positional_locant+1});
                 break;
 
                 default:
