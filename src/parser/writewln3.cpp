@@ -485,10 +485,9 @@ bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
       parent->set_edges(3);
       break;
 
-    case 'K':
     case 'P':
     case 'S':
-      parent->set_edges(4);
+      parent->set_edges(5);
       break;
 
     case '*':
@@ -580,6 +579,29 @@ bool add_methyl(WLNSymbol *head){
     return false;
 
   return true; 
+}
+
+bool add_diazo(WLNSymbol *head, unsigned int n){
+
+  if(n >= 1){
+    WLNSymbol *oxygen = AllocateWLNSymbol('O');
+    oxygen->set_edges(2);
+    oxygen->set_type(head->type);
+
+    if(!link_symbols(oxygen, head,2,false))
+      return false;
+  }
+
+  if(n == 2){
+    WLNSymbol *oxygen = AllocateWLNSymbol('O');
+    oxygen->set_edges(2);
+    oxygen->set_type(head->type);
+
+    if(!link_symbols(oxygen, head,1,false))
+      return false;
+  }  
+
+  return true;
 }
 
 
@@ -762,6 +784,11 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
     case 'K':
       if (special[1] == 'R')
         created_wln->special = "Kr";
+      else if (special[1] == 'A'){
+        created_wln->ch = 'K';
+        created_wln->set_edges(4);
+        return created_wln;
+      }
       else
       {
         fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
@@ -1305,7 +1332,7 @@ WLNSymbol* define_hypervalent_element(unsigned char sym,WLNSymbol *override=0){
 
     default:
       fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
-      break;
+      return 0;
   }
   
   return new_symbol;
@@ -1874,8 +1901,6 @@ struct WLNRing
     unsigned int len = block.size();
     unsigned int aromatic_position = FindAromatics(block_str,len); // should be a copy so no effect on pointer
 
-
-
     unsigned char ch = *block_str++;
 
 
@@ -2248,58 +2273,86 @@ struct WLNRing
               case 'P':
                 if(!heterocyclic)
                   warned = true;
+
+                if(locants[positional_locant])
+                  positional_locant++; 
+
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(5);
-                positional_locant++; // allows inline defition continuation
                 break;
 
               case 'Y':
+                if(locants[positional_locant])
+                  positional_locant++; 
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(3);
-                positional_locant++; // allows inline defition continuation
                 break;
               case 'N':
                 if(!heterocyclic)
                   warned = true;
+
+                if(locants[positional_locant])
+                  positional_locant++; 
+
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(3);
-                positional_locant++; // allows inline defition continuation
                 break;
 
               case 'V':
+                if(locants[positional_locant])
+                  positional_locant++; 
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(2);
-                positional_locant++; // allows inline defition continuation
                 break;
 
               case 'M':
               case 'O':
                 if(!heterocyclic)
                   warned = true;
+
+                if(locants[positional_locant])
+                  positional_locant++; 
+
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(2);
-                positional_locant++; // allows inline defition continuation
                 break;
 
               case 'X':
+                if(locants[positional_locant])
+                  positional_locant++; 
+
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(4);
-                positional_locant++; // allows inline defition continuation
                 break;
               case 'K':
                 if(!heterocyclic)
                   warned = true;
 
+                if(locants[positional_locant])
+                  positional_locant++; 
+
                 new_locant = assign_locant(positional_locant,ch);
                 new_locant->set_edges(4);
-                positional_locant++; // allows inline defition continuation
                 break;
 
               case 'U':
+
                 if(opt_debug)
                   fprintf(stderr,"  increasing bond order from %c to %c by 1\n",positional_locant,positional_locant+1);
 
                 bond_increases.push_back({positional_locant,positional_locant+1});
+                break;
+
+              case 'W':
+                switch(locants[positional_locant]->ch){
+                  case 'K':
+                    locants[positional_locant]->allowed_edges++;
+                    break;
+                  default:
+                    break;
+                }
+                if(!add_diazo(locants[positional_locant],2))
+                  Fatal(i+start);
                 break;
 
               default:
@@ -2311,12 +2364,7 @@ struct WLNRing
           else{
 
             if(i>0 && block[i-1] == ' '){
-              if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
-                Fatal(i+start);
-              }
-              else
-                positional_locant = ch;
+              positional_locant = ch;
             }
             else{
               implied_assignment_used = true;
@@ -2332,51 +2380,67 @@ struct WLNRing
                 case 'P':
                   if(!heterocyclic)
                     warned = true;
+
+                  if(locants[positional_locant])
+                    positional_locant++;     
+
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edges(5);
-                  positional_locant++; // allows inline defition continuation
                   break;
 
                 case 'Y':
+                  if(locants[positional_locant])
+                    positional_locant++; 
+
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edges(3);
-                  positional_locant++; // allows inline defition continuation
                   break;
                 case 'N':
                   if(!heterocyclic)
                     warned = true;
+                  
+                  if(locants[positional_locant])
+                    positional_locant++; 
+
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(3);
-                  positional_locant++; // allows inline defition continuation
                   break;
 
                 case 'V':
+                  if(locants[positional_locant])
+                      positional_locant++; 
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edges(2);
-                  positional_locant++; // allows inline defition continuation
                   break;
 
                 case 'M':
                 case 'O':
                   if(!heterocyclic)
                     warned = true;
+                  
+                  if(locants[positional_locant])
+                    positional_locant++; 
+
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edges(2);
-                  positional_locant++; // allows inline defition continuation
                   break;
 
                 case 'X':
+                  if(locants[positional_locant])
+                    positional_locant++; 
+
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edges(4);
-                  positional_locant++; // allows inline defition continuation
                   break;
 
                 case 'K':
                   if(!heterocyclic)
                     warned = true;
+
+                  if(locants[positional_locant])
+                    positional_locant++; 
+
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edges(4);
-                  positional_locant++; // allows inline defition continuation
                   break;
 
                 case 'U':
@@ -2441,12 +2505,7 @@ struct WLNRing
           }
           else{
             if(i>0 && block[i-1] == ' '){
-              if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
-                Fatal(i+start);
-              }
-              else
-                positional_locant = ch;
+              positional_locant = ch;
             }
             else{
               fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
@@ -2500,12 +2559,7 @@ struct WLNRing
           }
           else{
             if(i>0 && block[i-1] == ' '){
-              if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
-                Fatal(i+start);
-              }
-              else
-                positional_locant = ch;
+              positional_locant = ch;
             }
             else{
               fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
@@ -2593,12 +2647,7 @@ struct WLNRing
           }
           else{
             if(i>0 && block[i-1] == ' '){
-              if(implied_assignment_used){
-                fprintf(stderr,"Error: specific locant assignment cannot be mixed with the implied 'A' start notation, please use one or the other\n");
-                Fatal(i+start);
-              }
-              else
-                positional_locant = ch;
+              positional_locant = ch;
             }
             else{
               fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
@@ -2692,9 +2741,10 @@ struct WLNRing
     if (!state)
       Fatal(start+i);
 
-    for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases)
-      increase_bond_order(locants[bond_pair.second],locants[bond_pair.first]);
-    
+    for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases){
+      if(!increase_bond_order(locants[bond_pair.second],locants[bond_pair.first]))
+        Fatal(i);
+    }
   }
 
 
@@ -2737,28 +2787,6 @@ struct WLNGraph
       delete ring;
   };
 
-  bool add_hydroxy(WLNSymbol *head, unsigned int n){
-
-    if(n >= 1){
-      WLNSymbol *oxygen = AllocateWLNSymbol('O');
-      oxygen->set_edges(2);
-      oxygen->set_type(head->type);
-
-      if(!link_symbols(oxygen, head,2,false))
-        return false;
-    }
-
-    if(n == 2){
-      WLNSymbol *oxygen = AllocateWLNSymbol('O');
-      oxygen->set_edges(2);
-      oxygen->set_type(head->type);
-
-      if(!link_symbols(oxygen, head,1,false))
-        return false;
-    }  
-
-    return true;
-  }
 
   bool expand_carbon_chain(WLNSymbol *head,unsigned int size){
 
@@ -2900,14 +2928,14 @@ struct WLNGraph
         case 'V':
           sym->ch = 'C';
           sym->set_edges(4);
-          if(!add_hydroxy(sym,1))
+          if(!add_diazo(sym,1))
             return false;
           break;
         
         case 'W':
           sym->ch = 'C';
           sym->set_edges(4);
-          if(!add_hydroxy(sym,2))
+          if(!add_diazo(sym,2))
             return false;
           break;
 
@@ -3052,6 +3080,10 @@ struct WLNGraph
         fprintf(stderr,"Error: trying to assign ionic charge to unavaliable element, check that character %d is avaliable for assignment\n",pos_charge.first);
         return false;
       }
+      else if(assignment->type == LOCANT){
+        fprintf(stderr,"Error: trying to assign charge to a locant character\n");
+        return false;
+      }
       else{
         charge_additions[assignment] += pos_charge.second;
 
@@ -3063,69 +3095,24 @@ struct WLNGraph
     return true;
   }
 
-  // performs the multipler on a centro atom with a reverse of the block notation
-  WLNSymbol * flipped_multiplier(unsigned char ch,unsigned int multiplier, WLNSymbol *prev, std::string &sequence){
-    
-    if(opt_debug)
-      fprintf(stderr,"  multiplier:  %s\n",sequence.c_str());
-
-    reverseStr(sequence);
-
-    WLNSymbol *curr = AllocateWLNSymbol(ch);
-    curr->set_type(STANDARD);
-    curr->set_edges(3);
-
-    if(prev){
-      if(!link_symbols(prev,curr,1))
-        return 0;
-    }
-    else
-      return 0;
-    
-     
-    // in this case it has already been built once
-    for (unsigned j=0;j<multiplier-1;j++){
-      WLNSymbol * bind = ParseWLNString(sequence);
-      if(!link_symbols(bind,curr,1))
-        return 0;
-    }
-    sequence.clear();
-
-    return curr;
-  }
-
 
   // performs standard sequence multiplers from a bind point
-  WLNSymbol * sequence_multiplier(unsigned int multiplier, WLNSymbol *prev, std::string &sequence){
+  WLNSymbol *sequence_multiplier(WLNSymbol *prev,bool mirror,unsigned int n, std::string &sequence,unsigned int bond_ticks=0){
     
-    if(opt_debug)
-      fprintf(stderr,"  multiplier:  %s\n",sequence.c_str());
-    
-    // in this case it has already been built once
-    for (unsigned j=0;j<multiplier-1;j++){
-      WLNSymbol * bind = ParseWLNString(sequence);
-      if(!link_symbols(bind,prev,1))
-        return 0;
-
-      // sequences are built therefore the tail is the last symbol added to the mempool
-      prev = symbol_mempool.back();
-    }
-    sequence.clear();
-
-    return symbol_mempool.back();
+    // return the last symbol created
+    return 0;
   }
 
 
-
-
-  /* a global segmentation using both rule sets - start merging */
-  WLNSymbol* ParseWLNString(std::string wln_string) 
+  
+  /* returns the head of the graph, parse all normal notation */
+  bool ParseWLNString(std::string wln_string) 
   {
 
     if (opt_debug)
       fprintf(stderr, "Parsing WLN notation: %s\n",wln_string.c_str());
 
-    std::stack<WLNRing *> ring_stack;   // access through symbol
+    std::stack<WLNRing *>   ring_stack;   // access through symbol
     std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
     std::stack<WLNSymbol *> linker_stack; // used for branching ring systems
     
@@ -3133,32 +3120,33 @@ struct WLNGraph
     
     WLNSymbol *curr   = 0;
     WLNSymbol *prev   = 0;
-    WLNSymbol *mult   = 0;
     WLNSymbol *head   = 0; // head of the graph to return
     WLNRing   *ring   = 0;
 
     bool pending_locant           = false;
-    bool pending_closure          = false;
+    bool pending_J_closure        = false;
     bool pending_inline_ring      = false;
     bool pending_spiro            = false;
     bool pending_diazo            = false;
-    bool pending_multiplier       = false;
-  
-    std::string special;
-    std::string multiplier_chain;   // these are specified with '\'
-    std::string current_chain;      // this only tracks regular sequences
+    bool pending_linker           = false;
+
+    std::string special;  // special elemental definitions
     
+    std::string multiplier_sequence; 
+    unsigned int multiplier_value = 0;
+    bool reverse_multiplier = true; // true by default, false if started with '/'
+
     // allows consumption of notation after block parses
     unsigned int block_start = 0;
     unsigned int block_end = 0;
-
-    unsigned int bond_ticks = 0; // 'U' style bonding
-    unsigned int multiplier_type = 0; // 0 is to reverse and bind to center, 1 - is sequential
-
+ 
+    unsigned int bond_ticks = 0;    // 'U' style bonding
+   
     unsigned int len = wln_string.length();
     const char * wln_ptr = wln_string.c_str();
 
     unsigned int zero_position = search_ionic(wln_ptr,len,ionic_charges);
+    
     unsigned int i=0;
     unsigned char ch = *wln_ptr;
     
@@ -3177,7 +3165,7 @@ struct WLNGraph
       {
 
       case '0': // cannot be lone, must be an addition to another num
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         
         if(prev && std::isdigit(prev->ch)){
@@ -3196,19 +3184,19 @@ struct WLNGraph
       case '7':
       case '8':
       case '9':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
-        else if(pending_locant){
+        else if(pending_locant){  // handle all multiplier contractions
           
           // block to hunt the multiplier maximum --> lookahead
           // look for spaces followed by ints. 
  
-          std::string mult_string;
-          mult_string.push_back(ch);
+          std::string int_sequence;
+          int_sequence.push_back(ch);
 
           while(i < len - 2){
             if(wln_string[i+1] == ' ' && std::isdigit(wln_string[i+2])){
-              mult_string.push_back(wln_string[i+2]);
+              int_sequence.push_back(wln_string[i+2]);
               i+=2;
               wln_ptr += 2;
             }
@@ -3217,16 +3205,15 @@ struct WLNGraph
           }
 
           // pointer is moved to the last number, multiplier value is calculated
-          unsigned int multiplier_value = std::stoi(mult_string);
-          std::cout << current_chain << std::endl;
+          multiplier_value = std::stoi(int_sequence);
 
-          // this needs to eat and multiply here if sequence multiplier?
-          current_chain.clear();
+          fprintf(stderr,"Error: multipliers are not currently supported\n");
+          Fatal(i);
+          
+          pending_linker = true;
           pending_locant = false;
         }
         else{
-
-          current_chain.push_back(ch);
 
           if(pending_diazo){
               // do a hydroxy transform here
@@ -3234,7 +3221,7 @@ struct WLNGraph
             curr = prev; // might be overkill 
             curr->set_edges(4);
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3261,6 +3248,9 @@ struct WLNGraph
             i++;
           }
 
+          if(pending_linker){
+          }
+
           bond_ticks = 0;
           prev = curr;
           break;
@@ -3269,12 +3259,10 @@ struct WLNGraph
      
 
       case 'Y':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear(); // on successful locant we clear the track
-
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3284,18 +3272,17 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
-
           if(pending_diazo){
             curr = prev; 
             curr->set_edges(3);
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3308,23 +3295,19 @@ struct WLNGraph
             create_bond(curr, prev, bond_ticks, i);
           }
 
-          string_positions[i] = curr;
-
           branch_stack.push(curr);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = curr;
         }
         break;
 
       case 'X':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-
-          current_chain.clear();
-
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3334,18 +3317,17 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
-
           if(pending_diazo){
             curr = prev; 
             curr->set_edges(4);
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3358,10 +3340,9 @@ struct WLNGraph
             create_bond(curr, prev, bond_ticks, i);
           }
 
-          string_positions[i] = curr;
-
           branch_stack.push(curr);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = curr;
         }
@@ -3370,13 +3351,10 @@ struct WLNGraph
         // oxygens
 
       case 'O':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-
-          current_chain.clear();
-
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3386,13 +3364,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
-
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
             Fatal(i);
@@ -3402,24 +3379,21 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
-          string_positions[i] = curr;
-
           branch_stack.push(curr);
 
           create_bond(curr, prev, bond_ticks, i);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = curr;
         }
         break;
 
       case 'Q':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-
-          current_chain.clear();
 
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
@@ -3430,13 +3404,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-
-          current_chain.push_back(ch);
 
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
@@ -3447,10 +3420,9 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(1);
 
-          string_positions[i] = curr;
-
           create_bond(curr, prev, bond_ticks, i);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = return_open_branch(branch_stack);
           if(!prev)
@@ -3459,11 +3431,10 @@ struct WLNGraph
         break;
 
       case 'V':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3473,12 +3444,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an carbonyl is a disallowed bond type\n");
             Fatal(i);
@@ -3489,18 +3460,16 @@ struct WLNGraph
           create_bond(curr,prev,bond_ticks,i);
 
           string_positions[i] = curr;
-          
           bond_ticks = 0;
           prev = curr;
         }
         break;
 
       case 'W':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3510,12 +3479,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             fprintf(stderr,"Error: double diazo assignment is a disallowed bond type\n");
             Fatal(i);
@@ -3523,7 +3492,7 @@ struct WLNGraph
 
           if(prev){
             prev->allowed_edges++;
-            if(!add_hydroxy(prev,2))
+            if(!add_diazo(prev,2))
               Fatal(i);
   
           }
@@ -3536,7 +3505,6 @@ struct WLNGraph
           }
 
           string_positions[i] = curr;
-
           bond_ticks = 0;
           prev = curr;
         }
@@ -3545,11 +3513,10 @@ struct WLNGraph
         // nitrogens
 
       case 'N':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3559,18 +3526,18 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
         
             curr = prev;
             curr->set_edges(4); // 'x-NW' is allowed 
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
             
             curr->ch = ch;
@@ -3584,21 +3551,19 @@ struct WLNGraph
             create_bond(curr, prev, bond_ticks, i);
           }
          
-          string_positions[i] = curr;
-
           branch_stack.push(curr);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = curr;
         }
         break;
 
       case 'M':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3608,12 +3573,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to NH is a disallowed bond type\n");
             Fatal(i);
@@ -3623,21 +3588,19 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(2);
 
-          string_positions[i] = curr;
-
           create_bond(curr, prev, bond_ticks, i);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = curr;
         }
         break;
 
       case 'K':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3647,17 +3610,17 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             curr = prev; 
             curr->set_edges(5);
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3670,21 +3633,19 @@ struct WLNGraph
             create_bond(curr, prev, bond_ticks, i);
           }
 
-          string_positions[i] = curr;
-
           branch_stack.push(curr);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = curr;
         }
         break;
 
       case 'Z':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3694,12 +3655,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to NH2 is a disallowed bond type\n");
             Fatal(i);
@@ -3709,10 +3670,9 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(1);
 
-          string_positions[i] = curr;
-
           create_bond(curr, prev, bond_ticks, i);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
           prev = return_open_branch(branch_stack);
           if(!prev)
@@ -3726,11 +3686,10 @@ struct WLNGraph
       case 'G':
       case 'F':
       case 'I':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3740,12 +3699,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to a non expanded valence halogen is a disallowed bond type\n");
             Fatal(i);
@@ -3755,12 +3714,10 @@ struct WLNGraph
           curr->set_type(STANDARD);
           curr->set_edges(1);
 
-          string_positions[i] = curr;
-
           create_bond(curr, prev, bond_ticks, i);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
-
           prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
@@ -3770,11 +3727,10 @@ struct WLNGraph
         // inorganics
 
       case 'B':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3784,17 +3740,17 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             curr = prev; 
             curr->set_edges(3);
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3807,9 +3763,9 @@ struct WLNGraph
             create_bond(curr, prev, bond_ticks, i);            
           }
 
-          string_positions[i] = curr;
-
           branch_stack.push(curr);
+ 
+          string_positions[i] = curr;
 
           bond_ticks = 0;
           prev = curr;
@@ -3818,11 +3774,10 @@ struct WLNGraph
 
       case 'P':
       case 'S':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3832,17 +3787,17 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           if(pending_diazo){
             curr = prev; 
             curr->set_edges(6); // might be overkill 
 
-            if(!add_hydroxy(curr,2))
+            if(!add_diazo(curr,2))
               Fatal(i-1);
             
             curr->ch = ch;
@@ -3856,8 +3811,11 @@ struct WLNGraph
             create_bond(curr, prev, bond_ticks, i);
           }
 
-          string_positions[i] = curr;
           branch_stack.push(curr);
+          string_positions[i] = curr;
+
+          if(pending_linker){
+          }
 
           bond_ticks = 0;
           prev = curr;
@@ -3869,12 +3827,10 @@ struct WLNGraph
       case 'A':
       case 'C':
       case 'D':
-        
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3884,6 +3840,7 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
@@ -3897,11 +3854,10 @@ struct WLNGraph
       // hydrogens explicit
 
       case 'H':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3911,21 +3867,29 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+                
           prev = curr;
           pending_locant = false;
         }
         else{
-          current_chain.push_back(ch);
           // explicit hydrogens
           curr = AllocateWLNSymbol(ch);
           curr->set_type(STANDARD);
           curr->set_edges(1);
 
+          // will add with more examples
+          switch(prev->ch){
+            case 'Z':
+              charge_additions[prev]++;
+              break;
+            default:
+              break;
+          }
+
           create_bond(curr, prev, bond_ticks, i);
 
+          string_positions[i] = curr;
           bond_ticks = 0;
-          
-          // this will automatically return a branch like a terminator
           prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
@@ -3937,7 +3901,6 @@ struct WLNGraph
       case 'J':
         if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -3947,11 +3910,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
 
-        else if (pending_closure && ( (i<len-1 && wln[i+1] == ' ') || i == len -1))
+        else if (pending_J_closure && ( (i<len-1 && wln[i+1] == ' ') || i == len -1))
         {
           block_end = i;
           
@@ -3984,19 +3948,18 @@ struct WLNGraph
           }
 
           bond_ticks = 0;
-          pending_closure = false;
+          pending_J_closure = false;
         }
         
         break;
 
       case 'L':
       case 'T':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -4006,6 +3969,7 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
@@ -4024,17 +3988,16 @@ struct WLNGraph
             pending_inline_ring = false;
 
           block_start = i;
-          pending_closure = true;
+          pending_J_closure = true;
         }
         break;
 
       case 'R':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -4044,12 +4007,12 @@ struct WLNGraph
           else
             create_locant(curr, ring_stack, i);
 
+          
           prev = curr;
           pending_locant = false;
         }
         else
         {
-          current_chain.push_back(ch);
           ring = AllocateWLNRing();
 
           std::string r_notation = "L6J";
@@ -4059,10 +4022,11 @@ struct WLNGraph
           if( !(wln_ptr + 1))
             ring->locants['A']->num_edges++; // will place a minus charge on the centre carbon
 
-          if (prev)
-            create_bond(curr, prev, bond_ticks, i);
+          curr = ring->locants['A'];
+          create_bond(curr, prev, bond_ticks, i);
 
-          prev = ring->locants['A'];
+          string_positions[i] = curr;
+          prev = curr;
           bond_ticks = 0;
         }
         break;
@@ -4070,12 +4034,11 @@ struct WLNGraph
         // bonding
 
       case 'U':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         
         else if (pending_locant)
         {
-          current_chain.clear();
           curr = AllocateWLNSymbol(ch);
           curr->set_type(LOCANT);
           curr->set_edges(2); // locants always have two edges
@@ -4093,7 +4056,6 @@ struct WLNGraph
           Fatal(i);
         }
         else{
-          current_chain.push_back(ch);
           bond_ticks++;
         }
         break;
@@ -4101,7 +4063,7 @@ struct WLNGraph
         // specials
 
       case ' ':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         
         else if (pending_diazo){
@@ -4119,7 +4081,7 @@ struct WLNGraph
         // clear the branch stack betweek locants and ions
         while (!branch_stack.empty())
           branch_stack.pop();
-
+        
         pending_locant = true;
         break;
 
@@ -4129,7 +4091,7 @@ struct WLNGraph
           Fatal(i);
         }
 
-        if (pending_closure)
+        if (pending_J_closure)
           break;
         
         if (pending_inline_ring)
@@ -4145,11 +4107,26 @@ struct WLNGraph
         }
         else if(curr->type == LOCANT)
           curr->ch += 23;
+        else if(i < len - 1 && wln_string[i+1] == ' '){
+
+          ring = 0;
+          if(!ring_stack.empty())
+            ring_stack.pop();
+          else{
+            fprintf(stderr,"Error: popping too many rings, check '&' count\n");
+            Fatal(i);
+          }
+          
+          if(!ring_stack.empty())
+            ring = ring_stack.top();
+          else{
+            fprintf(stderr,"Error: popping too many rings, check '&' count\n");
+            Fatal(i);
+          }
+          break;
+        }
         else
         {
-          // this must be a branch stack notation 
-          current_chain.push_back(ch);
-
           WLNSymbol *top = 0;
           if(!branch_stack.empty())
             top = branch_stack.top();
@@ -4196,9 +4173,8 @@ struct WLNGraph
         break;
 
 
-      // lets get rid of pending_special like above
       case '-':
-        if (pending_closure)
+        if (pending_J_closure)
           break;
 
         else if (pending_inline_ring)
@@ -4262,24 +4238,50 @@ struct WLNGraph
         break;
 
 
+      // do a lookahead here as well for multiplier symbols
+
       case '/':
-        if (pending_closure){
+        if (pending_J_closure){
           break;
         }
         else if (pending_diazo){
           fprintf(stderr,"Error: diazo assignment followed by a multiplier is a disallowed bond type\n");
           Fatal(i);
         }
-        else if(pending_multiplier){
-          current_chain.push_back(ch);
-          pending_multiplier = false;
-          multiplier_type = 1;
-        } 
         else{
-          current_chain.push_back(ch);
-          pending_multiplier = true;
-        }
+
+          fprintf(stderr,"Error: multipliers are not currently supported\n");
+          Fatal(i);
           
+          if(pending_linker){
+            // we are expected to look for a linker to evaulate
+
+            // some trick recusion is going to go here, but should generalise the linking
+
+            char local_arr [strlen(wln_ptr)+1]; 
+            memset(local_arr,'\0',strlen(wln_ptr)+1);
+            memcpy(local_arr,wln_ptr,strlen(wln_ptr));
+            const char *local = local_arr;
+            
+            unsigned char local_ch = *(++local); // moved it over
+            unsigned int gap = 0; 
+            bool found_next = false;
+
+            while(local_ch != '\0'){
+              if(local_ch == ' ')
+                break;
+              if(local_ch == '-'){
+                // this calculates the gap to the next '-'
+                found_next = true;
+                break;
+              }
+              special.push_back(local_ch);
+              gap++;
+              local_ch = *(++local);
+            }
+
+          }
+        }
         
         break;
 
@@ -4291,8 +4293,20 @@ struct WLNGraph
       i++;
       ch = *(++wln_ptr);
     }
+    
 
-    if (pending_closure)
+    // if a multiplier is here, we handle it
+    if(pending_linker){
+
+      fprintf(stderr,"will catch here\n");
+
+    }
+
+
+
+
+
+    if (pending_J_closure)
     {
       fprintf(stderr, "Error: expected 'J' to close ring\n");
       Fatal(len);
@@ -4322,12 +4336,7 @@ struct WLNGraph
     Reindex_lookups();
 
     // use this for recursion on multipliers
-    if(head)
-      return head;
-    else if (curr)
-      return curr;
-    else
-      return (WLNSymbol*)0;
+    return true;
   }
 
   /* dump wln tree to a dotvis file */
