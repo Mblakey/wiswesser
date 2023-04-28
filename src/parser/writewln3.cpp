@@ -186,8 +186,8 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch)
   
   symbol_count++;
   if(symbol_count > REASONABLE){
-    fprintf(stderr,"Error: creating more than 1024 wlln symbols - is this reasonable?\n");
-    return 0;
+    fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
+    exit(0);
   }
   
   WLNSymbol *wln = new WLNSymbol;
@@ -349,6 +349,31 @@ WLNEdge* add_methyl(WLNSymbol *head){
   return bond; 
 }
 
+WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size){
+
+  if (size > REASONABLE){
+    fprintf(stderr,"Error: making carbon chain over 1024 long, reasonable molecule?\n");
+    return 0;
+  }
+    
+
+  head->ch = 'C';
+  head->set_edge_and_type(4);
+
+  if(size == 1)
+    return head;
+  
+  WLNEdge *edge = 0;
+  WLNSymbol *prev = head;
+  for(unsigned int i=0;i<size-1;i++){
+    WLNSymbol* carbon = AllocateWLNSymbol('C');
+    carbon->set_edge_and_type(4); // allows hydrogen resolve
+    edge = AllocateWLNEdge(carbon,prev);
+    prev = carbon;
+  } 
+
+  return prev;
+}
 
 bool add_diazo(WLNSymbol *head){
 
@@ -2532,55 +2557,6 @@ struct WLNGraph
   };
 
 
-  bool expand_carbon_chain(WLNSymbol *head,unsigned int size){
-
-    if (size > REASONABLE)
-      fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
-
-    head->ch = 'C';
-    head->set_edge_and_type(4);
-
-    if(size == 1)
-      return true;
-    
-    // leave the original node where it is, and expand out
-    WLNEdge *tmp = 0;
-    WLNSymbol *bonded = 0;
-    unsigned int bonded_order = 0;
-
-    // if the chain has any children
-    if(head->bonds){
-      // hold it
-      tmp = head->bonds;
-
-      bonded = tmp->child;
-      bonded_order = tmp->order;
-      if(!remove_edge(head,tmp))
-        return false;
-    }
-
-    WLNEdge *edge = 0;
-    WLNSymbol *prev = head;
-    for(unsigned int i=0;i<size-1;i++){
-      WLNSymbol* carbon = AllocateWLNSymbol('C');
-      carbon->set_edge_and_type(4); // allows hydrogen resolve
-      edge = AllocateWLNEdge(carbon,prev);
-      prev = carbon;
-    } 
-
-    if(bonded){
-      edge = AllocateWLNEdge(bonded,prev);
-      if(!edge)
-        return false;
-
-      if(bonded_order > 1)
-        edge = unsaturate_edge(edge,bonded_order-1);
-    }
-
-    return true;
-  }
-
-
 
   /* must be performed before sending to obabel graph*/
   bool ExpandWLNSymbols(){
@@ -2889,38 +2865,34 @@ struct WLNGraph
             curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(!edge)
-                Fatal(i);
+          
+          curr = AllocateWLNSymbol('C');
+          curr->set_edge_and_type(4);
 
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(!edge)
+              Fatal(i);
+
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
             }
           }
           
-          // moves naturally, so end on the last number
-
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(4);
-          curr->special.push_back(ch);
+          std::string int_sequence;
+          int_sequence.push_back(ch);
 
           while(*(wln_ptr+1)){
             if(!std::isdigit(*(wln_ptr+1)))
               break;
 
-            curr->special.push_back(*wln_ptr);
+            int_sequence.push_back(*(wln_ptr+1));
             wln_ptr++;
             i++;
           }
 
-          // just make the chain here?
-
-          if(pending_linker){
-          }
+          curr = create_carbon_chain(curr,std::stoi(int_sequence));
 
           prev = curr;
           break;
