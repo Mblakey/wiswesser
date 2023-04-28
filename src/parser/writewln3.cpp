@@ -82,10 +82,7 @@ std::map<WLNSymbol*,int> charge_additions;
 enum WLNTYPE
 {
   STANDARD = 0,
-  CHAIN = 1, 
-  LOCANT = 2,   
-  RING = 3,     
-  ELEMENT = 4
+  RING = 1,     
 };
 
 
@@ -299,6 +296,9 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
     fprintf(stderr,"Error: removing bond of non-existent symbols\n");
     return false;
   }
+  
+  head->num_edges--;
+  edge->child->num_edges--;
 
   if(head->bonds == edge){
     head->bonds = 0;
@@ -317,7 +317,6 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
     prev = search; 
     search = search->nxt;
   }
-
 
   if(!found){
     fprintf(stderr,"Error: trying to remove bond from wln character[%c] - bond not found\n",head->ch);
@@ -340,7 +339,10 @@ WLNEdge* add_methyl(WLNSymbol *head){
 
   for(unsigned int i=0;i<3;i++){
     WLNSymbol *hydrogen = AllocateWLNSymbol('H');
+    hydrogen->set_edge_and_type(1);
     WLNEdge   *edge = AllocateWLNEdge(hydrogen,carbon);
+    if(!edge)
+      return 0;
   }
 
   WLNEdge *bond = AllocateWLNEdge(carbon,head);
@@ -1273,12 +1275,12 @@ struct WLNRing
 
 
   /* interesting here that the multicyclic points are not explicitly used */
-  bool CreateMultiCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                  std::vector<bool> &aromaticity,
-                  std::vector<unsigned char> &multicyclic_locants,
-                  std::vector<indexed_pair> &pseudo_locants,
-                  std::set<unsigned char> &broken_locants,
-                  unsigned char size_designator)
+  bool CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+                          std::vector<bool> &aromaticity,
+                          std::vector<unsigned char> &multicyclic_locants,
+                          std::vector<indexed_pair> &pseudo_locants,
+                          std::set<unsigned char> &broken_locants,
+                          unsigned char size_designator)
   {
     
     // create a chain size of ring designator
@@ -1438,8 +1440,6 @@ struct WLNRing
         continue;      
       }
       
-
-
       // MULTI ALGORITHM
 
       ring_path.push_back(locants_ch[path]);
@@ -2546,7 +2546,7 @@ struct WLNGraph
     // leave the original node where it is, and expand out
     WLNEdge *tmp = 0;
     WLNSymbol *bonded = 0;
-    unsigned int bonded_order;
+    unsigned int bonded_order = 0;
 
     // if the chain has any children
     if(head->bonds){
@@ -2573,7 +2573,7 @@ struct WLNGraph
       if(!edge)
         return false;
 
-      if(bonded_order > 2)
+      if(bonded_order > 1)
         edge = unsaturate_edge(edge,bonded_order-1);
     }
 
@@ -2583,48 +2583,14 @@ struct WLNGraph
 
 
   /* must be performed before sending to obabel graph*/
-  bool ExpandWLNGraph(){
+  bool ExpandWLNSymbols(){
 
- 
     unsigned int stop = symbol_count;
     for (unsigned int i=1;i<=stop;i++){
       WLNSymbol *sym = SYMBOLS[i];
 
-      if(sym->type == LOCANT){
-        // floating locants get a methyl
-        if(!sym->bonds){
-          if(!add_methyl(sym))
-            return false;
-        }
-        else 
-          continue;
-      }
-        
       switch(sym->ch){
 
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          if (!sym->special.empty()){
-            if(!expand_carbon_chain(sym,std::stoi(sym->special))){
-              fprintf(stderr,"Error: error in expanding out numeral to carbon chain\n");
-              return false;
-            }
-          }
-          else{
-            if(!expand_carbon_chain(sym,sym->ch - '0')){
-              fprintf(stderr,"Error: error in expanding out numeral to carbon chain\n");
-              return false;
-            }
-          }
-          break;
-        
         case 'Y':
         case 'X':
         case 'K':
@@ -2785,10 +2751,6 @@ struct WLNGraph
         fprintf(stderr,"Error: trying to assign ionic charge to unavaliable element, check that character %d is avaliable for assignment\n",pos_charge.first);
         return false;
       }
-      else if(assignment->type == LOCANT){
-        fprintf(stderr,"Error: trying to assign charge to a locant character\n");
-        return false;
-      }
       else{
         charge_additions[assignment] += pos_charge.second;
 
@@ -2834,6 +2796,8 @@ struct WLNGraph
     bool pending_spiro            = false;
     bool pending_diazo            = false;
     bool pending_linker           = false;
+
+    unsigned char on_locant = '\0';
     unsigned int pending_unsaturate = 0;    // 'U' style bonding
    
     std::string special;  // special elemental definitions
@@ -2841,8 +2805,7 @@ struct WLNGraph
     // allows consumption of notation after block parses
     unsigned int block_start = 0;
     unsigned int block_end = 0;
- 
-    
+
     unsigned int len = wln_string.length();
     const char * wln_ptr = wln_string.c_str();
 
@@ -2909,8 +2872,10 @@ struct WLNGraph
           
           pending_linker = true;
           pending_locant = false;
+          on_locant = ch;
         }
         else{
+          on_locant = '\0';
 
           if(pending_diazo){
               // do a hydroxy transform here
@@ -2925,15 +2890,22 @@ struct WLNGraph
             pending_diazo = false;
           }
           else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(4);
-            
-            if(prev)
+            if(prev){
               edge = AllocateWLNEdge(curr,prev);
+              if(!edge)
+                Fatal(i);
+
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+            }
           }
           
           // moves naturally, so end on the last number
-    
+
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(4);
           curr->special.push_back(ch);
 
           while(*(wln_ptr+1)){
@@ -2945,10 +2917,11 @@ struct WLNGraph
             i++;
           }
 
+          // just make the chain here?
+
           if(pending_linker){
           }
 
-          pending_unsaturate = 0;
           prev = curr;
           break;
         }
@@ -2960,22 +2933,31 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+          if(!pending_inline_ring){
 
-          if(!edge)
-            Fatal(i);
-          
-          prev = curr;
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
+
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
+
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             curr = prev; 
             curr->set_edge_and_type(3);
@@ -2989,8 +2971,16 @@ struct WLNGraph
           else{
             curr = AllocateWLNSymbol(ch);
             curr->set_edge_and_type(3);
-            if(prev)
+            if(prev){
               edge = AllocateWLNEdge(curr,prev);
+              if(!edge)
+                Fatal(i);
+
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+            }
           }
 
           branch_stack.push(curr);
@@ -3006,22 +2996,31 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+         if(!pending_inline_ring){
 
-          if(!edge)
-            Fatal(i);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
+
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             curr = prev; 
             curr->set_edge_and_type(4);
@@ -3060,22 +3059,30 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
 
-          prev = curr;
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
             Fatal(i);
@@ -3107,24 +3114,29 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
+          if(!pending_inline_ring){
 
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            prev = curr;
+          }
 
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
-
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
             Fatal(i);
@@ -3158,22 +3170,30 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+         if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
-      
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
+
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to an carbonyl is a disallowed bond type\n");
             Fatal(i);
@@ -3201,22 +3221,30 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+         if(!pending_inline_ring){
 
-          if(!edge)
-            Fatal(i);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: double diazo assignment is a disallowed bond type\n");
             Fatal(i);
@@ -3255,23 +3283,29 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            prev = curr;
+          }
 
-          
-          prev = curr;
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
         
             curr = prev;
@@ -3311,22 +3345,28 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
-
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to NH is a disallowed bond type\n");
             Fatal(i);
@@ -3356,22 +3396,30 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
 
-          prev = curr;
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             curr = prev; 
             curr->set_edge_and_type(5);
@@ -3407,22 +3455,29 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
-
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
+        
           pending_locant = false;
+          on_locant = ch;
         }
         else
-        {
+        { 
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to NH2 is a disallowed bond type\n");
             Fatal(i);
@@ -3460,22 +3515,28 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
-
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             fprintf(stderr,"Error: diazo assignment to a non expanded valence halogen is a disallowed bond type\n");
             Fatal(i);
@@ -3510,22 +3571,28 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if (pending_inline_ring && prev)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
-
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           if(pending_diazo){
             curr = prev; 
             curr->set_edge_and_type(3);
@@ -3563,22 +3630,29 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
-
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
+
           if(pending_diazo){
             curr = prev; 
             curr->set_edge_and_type(6); // might be overkill 
@@ -3620,21 +3694,25 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
-          
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
+
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
             
-
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else{
           fprintf(stderr,"Error: locant only symbol used in atomic definition\n");
@@ -3650,21 +3728,29 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
- 
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else{
+          on_locant = '\0';
+
           // explicit hydrogens
           curr = AllocateWLNSymbol(ch);
           curr->set_edge_and_type(1);
@@ -3700,19 +3786,25 @@ struct WLNGraph
       case 'J':
         if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(curr,prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
 
         else if (pending_J_closure && ( (i<len-1 && wln[i+1] == ' ') || i == len -1))
@@ -3730,17 +3822,17 @@ struct WLNGraph
 
           if (pending_spiro)
           {
-            prev->type = LOCANT; // spiros are normal rings with dual linker notation
-            prev->previous->type = LOCANT;
-            pending_spiro = false;
+            // prev->type = LOCANT; 
+            // prev->previous->type = LOCANT;
+            // pending_spiro = false;
           }
 
           // does the incoming locant check
-          if (prev)
+          if (prev && on_locant)
           {
-            if (ring->locants[prev->ch]){
+            if (ring->locants[on_locant]){
               if(prev){
-                edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+                edge = AllocateWLNEdge(ring->locants[on_locant],prev);
                 if(pending_unsaturate){
                   edge = unsaturate_edge(edge,pending_unsaturate);
                   pending_unsaturate = 0;
@@ -3756,6 +3848,7 @@ struct WLNGraph
             }
           }
 
+          on_locant = '\0';
           pending_J_closure = false;
         }
         
@@ -3768,19 +3861,25 @@ struct WLNGraph
         
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
@@ -3807,23 +3906,29 @@ struct WLNGraph
         
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
-
-          
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else
         {
+          on_locant = '\0';
           ring = AllocateWLNRing();
 
           std::string r_notation = "L6J";
@@ -3858,27 +3963,34 @@ struct WLNGraph
         
         else if (pending_locant)
         {
-          curr = AllocateWLNSymbol(ch);
-          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
+          if(!pending_inline_ring){
 
-          if (pending_inline_ring)
-            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
-          else
-            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
 
-          if(!edge)
-            Fatal(i);
-
-          prev = curr;
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
           pending_locant = false;
+          on_locant = ch;
         }
         else if (pending_diazo){
           fprintf(stderr,"Error: diazo assignment followed by a bond increase is a disallowed bond type\n");
           Fatal(i);
         }
-        else
+        else{
+          on_locant = '\0';
           pending_unsaturate++;
-        
+        }
         break;
 
         // specials
@@ -3928,8 +4040,9 @@ struct WLNGraph
           prev = 0;
           pending_locant = false;
         }
-        else if(curr->type == LOCANT)
+        else if(on_locant){
           curr->ch += 23;
+        }
         else if(i < len - 1 && wln_string[i+1] == ' '){
 
           ring = 0;
@@ -3991,7 +4104,6 @@ struct WLNGraph
             prev = return_open_branch(branch_stack);
           }
 
-        
         }
         break;
 
@@ -4005,6 +4117,13 @@ struct WLNGraph
           fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
           Fatal(i);
         }
+        else if(on_locant){
+          if(prev->ch < 128){
+            prev->ch += 128;
+          }
+          else
+            prev->ch += 46; 
+        }
         else{
 
           // look ahead and consume the special
@@ -4017,6 +4136,7 @@ struct WLNGraph
           unsigned char local_ch = *(++local); // moved it over
           unsigned int gap = 0; 
           bool found_next = false;
+
 
           while(local_ch != '\0'){
             if(local_ch == ' ')
@@ -4176,8 +4296,6 @@ struct WLNGraph
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->ch == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-      else if(node->type == LOCANT)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
       else if (node->type == RING)
         fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
       else{
@@ -4321,184 +4439,175 @@ struct BabelGraph{
     // set up atoms
     for (unsigned int i=1; i<=symbol_count;i++){
       WLNSymbol *sym = SYMBOLS[i];
-      if(sym->type != LOCANT){
 
-        OpenBabel::OBAtom *atom = 0;
+      OpenBabel::OBAtom *atom = 0;
 
-        unsigned int atomic_num = 0;
-        unsigned int charge = 0; 
-        unsigned int hcount = 0;
+      unsigned int atomic_num = 0;
+      unsigned int charge = 0; 
+      unsigned int hcount = 0;
 
-        switch(sym->ch){
+      switch(sym->ch){
 
-          case 'H':
-            atomic_num = 1;
-            hcount = 0;
-            break; 
+        case 'H':
+          atomic_num = 1;
+          hcount = 0;
+          break; 
 
-          case 'B':
-            atomic_num = 5;
-            break;
+        case 'B':
+          atomic_num = 5;
+          break;
 
-          case 'C':
-            atomic_num = 6;
-            while(sym->num_edges < sym->allowed_edges){
-              hcount++;
-              sym->num_edges++;
-            }
-            break;
+        case 'C':
+          atomic_num = 6;
+          while(sym->num_edges < sym->allowed_edges){
+            hcount++;
+            sym->num_edges++;
+          }
+          break;
 
-          case 'X':
-            atomic_num = 6;
-            hcount = 0; // this must have 4 + methyl
-            break;
+        case 'X':
+          atomic_num = 6;
+          hcount = 0; // this must have 4 + methyl
+          break;
 
-          case 'Y':
-            atomic_num = 6;
-            hcount = 1;
-            break;
+        case 'Y':
+          atomic_num = 6;
+          hcount = 1;
+          break;
 
-          case 'N':
-            atomic_num = 7;
-            while(sym->num_edges < sym->allowed_edges){
-              hcount++;
-              sym->num_edges++;
-            }
-            break;
+        case 'N':
+          atomic_num = 7;
+          while(sym->num_edges < sym->allowed_edges){
+            hcount++;
+            sym->num_edges++;
+          }
+          break;
 
-          case 'M':
-            atomic_num = 7;
-            hcount = 1;
-            break;
+        case 'M':
+          atomic_num = 7;
+          hcount = 1;
+          break;
 
-          case 'Z':
-            atomic_num = 7; 
-            hcount = 2;
-            break;
+        case 'Z':
+          atomic_num = 7; 
+          hcount = 2;
+          break;
 
-          case 'K':
-            atomic_num = 7;
-            charge = 1; 
-            hcount = 0;
-            break;
+        case 'K':
+          atomic_num = 7;
+          charge = 1; 
+          hcount = 0;
+          break;
 
-          case 'O':
-            atomic_num = 8;
-            if(!sym->num_edges)
-              charge = -1;
-            break;
+        case 'O':
+          atomic_num = 8;
+          if(!sym->num_edges)
+            charge = -1;
+          break;
 
-          case 'Q':
-            atomic_num = 8;
-            hcount = 1;
-            break;
+        case 'Q':
+          atomic_num = 8;
+          hcount = 1;
+          break;
 
-          case 'F':
-            atomic_num = 9;
-            if(!sym->num_edges)
-              charge = -1;
-            break;
-          
-          case 'P':
-            atomic_num = 15;
-            while(sym->num_edges < 3){
-              hcount++;
-              sym->num_edges++;
-            }
-            break;
-          
-          case 'S':
-            atomic_num = 16;
-            while(sym->num_edges < 3){
-              hcount++;
-              sym->num_edges++;
-            }
-            break;
-
-          case 'G':
-            atomic_num = 17;
-            if(!sym->num_edges)
-              charge = -1;
-            break;
-
-          case 'E':
-            atomic_num = 35;
-            if(!sym->num_edges)
-              charge = -1;
-            break;
-
-          case 'I':
-            atomic_num = 53;
-            if(!sym->num_edges)
-              charge = -1;
-            break;
+        case 'F':
+          atomic_num = 9;
+          if(!sym->num_edges)
+            charge = -1;
+          break;
         
-          case '*':
-            atomic_num = special_element_atm(sym->special);
-            break;
+        case 'P':
+          atomic_num = 15;
+          while(sym->num_edges < 3){
+            hcount++;
+            sym->num_edges++;
+          }
+          break;
+        
+        case 'S':
+          atomic_num = 16;
+          while(sym->num_edges < 2){
+            hcount++;
+            sym->num_edges++;
+          }
+          break;
 
-          default:
-            fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
-            return false;
-        }
+        case 'G':
+          atomic_num = 17;
+          if(!sym->num_edges)
+            charge = -1;
+          break;
 
-        // ionic notation - overides any given formal charge
-        if(charge_additions[sym]){
-          charge = charge_additions[sym];
-        }
+        case 'E':
+          atomic_num = 35;
+          if(!sym->num_edges)
+            charge = -1;
+          break;
 
-        atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
-        if(!atom){
-          fprintf(stderr,"Error: formation of obabel atom object\n");
+        case 'I':
+          atomic_num = 53;
+          if(!sym->num_edges)
+            charge = -1;
+          break;
+      
+        case '*':
+          atomic_num = special_element_atm(sym->special);
+          break;
+
+        default:
+          fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
           return false;
-        }
-
-        if(sym->type == RING)
-          atom->SetInRing();
-
-        babel_atom_lookup[index_lookup[sym]] = atom;
-        if(opt_debug)
-          fprintf(stderr,"  created: atom[%d] - atomic num(%d), charge(%d)\n",atom->GetIdx(),atomic_num,charge);
       }
 
+      // ionic notation - overides any given formal charge
+      if(charge_additions[sym]){
+        charge = charge_additions[sym];
+      }
+
+      atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
+      if(!atom){
+        fprintf(stderr,"Error: formation of obabel atom object\n");
+        return false;
+      }
+
+      if(sym->type == RING)
+        atom->SetInRing();
+
+      babel_atom_lookup[index_lookup[sym]] = atom;
+      if(opt_debug)
+        fprintf(stderr,"  created: atom[%d] - atomic num(%d), charge(%d)\n",atom->GetIdx(),atomic_num,charge);
+    
     }
 
     // set bonds
     for(unsigned int i=1;i<=symbol_count;i++){
       WLNSymbol *parent = SYMBOLS[i];
-      
-      // ignore parents; 
-      if(parent->type == LOCANT)
-        continue;
 
       unsigned int parent_id = index_lookup[parent];
       OpenBabel::OBAtom *par_atom = babel_atom_lookup[parent_id];
 
       WLNEdge *e = 0;
-      for (e = parent->bonds;e;e = e->nxt){
+
+      if(parent->bonds){
         
-        WLNSymbol *child = e->child;
-      
-        // skip across locants
-        if(child->type == LOCANT){
-          e = child->bonds;
-          child = e->child;
-        }
+        for (e = parent->bonds;e;e = e->nxt){
           
-
-        unsigned int bond_order = e->order;  
-   
-
-        unsigned int child_id = index_lookup[child];
-        OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
-        if(bond_order == 4){
-          if(!NMOBMolNewBond(mol,par_atom,chi_atom,1,true))
-            return false;
+          WLNSymbol *child = e->child;
+          
+          unsigned int bond_order = e->order;  
+    
+          unsigned int child_id = index_lookup[child];
+          OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
+          if(bond_order == 4){
+            if(!NMOBMolNewBond(mol,par_atom,chi_atom,1,true))
+              return false;
+          }
+          else{
+            if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
+              return false;
+          }
         }
-        else{
-          if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
-            return false;
-        }
+
       }
     }
 
@@ -4507,6 +4616,21 @@ struct BabelGraph{
 
 
 };
+
+void debug(){
+  for (unsigned int i=1;i<=symbol_count;i++){
+    WLNSymbol *parent = SYMBOLS[i];
+    WLNEdge   *edge = 0;
+    fprintf(stderr,"symbol: %c, edges(%d)[",parent->ch,parent->num_edges);
+    if(parent->previous)
+      fprintf(stderr," %c",parent->previous->ch);
+    for (edge = parent->bonds;edge;edge=edge->nxt){
+      fprintf(stderr," %c",edge->child->ch);
+    }
+    fprintf(stderr," ]");
+    fprintf(stderr,", allowed(%d)\n",parent->allowed_edges);
+  }
+}
 
 
 
@@ -4548,12 +4672,11 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     fprintf(stderr,"  dumped\n");
   }
 
-  if(!wln_graph.ExpandWLNGraph())
+  if(!wln_graph.ExpandWLNSymbols())
     return false;
 
   if(!obabel.ConvertFromWLN(mol,wln_graph))
     return false;
-  
 
   if(!obabel.NMOBSanitizeMol(mol))
     return false; 
