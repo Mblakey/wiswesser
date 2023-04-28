@@ -42,7 +42,7 @@ GNU General Public License for more details.
 
 // --- macros ---
 #define REASONABLE 1024
-#define INF 9999
+
 
 // --- inputs ---
 const char *cli_inp;
@@ -57,7 +57,16 @@ static bool opt_convert = false;
 // --- globals ---
 const char *wln;
 struct WLNSymbol;
+struct WLNEdge; 
 struct WLNRing;
+
+unsigned int edge_count   = 0;
+unsigned int symbol_count = 0;
+unsigned int ring_count   = 0;
+
+WLNSymbol *SYMBOLS[REASONABLE];
+WLNEdge   *EDGES  [REASONABLE];
+WLNRing   *RINGS  [REASONABLE];
 
 std::map<WLNSymbol *, unsigned int> index_lookup;
 std::map<unsigned int, WLNSymbol *> symbol_lookup;
@@ -69,12 +78,7 @@ unsigned int glob_index = 1; // babel starts from 1, keep consistent
 std::map<unsigned int,WLNSymbol*> string_positions; 
 std::map<WLNSymbol*,int> charge_additions;
 
-// --- pools ---
-std::vector<WLNSymbol *>  symbol_mempool;
-std::vector<WLNRing *>    ring_mempool;
 
-
-// allows comp as string type
 enum WLNTYPE
 {
   STANDARD = 0,
@@ -123,24 +127,24 @@ static void Fatal(unsigned int pos)
   exit(1);
 }
 
-static void Reindex_lookups()
-{
-  glob_index = 1;
-  for (WLNSymbol *node : symbol_mempool)
-  {
-    index_lookup[node] = glob_index;
-    symbol_lookup[glob_index] = node;
-    glob_index++;
+
+
+struct WLNEdge{
+  WLNSymbol *parent;
+  WLNSymbol *child;
+  WLNEdge *nxt;
+
+  bool aromatic;
+  unsigned int order;
+
+  WLNEdge(){
+    parent = 0;
+    child = 0;
+    aromatic = 0;
+    order = 0;
+    nxt = 0;
   }
-}
-
-static void reverseStr(std::string& str)
-{
-  unsigned int n = str.length();
-  for (int i = 0; i < n / 2; i++)
-    std::swap(str[i], str[n - i - 1]);
-}
-
+};
 
 
 struct WLNSymbol
@@ -153,8 +157,7 @@ struct WLNSymbol
   unsigned int num_edges;
 
   WLNSymbol *previous;
-  std::vector<WLNSymbol *> children; 
-  std::vector<unsigned int> orders;
+  WLNEdge   *bonds; // array of bonds
 
   // if default needed
   WLNSymbol()
@@ -166,14 +169,9 @@ struct WLNSymbol
   }
   ~WLNSymbol(){};
 
-  void set_edges(unsigned int edges)
-  {
-    allowed_edges = edges;
-  }
-
-  void set_type(unsigned int i)
-  {
-    type = i;
+  void set_edge_and_type(unsigned int e, unsigned int t=STANDARD){
+    allowed_edges = e;
+    type = t;
   }
 
   void add_special(unsigned int s, unsigned int e)
@@ -182,425 +180,194 @@ struct WLNSymbol
       special.push_back(wln[i]);
   }
 
-  void add_special(std::string str)
-  {
-    special.append(str);
-  }
 };
+
 
 WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 {
 
+  
+  symbol_count++;
+  if(symbol_count > REASONABLE){
+    fprintf(stderr,"Error: creating more than 1024 wlln symbols - is this reasonable?\n");
+    return 0;
+  }
+  
   WLNSymbol *wln = new WLNSymbol;
-  symbol_mempool.push_back(wln);
-  wln->ch = ch;
 
+  SYMBOLS[symbol_count] = wln;
+  
+  wln->ch = ch;
   index_lookup[wln] = glob_index;
   symbol_lookup[glob_index] = wln;
   glob_index++;
   return wln;
 }
 
-// these are expensive, but needed for some edge case notations
-void DeallocateWLNSymbol(WLNSymbol *node)
-{
-  if (opt_debug)
-    fprintf(stderr, "  manual deallocation: %c\n", node->ch);
 
-  // find the node in the mem pool
-  unsigned int i = 0;
-  for (WLNSymbol *n : symbol_mempool)
-  {
-    if (n == node)
-      break;
-    i++;
-  }
-
-  symbol_mempool.erase(symbol_mempool.begin() + i);
-  delete node;
-}
-
-WLNSymbol *copy_symbol(WLNSymbol *src)
-{
-
-  WLNSymbol *copy = AllocateWLNSymbol(src->ch);
-  copy->allowed_edges = src->allowed_edges;
-  copy->num_edges = src->num_edges;
-
-  for (unsigned int i = 0; i < src->children.size(); i++)
-  {
-    copy->children.push_back(src->children[i]);
-    copy->orders.push_back(src->orders[i]);
-  }
-  return copy;
-}
-
-/* should handle all bonding modes, adds child to parent->children
-'UU' bonding also added here - needs a bond specied! 1 for single */
-bool link_symbols(WLNSymbol *child, WLNSymbol *parent, unsigned int bond, bool aromatic = false, bool reverse = false)
-{
+WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
 
   if(!child || !parent){
     fprintf(stderr,"Error: attempting bond of non-existent symbols - %s|%s is dead\n",child ? "":"child",parent ? "":"parent");
-    return false;
+    return 0;
   }
 
-  // check if present
-  bool found = false;
-  WLNSymbol *local_child = 0; 
-  unsigned int i=0;
-  for (i=0; i<parent->children.size();i++){
-    local_child = parent->children[i];
-    if(local_child == child){
-      found = true;
-      break;
-    }
-  }
-  if(found){
-    if (opt_debug)
-      fprintf(stderr,"Warning: trying to bond already bond symbols\n");
-    return true; 
-  }
-    
-
-  // if the child cannot handle the new valence
-  if ((child->num_edges + bond) > child->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+bond, child->allowed_edges);
-    return false;
-  }
-  // same for the parent
-  if ((parent->num_edges + bond) > parent->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+bond, parent->allowed_edges);
-    return false;
-  }
-
-  child->previous = parent; // keep the linked list so i can consume backwards rings
-  child->num_edges += bond;
-  parent->num_edges += bond;
-  parent->children.push_back(child);
-
-  if(aromatic)
-    parent->orders.push_back(4);
-  else
-    parent->orders.push_back(bond);
-
-  if(reverse){
-    child->children.push_back(parent);
-    if(aromatic)
-      child->orders.push_back(4);
-    else
-      child->orders.push_back(bond);
-  }
-    
-  return true;
-}
-
-// use sparingly, loop check isnt ideal 
-bool change_symbol_order(WLNSymbol *child, WLNSymbol* parent,unsigned int bond){
-
-  if(!child || !parent){
-    fprintf(stderr,"Error: attempting bond change of non-existent symbols\n");
-    return false;
-  }
-
-  bool found = false;
-  WLNSymbol *local_child = 0; 
-  unsigned int i=0;
-  for (i=0; i<parent->children.size();i++){
-    local_child = parent->children[i];
-    if(local_child == child){
-      found = true;
-      break;
-    }
-  }
-
-  if(!found){
-    fprintf(stderr,"Error: changing bond order of non-existent link\n");
-    return false; 
-  }
-
-  // check can we increase the order, then access orders list with i. 
-
-  unsigned int current_order = parent->orders[i]; 
-  if(current_order == bond)
-    return true; // save some work
-  int diff = bond - current_order; // can be negative for a decrease in order
-  // same checks
-  if ((child->num_edges + diff) > child->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+diff, child->allowed_edges);
-    return false;
+  edge_count++;
+  if(edge_count > REASONABLE){
+    fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
+    return 0;
   }
   
-  if ((parent->num_edges + diff) > parent->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+diff, parent->allowed_edges);
-    return false;
-  }
-
-  child->num_edges += diff;
-  parent->num_edges += diff;
-  parent->orders[i] = bond;
-  return true; 
-}
-
-
-/* expensive but needed sometimes */
-bool unlink_symbols(WLNSymbol*child, WLNSymbol *parent){
-  
-  if(!child || !parent){
-    fprintf(stderr,"Error: attempting to remove a link that does not exist\n");
-    return false;
-  }
-
-  bool found = false;
-  WLNSymbol *local_child = 0; 
-  unsigned int i=0;
-  for (i=0; i<parent->children.size();i++){
-    local_child = parent->children[i];
-    if(local_child == child){
-      found = true;
-      break;
-    }
-  }
-
-  if(!found){
-    fprintf(stderr,"Error: attempting to remove a link that does not exist\n");
-    return false;
-  }
-
-  unsigned int order_removed = parent->orders[0];
-
-  parent->children.erase(parent->children.begin() + i);
-  parent->orders.erase(parent->orders.begin() + i);
-
-  parent->num_edges += - order_removed;
-  child->num_edges += - order_removed; 
-
-  child->previous = 0; 
-  
-  return true; 
-}
-
-bool increase_bond_order(WLNSymbol *child, WLNSymbol *parent){
-
-  if(!child || !parent){
-    fprintf(stderr,"Error: attempting bond increase of non-existent symbols\n");
-    return false;
-  }
-
-  bool found = false;
-  WLNSymbol *local_child = 0; 
-  unsigned int i=0;
-  for (i=0; i<parent->children.size();i++){
-    local_child = parent->children[i];
-    if(local_child == child){
-      found = true;
-      break;
-    }
-  }
-
-  if(!found){
-    fprintf(stderr,"Error: changing bond order of non-existent link\n");
-    return false; 
-  }
-
-  unsigned int current_order = parent->orders[i];
-
-  if(current_order == 4){
-    fprintf(stderr,"Error: trying to increase order of aromatic bond - not possible\n");
-    return false;
-  }
-
-  if ((child->num_edges + 1) > child->allowed_edges)
-  {
+  if ((child->num_edges + 1) > child->allowed_edges){
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
-    return false;
+    return 0;
   }
   
-  if ((parent->num_edges + 1) > parent->allowed_edges)
-  {
+  if ((parent->num_edges + 1) > parent->allowed_edges){
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
-    return false;
+    return 0;
   }
 
-  child->num_edges += 1;
-  parent->num_edges += 1;
-  parent->orders[i] += 1;
+  WLNEdge *edge = new WLNEdge;
+  EDGES[edge_count] = edge;
 
-  return true; 
+  // use a linked list to store the bond, can also check if it already exists
+  if(parent->bonds){
+    WLNEdge *curr = parent->bonds;
+
+    while(curr->nxt){
+      if(curr->child == child){
+        fprintf(stderr,"Error: trying to bond already bonded symbols\n");
+        return 0;
+      }
+      curr = curr->nxt;
+    }
+      
+    curr->nxt = edge;
+  }
+  else
+    parent->bonds = edge; 
+
+  // set the previous for look back
+  child->previous = parent; 
+
+  child->num_edges++;
+  parent->num_edges++;
+
+  edge->parent = parent; 
+  edge->child = child;
+  edge->order = 1;
+  return edge;
+}
+
+WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
+  WLNEdge *edge = 0;
+  for (edge=parent->bonds;edge;edge = edge->nxt){
+    if(edge->child == child)
+      return edge;
+  }
+  fprintf(stderr,"Error: could not find edge in search\n");
+  return 0;
+}
+
+WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n){
+  if(!edge){
+    fprintf(stderr,"Error: unsaturating non-existent edge\n");
+    return 0;
+  }
+
+  edge->order += n; 
+  edge->parent->num_edges += n;
+  edge->child->num_edges+= n;
+
+  if(edge->parent->num_edges > edge->parent->allowed_edges){
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
+    return 0;
+  }
+
+  if(edge->child->num_edges > edge->child->allowed_edges){
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
+    return 0;
+  }
+
+  return edge;
 }
 
 
-
-bool make_aromatic(WLNSymbol *child, WLNSymbol *parent, bool strict = true){
-
-  if(!child || !parent){
-    fprintf(stderr,"Error: attempting aromatic change of non-existent symbols, check locant range for rings or graph position for standard\n");
+bool remove_edge(WLNSymbol *head,WLNEdge *edge){
+  if(!head || !edge){
+    fprintf(stderr,"Error: removing bond of non-existent symbols\n");
     return false;
   }
 
-  if(child == parent){
-    fprintf(stderr,"Warning: aromaticity change for equal WLNSymbol pointers\n");
+  if(head->bonds == edge){
+    head->bonds = 0;
     return true;
   }
 
   bool found = false;
-  WLNSymbol *local_child = 0; 
-  unsigned int i=0;
-  for (i=0; i<parent->children.size();i++){
-    local_child = parent->children[i];
-    if(local_child == child){
+  WLNEdge *search = head->bonds;
+
+  WLNEdge *prev = 0;
+  while(search){
+    if(search == edge){ 
       found = true;
       break;
     }
+    prev = search; 
+    search = search->nxt;
   }
+
 
   if(!found){
-    if(strict)
-      fprintf(stderr,"Error: attempting aromaticity of non-existent link\n");
-
-    return false; 
-  }
-
-
-  unsigned int current_order = parent->orders[i];
-  if (parent->orders[i] == 4)
-    return true; // save some work
-
-  // set aromatics
-  switch(parent->ch){
-
-    case 'Y':
-    case 'O':
-    case 'M':
-      parent->set_edges(2);
-      break;
-    
-    case 'X':
-    case 'C':
-    case 'N':
-      parent->set_edges(3);
-      break;
-
-    case 'P':
-    case 'S':
-      parent->set_edges(5);
-      break;
-
-    case '*':
-      parent->set_edges(8);
-      break;
-    
-    default:
-      fprintf(stderr,"Error: cannot make %c symbol aromatic, please check definitions\n",parent->ch);
-      return false;
-  }
-
-  // set aromatics
-  switch(child->ch){
-    
-    case 'Y':
-    case 'O':
-    case 'M':
-      child->set_edges(2);
-      break;
-
-    case 'X':
-    case 'C':
-    case 'N':
-      child->set_edges(3);
-      break;
-
-    case 'K':
-    case 'P':
-    case 'S':
-      child->set_edges(4);
-      break;
-
-    case '*':
-      child->set_edges(8);
-      break; 
-    
-    default:
-      fprintf(stderr,"Error: cannot make %c symbol aromatic, please check definitions\n",child->ch);
-      return false;
-  }
-
-  
-  if (child->num_edges > child->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges, child->allowed_edges);
+    fprintf(stderr,"Error: trying to remove bond from wln character[%c] - bond not found\n",head->ch);
     return false;
   }
-
-  if (parent->num_edges > parent->allowed_edges)
-  {
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges, parent->allowed_edges);
-    return false;
+  else{
+    WLNEdge *tmp = edge->nxt;
+    prev->nxt = tmp;
+    // dont null the edges as we use the mempool to release them
   }
 
-  switch(current_order){
-    case 1:
-      break;
-    case 2:
-      // drop by 1
-      child->num_edges += -1;
-      parent->num_edges += -1;
-      break; // equivilent order, do nothing
-    case 3:
-      // drop by 2
-      child->num_edges += -2;
-      parent->num_edges += -2;
-      break;
-    // already aromatic, do nothing
-    case 4:
-      break;
-    
-    default:
-      fprintf(stderr,"Error: changing bond order of unknown bond type - %d\n",current_order);
-  }
-
-
-  parent->orders[i] = 4;
-  return true; 
+  return true;
 }
 
 
-bool add_methyl(WLNSymbol *head){
+WLNEdge* add_methyl(WLNSymbol *head){
 
   WLNSymbol *carbon = AllocateWLNSymbol('C');
-  carbon->set_edges(4); // used for hydrogens
-  carbon->set_type(STANDARD);
+  carbon->set_edge_and_type(4); // used for hydrogens
 
-  if(!link_symbols(carbon,head,1))
-    return false;
-
-  return true; 
-}
-
-bool add_diazo(WLNSymbol *head, unsigned int n){
-
-  if(n >= 1){
-    WLNSymbol *oxygen = AllocateWLNSymbol('O');
-    oxygen->set_edges(2);
-    oxygen->set_type(head->type);
-
-    if(!link_symbols(oxygen, head,2,false))
-      return false;
+  for(unsigned int i=0;i<3;i++){
+    WLNSymbol *hydrogen = AllocateWLNSymbol('H');
+    WLNEdge   *edge = AllocateWLNEdge(hydrogen,carbon);
   }
 
-  if(n == 2){
-    WLNSymbol *oxygen = AllocateWLNSymbol('O');
-    oxygen->set_edges(2);
-    oxygen->set_type(head->type);
+  WLNEdge *bond = AllocateWLNEdge(carbon,head);
+  return bond; 
+}
 
-    if(!link_symbols(oxygen, head,1,false))
-      return false;
-  }  
 
+bool add_diazo(WLNSymbol *head){
+
+  WLNEdge *edge = 0;
+  WLNSymbol *oxygen = 0;
+
+  oxygen = AllocateWLNSymbol('O');
+  oxygen->set_edge_and_type(2,head->type);
+  charge_additions[oxygen] = -1;
+
+  edge = AllocateWLNEdge(oxygen,head);
+  
+  
+  oxygen = AllocateWLNSymbol('O');
+  oxygen->set_edge_and_type(2,head->type);
+  edge = AllocateWLNEdge(oxygen,head);
+  
+  edge = unsaturate_edge(edge,1);
+  if(!edge)
+    return false;
+  
   return true;
 }
 
@@ -629,6 +396,35 @@ bool resolve_methyls(WLNSymbol *target){
 }
 
 
+WLNSymbol* define_hypervalent_element(unsigned char sym,WLNSymbol *override=0){
+
+  WLNSymbol *new_symbol = 0;
+  if(!override)
+    new_symbol = AllocateWLNSymbol(sym);
+  else{
+    new_symbol = override;
+    new_symbol->ch = sym;
+  }
+
+  switch(sym){
+    
+    case 'P':
+    case 'S':
+    case 'G':
+    case 'E':
+    case 'I':
+    case 'F':
+      new_symbol->set_edge_and_type(6);            // allows FCl6
+      return new_symbol;
+
+    default:
+      fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
+      return 0;
+  }
+  
+  return new_symbol;
+}
+
 /* allocate new or override exisiting node*/
 WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
     
@@ -642,7 +438,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
   }
    
 
-  created_wln->allowed_edges = INF; // allow anything for now;
+  created_wln->allowed_edges = 18; // allow anything for now;
 
   switch (special[0]){
 
@@ -786,7 +582,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         created_wln->special = "Kr";
       else if (special[1] == 'A'){
         created_wln->ch = 'K';
-        created_wln->set_edges(4);
+        created_wln->set_edge_and_type(4);
         return created_wln;
       }
       else
@@ -1308,37 +1104,6 @@ unsigned int special_element_atm(std::string &special){
   return 0;
 }
 
-WLNSymbol* define_hypervalent_element(unsigned char sym,WLNSymbol *override=0){
-
-  WLNSymbol *new_symbol = 0;
-  if(!override)
-    new_symbol = AllocateWLNSymbol(sym);
-  else{
-    new_symbol = override;
-    new_symbol->ch = sym;
-  }
-
-  switch(sym){
-    
-    case 'P':
-    case 'S':
-    case 'G':
-    case 'E':
-    case 'I':
-    case 'F':
-      new_symbol->set_edges(6);            // allows FCl6
-      new_symbol->set_type(STANDARD);
-      return new_symbol;
-
-    default:
-      fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
-      return 0;
-  }
-  
-  return new_symbol;
-}
-
-
 
 /* struct to hold pointers for the wln ring */
 struct WLNRing
@@ -1358,6 +1123,7 @@ struct WLNRing
       bind_2 = b;
       index = p;
     }
+
   };
 
   WLNRing(){}
@@ -1416,23 +1182,23 @@ struct WLNRing
 
     // create all the nodes in a large straight chain
     
-    WLNSymbol *current = 0; 
+    WLNSymbol *curr= 0; 
     WLNSymbol *prev = 0; 
     for (unsigned int i=1;i<=local_size;i++){
       unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
-        current = assign_locant(loc,'C');
-        current->set_edges(4);
+        curr = assign_locant(loc,'C');
+        curr->set_edge_and_type(4,RING);
       }
       else
-        current = locants[loc];
+        curr = locants[loc];
 
       if(prev){
-        if(!link_symbols(current,prev,1))
-          return false; 
-  
+        WLNEdge *edge = AllocateWLNEdge(curr,prev);
+        if(!edge)
+          return false;
       }
-      prev = current;
+      prev = curr;
     }
 
 
@@ -1468,7 +1234,9 @@ struct WLNRing
         for (unsigned int i=0;i<comp_size - 1; i++){
           ring_path.push_back(locants_ch[path]);
 
-          for (WLNSymbol *child : path->children){
+          WLNEdge *lc = 0;
+          for(lc = path->bonds;lc;lc = lc->nxt){
+            WLNSymbol *child = lc->child;
             unsigned char child_loc = locants_ch[child];
             if(child_loc > highest_loc)
               highest_loc = child_loc;
@@ -1487,14 +1255,15 @@ struct WLNRing
         }
         fprintf(stderr," ]\n");
       }
-    
-      if(!link_symbols(locants[bind_2],locants[bind_1],1))
+
+      WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
+      if(!edge)
         return false;
-      
-      if(aromatic){
-        if(!AssignAromatics(ring_path))
-          return false;
-      }
+
+      // if(aromatic){
+      //   if(!AssignAromatics(ring_path))
+      //     return false;
+      // }
         
       fuses++;
     }
@@ -1517,22 +1286,23 @@ struct WLNRing
     std::map<unsigned char, unsigned int> rings_shared;
   
     // create all the nodes in a large straight chain
-    WLNSymbol *current = 0; 
+    WLNSymbol *curr = 0; 
     WLNSymbol *prev = 0; 
     for (unsigned int i=1;i<=local_size;i++){
       unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
-        current = assign_locant(loc,'C');
-        current->set_edges(4);
+        curr = assign_locant(loc,'C');
+        curr->set_edge_and_type(4,RING);
       }
       else
-        current = locants[loc];
+        curr = locants[loc];
 
       if(prev){
-        if(!link_symbols(current,prev,1))
-          return false; 
+        WLNEdge *edge = AllocateWLNEdge(curr,prev);
+        if(!edge)
+          return false;
       }
-      prev = current;
+      prev = curr;
     }
 
 
@@ -1580,7 +1350,7 @@ struct WLNRing
 
         if(!locants[loc_broken]){
           WLNSymbol *broken = assign_locant(loc_broken,'C');
-          broken->set_edges(4);
+          broken->set_edge_and_type(4,RING);
 
           broken_lookup[parent].push_back(loc_broken);
           resolved[loc_broken] = false;
@@ -1622,8 +1392,8 @@ struct WLNRing
         bind_1 = psd_pair.bind_1;
         bind_2 = psd_pair.bind_2;
 
-        
-        if(!link_symbols(locants[bind_2],locants[bind_1],1))
+        WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
+        if(!edge)
           return false;
         
         // a ring path then needs to be calculated for aromaticity assignment
@@ -1634,7 +1404,9 @@ struct WLNRing
 
         ring_path.push_back(locants_ch[path]);
         for (unsigned int i=0;i<comp_size - predefined; i++){
-          for (WLNSymbol *child : path->children){
+          WLNEdge *lc = 0;
+          for(lc = path->bonds;lc;lc = lc->nxt){
+            WLNSymbol *child = lc->child;
             unsigned char child_loc = locants_ch[child];
 
             // cannot be the bound symbol
@@ -1677,7 +1449,9 @@ struct WLNRing
         
         highest_loc = '\0'; // highest of each child iteration 
 
-        for (WLNSymbol *child : path->children){
+        WLNEdge *lc = 0;
+        for(lc = path->bonds;lc;lc = lc->nxt){
+          WLNSymbol *child = lc->child;
           unsigned char child_loc = locants_ch[child];
 
           if(child_loc >= highest_loc)
@@ -1736,11 +1510,10 @@ struct WLNRing
               
           }
 
-          // if this is true, lets bond the multi point in as a child
-          if(!link_symbols(broken,locants[bind_1],1)){
-            fprintf(stderr,"Error: error in linking broken locant to parent\n");
+
+          WLNEdge *edge = AllocateWLNEdge(broken,locants[bind_1]);
+          if(!edge)
             return false;
-          } // this should only proc once per bond
 
           // since we've added a symbol to path we need to push and pop
           ring_path.push_front(locants_ch[broken]);
@@ -1775,16 +1548,15 @@ struct WLNRing
         }
         fprintf(stderr," ]\n");
       }
-        
-      if(!link_symbols(locants[bind_2],locants[bind_1],1))
+
+      WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
+      if(!edge)
         return false;
-      
-
-      if(aromatic){
-        if(!AssignAromatics(ring_path))
-          return false;
-      }
-
+        
+      // if(aromatic){
+      //   if(!AssignAromatics(ring_path))
+      //     return false;
+      // }
 
       fuses++;
     }
@@ -1810,34 +1582,6 @@ struct WLNRing
     }
     return i+1;
   };
-
-
-  bool AssignAromatics(std::deque<unsigned char> &ring_path){
-    
-    for (unsigned int i=1; i<ring_path.size();i+=1){
-
-      unsigned char par = ring_path[i-1];
-      unsigned char chi = ring_path[i];
-
-      if(!make_aromatic(locants[chi],locants[par],false)){
-
-        // try with the alternative
-        if(!make_aromatic(locants[par],locants[chi])){
-          fprintf(stderr,"Error: error in changing aromaticity - check ring notation [%c --> %c]\n",par,chi);
-          return false;
-        }
-      }
-    }
-
-    if(!make_aromatic(locants[ring_path.back()],locants[ring_path.front()],false)){
-      if(!make_aromatic(locants[ring_path.front()],locants[ring_path.back()])){
-        fprintf(stderr,"Error: error in changing aromaticity - check ring notation [%c --> %c]\n",ring_path.front(),ring_path.back());
-        return false; 
-      }
-    }
-
-    return true;
-  }
 
 
   unsigned char create_relative_position(unsigned char parent){
@@ -2278,14 +2022,14 @@ struct WLNRing
                   positional_locant++; 
 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(5);
+                new_locant->set_edge_and_type(5,RING);
                 break;
 
               case 'Y':
                 if(locants[positional_locant])
                   positional_locant++; 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(3);
+                new_locant->set_edge_and_type(3,RING);
                 break;
               case 'N':
                 if(!heterocyclic)
@@ -2295,14 +2039,14 @@ struct WLNRing
                   positional_locant++; 
 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(3);
+                new_locant->set_edge_and_type(3,RING);
                 break;
 
               case 'V':
                 if(locants[positional_locant])
                   positional_locant++; 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(2);
+                new_locant->set_edge_and_type(2,RING);
                 break;
 
               case 'M':
@@ -2314,7 +2058,7 @@ struct WLNRing
                   positional_locant++; 
 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(2);
+                new_locant->set_edge_and_type(2,RING);
                 break;
 
               case 'X':
@@ -2322,7 +2066,7 @@ struct WLNRing
                   positional_locant++; 
 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(4);
+                new_locant->set_edge_and_type(4,RING);
                 break;
               case 'K':
                 if(!heterocyclic)
@@ -2332,7 +2076,7 @@ struct WLNRing
                   positional_locant++; 
 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edges(4);
+                new_locant->set_edge_and_type(4,RING);
                 break;
 
               case 'U':
@@ -2354,7 +2098,7 @@ struct WLNRing
                   default:
                     break;
                 }
-                if(!add_diazo(locants[positional_locant],2))
+                if(!add_diazo(locants[positional_locant]))
                   Fatal(i+start);
                 break;
 
@@ -2388,7 +2132,7 @@ struct WLNRing
                     positional_locant++;     
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(5);
+                  new_locant->set_edge_and_type(5,RING);
                   break;
 
                 case 'Y':
@@ -2396,7 +2140,7 @@ struct WLNRing
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(3);
+                  new_locant->set_edge_and_type(3,RING);
                   break;
                 case 'N':
                   if(!heterocyclic)
@@ -2406,14 +2150,14 @@ struct WLNRing
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(3);
+                  new_locant->set_edge_and_type(3,RING);
                   break;
 
                 case 'V':
                   if(locants[positional_locant])
                       positional_locant++; 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(2);
+                  new_locant->set_edge_and_type(2,RING);
                   break;
 
                 case 'M':
@@ -2425,7 +2169,7 @@ struct WLNRing
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(2);
+                  new_locant->set_edge_and_type(2,RING);
                   break;
 
                 case 'X':
@@ -2433,7 +2177,7 @@ struct WLNRing
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(4);
+                  new_locant->set_edge_and_type(4,RING);
                   break;
 
                 case 'K':
@@ -2444,7 +2188,7 @@ struct WLNRing
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edges(4);
+                  new_locant->set_edge_and_type(4,RING);
                   break;
 
                 case 'U':
@@ -2746,36 +2490,28 @@ struct WLNRing
       Fatal(start+i);
 
     for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases){
-      if(!increase_bond_order(locants[bond_pair.second],locants[bond_pair.first]))
-        Fatal(i);
+      WLNEdge *increase_edge = search_edge(locants[bond_pair.second],locants[bond_pair.first]);
+      increase_edge = unsaturate_edge(increase_edge,1);
+      if(!increase_edge)
+        Fatal(start+i);
     }
   }
-
 
 };
 
 WLNRing *AllocateWLNRing()
 {
+  ring_count++;
+  if(ring_count > REASONABLE){
+    fprintf(stderr,"Error: creating more than 1024 wln rings - is this reasonable?\n");
+    return 0;
+  }
+
   WLNRing *wln_ring = new WLNRing;
-  ring_mempool.push_back(wln_ring);
+  RINGS[ring_count] = wln_ring;
   return wln_ring;
 }
 
-// expensive but sometimes necessary for edge cases
-void DeallocateWLNRing(WLNRing *ring)
-{
-  // find the ring in the mem pool
-  unsigned int i = 0;
-  for (WLNRing *r : ring_mempool)
-  {
-    if (r == ring)
-      break;
-    i++;
-  }
-
-  ring_mempool.erase(ring_mempool.begin() + i);
-  delete ring;
-}
 
 struct WLNGraph
 {
@@ -2785,10 +2521,14 @@ struct WLNGraph
   WLNGraph() : root{(WLNSymbol *)0} {};
   ~WLNGraph()
   {
-    for (WLNSymbol *node : symbol_mempool)
-      delete node;
-    for (WLNRing *ring : ring_mempool)
-      delete ring;
+    for (unsigned int i = 0; i < 1024;i++){
+      if(SYMBOLS[i])
+        delete SYMBOLS[i];
+      if(EDGES[i])
+        delete EDGES[i];
+      if(RINGS[i])
+        delete RINGS[i];
+    }
   };
 
 
@@ -2798,106 +2538,68 @@ struct WLNGraph
       fprintf(stderr,"Warning: making carbon chain over 1024 long, reasonable molecule?\n");
 
     head->ch = 'C';
-    head->set_edges(4);
+    head->set_edge_and_type(4);
 
     if(size == 1)
       return true;
     
-    WLNSymbol *tmp = 0;
-    unsigned int tmp_order = 0;
-    // hold the bonds
-
+    // leave the original node where it is, and expand out
+    WLNEdge *tmp = 0;
+    WLNSymbol *bonded = 0;
+    unsigned int bonded_order;
 
     // if the chain has any children
-    if(!head->children.empty()){
+    if(head->bonds){
       // hold it
-      tmp = head->children[0];
-      tmp_order = head->orders[0];
+      tmp = head->bonds;
 
-      if(!unlink_symbols(head->children[0],head))
+      bonded = tmp->child;
+      bonded_order = tmp->order;
+      if(!remove_edge(head,tmp))
         return false;
     }
-          
+
+    WLNEdge *edge = 0;
     WLNSymbol *prev = head;
     for(unsigned int i=0;i<size-1;i++){
       WLNSymbol* carbon = AllocateWLNSymbol('C');
-      carbon->set_edges(4); // allows hydrogen resolve
-      carbon->set_type(STANDARD);
-      if(!link_symbols(carbon,prev,1))
-        return false;
-
+      carbon->set_edge_and_type(4); // allows hydrogen resolve
+      edge = AllocateWLNEdge(carbon,prev);
       prev = carbon;
     } 
 
-    if(tmp){
-     if(!link_symbols(tmp,prev,tmp_order))
-      return false;
+    if(bonded){
+      edge = AllocateWLNEdge(bonded,prev);
+      if(!edge)
+        return false;
+
+      if(bonded_order > 2)
+        edge = unsaturate_edge(edge,bonded_order-1);
     }
 
     return true;
   }
 
 
-  bool MergeSpiros(){
-
-    for (WLNSymbol *sym : symbol_mempool){
-
-      if(sym->type == LOCANT){
-
-        if(sym->children.size() == 1 && sym->children[0]->type == LOCANT){
-          WLNSymbol *head = sym->previous;
-          WLNSymbol *tail = sym->children[0]->children[0]; 
-          WLNSymbol *head_locant = sym;
-          WLNSymbol *tail_locant = sym->children[0];
-
-          if(head->ch != tail->ch){
-            fprintf(stderr,"Error: trying to perform a spiro merge operation on differing atom types\n");
-            return false;
-          }
-
-          if(!unlink_symbols(head_locant,head))
-            return false;
-
-          tail_locant->children.clear();
-
-          // should be disconnected
-
-          // take the tail connections and but them in head
-
-          for (WLNSymbol *tchild : tail->children)
-            head->children.push_back(tchild);
-
-          for (unsigned int bond_order : tail->orders)
-            head->orders.push_back(bond_order);
-          
-          tail->children.clear();
-          tail->orders.clear();
-          head->num_edges++; // always gains at edge
-
-          // gets ignored in the babel molecule build
-          tail->type = LOCANT;
-          break;
-        }
-
-        
-      }
-
-    }
-
-    return true;
-  }
 
   /* must be performed before sending to obabel graph*/
   bool ExpandWLNGraph(){
 
  
-    unsigned int stop = symbol_mempool.size();
-    for (unsigned int i=0;i<stop;i++){
-      WLNSymbol *sym = symbol_mempool[i];
+    unsigned int stop = symbol_count;
+    for (unsigned int i=1;i<=stop;i++){
+      WLNSymbol *sym = SYMBOLS[i];
 
-      if(sym->type == LOCANT)
-        continue;
-
+      if(sym->type == LOCANT){
+        // floating locants get a methyl
+        if(!sym->bonds){
+          if(!add_methyl(sym))
+            return false;
+        }
+        else 
+          continue;
+      }
+        
       switch(sym->ch){
 
         case '1':
@@ -2929,17 +2631,22 @@ struct WLNGraph
           resolve_methyls(sym);
           break;
 
-        case 'V':
+        case 'V':{
           sym->ch = 'C';
-          sym->set_edges(4);
-          if(!add_diazo(sym,1))
+          sym->set_edge_and_type(4);
+          WLNSymbol *oxygen = AllocateWLNSymbol('O');
+          oxygen->set_edge_and_type(2);
+          WLNEdge *e = AllocateWLNEdge(oxygen,sym);
+          e = unsaturate_edge(e,1);
+          if(!e)
             return false;
           break;
+        }
         
         case 'W':
           sym->ch = 'C';
-          sym->set_edges(4);
-          if(!add_diazo(sym,2))
+          sym->set_edge_and_type(4);
+          if(!add_diazo(sym))
             return false;
           break;
 
@@ -2948,9 +2655,10 @@ struct WLNGraph
           break; // ignore
       }
     }
-    Reindex_lookups();
+    
     return true; 
   }
+
 
   // this one pops based on bond numbers
   WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack){
@@ -2972,42 +2680,35 @@ struct WLNGraph
   }
 
 
-  void create_bond(WLNSymbol *curr, WLNSymbol *prev,
-                   unsigned int bond_ticks, unsigned int i)
-  {
-    if (prev)
-    {
-      if (!link_symbols(curr, prev, 1 + bond_ticks))
-        Fatal(i);
-    }
-  }
 
-  /*  Wraps the creation of locant and bonding back ring assignment */
-  void create_locant(WLNSymbol *curr, std::stack<WLNRing *> &ring_stack, unsigned int i)
+  /*  bonds a locant to the ring, returns the edge */
+  WLNEdge* assign_locant_to_ring(WLNSymbol *curr,unsigned int bond_modifier,std::stack<WLNRing *> &ring_stack)
   {
-    
-    curr->type = LOCANT;
+    if(!curr)
+      return 0;
 
+    // locant should be allocated already here
     WLNRing *s_ring = 0;
-    unsigned char ch = wln[i];
+    WLNEdge *edge   = 0;
 
-    if (ring_stack.empty())
-    {
+    if (ring_stack.empty()){
       fprintf(stderr, "Error: no rings to assign locants to\n");
-      Fatal(i);
+      return 0;
     }
     else
       s_ring = ring_stack.top();
 
-    if (s_ring->locants[ch]){
-      if(!link_symbols(curr,s_ring->locants[ch],1))
-        Fatal(i);
+    if (s_ring->locants[curr->ch]){
+      edge = AllocateWLNEdge(curr,s_ring->locants[curr->ch]);
+      if(bond_modifier)
+        edge = unsaturate_edge(edge,bond_modifier);
     } 
     else {
       fprintf(stderr, "Error: assigning locant outside of ring\n");
-      Fatal(i);
+      return 0;
     }
 
+    return edge; 
   }
 
   /* backwards search for tentative ionic rule procedures */
@@ -3124,7 +2825,7 @@ struct WLNGraph
     
     WLNSymbol *curr   = 0;
     WLNSymbol *prev   = 0;
-    WLNSymbol *head   = 0; // head of the graph to return
+    WLNEdge   *edge   = 0;
     WLNRing   *ring   = 0;
 
     bool pending_locant           = false;
@@ -3133,19 +2834,15 @@ struct WLNGraph
     bool pending_spiro            = false;
     bool pending_diazo            = false;
     bool pending_linker           = false;
-
+    unsigned int pending_unsaturate = 0;    // 'U' style bonding
+   
     std::string special;  // special elemental definitions
     
-    std::string multiplier_sequence; 
-    unsigned int multiplier_value = 0;
-    bool reverse_multiplier = true; // true by default, false if started with '/'
-
     // allows consumption of notation after block parses
     unsigned int block_start = 0;
     unsigned int block_end = 0;
  
-    unsigned int bond_ticks = 0;    // 'U' style bonding
-   
+    
     unsigned int len = wln_string.length();
     const char * wln_ptr = wln_string.c_str();
 
@@ -3157,10 +2854,6 @@ struct WLNGraph
     while(ch)
     {  
       
-      // sets the first symbol made
-      if(!head && prev)
-        head = prev;
-
       // dont read any ionic notation
       if(zero_position && zero_position == i)
         break;
@@ -3209,7 +2902,7 @@ struct WLNGraph
           }
 
           // pointer is moved to the last number, multiplier value is calculated
-          multiplier_value = std::stoi(int_sequence);
+          unsigned int multiplier_value = std::stoi(int_sequence);
 
           fprintf(stderr,"Error: multipliers are not currently supported\n");
           Fatal(i);
@@ -3223,9 +2916,9 @@ struct WLNGraph
               // do a hydroxy transform here
               
             curr = prev; // might be overkill 
-            curr->set_edges(4);
+            curr->set_edge_and_type(4);
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3233,9 +2926,10 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(4);
-            create_bond(curr, prev, bond_ticks, i);
+            curr->set_edge_and_type(4);
+            
+            if(prev)
+              edge = AllocateWLNEdge(curr,prev);
           }
           
           // moves naturally, so end on the last number
@@ -3246,7 +2940,6 @@ struct WLNGraph
             if(!std::isdigit(*(wln_ptr+1)))
               break;
 
-            fprintf(stderr,"moving\n");
             curr->special.push_back(*wln_ptr);
             wln_ptr++;
             i++;
@@ -3255,7 +2948,7 @@ struct WLNGraph
           if(pending_linker){
           }
 
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = curr;
           break;
         }
@@ -3268,14 +2961,15 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
+          if(!edge)
+            Fatal(i);
           
           prev = curr;
           pending_locant = false;
@@ -3284,9 +2978,9 @@ struct WLNGraph
         {
           if(pending_diazo){
             curr = prev; 
-            curr->set_edges(3);
+            curr->set_edge_and_type(3);
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3294,15 +2988,15 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(3);
-            create_bond(curr, prev, bond_ticks, i);
+            curr->set_edge_and_type(3);
+            if(prev)
+              edge = AllocateWLNEdge(curr,prev);
           }
 
           branch_stack.push(curr);
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = curr;
         }
         break;
@@ -3313,15 +3007,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3329,9 +3024,9 @@ struct WLNGraph
         {
           if(pending_diazo){
             curr = prev; 
-            curr->set_edges(4);
+            curr->set_edge_and_type(4);
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3339,15 +3034,21 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(4);
-            create_bond(curr, prev, bond_ticks, i);
+            curr->set_edge_and_type(4);
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(!edge)
+                Fatal(i);
+
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+            }
           }
 
           branch_stack.push(curr);
-
           string_positions[i] = curr;
-          bond_ticks = 0;
           prev = curr;
         }
         break;
@@ -3360,15 +3061,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3380,15 +3082,22 @@ struct WLNGraph
           }
 
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(2);
+          curr->set_edge_and_type(2);
 
           branch_stack.push(curr);
 
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(!edge)
+              Fatal(i);
+
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
           prev = curr;
         }
         break;
@@ -3400,15 +3109,16 @@ struct WLNGraph
         {
 
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3421,13 +3131,22 @@ struct WLNGraph
           }
 
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(1);
+          curr->set_edge_and_type(1);
 
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
@@ -3440,15 +3159,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+      
           prev = curr;
           pending_locant = false;
         }
@@ -3459,12 +3179,19 @@ struct WLNGraph
             Fatal(i);
           }
           curr = AllocateWLNSymbol(ch);
-          curr->set_edges(2);
-          curr->set_type(STANDARD);
-          create_bond(curr,prev,bond_ticks,i);
+          curr->set_edge_and_type(2,STANDARD);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
           prev = curr;
         }
         break;
@@ -3475,15 +3202,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3496,20 +3224,26 @@ struct WLNGraph
 
           if(prev){
             prev->allowed_edges++;
-            if(!add_diazo(prev,2))
+            if(!add_diazo(prev))
               Fatal(i);
-  
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_edges(2);
-            curr->set_type(STANDARD);
-            create_bond(curr,prev,bond_ticks,i);
+            curr->set_edge_and_type(2);
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+              if(!edge)
+                Fatal(i);
+            }
             pending_diazo = true;
           }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = curr;
         }
         break;
@@ -3522,13 +3256,15 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+
+          if(!edge)
+            Fatal(i);
 
           
           prev = curr;
@@ -3539,9 +3275,9 @@ struct WLNGraph
           if(pending_diazo){
         
             curr = prev;
-            curr->set_edges(4); // 'x-NW' is allowed 
+            curr->set_edge_and_type(4); // 'x-NW' is allowed 
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
             
             curr->ch = ch;
@@ -3549,16 +3285,23 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(3);
+            curr->set_edge_and_type(3);
 
-            create_bond(curr, prev, bond_ticks, i);
-          }
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+              if(!edge)
+                Fatal(i);
+              }
+            }
          
           branch_stack.push(curr);
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = curr;
         }
         break;
@@ -3569,15 +3312,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3589,13 +3333,20 @@ struct WLNGraph
           }
 
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(2);
+          curr->set_edge_and_type(2);
 
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = curr;
         }
         break;
@@ -3606,15 +3357,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3622,9 +3374,9 @@ struct WLNGraph
         {
           if(pending_diazo){
             curr = prev; 
-            curr->set_edges(5);
+            curr->set_edge_and_type(5);
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3632,15 +3384,20 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(4);
-            create_bond(curr, prev, bond_ticks, i);
+            curr->set_edge_and_type(4);
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+              if(!edge)
+                Fatal(i);
+            }
           }
 
           branch_stack.push(curr);
-
           string_positions[i] = curr;
-          bond_ticks = 0;
           prev = curr;
         }
         break;
@@ -3651,15 +3408,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3671,13 +3429,21 @@ struct WLNGraph
           }
 
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(1);
+          curr->set_edge_and_type(1);
 
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
@@ -3695,15 +3461,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3715,13 +3482,21 @@ struct WLNGraph
           }
 
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(1);
+          curr->set_edge_and_type(1);
 
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
+          pending_unsaturate = 0;
           prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
@@ -3736,15 +3511,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
-          if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+          if (pending_inline_ring && prev)
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3752,9 +3528,9 @@ struct WLNGraph
         {
           if(pending_diazo){
             curr = prev; 
-            curr->set_edges(3);
+            curr->set_edge_and_type(3);
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
               
             curr->ch = ch;
@@ -3762,16 +3538,21 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(3);
-            create_bond(curr, prev, bond_ticks, i);            
+            curr->set_edge_and_type(3);
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+            
+              if(!edge)
+                Fatal(i);
+            }         
           }
 
           branch_stack.push(curr);
- 
           string_positions[i] = curr;
-
-          bond_ticks = 0;
           prev = curr;
         }
         break;
@@ -3783,15 +3564,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3799,9 +3581,9 @@ struct WLNGraph
         {
           if(pending_diazo){
             curr = prev; 
-            curr->set_edges(6); // might be overkill 
+            curr->set_edge_and_type(6); // might be overkill 
 
-            if(!add_diazo(curr,2))
+            if(!add_diazo(curr))
               Fatal(i-1);
             
             curr->ch = ch;
@@ -3809,19 +3591,22 @@ struct WLNGraph
           }
           else{
             curr = AllocateWLNSymbol(ch);
-            curr->set_type(STANDARD);
-            curr->set_edges(6);
+            curr->set_edge_and_type(6);
 
-            create_bond(curr, prev, bond_ticks, i);
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+          
+              if(!edge)
+                Fatal(i);
+            }
           }
 
           branch_stack.push(curr);
           string_positions[i] = curr;
-
-          if(pending_linker){
-          }
-
-          bond_ticks = 0;
           prev = curr;
         }
         break;
@@ -3836,15 +3621,18 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
-
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
           
+            
+
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3863,23 +3651,23 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-                
+          if(!edge)
+            Fatal(i);
+ 
           prev = curr;
           pending_locant = false;
         }
         else{
           // explicit hydrogens
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(STANDARD);
-          curr->set_edges(1);
+          curr->set_edge_and_type(1);
 
           // will add with more examples
           switch(prev->ch){
@@ -3890,10 +3678,17 @@ struct WLNGraph
               break;
           }
 
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          bond_ticks = 0;
           prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
@@ -3906,15 +3701,16 @@ struct WLNGraph
         if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(curr,prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -3942,8 +3738,17 @@ struct WLNGraph
           // does the incoming locant check
           if (prev)
           {
-            if (ring->locants[prev->ch])
-              create_bond(ring->locants[prev->ch],prev,bond_ticks,i);
+            if (ring->locants[prev->ch]){
+              if(prev){
+                edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+                if(pending_unsaturate){
+                  edge = unsaturate_edge(edge,pending_unsaturate);
+                  pending_unsaturate = 0;
+                }
+                if(!edge)
+                  Fatal(i);
+              }
+            }   
             else
             {
               fprintf(stderr, "Error: attaching inline ring with out of bounds locant assignment\n");
@@ -3951,7 +3756,6 @@ struct WLNGraph
             }
           }
 
-          bond_ticks = 0;
           pending_J_closure = false;
         }
         
@@ -3965,15 +3769,16 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
 
-          
+          if(!edge)
+            Fatal(i);
+
           prev = curr;
           pending_locant = false;
         }
@@ -4003,13 +3808,15 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+
+          if(!edge)
+            Fatal(i);
 
           
           prev = curr;
@@ -4027,11 +3834,19 @@ struct WLNGraph
             ring->locants['A']->num_edges++; // will place a minus charge on the centre carbon
 
           curr = ring->locants['A'];
-          create_bond(curr, prev, bond_ticks, i);
+          if(prev){
+            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+            
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            if(!edge)
+              Fatal(i);
+          }
 
           string_positions[i] = curr;
-          prev = curr;
-          bond_ticks = 0;
+          prev = curr;;
         }
         break;
 
@@ -4044,13 +3859,15 @@ struct WLNGraph
         else if (pending_locant)
         {
           curr = AllocateWLNSymbol(ch);
-          curr->set_type(LOCANT);
-          curr->set_edges(2); // locants always have two edges
+          curr->set_edge_and_type(2,LOCANT); // locants always have two edges
 
           if (pending_inline_ring)
-            create_bond(curr, prev, bond_ticks, i);
+            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
           else
-            create_locant(curr, ring_stack, i);
+            edge = assign_locant_to_ring(curr, pending_unsaturate,ring_stack);
+
+          if(!edge)
+            Fatal(i);
 
           prev = curr;
           pending_locant = false;
@@ -4059,9 +3876,9 @@ struct WLNGraph
           fprintf(stderr,"Error: diazo assignment followed by a bond increase is a disallowed bond type\n");
           Fatal(i);
         }
-        else{
-          bond_ticks++;
-        }
+        else
+          pending_unsaturate++;
+        
         break;
 
         // specials
@@ -4088,6 +3905,8 @@ struct WLNGraph
         
         pending_locant = true;
         break;
+
+
 
       case '&':
         if (pending_diazo){
@@ -4230,12 +4049,16 @@ struct WLNGraph
               Fatal(i);
             }
 
-            create_bond(curr,prev,bond_ticks,i);
+            if(prev){
+              edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+              if(!edge)
+                Fatal(i);
+            }
 
             i+= gap+1;
             wln_ptr+= gap+1;
 
-            bond_ticks = 0;
+            pending_unsaturate = 0;
             prev = curr;
           }
         }
@@ -4308,8 +4131,6 @@ struct WLNGraph
 
 
 
-
-
     if (pending_J_closure)
     {
       fprintf(stderr, "Error: expected 'J' to close ring\n");
@@ -4337,9 +4158,7 @@ struct WLNGraph
     if(!AssignCharges(ionic_charges))
       Fatal(len);
 
-    Reindex_lookups();
-
-    // use this for recursion on multipliers
+      // use this for recursion on multipliers
     return true;
   }
 
@@ -4348,8 +4167,12 @@ struct WLNGraph
   {  
     fprintf(fp, "digraph WLNdigraph {\n");
     fprintf(fp, "  rankdir = LR;\n");
-    for (WLNSymbol *node : symbol_mempool)
+    for (unsigned int i=0; i<=symbol_count;i++)
     {
+      WLNSymbol *node = SYMBOLS[i];
+      if(!node)
+        continue;
+  
       fprintf(fp, "  %d", index_lookup[node]);
       if (node->ch == '*')
         fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
@@ -4367,11 +4190,14 @@ struct WLNGraph
         else
           fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
       }
+    
         
-      for(unsigned int i = 0; i<node->children.size(); i++){
-        WLNSymbol *child = node->children[i];
-        unsigned int bond_order = node->orders[i];
-        
+      WLNEdge *edge = 0;
+      for (edge = node->bonds;edge;edge = edge->nxt){
+
+        WLNSymbol *child = edge->child;
+        unsigned int bond_order = edge->order;
+
         // aromatic
         if(bond_order == 4){
           fprintf(fp, "  %d", index_lookup[node]);
@@ -4390,9 +4216,9 @@ struct WLNGraph
           fprintf(fp, " -> ");
           fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
         }
-       
       }
     }
+
     fprintf(fp, "}\n");
   }
 };
@@ -4493,8 +4319,8 @@ struct BabelGraph{
       fprintf(stderr,"Converting wln to obabel mol object: \n");
 
     // set up atoms
-    for (WLNSymbol *sym: symbol_mempool){
-
+    for (unsigned int i=1; i<=symbol_count;i++){
+      WLNSymbol *sym = SYMBOLS[i];
       if(sym->type != LOCANT){
 
         OpenBabel::OBAtom *atom = 0;
@@ -4638,31 +4464,34 @@ struct BabelGraph{
     }
 
     // set bonds
-    for(WLNSymbol *parent : symbol_mempool){
-
+    for(unsigned int i=1;i<=symbol_count;i++){
+      WLNSymbol *parent = SYMBOLS[i];
+      
+      // ignore parents; 
       if(parent->type == LOCANT)
         continue;
 
       unsigned int parent_id = index_lookup[parent];
       OpenBabel::OBAtom *par_atom = babel_atom_lookup[parent_id];
 
-      for (unsigned int i=0;i<parent->children.size();i++){
+      WLNEdge *e = 0;
+      for (e = parent->bonds;e;e = e->nxt){
         
-        WLNSymbol *child = parent->children[i];
-        unsigned int bond_order = 0; 
-    
+        WLNSymbol *child = e->child;
+      
         // skip across locants
         if(child->type == LOCANT){
-          bond_order = child->orders[0];
-          child = child->children[0]; // skip to the start of the chain
+          e = child->bonds;
+          child = e->child;
         }
-        else
-          bond_order = parent->orders[i];
-      
+          
+
+        unsigned int bond_order = e->order;  
+   
+
         unsigned int child_id = index_lookup[child];
         OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
         if(bond_order == 4){
-          
           if(!NMOBMolNewBond(mol,par_atom,chi_atom,1,true))
             return false;
         }
@@ -4676,7 +4505,9 @@ struct BabelGraph{
     return true;
   }
 
+
 };
+
 
 
 bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
@@ -4695,12 +4526,7 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     fprintf(stderr,"Error: string pass was successful but return nullptr for wln graph\n");
     return false;
   }
-    
-  if(!wln_graph.MergeSpiros())
-    return false;
-
-  if(!wln_graph.ExpandWLNGraph())
-    return false;
+  
 
   // create an optional wln dotfile
   if (opt_wln2dot)
@@ -4722,6 +4548,8 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     fprintf(stderr,"  dumped\n");
   }
 
+  if(!wln_graph.ExpandWLNGraph())
+    return false;
 
   if(!obabel.ConvertFromWLN(mol,wln_graph))
     return false;
@@ -4729,7 +4557,6 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 
   if(!obabel.NMOBSanitizeMol(mol))
     return false; 
-  
 
   return true;
 }
