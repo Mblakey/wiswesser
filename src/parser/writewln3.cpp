@@ -1304,6 +1304,20 @@ struct WLNRing
     return true; 
   }
 
+  /* how many rings are shared, vs bonds the rings have */
+  std::map<unsigned char,unsigned int> update_shared_rings(std::vector<std::deque<unsigned char>> &ring_paths)
+  {
+    // recalculates every time, annoyingly slow... 
+    std::map<unsigned char,unsigned int> shared_rings; 
+    // count occurances of characters in the ring paths
+    for (std::deque<unsigned char> path : ring_paths){
+      for(unsigned char loc : path)
+        shared_rings[loc]++;
+    }
+
+    return shared_rings; 
+  }
+
 
   /* interesting here that the multicyclic points are not explicitly used */
   bool CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
@@ -1354,7 +1368,7 @@ struct WLNRing
     // the path after all prior rings have been evaulated to that point
 
     // parent -> all dead ends, e.g 'B' --> {B-, B-&, B--, B--&}
-    std::map<unsigned char,std::vector<unsigned char>> broken_lookup;
+    std::map<unsigned char,std::deque<unsigned char>> broken_lookup;
     std::map<unsigned char,bool>                       resolved;
 
     if(!broken_locants.empty()){
@@ -1403,6 +1417,9 @@ struct WLNRing
     unsigned int fuses = 0; 
     bool aromatic = false;
 
+    // init the shared map
+    std::map<unsigned char,unsigned int> shared_rings; 
+
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       comp_size = component.first;
@@ -1410,14 +1427,15 @@ struct WLNRing
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
 
-      std::deque<unsigned char> ring_path; // need push and pop function at both ends
+      std::deque<unsigned char> ring_path; 
       unsigned int predefined = 1;
 
+      
       if(path->num_edges > 2)
         predefined++; 
-
-
-      // GIVEN BRIDGE LOCANTS ONLY
+      
+       
+      // GIVEN PSD BRIDGE LOCANTS ONLY
       
       if(!pseudo_lookup[i].empty()){
         indexed_pair psd_pair = pseudo_lookup[i].front(); // should only be 1
@@ -1466,20 +1484,15 @@ struct WLNRing
         }
 
         fuses++;
-       
-        // skip the proper algorithmic block
         continue;      
       }
       
-      // MULTI ALGORITHM
-
+      // --- MULTI ALGORITHM --- 
 
       // handle bridging bind_1 points
-      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
-        bridge_locants[bind_1] = false;
+      while(bridge_locants[bind_1]){
         bind_1++;
         path = locants[bind_1];
-        comp_size+=1;
       }
       
       ring_path.push_back(locants_ch[path]);
@@ -1526,15 +1539,20 @@ struct WLNRing
           }
         }
         if(shift){
-          bind_1 += 1; // handles all normal  multicyclic denototions
-          while(locants[bind_1]->num_edges > 2){
+          bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
+          while(locants[bind_1]->num_edges > 2 || bridge_locants[bind_1]){
             bind_1 += 1;
+
+            if(shared_rings[bind_1] < 2)
+              fprintf(stderr,"MISMATCH - SHIFTING - check > 2 = %d\n",shared_rings[bind_1]);
+
           }
           ring_path.push_front(bind_1);
         }
       }
 
       // check are we going to make this a multi point with a look up?
+      // use edges in this case as branching locants are spawned?
       if(locants[bind_1]->num_edges >= 2 && !broken_lookup[bind_1].empty()){
 
         // while loop allows multiple decends if needed
@@ -1550,7 +1568,6 @@ struct WLNRing
               
           }
 
-
           WLNEdge *edge = AllocateWLNEdge(broken,locants[bind_1]);
           if(!edge)
             return false;
@@ -1560,7 +1577,7 @@ struct WLNRing
           bind_1 = locants_ch[broken];
         }
 
-        while(ring_path.size() != comp_size)
+        while(ring_path.size() > comp_size)
           ring_path.pop_back();
       
         // the new path should be set
@@ -1578,7 +1595,10 @@ struct WLNRing
         }
         bind_2 = back;
         bind_1 = ring_path.front();
+
+        ring_path.push_back(bind_2);
       }
+
 
       if(opt_debug){
         fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
@@ -1588,6 +1608,9 @@ struct WLNRing
         fprintf(stderr," ]\n");
       }
 
+      for (unsigned char ch : ring_path)
+        shared_rings[ch]++;    
+      
       WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
       if(!edge)
         return false;
@@ -2929,7 +2952,7 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n");
+          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n",ch);
           Fatal(i);
         }
         else
@@ -2974,7 +2997,7 @@ struct WLNGraph
         else if (pending_locant)
         {
           fprintf(stderr,"UNCERTAINTY NOT YET IMPLEMENTED\n");
-          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n");
+          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n",ch);
           Fatal(i);
         }
         else
