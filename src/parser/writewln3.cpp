@@ -50,9 +50,7 @@ const char *dotfile;
 
 // --- options ---
 static bool opt_wln2dot = false;
-static bool opt_allow = false;
 static bool opt_debug = false;
-static bool opt_convert = false;
 
 // --- globals ---
 const char *wln;
@@ -1193,18 +1191,22 @@ struct WLNRing
 
   /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
   bool CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                  std::vector<bool> &aromaticity)
+                        std::vector<bool> &aromaticity,
+                        std::map<unsigned char,bool> &bridge_locants)
     {
      
-
     unsigned int local_size = 0; 
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
-
       if(local_size)
         local_size += component.first - 2;
       else
         local_size = component.first;
+    }
+
+    for (unsigned int i=0;i<252;i++){
+      if(bridge_locants[i])
+        local_size+= -1; 
     }
 
     // create all the nodes in a large straight chain
@@ -1242,6 +1244,11 @@ struct WLNRing
       comp_size = component.first;
       bind_1 = component.second;
       aromatic = aromaticity[i];
+      WLNSymbol *path = locants[bind_1];
+
+      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+        bind_1++;
+      }
 
       std::deque<unsigned char> ring_path;
       // first pair can be calculated directly without a path travel
@@ -1254,9 +1261,7 @@ struct WLNRing
         //there needs to be a graph travel here taking the longest locant
 
         // 1. starting on bind_1, travel n-1 places through the maximal locant path, to calculate fuse
-        
-        // annoyingly n2 ... 
-        WLNSymbol *path = locants[bind_1];
+
         unsigned char highest_loc = '\0';
         for (unsigned int i=0;i<comp_size - 1; i++){
           ring_path.push_back(locants_ch[path]);
@@ -1274,6 +1279,7 @@ struct WLNRing
         ring_path.push_back(locants_ch[path]); // add the last symbol
         bind_2 = highest_loc;
       }
+
 
       if(opt_debug){
         fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
@@ -1305,6 +1311,7 @@ struct WLNRing
                           std::vector<unsigned char> &multicyclic_locants,
                           std::vector<indexed_pair> &pseudo_locants,
                           std::set<unsigned char> &broken_locants,
+                          std::map<unsigned char,bool> &bridge_locants,
                           unsigned char size_designator)
   {
     
@@ -1400,7 +1407,6 @@ struct WLNRing
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       comp_size = component.first;
       bind_1 = component.second;
-
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
 
@@ -1467,6 +1473,14 @@ struct WLNRing
       
       // MULTI ALGORITHM
 
+
+      // handle bridging bind_1 points
+      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+        bind_1++;
+        path = locants[bind_1];
+        comp_size+=1;
+      }
+      
       ring_path.push_back(locants_ch[path]);
 
       unsigned char highest_loc = '\0'; 
@@ -1564,7 +1578,6 @@ struct WLNRing
         bind_2 = back;
         bind_1 = ring_path.front();
       }
-      
 
       if(opt_debug){
         fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
@@ -1636,13 +1649,10 @@ struct WLNRing
 
     unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
     unsigned int state_pseudo         = 0; 
-    unsigned int state_bridge         = 0;
     unsigned int state_aromatics      = 0;
-
-    bool implied_assignment_used       = 0; // allows a shorthand if wanted, but not mixing
+    bool implied_assignment_used      = 0; // allows a shorthand if wanted, but not mixing
    
     unsigned int expected_locants     = 0;
-
     unsigned int  evaluating_break      = 0;
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0';
@@ -1652,11 +1662,11 @@ struct WLNRing
     std::vector<bool> aromaticity; 
     std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
 
-    std::vector<unsigned char> pseudo_locants;
-    std::vector<unsigned int> pseudo_positions; 
-    std::vector<unsigned char> bridge_locants;
-    std::vector<unsigned char> multicyclic_locants;
-    std::set<unsigned char> broken_locants;
+    std::vector<unsigned char>  pseudo_locants;
+    std::vector<unsigned int>   pseudo_positions; 
+    std::vector<unsigned char>  multicyclic_locants;
+    std::set<unsigned char>     broken_locants;
+    std::map<unsigned char,bool>  bridge_locants;
     
     // broken locants start at A = 129 for extended ascii 
     // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
@@ -2134,8 +2144,15 @@ struct WLNRing
             string_positions[start+i] = new_locant;
           }
           else{
-
-            if(i>0 && block[i-1] == ' '){
+            if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || i == aromatic_position -1) ){
+              if(ring_components.empty()){
+                fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+                Fatal(start+i);
+              }
+              else
+                bridge_locants[ch] = true;
+            }
+            else if(i>0 && block[i-1] == ' '){
               positional_locant = ch;
             }
             else{
@@ -2350,7 +2367,6 @@ struct WLNRing
           if(state_aromatics)
             state_aromatics = 0;
           
-
           if(evaluating_break){
             broken_locants.insert(positional_locant);
 
@@ -2363,7 +2379,7 @@ struct WLNRing
           }
 
           if (i == block.size()-1){
-
+            
             if(ring_components.empty()){
               fprintf(stderr,"Error: error in reading ring components, check numerals in ring notation\n");
               Fatal(start+i);
@@ -2480,8 +2496,9 @@ struct WLNRing
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  bridge points: ");
-      for (unsigned char loc : bridge_locants){
-        fprintf(stderr,"%c ",loc == ' ' ? '_':loc);
+      for (unsigned int i=0;i<252;i++){
+        if(bridge_locants[i])
+          fprintf(stderr,"%c ",i);
       }
       fprintf(stderr,"\n");
 
@@ -2498,17 +2515,16 @@ struct WLNRing
     bool state = true;
     switch(ring_type){
       case POLY:
-        state = CreatePolyCyclic(ring_components,aromaticity);
+        state = CreatePolyCyclic(ring_components,aromaticity,bridge_locants);
         break;
       case PERI:
       case PSDBRIDGED:
         state = CreateMultiCyclic(ring_components,aromaticity,
                                   multicyclic_locants,indexed_bindings,
                                   broken_locants,
+                                  bridge_locants,
                                   ring_size_specifier);
-        break;
-      case BRIDGED:
-        break;
+      break;
     }
 
     if (!state)
@@ -2775,7 +2791,8 @@ struct WLNGraph
 
     unsigned char on_locant = '\0';
     unsigned int pending_unsaturate = 0;    // 'U' style bonding
-   
+    bool j_skips = false; // handle skipping of 'J' if in cyclic notation legitimately 
+
     std::string special;  // special elemental definitions
     
     // allows consumption of notation after block parses
@@ -2820,8 +2837,14 @@ struct WLNGraph
       case '7':
       case '8':
       case '9':
-        if (pending_J_closure)
+        if (pending_J_closure){
+          // small addition to allow J handling in points
+          if(i > 0 && wln_string[i-1] == ' ')
+            j_skips = true;
+          
           break;
+        }
+          
         else if(pending_locant){  // handle all multiplier contractions
           
           // block to hunt the multiplier maximum --> lookahead
@@ -2905,27 +2928,8 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-
-          if(!pending_inline_ring){
-
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: accessing locants without any rings\n");
-              Fatal(i);
-            }
-            else
-              ring = ring_stack.top();
-
-            curr = ring->locants[ch];
-            if(!curr){
-              fprintf(stderr,"Error: accessing locants out of range\n");
-              Fatal(i);
-            }
-            
-            prev = curr;
-          }
-
-          pending_locant = false;
-          on_locant = ch;
+          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n");
+          Fatal(i);
         }
         else
         {
@@ -2968,27 +2972,9 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-
-         if(!pending_inline_ring){
-
-            if(ring_stack.empty()){
-              fprintf(stderr,"Error: accessing locants without any rings\n");
-              Fatal(i);
-            }
-            else
-              ring = ring_stack.top();
-
-            curr = ring->locants[ch];
-            if(!curr){
-              fprintf(stderr,"Error: accessing locants out of range\n");
-              Fatal(i);
-            }
-            
-            prev = curr;
-          }
-
-          pending_locant = false;
-          on_locant = ch;
+          fprintf(stderr,"UNCERTAINTY NOT YET IMPLEMENTED\n");
+          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n");
+          Fatal(i);
         }
         else
         {
@@ -3031,7 +3017,6 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-
           if(!pending_inline_ring){
             if(ring_stack.empty()){
               fprintf(stderr,"Error: accessing locants without any rings\n");
@@ -3539,7 +3524,7 @@ struct WLNGraph
         // inorganics
 
       case 'B':
-        if (pending_J_closure)
+        if (pending_J_closure)  
           break;
         else if (pending_locant)
         {
@@ -3756,6 +3741,8 @@ struct WLNGraph
         // ring notation
 
       case 'J':
+        if(pending_J_closure && j_skips)
+          break;
         if (pending_locant)
         {
           if(!pending_inline_ring){
@@ -3830,7 +3817,6 @@ struct WLNGraph
       case 'T':
         if (pending_J_closure)
           break;
-        
         else if (pending_locant)
         {
           if(!pending_inline_ring){
@@ -3932,7 +3918,6 @@ struct WLNGraph
       case 'U':
         if (pending_J_closure)
           break;
-        
         else if (pending_locant)
         {
           if(!pending_inline_ring){
@@ -3968,8 +3953,11 @@ struct WLNGraph
         // specials
 
       case ' ':
-        if (pending_J_closure)
+        if (pending_J_closure){
+          j_skips = false;
           break;
+        }
+          
         
         else if (pending_diazo){
           fprintf(stderr,"Error: diazo assignment followed by a space seperator is a disallowed bond type\n");
@@ -4161,6 +4149,7 @@ struct WLNGraph
 
       case '/':
         if (pending_J_closure){
+          j_skips = true;
           break;
         }
         else if (pending_diazo){
@@ -4702,14 +4691,6 @@ static void ProcessCommandLine(int argc, char *argv[])
       switch (ptr[1])
       {
 
-      case 'a':
-        opt_allow = true;
-        break;
-
-      case 'c':
-        opt_convert = true;
-        break;
-
       case 'd':
         opt_debug = true;
         break;
@@ -4722,17 +4703,8 @@ static void ProcessCommandLine(int argc, char *argv[])
         break;
 
       case '-':
-        if (!strcmp(ptr, "--allow-changes"))
-        {
-          opt_allow = true;
-          break;
-        }
-        else if (!strcmp(ptr, "--convert"))
-        {
-          opt_convert = true;
-          break;
-        }
-        else if (!strcmp(ptr, "--debug"))
+
+        if (!strcmp(ptr, "--debug"))
         {
           opt_debug = true;
           break;
