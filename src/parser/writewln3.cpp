@@ -1303,20 +1303,6 @@ struct WLNRing
     return true; 
   }
 
-  /* how many rings are shared, vs bonds the rings have */
-  std::map<unsigned char,unsigned int> update_shared_rings(std::vector<std::deque<unsigned char>> &ring_paths)
-  {
-    // recalculates every time, annoyingly slow... 
-    std::map<unsigned char,unsigned int> shared_rings; 
-    // count occurances of characters in the ring paths
-    for (std::deque<unsigned char> path : ring_paths){
-      for(unsigned char loc : path)
-        shared_rings[loc]++;
-    }
-
-    return shared_rings; 
-  }
-
 
   /* interesting here that the multicyclic points are not explicitly used */
   bool CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
@@ -1429,11 +1415,15 @@ struct WLNRing
       std::deque<unsigned char> ring_path; 
       unsigned int predefined = 1;
 
-      
+       // handle bridging bind_1 points
+      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+        bind_1++;
+        path = locants[bind_1];
+      }
+
       if(path->num_edges > 2)
-        predefined++; 
-      
-       
+        predefined++;
+
       // GIVEN PSD BRIDGE LOCANTS ONLY
       
       if(!pseudo_lookup[i].empty()){
@@ -1487,12 +1477,6 @@ struct WLNRing
       }
       
       // --- MULTI ALGORITHM --- 
-
-      // handle bridging bind_1 points
-      while(bridge_locants[bind_1]){
-        bind_1++;
-        path = locants[bind_1];
-      }
       
       ring_path.push_back(locants_ch[path]);
 
@@ -1539,12 +1523,8 @@ struct WLNRing
         }
         if(shift){
           bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
-          while(locants[bind_1]->num_edges > 2 || bridge_locants[bind_1]){
+          while(locants[bind_1]->num_edges > 2 || (bridge_locants[bind_1] && locants[bind_1]->num_edges >=2)){
             bind_1 += 1;
-
-            if(shared_rings[bind_1] < 2)
-              fprintf(stderr,"MISMATCH - SHIFTING - check > 2 = %d\n",shared_rings[bind_1]);
-
           }
           ring_path.push_front(bind_1);
         }
@@ -1588,7 +1568,7 @@ struct WLNRing
       // annoying catch needed for bridge notation that is 'implied' 
       if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
         unsigned char back = ring_path.back();
-        while(back != int_to_locant(local_size)){
+        while(back < int_to_locant(local_size)){
           back++;
           ring_path.pop_front();
         }
