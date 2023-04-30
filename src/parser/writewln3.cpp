@@ -1476,6 +1476,7 @@ struct WLNRing
 
       // handle bridging bind_1 points
       while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+        bridge_locants[bind_1] = false;
         bind_1++;
         path = locants[bind_1];
         comp_size+=1;
