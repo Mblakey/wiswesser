@@ -1522,7 +1522,7 @@ struct WLNRing
           }
         }
         if(shift){
-          bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
+          //bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
           while(locants[bind_1]->num_edges > 2 || (bridge_locants[bind_1] && locants[bind_1]->num_edges >=2)){
             bind_1 += 1;
           }
@@ -1533,7 +1533,7 @@ struct WLNRing
       // check are we going to make this a multi point with a look up?
       // use edges in this case as branching locants are spawned?
       if(locants[bind_1]->num_edges >= 2 && !broken_lookup[bind_1].empty()){
-
+        
         // while loop allows multiple decends if needed
         while(!broken_lookup[bind_1].empty()){
           
