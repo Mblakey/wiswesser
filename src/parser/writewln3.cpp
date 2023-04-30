@@ -354,7 +354,6 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size){
     return 0;
   }
     
-
   head->ch = 'C';
   head->set_edge_and_type(4);
 
@@ -3304,6 +3303,7 @@ struct WLNGraph
 
             if(prev){
               edge = AllocateWLNEdge(curr,prev);
+
               if(pending_unsaturate){
                 edge = unsaturate_edge(edge,pending_unsaturate);
                 pending_unsaturate = 0;
@@ -3666,10 +3666,68 @@ struct WLNGraph
         }
         break;
 
-        // locants only?
+      // multiply bonded carbon, therefore must be at least a double bond
+      case 'C':
+        if (pending_J_closure)
+          break;
+        else if (pending_locant)
+        {
+          if(!pending_inline_ring){
+            if(ring_stack.empty()){
+              fprintf(stderr,"Error: accessing locants without any rings\n");
+              Fatal(i);
+            }
+            else
+              ring = ring_stack.top();
+
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
+          pending_locant = false;
+          on_locant = ch;
+        }
+        else
+        {
+          on_locant = '\0';
+
+          if(pending_diazo){
+            curr = prev; 
+            curr->set_edge_and_type(4); 
+
+            if(!add_diazo(curr))
+              Fatal(i-1);
+            
+            curr->ch = ch;
+            pending_diazo = false;
+          }
+          else{
+            curr = AllocateWLNSymbol(ch);
+            curr->set_edge_and_type(4);
+
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+          
+              if(!edge)
+                Fatal(i);
+            }
+          }
+
+          branch_stack.push(curr);
+          string_positions[i] = curr;
+          prev = curr;
+        }
+        break;
 
       case 'A':
-      case 'C':
       case 'D':
         if (pending_J_closure)
           break;
