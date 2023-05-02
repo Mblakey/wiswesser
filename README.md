@@ -1,6 +1,8 @@
 # WLN Parser out of Babel Build
 
-Wisswesser WLN <---> SMILES parser
+Wisswesser Line Notation Parser, covert WLN to smiles, inchi, mol files etc
+This is the developement for the WLN parser that will be added directly to OpenBabel, 
+on the release of this project, please see my local branch of babel for pre-release versions. 
 
 ## Requirements
 
@@ -21,7 +23,7 @@ Command line utility `read-wln` should be created in the build directory of Pars
 read-wln <options> 'string'
 ```
 
-#### flags
+### flags
 
 `-d` - enable all debugging logs to stderr<br>
 `-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands
