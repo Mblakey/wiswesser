@@ -4,8 +4,8 @@ Wisswesser WLN <---> SMILES parser
 
 ## Requirements
 
-This project is built with CMake version > 3.00. <br>
-git, cmake, make and a c++ compiler are all essential. <br>
+**git**, **cmake**, **make** and a **c++ compiler** are all essential. <br>
+**graphviz** is an optional install to view wln graphs. 
 
 ## Build
 
@@ -15,7 +15,7 @@ the library to the parser in cmake.
 
 ## Usage
 
-Command line utility **read-wln** should be created in the build directory of Parser. wisswesser can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
+Command line utility `read-wln` should be created in the build directory of Parser. wisswesser can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
 
 ```
 read-wln <options> 'string'
@@ -23,7 +23,7 @@ read-wln <options> 'string'
 
 #### flags
 
-`-d` - enable all debugging logs to stderr
+`-d` - enable all debugging logs to stderr<br>
 `-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands
 
 ```
