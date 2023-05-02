@@ -1521,13 +1521,16 @@ struct WLNRing
             }
           }
         }
+
         if(shift){
-          //bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
+          fprintf(stderr,"HERE?\n");
+          bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
           while(locants[bind_1]->num_edges > 2 || (bridge_locants[bind_1] && locants[bind_1]->num_edges >=2)){
             bind_1 += 1;
           }
           ring_path.push_front(bind_1);
         }
+
       }
 
       // check are we going to make this a multi point with a look up?
