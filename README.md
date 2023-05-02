@@ -27,7 +27,6 @@ read-wln <options> 'string'
 `-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands
 
 ```
-must be in build directory and have graphviz installed
 dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
 ```
 
