@@ -607,10 +607,9 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
 
     case 'K':
       if (special[1] == 'R')
-        created_wln->special = "Kr";
+        created_wln->special = "KR";
       else if (special[1] == 'A'){
-        created_wln->ch = 'K';
-        created_wln->set_edge_and_type(4);
+        created_wln->special = "KA";
         return created_wln;
       }
       else
@@ -957,6 +956,8 @@ unsigned int special_element_atm(std::string &special){
     case 'K':
       if (special[1] == 'R')
         return 39;
+      else if(special[1] == 'A')
+        return 19;
       break;
 
     case 'L':
@@ -1191,6 +1192,26 @@ struct WLNRing
     fprintf(stderr,"\n");
   }
 
+  bool assign_aromatics(std::deque<unsigned char> &ring_path){
+    
+    if (ring_path.size() % 2 ==0){
+      for (unsigned int i=1;i<ring_path.size();i+=2){
+        fprintf(stderr,"%c %c\n",ring_path[i-1],ring_path[i]);
+
+        WLNSymbol *par = locants[ring_path[i-1]];
+        WLNSymbol *chi = locants[ring_path[i]];
+
+        if(par->num_edges < par->allowed_edges && chi->num_edges < chi->allowed_edges){
+          WLNEdge * edge = search_edge(chi,par);
+          if(!unsaturate_edge(edge,1))
+            return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
 
   /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
   bool CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
@@ -1296,10 +1317,10 @@ struct WLNRing
       if(!edge)
         return false;
 
-      // if(aromatic){
-      //   if(!AssignAromatics(ring_path))
-      //     return false;
-      // }
+      if(aromatic){
+        if(!assign_aromatics(ring_path))
+          return false;
+      }
         
       fuses++;
     }
@@ -2629,13 +2650,18 @@ struct WLNGraph
 
 
   // this one pops based on bond numbers
-  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack){
+  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack, std::stack<WLNSymbol*> &linker_stack){
      // only used for characters that can 'act' like a '&' symbol
     
     WLNSymbol *top = 0;
-    if (branch_stack.empty())
-      return top;
-
+    if (branch_stack.empty()){
+      if(!linker_stack.empty()){
+        return linker_stack.top();
+      }
+      else
+        return top;
+    }
+      
     while(!branch_stack.empty()){
       top = branch_stack.top();
       if(top->num_edges == top->allowed_edges)
@@ -3108,7 +3134,7 @@ struct WLNGraph
 
           string_positions[i] = curr;
           pending_unsaturate = 0;
-          prev = return_open_branch(branch_stack);
+          prev = return_open_branch(branch_stack,linker_stack);
           if(!prev)
             prev = curr;
         }
@@ -3429,7 +3455,7 @@ struct WLNGraph
 
           string_positions[i] = curr;
           pending_unsaturate = 0;
-          prev = return_open_branch(branch_stack);
+          prev = return_open_branch(branch_stack,linker_stack);
           if(!prev)
             prev = curr;
         }
@@ -3488,7 +3514,7 @@ struct WLNGraph
 
           string_positions[i] = curr;
           pending_unsaturate = 0;
-          prev = return_open_branch(branch_stack);
+          prev = return_open_branch(branch_stack,linker_stack);
           if(!prev)
             prev = curr;
         }
@@ -3682,9 +3708,10 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants out of range\n");
               Fatal(i);
             }
-            
+
             prev = curr;
           }
+
           pending_locant = false;
           on_locant = ch;
         }
@@ -3735,6 +3762,7 @@ struct WLNGraph
             switch(prev->ch){
               case 'Z':
                 charge_additions[prev]++;
+                prev->allowed_edges++;
                 break;
               default:
                 break;
@@ -3910,12 +3938,9 @@ struct WLNGraph
           ring->FormWLNRing(r_notation,i);
           ring_stack.push(ring);
 
-          if( !(wln_ptr + 1))
-            ring->locants['A']->num_edges++; // will place a minus charge on the centre carbon
-
           curr = ring->locants['A'];
           if(prev){
-            edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+            edge = AllocateWLNEdge(curr,prev);
             
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
@@ -3923,6 +3948,11 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
+
+            if(!branch_stack.empty() && prev == branch_stack.top()){
+              // its possible to return to this in another branch
+              linker_stack.push(prev);
+            }
           }
 
           string_positions[i] = curr;
@@ -4015,6 +4045,7 @@ struct WLNGraph
         {
           // ionic species or spiro, reset the linkings
           prev = 0;
+          curr = 0;
           pending_locant = false;
         }
         else if(on_locant){
@@ -4040,58 +4071,78 @@ struct WLNGraph
         }
         else
         {
-          
-      
-          WLNSymbol *top = 0;
-          if(!branch_stack.empty())
+          if(!branch_stack.empty()){
+            WLNSymbol *top = 0;
             top = branch_stack.top();
-          
-          if(!top){
-            fprintf(stderr,"Error: '&' punctuation outside of branching characters is disallowed notation\n");
-            Fatal(i);
-          }
 
-          // this means a <Y|X|..>'&' so handle methyl
-          if(prev && prev == top){
-            
-            switch(prev->ch){
-              // methyl contractions
-              case 'X':
-              case 'Y':
-              case 'K':
-                if(prev->num_edges < prev->allowed_edges){
-                  if(!add_methyl(prev))
-                    Fatal(i);
+              // this means a <Y|X|..>'&' so handle methyl
+            if(prev && prev == top){
+              
+              switch(prev->ch){
+                // methyl contractions
+                case 'X':
+                case 'Y':
+                case 'K':
+                  if(prev->num_edges < prev->allowed_edges){
+                    if(!add_methyl(prev))
+                      Fatal(i);
 
-                  prev = return_open_branch(branch_stack);
-                }
-                else{ 
+                    prev = return_open_branch(branch_stack,linker_stack);
+                  }
+                  else{ 
+                    branch_stack.pop();
+                    if(branch_stack.empty()){
+                      // see if we can return to a linker?
+
+                      if(!linker_stack.empty())
+                        prev = linker_stack.top();
+                      else{
+                        fprintf(stderr,"Error: popping an empty branch\n");
+                        Fatal(i);
+                      }
+                    }
+                    else
+                      prev = branch_stack.top();
+                  }
+                  break;
+
+                // no contractions possible, we pop the stack
+                default:
                   branch_stack.pop();
                   if(branch_stack.empty()){
-                    fprintf(stderr,"Error: popping an empty branch\n");
-                    Fatal(i);
+                    // see if we can return to a linker?
+                    if(!linker_stack.empty())
+                      prev = linker_stack.top();
+                    else{
+                      fprintf(stderr,"Error: popping an empty branch\n");
+                      Fatal(i);
+                    }
                   }
-                  prev = branch_stack.top();
-                }
-                break;
-
-              // no contractions possible, we pop the stack
-              default:
-                branch_stack.pop();
-                if(branch_stack.empty()){
-                  fprintf(stderr,"Error: popping an empty branch\n");
-                  Fatal(i);
-                }
-                prev = branch_stack.top();
-                break;
+                  else
+                    prev = branch_stack.top();
+                  
+                  break;
+              }
             }
-
+            else{
+              // means a closure is done, we return to the first avaliable symbol on the branch stack
+              prev = return_open_branch(branch_stack,linker_stack);
+            }
+          }
+          else if(!ring_stack.empty()){
+            ring = 0;
+            ring_stack.pop();
+            if(!ring_stack.empty())
+              ring = ring_stack.top();
+            else{
+              fprintf(stderr,"Error: popping too many rings, check '&' count\n");
+              Fatal(i);
+            }
           }
           else{
-            // means a closure is done, we return to the first avaliable symbol on the branch stack
-            prev = return_open_branch(branch_stack);
+            fprintf(stderr,"Error: '&' punctuation outside of branching chains is disallowed notation\n");
+            Fatal(i);
           }
-
         }
         break;
 
@@ -4105,6 +4156,7 @@ struct WLNGraph
           fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
           Fatal(i);
         }
+#ifdef HIGH_LEVEL_ASSIGNMENTS
         else if(on_locant){
           if(prev->ch < 128){
             prev->ch += 128;
@@ -4112,6 +4164,7 @@ struct WLNGraph
           else
             prev->ch += 46; 
         }
+#endif
         else{
 
           // look ahead and consume the special
@@ -4163,7 +4216,6 @@ struct WLNGraph
                 Fatal(i-1);
               pending_diazo = false;
             }
-
             
             if(prev){
               if(!gap && ring)
@@ -4177,8 +4229,12 @@ struct WLNGraph
 
             branch_stack.push(curr);
 
+            fprintf(stderr,"%s\n",wln_ptr);
+
             i+= gap+1;
             wln_ptr+= gap+1;
+
+            fprintf(stderr,"%s\n",wln_ptr);
 
             pending_unsaturate = 0;
             prev = curr;
@@ -4417,7 +4473,7 @@ struct BabelGraph{
   bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
   {
     
-    mol->SetAromaticPerceived(true);
+    mol->SetAromaticPerceived(false);
 
     if(!OBKekulize(mol)){
       fprintf(stderr,"Error: failed on kekulize mol\n");
@@ -4605,14 +4661,9 @@ struct BabelGraph{
     
           unsigned int child_id = index_lookup[child];
           OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
-          if(bond_order == 4){
-            if(!NMOBMolNewBond(mol,par_atom,chi_atom,1,true))
-              return false;
-          }
-          else{
-            if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
-              return false;
-          }
+          if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
+            return false;
+
         }
 
       }
@@ -4623,21 +4674,6 @@ struct BabelGraph{
 
 
 };
-
-void debug(){
-  for (unsigned int i=1;i<=symbol_count;i++){
-    WLNSymbol *parent = SYMBOLS[i];
-    WLNEdge   *edge = 0;
-    fprintf(stderr,"symbol: %c, edges(%d)[",parent->ch,parent->num_edges);
-    if(parent->previous)
-      fprintf(stderr," %c",parent->previous->ch);
-    for (edge = parent->bonds;edge;edge=edge->nxt){
-      fprintf(stderr," %c",edge->child->ch);
-    }
-    fprintf(stderr," ]");
-    fprintf(stderr,", allowed(%d)\n",parent->allowed_edges);
-  }
-}
 
 
 
