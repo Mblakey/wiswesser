@@ -161,6 +161,7 @@ struct WLNSymbol
     allowed_edges = 0;
     num_edges = 0;
     previous = 0;
+    bonds = 0;
   }
   ~WLNSymbol(){};
 
@@ -227,9 +228,10 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
   EDGES[edge_count] = edge;
 
   // use a linked list to store the bond, can also check if it already exists
-  if(parent->bonds){
-    WLNEdge *curr = parent->bonds;
 
+  WLNEdge *curr = parent->bonds;
+
+  if(curr){
     while(curr->nxt){
       if(curr->child == child){
         fprintf(stderr,"Error: trying to bond already bonded symbols\n");
@@ -333,12 +335,14 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
 WLNEdge* add_methyl(WLNSymbol *head){
 
   WLNSymbol *carbon = AllocateWLNSymbol('C');
+  WLNSymbol *hydrogen = 0;
+  WLNEdge   *edge = 0;
   carbon->set_edge_and_type(4); // used for hydrogens
-
+  
   for(unsigned int i=0;i<3;i++){
-    WLNSymbol *hydrogen = AllocateWLNSymbol('H');
+    hydrogen = AllocateWLNSymbol('H');
     hydrogen->set_edge_and_type(1);
-    WLNEdge   *edge = AllocateWLNEdge(hydrogen,carbon);
+    edge = AllocateWLNEdge(hydrogen,carbon);
     if(!edge)
       return 0;
   }
@@ -2824,14 +2828,8 @@ struct WLNGraph
       {
 
       case '0': // cannot be lone, must be an addition to another num
-        if (pending_J_closure)
-          break;
-        
-        if(prev && std::isdigit(prev->ch)){
-          prev->special.push_back(ch);
-        }
-        else
-          Fatal(i);
+        fprintf(stderr,"Error: a lone zero mark is not allowed without positive numerals either side\n");
+        Fatal(i);
         break;
 
       case '1':
@@ -2915,6 +2913,11 @@ struct WLNGraph
           }
 
           curr = create_carbon_chain(curr,std::stoi(int_sequence));
+          if(!curr){
+            fprintf(stderr,"Error: error in creating carbon chain, raise algorithm issue\n");
+            Fatal(i);
+          }
+
 
           prev = curr;
           break;
@@ -3245,6 +3248,7 @@ struct WLNGraph
           curr->set_edge_and_type(3);
 
           if(pending_diazo){
+            curr->allowed_edges++; // special allowance for Nitro
             if(!add_diazo(curr))
               Fatal(i-1);
             pending_diazo = false;
@@ -4036,6 +4040,8 @@ struct WLNGraph
         }
         else
         {
+          
+      
           WLNSymbol *top = 0;
           if(!branch_stack.empty())
             top = branch_stack.top();
@@ -4060,14 +4066,23 @@ struct WLNGraph
                   prev = return_open_branch(branch_stack);
                 }
                 else{ 
-                  // we pop it as all contractions / bonds are made
-                  prev = return_open_branch(branch_stack);
+                  branch_stack.pop();
+                  if(branch_stack.empty()){
+                    fprintf(stderr,"Error: popping an empty branch\n");
+                    Fatal(i);
+                  }
+                  prev = branch_stack.top();
                 }
                 break;
 
               // no contractions possible, we pop the stack
               default:
-                prev = return_open_branch(branch_stack);
+                branch_stack.pop();
+                if(branch_stack.empty()){
+                  fprintf(stderr,"Error: popping an empty branch\n");
+                  Fatal(i);
+                }
+                prev = branch_stack.top();
                 break;
             }
 
@@ -4575,13 +4590,17 @@ struct BabelGraph{
       OpenBabel::OBAtom *par_atom = babel_atom_lookup[parent_id];
 
       WLNEdge *e = 0;
-
+      
       if(parent->bonds){
         
         for (e = parent->bonds;e;e = e->nxt){
           
+  
           WLNSymbol *child = e->child;
-          
+
+          if(!child)
+            fprintf(stderr,"ehh?\n");
+
           unsigned int bond_order = e->order;  
     
           unsigned int child_id = index_lookup[child];
