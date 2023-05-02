@@ -2882,21 +2882,14 @@ struct WLNGraph
         else{
           on_locant = '\0';
 
-          if(pending_diazo){
-              // do a hydroxy transform here
-              
-            curr = prev; // might be overkill 
-            curr->set_edge_and_type(4);
-
-            if(!add_diazo(curr))
-              Fatal(i-1);
-              
-            curr->ch = ch;
-            pending_diazo = false;
-          }
-          
           curr = AllocateWLNSymbol('C');
           curr->set_edge_and_type(4);
+
+          if(pending_diazo){
+            if(!add_diazo(curr))
+              Fatal(i-1);
+            pending_diazo = false;
+          }
 
           if(prev){
             edge = AllocateWLNEdge(curr,prev);
@@ -2940,31 +2933,27 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
-          if(pending_diazo){
-            curr = prev; 
-            curr->set_edge_and_type(3);
+          
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(3);
 
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-              
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(3);
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(!edge)
-                Fatal(i);
 
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(!edge)
+              Fatal(i);
+
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
             }
           }
-
+          
           branch_stack.push(curr);
 
           string_positions[i] = curr;
@@ -2985,31 +2974,27 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
-          if(pending_diazo){
-            curr = prev; 
-            curr->set_edge_and_type(4);
+          
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(4);
 
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-              
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(4);
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(!edge)
-                Fatal(i);
 
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(!edge)
+              Fatal(i);
+
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
             }
           }
-
+          
           branch_stack.push(curr);
           string_positions[i] = curr;
           prev = curr;
@@ -3053,8 +3038,6 @@ struct WLNGraph
 
           curr = AllocateWLNSymbol(ch);
           curr->set_edge_and_type(2);
-
-          branch_stack.push(curr);
 
           if(prev){
             edge = AllocateWLNEdge(curr,prev);
@@ -3218,21 +3201,9 @@ struct WLNGraph
             if(!add_diazo(prev))
               Fatal(i);
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(2);
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
-              if(!edge)
-                Fatal(i);
-            }
+          else
             pending_diazo = true;
-          }
-
+          
           string_positions[i] = curr;
           pending_unsaturate = 0;
           prev = curr;
@@ -3269,33 +3240,27 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
-          if(pending_diazo){
-        
-            curr = prev;
-            curr->set_edge_and_type(4); // 'x-NW' is allowed 
+          
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(3);
 
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-            
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(3);
 
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
 
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
-              if(!edge)
-                Fatal(i);
-              }
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
             }
-         
+            if(!edge)
+              Fatal(i);
+          }
+          
           branch_stack.push(curr);
 
           string_positions[i] = curr;
@@ -3384,30 +3349,27 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
-          if(pending_diazo){
-            curr = prev; 
-            curr->set_edge_and_type(5);
+          
+     
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(4);
 
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-              
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(4);
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
-              if(!edge)
-                Fatal(i);
-            }
-          }
 
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            if(!edge)
+              Fatal(i);
+          }
+          
           branch_stack.push(curr);
           string_positions[i] = curr;
           prev = curr;
@@ -3557,30 +3519,27 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
-          if(pending_diazo){
-            curr = prev; 
-            curr->set_edge_and_type(3);
+    
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(3);
 
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-              
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(3);
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
-            
-              if(!edge)
-                Fatal(i);
-            }         
-          }
+
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+          
+            if(!edge)
+              Fatal(i);
+          }         
+          
 
           branch_stack.push(curr);
           string_positions[i] = curr;
@@ -3617,31 +3576,27 @@ struct WLNGraph
         {
           on_locant = '\0';
 
-          if(pending_diazo){
-            curr = prev; 
-            curr->set_edge_and_type(6); // might be overkill 
 
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(6);
+
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-            
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(6);
 
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
-          
-              if(!edge)
-                Fatal(i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
             }
+        
+            if(!edge)
+              Fatal(i);
           }
+          
 
           branch_stack.push(curr);
           string_positions[i] = curr;
@@ -3678,32 +3633,25 @@ struct WLNGraph
         {
           on_locant = '\0';
 
-          if(pending_diazo){
-            curr = prev; 
-            curr->set_edge_and_type(4); 
+          curr = AllocateWLNSymbol(ch);
+          curr->set_edge_and_type(4);
 
+          if(pending_diazo){
             if(!add_diazo(curr))
               Fatal(i-1);
-            
-            curr->ch = ch;
             pending_diazo = false;
           }
-          else{
-            curr = AllocateWLNSymbol(ch);
-            curr->set_edge_and_type(4);
 
-            if(prev){
-              edge = AllocateWLNEdge(curr,prev);
-              if(pending_unsaturate){
-                edge = unsaturate_edge(edge,pending_unsaturate);
-                pending_unsaturate = 0;
-              }
-          
-              if(!edge)
-                Fatal(i);
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
             }
+            if(!edge)
+              Fatal(i);
           }
-
+        
           branch_stack.push(curr);
           string_positions[i] = curr;
           prev = curr;
@@ -3777,16 +3725,17 @@ struct WLNGraph
           curr = AllocateWLNSymbol(ch);
           curr->set_edge_and_type(1);
 
-          // will add with more examples
-          switch(prev->ch){
-            case 'Z':
-              charge_additions[prev]++;
-              break;
-            default:
-              break;
-          }
-
+          
           if(prev){
+            // will add with more examples
+            switch(prev->ch){
+              case 'Z':
+                charge_additions[prev]++;
+                break;
+              default:
+                break;
+            }
+
             edge = AllocateWLNEdge(curr,prev);
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
@@ -3797,9 +3746,8 @@ struct WLNGraph
           }
 
           string_positions[i] = curr;
-          prev = return_open_branch(branch_stack);
-          if(!prev)
-            prev = curr;
+          curr = prev;
+          // dont update for H
         }
         break;
 
@@ -4179,6 +4127,7 @@ struct WLNGraph
           if(!found_next)
             pending_inline_ring = true;
           else{
+
             if(gap == 1){
               curr = define_hypervalent_element(special[0]);
               if(!curr)
@@ -4194,11 +4143,24 @@ struct WLNGraph
               Fatal(i);
             }
 
+            if(pending_diazo){
+              if(!add_diazo(curr))
+                Fatal(i-1);
+              pending_diazo = false;
+            }
+
+            
             if(prev){
-              edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+              if(!gap && ring)
+                edge = AllocateWLNEdge(ring->locants[prev->ch],prev);
+              else
+                edge = AllocateWLNEdge(curr,prev);
+
               if(!edge)
                 Fatal(i);
             }
+
+            branch_stack.push(curr);
 
             i+= gap+1;
             wln_ptr+= gap+1;

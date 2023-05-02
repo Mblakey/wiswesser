@@ -20,7 +20,7 @@ while read p; do
   if [[ "$SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
   else
-  	echo "$SMILES - $NEW_SMILES"
+  	echo "$WLN != $SMILES"
   fi;
 
 done <$SMITH
