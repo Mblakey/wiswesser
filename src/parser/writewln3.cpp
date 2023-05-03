@@ -258,6 +258,11 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
 }
 
 WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
+  if(!child || !parent){
+    fprintf(stderr,"Error: searching edge on nullptrs\n");
+    return 0;
+  }
+  
   WLNEdge *edge = 0;
   for (edge=parent->bonds;edge;edge = edge->nxt){
     if(edge->child == child)
@@ -286,6 +291,24 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n){
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
     return 0;
   }
+
+  return edge;
+}
+
+WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
+  if(!edge){
+    fprintf(stderr,"Error: saturating non-existent edge\n");
+    return 0;
+  }
+
+  if(edge->order < 2){
+    fprintf(stderr,"Error: trying to saturate a single bond\n");
+    return 0;
+  }
+
+  edge->order -= n; 
+  edge->parent->num_edges -= n;
+  edge->child->num_edges -= n;
 
   return edge;
 }
@@ -1193,19 +1216,24 @@ struct WLNRing
   }
 
   bool assign_aromatics(std::deque<unsigned char> &ring_path){
+    std::map<WLNSymbol*, bool> assigned; 
+
+    for (unsigned int i=1;i<ring_path.size();i++){
     
-    if (ring_path.size() % 2 ==0){
-      for (unsigned int i=1;i<ring_path.size();i+=2){
-        fprintf(stderr,"%c %c\n",ring_path[i-1],ring_path[i]);
+      WLNSymbol *par = locants[ring_path[i-1]];
+      WLNSymbol *chi = locants[ring_path[i]];
 
-        WLNSymbol *par = locants[ring_path[i-1]];
-        WLNSymbol *chi = locants[ring_path[i]];
+      // cannot have double bonds following each other
+      if(assigned[par] || assigned[chi])
+        continue;
 
-        if(par->num_edges < par->allowed_edges && chi->num_edges < chi->allowed_edges){
-          WLNEdge * edge = search_edge(chi,par);
-          if(!unsaturate_edge(edge,1))
-            return false;
-        }
+      if(par->num_edges < par->allowed_edges && chi->num_edges < chi->allowed_edges){
+        assigned[par]  = true;
+        assigned[chi]  = true;
+
+        WLNEdge * edge = search_edge(chi,par);
+        if(!unsaturate_edge(edge,1))
+          return false;
       }
     }
 
@@ -1213,8 +1241,9 @@ struct WLNRing
   }
 
 
-  /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build */
-  bool CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+  /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build
+  return the size of the ring, or zero if failure */
+  unsigned int CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                         std::vector<bool> &aromaticity,
                         std::map<unsigned char,bool> &bridge_locants)
     {
@@ -1325,12 +1354,12 @@ struct WLNRing
       fuses++;
     }
 
-    return true; 
+    return local_size; 
   }
 
 
   /* interesting here that the multicyclic points are not explicitly used */
-  bool CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+  unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                           std::vector<bool> &aromaticity,
                           std::vector<unsigned char> &multicyclic_locants,
                           std::vector<indexed_pair> &pseudo_locants,
@@ -1631,7 +1660,7 @@ struct WLNRing
     }
 
 
-    return true; 
+    return local_size; 
   }
 
   unsigned int FindAromatics(const char *wln_ptr, unsigned int len){
@@ -1691,7 +1720,8 @@ struct WLNRing
     std::string special;  
 
     std::vector<bool> aromaticity; 
-    std::vector<std::pair<unsigned char, unsigned char>>  bond_increases; 
+    std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
+    std::vector<std::pair<unsigned char, unsigned char>>  saturations; 
 
     std::vector<unsigned char>  pseudo_locants;
     std::vector<unsigned int>   pseudo_positions; 
@@ -2148,12 +2178,12 @@ struct WLNRing
               case 'U':
                 // no need to put this in implied, it has to be specified
                 if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
-                  bond_increases.push_back({positional_locant,block[i+3]});
+                  unsaturations.push_back({positional_locant,block[i+3]});
                   block_str += 3;
                   i += 3;
                 }
                 else
-                  bond_increases.push_back({positional_locant,positional_locant+1});
+                  unsaturations.push_back({positional_locant,positional_locant+1});
                 break;
 
               case 'W':
@@ -2167,6 +2197,13 @@ struct WLNRing
                 if(!add_diazo(locants[positional_locant]))
                   Fatal(i+start);
                 break;
+
+              // has the effect of unsaturating a bond
+              case 'H':
+                // no need to put this in implied, it has to be specified
+                saturations.push_back({positional_locant,positional_locant+1});
+                break;
+
 
               default:
                 fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
@@ -2265,11 +2302,14 @@ struct WLNRing
                   break;
 
                 case 'U':
-
-                  if(i < len )
-                  
-                  bond_increases.push_back({positional_locant,positional_locant+1});
+                  unsaturations.push_back({positional_locant,positional_locant+1});
                 break;
+
+                  // has the effect of unsaturating a bond
+                case 'H':
+                  // no need to put this in implied, it has to be specified
+                  saturations.push_back({positional_locant,positional_locant+1});
+                  break;
 
                 default:
                   fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
@@ -2478,8 +2518,7 @@ struct WLNRing
           break;
 
         default:
-          // these can only be expanded chars
-          fprintf(stderr,"WARNING: SWITCH UNCLOSED\n");
+          break;
       }
       
       i++;
@@ -2543,14 +2582,14 @@ struct WLNRing
       fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
     }
     
-    bool state = true;
+    unsigned int final_size = 0;
     switch(ring_type){
       case POLY:
-        state = CreatePolyCyclic(ring_components,aromaticity,bridge_locants);
+        final_size = CreatePolyCyclic(ring_components,aromaticity,bridge_locants);
         break;
       case PERI:
       case PSDBRIDGED:
-        state = CreateMultiCyclic(ring_components,aromaticity,
+        final_size = CreateMultiCyclic(ring_components,aromaticity,
                                   multicyclic_locants,indexed_bindings,
                                   broken_locants,
                                   bridge_locants,
@@ -2558,15 +2597,41 @@ struct WLNRing
       break;
     }
 
-    if (!state)
+    if (!final_size)
       Fatal(start+i);
+    
 
-    for (std::pair<unsigned char, unsigned char> bond_pair : bond_increases){
-      WLNEdge *increase_edge = search_edge(locants[bond_pair.second],locants[bond_pair.first]);
+
+    // post unsaturate bonds
+    for (std::pair<unsigned char, unsigned char> bond_pair : unsaturations){
+      unsigned char loc_1 = bond_pair.first;
+      unsigned char loc_2 = bond_pair.second;
+      if(loc_2 > int_to_locant(final_size)){
+        loc_1 = 'A';
+        loc_2--;
+      }
+
+      WLNEdge *increase_edge = search_edge(locants[loc_2],locants[loc_1]);
       increase_edge = unsaturate_edge(increase_edge,1);
       if(!increase_edge)
-        Fatal(start+i);
+        Fatal(start+i-1);
     }
+
+    // post saturate bonds
+    for (std::pair<unsigned char, unsigned char> bond_pair : saturations){
+      unsigned char loc_1 = bond_pair.first;
+      unsigned char loc_2 = bond_pair.second;
+      if(loc_2 > int_to_locant(final_size)){
+        loc_1 = 'A';
+        loc_2--;
+      }
+
+      WLNEdge *decrease_edge = search_edge(locants[loc_2],locants[loc_1]);
+      decrease_edge = saturate_edge(decrease_edge,1);
+      if(!decrease_edge)
+        Fatal(start+i-1);
+    }
+
   }
 
 };
