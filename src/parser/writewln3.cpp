@@ -262,6 +262,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
   return edge;
 }
 
+
 WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent, bool verbose=true){
   if(!child || !parent){
     fprintf(stderr,"Error: searching edge on nullptrs\n");
@@ -1459,6 +1460,9 @@ struct WLNRing
           WLNSymbol *broken = assign_locant(loc_broken,'C');
           broken->set_edge_and_type(4,RING);
           broken_lookup[parent].push_back(loc_broken);
+          WLNEdge *edge = AllocateWLNEdge(locants[loc_broken],locants[parent]);
+          if(!edge)
+            return false; 
         }
         else{
           fprintf(stderr,"Error: branching locants are overlapping created elements already in the locant path\n");
@@ -1481,25 +1485,10 @@ struct WLNRing
       bind_1 = component.second;
       aromatic = aromaticity[i];
       WLNSymbol *path = locants[bind_1];
-
-      std::deque<unsigned char> ring_path; 
+      
       unsigned int predefined = 1;
-      unsigned char spawn_broken = '\0';
-      unsigned char par_broken = '\0';
-
-      // handle bridging bind_1 points
-      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
-        bind_1++;
-        path = locants[bind_1];
-      }
-
-      // small algorithm change here 
-   
-      while(shared_rings[bind_1] >= 2){
-        predefined++;
-        bind_1++;
-        ring_path.push_back(bind_1);
-      }
+      std::deque<unsigned char> ring_path; 
+      
       
       // --- PSD BRIDGE ONLY ---
       if(!pseudo_lookup[i].empty()){
@@ -1551,7 +1540,32 @@ struct WLNRing
         fuses++;
         continue;      
       }
+
+      // handle bridging bind_1 points
+      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+        bind_1++;
+        path = locants[bind_1];
+      }
+
+      // bind_1 is alterered up here rather than after the parse, much more sensible
       
+      while(shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty()){
+        predefined++;
+        bind_1++;
+        ring_path.push_back(bind_1);
+      }
+
+      while(!broken_lookup[bind_1].empty()){
+        predefined++;
+        unsigned char bloc = broken_lookup[bind_1].front();
+        broken_lookup[bind_1].pop_front();
+        bind_1 = bloc;
+        ring_path.push_back(bind_1);
+
+        fprintf(stderr,"pushing %d\n",bind_1);
+      }
+
+
       // --- MULTI ALGORITHM --- 
       
       ring_path.push_back(locants_ch[path]);
@@ -1565,6 +1579,10 @@ struct WLNRing
         for(lc = path->bonds;lc;lc = lc->nxt){
           WLNSymbol *child = lc->child;
           unsigned char child_loc = locants_ch[child];
+
+          // skip the broken child is no children?
+          if(child_loc > 128 && !child->bonds)
+            continue;
 
           if(child_loc >= highest_loc)
             highest_loc = child_loc;
@@ -1599,7 +1617,6 @@ struct WLNRing
         ring_path.push_back(bind_2);
       }
 
-
       if(opt_debug){
         fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
         for (unsigned char ch : ring_path){
@@ -1616,7 +1633,6 @@ struct WLNRing
       if(!edge)
         return false;
       
-        
       if(aromatic){
         if(!assign_aromatics(ring_path))
           return false;
