@@ -226,7 +226,7 @@ L66TJ	C12CCCCC1CCCC2
 L66J	c12ccccc1cccc2	
 T56 CMJ	[nH]1cc2c(c1)cccc2	
 T56 BOJ	o1c2c(cc1)cccc2	
-T55 AN DM DN TJ	N12N(NCC1)CCC2	
+T55 AN DM DNTJ	N12N(NCC1)CCC2	
 T55 AK DM DN FNJ	[N+]12=CCN[N]1=NC=C2	
 L56 BHJ	C12=CC=CC1=CC=CC2	
 L66J CVQ	c12cc(ccc1cccc2)C(=O)O	
@@ -260,3 +260,23 @@ L B656 HVJ ENW KG	C1(=O)c2c(-c3c1cc(cc3)Cl)ccc(c2)[N](=O)[O-]
 T I5 F6 D6 C665 JO VOJ	o1[c]2[cH][cH][c]3[cH][c]4[c]5cc6c(occ6)c[c]5[cH][cH][c]4[cH][c]3[c]2cc1		
 T C666 BK ISJ B2N1&1	[N+]1(=c2c(=[S]c3c1cccc3)cccc2)CCN(C)C	
 T C666 BNJ B2N1&1	[N]1(=c2c(=Cc3c1cccc3)cccc2)CCN(C)C	
+T C666 BKJ B1 EZ MZ &GH &G	[n+]1([c]2[c]([cH][c]3[c]1[cH][c]([cH][cH]3)N)ccc(c2)N)C.Cl.[Cl-]	
+L B5 G566J	C12C3=CC=CC3C3=CC=CC3=C1C=CC=C2	
+T D6 B666 KN&TT&J	N12C(c3c(CC2)cccc3)Cc2ccccc2C1	
+L E5 B666 OV MUTJ A1 E1	C1(=O)C=C2C(C3CCC4(CCCC4C3CC2)C)(CC1)C	
+L C666 BV IVJ D1Q GQ KQ	C1(=O)c2c(C(=O)c3c1c(ccc3O)CO)c(ccc2)O	
+L F6 E6 B666 BUTJ F1 IQ J1 J1 N1 O1 R1 U1 U1	C12C3=CCC4C5(CCC(C(C5CCC4(C3(CCC1(CCC(C2)(C)C)C)C)C)(C)C)O)C	
+T C6 B566 LO&TT&J EQ FQ JQ OQ	O1CC2(C(c3c1cc(cc3)O)c1cc(c(cc1C2)O)O)O	
+L566 1A LJ	c12c3C=Cc1cccc2ccc3	
+L666 B6 2AB PJ	c12c3c4ccc1cccc2ccc3ccc4	
+L C6665 1A PJ	c12c3c4ccccc4cc1cccc2C=C3	
+T666 B6 C6 3ABC S KMJ	N1c2c3c4c5c(cc3ccc2)cccc5ccc4=C1	
+L C6566 O6 U6 N5 2AO C&J	c12c3c4ccccc4c1cccc2c1c2c3cccc2c2ccccc12	
+L C6666 P6 W6 O6 2AP E&-&&&TTTTJ	c12c3c4ccccc4cc1cccc2C1C2C3CCCC2CC2CCCCC12	
+L666 N6 B6 R6 Q6 4ABRS C&J	c12c3c4-c5c6c(C3C=Cc2cccc1cc4)ccc1c6c(cc5)C=CC1	
+L F6 D6 B6 P6666 2AB E&J	[c]12[c]3[c]4c5cc6ccccc6cc5cc3c3ccccc3[c]1[cH][cH][cH][c]2[cH][cH]4	
+T G6 E6 B6666 C6 3ABC D& FN MN WHJ	[n]1[c]2C3C4=C5C6C(=CC=C5[c]2[n][c]2[c]1[cH][cH][cH][cH]2)C=CC=C6CC4C=CC3	
+L D66 K666 1A U EHJ	C12=C3Cc4ccccc4C1c1ccccc1C=C2C=CC3	
+T D6 C6666 B6 T6 5ABCDU B& MOJ	O1[c]2[c]3c4c5c1cccc5cc1c4c([c]4[c]3[c]([cH][cH][cH]4)[cH][cH]2)ccc1	
+L E6 C6666 T6 S6 2AT E&J	c12c3c4cc5ccccc5cc4cc1cccc2c1c2c3cccc2ccc1	
+T F6 C6 B5 O6666 D6 4ABCD F& MSJ	[S]1=C2c3c4c5c(-c6c(C14)cccc6)cccc5c1c3C(c3ccccc23)CC=C1	

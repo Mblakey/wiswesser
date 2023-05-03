@@ -262,7 +262,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
   return edge;
 }
 
-WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
+WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent, bool verbose=true){
   if(!child || !parent){
     fprintf(stderr,"Error: searching edge on nullptrs\n");
     return 0;
@@ -273,7 +273,8 @@ WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
     if(edge->child == child)
       return edge;
   }
-  fprintf(stderr,"Error: could not find edge in search\n");
+  if(verbose)
+    fprintf(stderr,"Error: could not find edge in search\n");
   return 0;
 }
 
@@ -1256,7 +1257,10 @@ struct WLNRing
       if(par->num_edges < par->allowed_edges && chi->num_edges < chi->allowed_edges){
         assigned[par]  = true;
         assigned[chi]  = true;
-        WLNEdge * edge = search_edge(chi,par);
+        WLNEdge * edge = search_edge(chi,par,false);
+        if(!edge){
+          edge = search_edge(par,chi);
+        }
         if(!unsaturate_edge(edge,1))
           return false;
       }
@@ -1396,7 +1400,11 @@ struct WLNRing
     
     // create a chain size of ring designator
     unsigned int local_size = locant_to_int(size_designator);
-    std::map<unsigned char, unsigned int> rings_shared;
+
+
+    std::map<unsigned int,std::vector<indexed_pair>> pseudo_lookup;
+    std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
+    std::map<unsigned char,unsigned int> shared_rings; 
   
     // create all the nodes in a large straight chain
     WLNSymbol *curr = 0; 
@@ -1418,24 +1426,12 @@ struct WLNRing
       prev = curr;
     }
 
-
-    // have these as indexed lookups in the component pass
-
-    // kick back if pairs are occupying the same index
-    std::map<unsigned int,std::vector<indexed_pair>> pseudo_lookup;
-    for (indexed_pair psd_pair : pseudo_locants){
+    // pseudo pairs
+    for (indexed_pair psd_pair : pseudo_locants)
       pseudo_lookup[psd_pair.index].push_back(psd_pair);
-    }
+    
 
-    // bind the broken locant to its parents character 'J- will bond to 'J'
-
-    // broken locants have an intergration marker, they can only be considered in 
-    // the path after all prior rings have been evaulated to that point
-
-    // parent -> all dead ends, e.g 'B' --> {B-, B-&, B--, B--&}
-    std::map<unsigned char,std::deque<unsigned char>> broken_lookup;
-    std::map<unsigned char,bool>                       resolved;
-
+    // broken locants
     if(!broken_locants.empty()){
       // create the atoms, 
       for (unsigned char loc_broken : broken_locants){
@@ -1445,9 +1441,7 @@ struct WLNRing
           calculate_origin += -23;
           pos++;
         }
-
         // position here decodes where to link them
-
         unsigned char parent = '\0';
         parent = int_to_locant(128 + calculate_origin); // relative positioning
         if(pos == 2 || pos == 3)
@@ -1457,16 +1451,14 @@ struct WLNRing
           return false;
         }
 
-        if(opt_debug){
-          fprintf(stderr,"  ghost linking %d to parent %d\n",loc_broken,parent);
-        }
-
+        if(opt_debug)
+          fprintf(stderr,"  ghost linking %d to parent %c\n",loc_broken,parent);
+        
         if(!locants[loc_broken]){
+          // bond them in straight away
           WLNSymbol *broken = assign_locant(loc_broken,'C');
           broken->set_edge_and_type(4,RING);
-
           broken_lookup[parent].push_back(loc_broken);
-          resolved[loc_broken] = false;
         }
         else{
           fprintf(stderr,"Error: branching locants are overlapping created elements already in the locant path\n");
@@ -1482,8 +1474,6 @@ struct WLNRing
     unsigned int fuses = 0; 
     bool aromatic = false;
 
-    // init the shared map
-    std::map<unsigned char,unsigned int> shared_rings; 
 
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
@@ -1494,18 +1484,24 @@ struct WLNRing
 
       std::deque<unsigned char> ring_path; 
       unsigned int predefined = 1;
+      unsigned char spawn_broken = '\0';
+      unsigned char par_broken = '\0';
 
-       // handle bridging bind_1 points
+      // handle bridging bind_1 points
       while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
         bind_1++;
         path = locants[bind_1];
       }
 
-      if(path->num_edges > 2)
+      // small algorithm change here 
+   
+      while(shared_rings[bind_1] >= 2){
         predefined++;
-
-      // GIVEN PSD BRIDGE LOCANTS ONLY
+        bind_1++;
+        ring_path.push_back(bind_1);
+      }
       
+      // --- PSD BRIDGE ONLY ---
       if(!pseudo_lookup[i].empty()){
         indexed_pair psd_pair = pseudo_lookup[i].front(); // should only be 1
         
@@ -1575,7 +1571,6 @@ struct WLNRing
         }
 
         if(!highest_loc){
-          
           if(locant_to_int(locants_ch[path]) == local_size)
             highest_loc = locants_ch[path];
           else{
@@ -1590,68 +1585,11 @@ struct WLNRing
 
       bind_2 = highest_loc; 
 
-      if(locants[bind_1]->num_edges > 2){
-        bool shift = true;
-        if(!broken_lookup[bind_1].empty()){
-          // check if maxed out, if so - shift as standard
-          for (unsigned char extra :broken_lookup[bind_1]){
-            if(locants[extra]->num_edges < 3){
-              shift = false;
-              break;
-            }
-          }
-        }
-
-        if(shift){
-          fprintf(stderr,"HERE?\n");
-          bind_1 += 1; // handles all normal  multicyclic denototions , bridge forces shift
-          while(locants[bind_1]->num_edges > 2 || (bridge_locants[bind_1] && locants[bind_1]->num_edges >=2)){
-            bind_1 += 1;
-          }
-          ring_path.push_front(bind_1);
-        }
-
-      }
-
-      // check are we going to make this a multi point with a look up?
-      // use edges in this case as branching locants are spawned?
-      if(locants[bind_1]->num_edges >= 2 && !broken_lookup[bind_1].empty()){
-        
-        // while loop allows multiple decends if needed
-        while(!broken_lookup[bind_1].empty()){
-          
-          WLNSymbol *broken = 0;
-          for (unsigned int k=0;k<broken_lookup[bind_1].size();k++){
-            broken = locants[broken_lookup[bind_1].at(k)];
-            if(!resolved[broken_lookup[bind_1].at(k)]){
-              resolved[broken_lookup[bind_1].at(k)] = true;
-              break;
-            }
-              
-          }
-
-          WLNEdge *edge = AllocateWLNEdge(broken,locants[bind_1]);
-          if(!edge)
-            return false;
-
-          // since we've added a symbol to path we need to push and pop
-          ring_path.push_front(locants_ch[broken]);
-          bind_1 = locants_ch[broken];
-        }
-
-        while(ring_path.size() > comp_size)
-          ring_path.pop_back();
-      
-        // the new path should be set
-        bind_1 = ring_path.front();
-        bind_2 = ring_path.back();
-      }
-
 
       // annoying catch needed for bridge notation that is 'implied' 
       if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
         unsigned char back = ring_path.back();
-        while(back < int_to_locant(local_size)){
+        while(back < int_to_locant(local_size) && !ring_path.empty()){
           back++;
           ring_path.pop_front();
         }
@@ -1670,17 +1608,19 @@ struct WLNRing
         fprintf(stderr," ]\n");
       }
 
+      // updates the shared rings approach -> paths must MUST be exact for this to work
       for (unsigned char ch : ring_path)
         shared_rings[ch]++;    
       
       WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
       if(!edge)
         return false;
+      
         
-      // if(aromatic){
-      //   if(!AssignAromatics(ring_path))
-      //     return false;
-      // }
+      if(aromatic){
+        if(!assign_aromatics(ring_path))
+          return false;
+      }
 
       fuses++;
     }
@@ -1688,24 +1628,6 @@ struct WLNRing
 
     return local_size; 
   }
-
-  unsigned int FindAromatics(const char *wln_ptr, unsigned int len){
-    int i = 0;
-    for(i=len-1;i>-1;i--){
-      unsigned char ch = wln_ptr[i];
-      if(ch == 'J')
-        continue;
-      else if(ch == 'T')
-        continue;
-      else if(ch == '&')
-        continue;
-      else if(ch == '-')
-        return i; // this so we can ignore it in the notation 
-      else 
-        break;
-    }
-    return i+1;
-  };
 
 
   unsigned char create_relative_position(unsigned char parent){
@@ -1738,10 +1660,11 @@ struct WLNRing
     unsigned int state_aromatics      = 0;
     bool implied_assignment_used      = 0; // allows a shorthand if wanted, but not mixing
    
-    unsigned int expected_locants     = 0;
+    unsigned int expected_locants       = 0;
     unsigned int  evaluating_break      = 0;
     unsigned char ring_size_specifier   = '\0';
     unsigned char positional_locant     = '\0';
+    unsigned int last_locant_position   = 0;
 
     std::string special;  
 
@@ -1765,15 +1688,10 @@ struct WLNRing
     unsigned int i = 0; 
     const char *block_str = block.c_str();    
     unsigned int len = block.size();
-    unsigned int aromatic_position = FindAromatics(block_str,len); // should be a copy so no effect on pointer
-
     unsigned char ch = *block_str++;
 
 
     while(ch){
-
-      if(i >= aromatic_position)
-        state_aromatics = 1;
 
       switch(ch){
 
@@ -1815,21 +1733,19 @@ struct WLNRing
             ring_size_specifier += 23;
           }
           else if(positional_locant){
+            
             // can only be an extension of a positional multiplier for a branch
-            positional_locant += 23;
+            if (last_locant_position && last_locant_position == i-1)
+              positional_locant += 23;
+            else{
+              state_aromatics = 1;
+              aromaticity.push_back(1);
+            }
           }
           else{
-            if(ch > 252){
-              fprintf(stderr,"Error: creating molecule with atoms > 252, is this a reasonable for WLN?\n");
-              Fatal(i+start);
-            }
-
-            ch = block[i-1] + 23; 
-
-            if(positional_locant){
-              positional_locant = ch;
-              break;
-            }
+            // if unhandled, then it must be an aromatic start
+            state_aromatics = 1;
+            aromaticity.push_back(1);
           }
           break;
 
@@ -1852,9 +1768,6 @@ struct WLNRing
 
         // turn this into a look ahead type bias in order to significantly tidy this up
         case '-':{
-
-          if(state_aromatics)
-            break;
 
           // gives us a local working copy
           char local_arr [strlen(block_str)+1]; 
@@ -1891,12 +1804,14 @@ struct WLNRing
             // pointer is moved by 1 at the bottom, so its positions -1 
             switch(gap){
               case 0:
+
                 // we resolve only the first one
                 evaluating_break = 1; // on a space, number or character, we push to broken_locants
 
                 if(positional_locant){
                   if(positional_locant < 128){
                     positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
+                    last_locant_position = i;
                     if(!positional_locant)
                       Fatal(i+start);
                   }
@@ -1907,6 +1822,7 @@ struct WLNRing
                       Fatal(start+i);
                     }
                     positional_locant += 46;
+                    last_locant_position = i;
                     // no need to move the global pointer here
                   }
                 }
@@ -1990,13 +1906,17 @@ struct WLNRing
             }
 
           }
+          else if(i > 0 && block[i-1] == '&')
+            state_aromatics = 1;
           else{
+
             // if there wasnt any other symbol, it must be a notation extender
             evaluating_break = 1; // on a space, number or character, we push to broken_locants
 
             if(positional_locant){
               if(positional_locant < 128){
                 positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
+                last_locant_position = i;
                 if(!positional_locant)
                   Fatal(i+start);
               }
@@ -2007,6 +1927,7 @@ struct WLNRing
                   Fatal(start+i);
                 }
                 positional_locant += 46;
+                last_locant_position = i;
                 // no need to move the global pointer here
               }
             }
@@ -2237,7 +2158,7 @@ struct WLNRing
             string_positions[start+i] = new_locant;
           }
           else{
-            if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || i == aromatic_position -1) ){
+            if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ') ){
               if(ring_components.empty()){
                 fprintf(stderr,"Error: assigning bridge locants without a ring\n");
                 Fatal(start+i);
@@ -2247,6 +2168,7 @@ struct WLNRing
             }
             else if(i>0 && block[i-1] == ' '){
               positional_locant = ch;
+              last_locant_position = i;
             }
             else{
               implied_assignment_used = true;
@@ -2385,6 +2307,7 @@ struct WLNRing
           else{
             if(i>0 && block[i-1] == ' '){
               positional_locant = ch;
+              last_locant_position = i;
             }
             else{
               fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
@@ -2439,10 +2362,12 @@ struct WLNRing
           else{
             if(i>0 && block[i-1] == ' '){
               positional_locant = ch;
+              last_locant_position = i;
             }
             else{
-              fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
-              Fatal(i+start);
+              // this must be an aromatic state right?
+              state_aromatics = 1;
+              aromaticity.push_back(0);
             }
           }
             
@@ -2526,6 +2451,7 @@ struct WLNRing
           else{
             if(i>0 && block[i-1] == ' '){
               positional_locant = ch;
+              last_locant_position = i;
             }
             else{
               fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
