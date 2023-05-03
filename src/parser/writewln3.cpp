@@ -122,6 +122,11 @@ static void Fatal(unsigned int pos)
   exit(1);
 }
 
+template <typename T>
+static void empty_stack(std::stack<T> &stack){
+  while(!stack.empty())
+    stack.pop();
+}
 
 
 struct WLNEdge{
@@ -301,11 +306,9 @@ WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
     return 0;
   }
 
-  if(edge->order < 2){
-    fprintf(stderr,"Error: trying to saturate a single bond\n");
-    return 0;
-  }
-
+  if(edge->order < 2)
+    return edge;
+  
   edge->order -= n; 
   edge->parent->num_edges -= n;
   edge->child->num_edges -= n;
@@ -1223,19 +1226,42 @@ struct WLNRing
       WLNSymbol *par = locants[ring_path[i-1]];
       WLNSymbol *chi = locants[ring_path[i]];
 
+      if(i == 1){
+        switch(par->ch){
+          case 'N':
+            par->allowed_edges = 4;
+          break;
+          default:
+            break;
+        }
+      }
+
+      switch(chi->ch){
+        case 'N':
+          chi->allowed_edges = 4;
+        break;
+
+        default:
+          break;
+      }
+
       // cannot have double bonds following each other
       if(assigned[par] || assigned[chi])
+        continue;
+
+      // must have double bonds outside of the ring
+      if(par->ch == 'Y' || chi->ch == 'Y')
         continue;
 
       if(par->num_edges < par->allowed_edges && chi->num_edges < chi->allowed_edges){
         assigned[par]  = true;
         assigned[chi]  = true;
-
         WLNEdge * edge = search_edge(chi,par);
         if(!unsaturate_edge(edge,1))
           return false;
       }
     }
+    
 
     return true;
   }
@@ -1897,6 +1923,10 @@ struct WLNRing
                 }
                 // this can only be hypervalent element
                 if(positional_locant){
+                  
+                  if(locants[positional_locant])
+                    positional_locant++;
+
                   WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
                   if(!new_locant)
                     Fatal(i+start);
@@ -1905,8 +1935,6 @@ struct WLNRing
 
                   if(opt_debug)
                     fprintf(stderr,"  assigning hypervalent %c to position %c\n",special[0],positional_locant);
-
-                  positional_locant++; // allow inline definition
                 }
                 else{
                   fprintf(stderr,"Error: trying to assign element without starting point\n");
@@ -1935,6 +1963,10 @@ struct WLNRing
                 }
                 else{
                   if(positional_locant){
+
+                    if(locants[positional_locant])
+                      positional_locant++;
+                    
                     WLNSymbol* new_locant = assign_locant(positional_locant,define_element(special));  // elemental definition
                     if(!new_locant)
                       Fatal(i+start);
@@ -1943,8 +1975,6 @@ struct WLNRing
 
                     if(opt_debug)
                       fprintf(stderr,"  assigning element %s to position %c\n",special.c_str(),positional_locant);
-
-                    positional_locant++; // allow inline definition
                   }
                   else{
                     fprintf(stderr,"Error: trying to assign element without starting point\n");
@@ -2121,12 +2151,14 @@ struct WLNRing
                 new_locant->set_edge_and_type(5,RING);
                 break;
 
+              case 'X':
               case 'Y':
                 if(locants[positional_locant])
                   positional_locant++; 
                 new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edge_and_type(3,RING);
+                new_locant->set_edge_and_type(4,RING);
                 break;
+
               case 'N':
                 if(!heterocyclic)
                   warned = true;
@@ -2157,13 +2189,6 @@ struct WLNRing
                 new_locant->set_edge_and_type(2,RING);
                 break;
 
-              case 'X':
-                if(locants[positional_locant])
-                  positional_locant++; 
-
-                new_locant = assign_locant(positional_locant,ch);
-                new_locant->set_edge_and_type(4,RING);
-                break;
               case 'K':
                 if(!heterocyclic)
                   warned = true;
@@ -2245,12 +2270,13 @@ struct WLNRing
                   new_locant->set_edge_and_type(5,RING);
                   break;
 
+                case 'X':
                 case 'Y':
                   if(locants[positional_locant])
                     positional_locant++; 
 
                   new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edge_and_type(3,RING);
+                  new_locant->set_edge_and_type(4,RING);
                   break;
                 case 'N':
                   if(!heterocyclic)
@@ -2280,14 +2306,6 @@ struct WLNRing
 
                   new_locant = assign_locant(positional_locant,ch);
                   new_locant->set_edge_and_type(2,RING);
-                  break;
-
-                case 'X':
-                  if(locants[positional_locant])
-                    positional_locant++; 
-
-                  new_locant = assign_locant(positional_locant,ch);
-                  new_locant->set_edge_and_type(4,RING);
                   break;
 
                 case 'K':
@@ -2919,6 +2937,9 @@ struct WLNGraph
       {
 
       case '0': // cannot be lone, must be an addition to another num
+        if(pending_J_closure)
+          break;
+        
         fprintf(stderr,"Error: a lone zero mark is not allowed without positive numerals either side\n");
         Fatal(i);
         break;
@@ -4112,6 +4133,10 @@ struct WLNGraph
           prev = 0;
           curr = 0;
           pending_locant = false;
+          
+          empty_stack(branch_stack);
+          empty_stack(linker_stack);
+
         }
         else if(on_locant){
           curr->ch += 23;
@@ -4596,11 +4621,15 @@ struct BabelGraph{
 
         case 'Y':
           atomic_num = 6;
-          hcount = 1;
+          if(sym->type != RING)
+            hcount = 1;
           break;
 
         case 'N':
           atomic_num = 7;
+          if(sym->type == RING && sym->allowed_edges > 3)
+            sym->allowed_edges = 3;
+
           while(sym->num_edges < sym->allowed_edges){
             hcount++;
             sym->num_edges++;
@@ -4716,11 +4745,7 @@ struct BabelGraph{
         
         for (e = parent->bonds;e;e = e->nxt){
           
-  
           WLNSymbol *child = e->child;
-
-          if(!child)
-            fprintf(stderr,"ehh?\n");
 
           unsigned int bond_order = e->order;  
     
