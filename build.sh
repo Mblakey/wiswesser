@@ -24,8 +24,6 @@ then
     cd "$SCRIPT_DIR/src/openbabel/build"
     cmake ..
     make -j 10
-    export BABEL_LIBDIR="${SCRIPT_DIR}/../openbabel/build/lib/"
-
 else
     cd src
     git clone https://github.com/openbabel/openbabel.git
@@ -33,12 +31,17 @@ else
     cd "$SCRIPT_DIR/src/openbabel/build"
     cmake ..
     make -j 10
-    export BABEL_LIBDIR="${SCRIPT_DIR}/../openbabel/build/lib/"
 fi
 
 mkdir "$SCRIPT_DIR/src/parser/build"
 cd "$SCRIPT_DIR/src/parser/build"
 cmake ..
 make 
+
+echo ""
+echo "Please copy and paste this command:"
+echo ""
+echo "export BABEL_LIBDIR=${SCRIPT_DIR}/src/openbabel/build/lib/"
+echo ""
 
 exit 0
