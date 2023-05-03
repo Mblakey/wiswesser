@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 if ! command -v git &> /dev/null;then
@@ -20,7 +22,7 @@ fi
 
 if [ -d "$SCRIPT_DIR/src/openbabel" ] 
 then
-    mkdir "$SCRIPT_DIR/src/openbabel/build"
+    mkdir -p "$SCRIPT_DIR/src/openbabel/build"
     cd "$SCRIPT_DIR/src/openbabel/build"
     cmake ..
     make -j 10
@@ -33,15 +35,13 @@ else
     make -j 10
 fi
 
-mkdir "$SCRIPT_DIR/src/parser/build"
+mkdir -p "$SCRIPT_DIR/src/parser/build"
 cd "$SCRIPT_DIR/src/parser/build"
 cmake ..
 make 
 
 echo ""
-echo "Please copy and paste this command:"
-echo ""
-echo "export BABEL_LIBDIR=${SCRIPT_DIR}/src/openbabel/build/lib/"
-echo ""
-
+echo "Build successful - please run:" 
+echo "  source ./link.sh"
+echo "before using parser"
 exit 0
