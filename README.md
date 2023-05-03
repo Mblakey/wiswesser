@@ -40,7 +40,7 @@ By default conversion will be piped to stdout, if converting files, its recommen
 
 ### Unit Testing
 
-A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful coversions (expected 100%)
+A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (expected 100%)
 
 
 
