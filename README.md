@@ -11,9 +11,10 @@ on the release of this project, please see my local branch of babel for pre-rele
 
 ## Build
 
-run `build.sh` from the project directory, this will clone and build openbabel as well as linking
+run `./build.sh` from the project directory, this will clone and build openbabel as well as linking
 the library to the parser in cmake. 
 
+A prompt will then ask you to run `source ./link.sh` which sets the babel build directory in shell, this tends to be needed for linux, but if openbabel is already installed via brew on macos, you can safely ignore. 
 
 ## Usage
 
