@@ -1,7 +1,7 @@
 # WLN Parser out of Babel Build
 
 Wisswesser Line Notation Parser, covert WLN to smiles, inchi, mol files etc
-This is the developement for the WLN parser that will be added directly to OpenBabel, 
+This is the development for the WLN parser that will be added directly to OpenBabel, 
 on the release of this project, please see my local branch of babel for pre-release versions. 
 
 ## Requirements
@@ -18,7 +18,7 @@ A prompt will then ask you to run `source ./link.sh` which sets the babel build 
 
 ## Usage
 
-Command line utility `read-wln` should be created in the build directory of Parser. wisswesser can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
+Command line utility `read-wln` should be created in the build directory of Parser. This can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
 
 ```
 read-wln <options> 'string'
@@ -34,5 +34,13 @@ dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
 ```
 
 ### Output
-By default conversion will be piped to stdout, if converting files, its recommended piping the output to a file with '>'. 
+
+By default conversion will be piped to stdout, if converting files, its recommended piping the output to a file with '>'. All logging and debug information including fatal messages on unsuccesful conversion are sent to stderr. Babel Library information is also sent to stderr. 
+
+
+### Unit Testing
+
+A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful coversions (expected 100%)
+
+
 
