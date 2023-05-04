@@ -184,6 +184,7 @@ struct WLNSymbol
 };
 
 
+
 WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 {
 
@@ -386,7 +387,7 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size){
     return 0;
   }
     
-  head->ch = 'C';
+  head->ch = '1';
   head->set_edge_and_type(4);
 
   if(size == 1)
@@ -395,7 +396,7 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size){
   WLNEdge *edge = 0;
   WLNSymbol *prev = head;
   for(unsigned int i=0;i<size-1;i++){
-    WLNSymbol* carbon = AllocateWLNSymbol('C');
+    WLNSymbol* carbon = AllocateWLNSymbol('1');
     carbon->set_edge_and_type(4); // allows hydrogen resolve
     edge = AllocateWLNEdge(carbon,prev);
     prev = carbon;
@@ -2615,6 +2616,92 @@ WLNRing *AllocateWLNRing()
   return wln_ring;
 }
 
+// needs to be able to hold both a WLNSymbol and WLNRing for branch returns
+struct RingStack{  
+  std::vector<std::pair<WLNRing*,WLNSymbol*>> stack;
+  WLNRing   *ring;
+  WLNSymbol *branch;
+  unsigned int size;
+
+  RingStack(){
+    ring = 0;
+    branch = 0;
+    size = 0;
+  }
+
+  bool peek(){
+    if(!size){
+      fprintf(stderr,"Error: peeking empty ring stack\n");
+      return false;
+    }
+    else{
+      fprintf(stderr,"top: ring: %p   branch: %p\n",stack.back().first,stack.back().second);
+      return true;
+    }
+     
+  }
+
+  bool pop(){
+    stack.pop_back();
+    size--;
+
+    ring = 0;
+    branch = 0;
+
+    if(stack.empty()){
+      fprintf(stderr,"Error: popping empty ring stack\n");
+      return false;
+    }
+     
+    for (int i=size-1;i>-1;i--){
+      
+      if(!ring && stack[i].first)
+        ring = stack[i].first;
+      
+      if(!branch && stack[i].second)
+        branch = stack[i].second;        
+    }
+
+    return true; 
+  }
+
+  void push(std::pair<WLNRing*,WLNSymbol*> pair,bool verbose = false){
+    stack.push_back(pair);
+    if(pair.first)
+      ring = pair.first;
+
+    if(pair.second)
+      branch = pair.second;
+
+    if(verbose){
+      fprintf(stderr,"pushed: ring: %p    branch: %p\n",pair.first,pair.second);
+    }
+
+    size++;
+  }
+
+
+  bool empty(){
+    if (stack.empty())
+      return true;
+    else 
+      return false;
+  }
+
+  std::pair<WLNRing*,WLNSymbol*> & top(){
+    return stack.back();
+  }
+
+  // cleans branches
+  bool branch_avaliable(){
+    if(branch && branch->num_edges < branch->allowed_edges)
+      return true;
+    else
+      return false;
+  }
+
+};
+
 
 struct WLNGraph
 {
@@ -2681,18 +2768,10 @@ struct WLNGraph
 
 
   // this one pops based on bond numbers
-  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack, std::stack<WLNSymbol*> &linker_stack){
+  WLNSymbol *return_open_branch(std::stack<WLNSymbol *> &branch_stack){
      // only used for characters that can 'act' like a '&' symbol
     
     WLNSymbol *top = 0;
-    if (branch_stack.empty()){
-      if(!linker_stack.empty()){
-        return linker_stack.top();
-      }
-      else
-        return top;
-    }
-      
     while(!branch_stack.empty()){
       top = branch_stack.top();
       if(top->num_edges == top->allowed_edges)
@@ -2705,36 +2784,6 @@ struct WLNGraph
   }
 
 
-
-  /*  bonds a locant to the ring, returns the edge */
-  WLNEdge* assign_locant_to_ring(WLNSymbol *curr,unsigned int bond_modifier,std::stack<WLNRing *> &ring_stack)
-  {
-    if(!curr)
-      return 0;
-
-    // locant should be allocated already here
-    WLNRing *s_ring = 0;
-    WLNEdge *edge   = 0;
-
-    if (ring_stack.empty()){
-      fprintf(stderr, "Error: no rings to assign locants to\n");
-      return 0;
-    }
-    else
-      s_ring = ring_stack.top();
-
-    if (s_ring->locants[curr->ch]){
-      edge = AllocateWLNEdge(curr,s_ring->locants[curr->ch]);
-      if(bond_modifier)
-        edge = unsaturate_edge(edge,bond_modifier);
-    } 
-    else {
-      fprintf(stderr, "Error: assigning locant outside of ring\n");
-      return 0;
-    }
-
-    return edge; 
-  }
 
   /* backwards search for tentative ionic rule procedures */
   unsigned int search_ionic(const char *wln_ptr, unsigned int len,
@@ -2799,6 +2848,7 @@ struct WLNGraph
     return first_instance;
   }
 
+
   /* uses the global position map */
   bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges){
     if(charges.empty())
@@ -2822,15 +2872,6 @@ struct WLNGraph
   }
 
 
-  // performs standard sequence multiplers from a bind point
-  WLNSymbol *sequence_multiplier(WLNSymbol *prev,bool mirror,unsigned int n, std::string &sequence,unsigned int bond_ticks=0){
-    
-    // return the last symbol created
-    return 0;
-  }
-
-
-  
   /* returns the head of the graph, parse all normal notation */
   bool ParseWLNString(std::string wln_string) 
   {
@@ -2838,24 +2879,23 @@ struct WLNGraph
     if (opt_debug)
       fprintf(stderr, "Parsing WLN notation: %s\n",wln_string.c_str());
 
-    std::stack<WLNRing *>   ring_stack;   // access through symbol
+    RingStack               ring_stack;   // access to both rings and symbols
     std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
-    std::stack<WLNSymbol *> linker_stack; // used for branching ring systems
-    
+
     std::vector<std::pair<unsigned int, int>> ionic_charges;
     
     WLNSymbol *curr       = 0;
     WLNSymbol *prev       = 0;
     WLNEdge   *edge       = 0;
-    WLNEdge   *prev_edge  = 0;
+
     WLNRing   *ring       = 0;
+    WLNSymbol *open       = 0;
 
     bool pending_locant           = false;
     bool pending_J_closure        = false;
     bool pending_inline_ring      = false;
     bool pending_spiro            = false;
     bool pending_diazo            = false;
-    bool pending_fv_carbon        = false; // full valence carbon
     bool pending_linker           = false;
 
     unsigned char on_locant = '\0';
@@ -2941,7 +2981,7 @@ struct WLNGraph
         else{
           on_locant = '\0';
 
-          curr = AllocateWLNSymbol('C');
+          curr = AllocateWLNSymbol('1');
           curr->set_edge_and_type(4);
 
           if(pending_diazo){
@@ -2959,7 +2999,7 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
-            prev_edge = edge;
+            
           }
           
           std::string int_sequence;
@@ -3017,11 +3057,11 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
-            prev_edge = edge;
+            
           }
           
           branch_stack.push(curr);
-
+          ring_stack.push({0,curr});
           string_positions[i] = curr;
           pending_unsaturate = 0;
           prev = curr;
@@ -3059,10 +3099,11 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
-            prev_edge = edge;
+            
           }
           
           branch_stack.push(curr);
+          ring_stack.push({0,curr});
           string_positions[i] = curr;
           prev = curr;
         }
@@ -3080,9 +3121,12 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
-
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
+            
             curr = ring->locants[ch];
             if(!curr){
               fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3115,7 +3159,7 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
-            prev_edge = edge;
+            
           }
 
           string_positions[i] = curr;
@@ -3134,8 +3178,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3168,13 +3215,11 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-
-            prev_edge = edge;
           }
 
           string_positions[i] = curr;
           pending_unsaturate = 0;
-          prev = return_open_branch(branch_stack,linker_stack);
+          prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
         }
@@ -3191,8 +3236,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3224,7 +3272,6 @@ struct WLNGraph
             
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3244,8 +3291,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3293,8 +3343,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3331,13 +3384,11 @@ struct WLNGraph
             if(!edge)
               Fatal(i);
 
-            prev_edge = edge;
+            
           }
-
-
           
           branch_stack.push(curr);
-
+          ring_stack.push({0,curr});
           string_positions[i] = curr;
           pending_unsaturate = 0;
           prev = curr;
@@ -3354,8 +3405,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3387,7 +3441,7 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
           }
 
           string_positions[i] = curr;
@@ -3407,8 +3461,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3444,10 +3501,11 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
           }
           
           branch_stack.push(curr);
+          ring_stack.push({0,curr});
           string_positions[i] = curr;
           prev = curr;
         }
@@ -3463,8 +3521,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3497,12 +3558,12 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
           }
 
           string_positions[i] = curr;
           pending_unsaturate = 0;
-          prev = return_open_branch(branch_stack,linker_stack);
+          prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
         }
@@ -3523,8 +3584,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3557,12 +3621,12 @@ struct WLNGraph
             
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
           }
 
           string_positions[i] = curr;
           pending_unsaturate = 0;
-          prev = return_open_branch(branch_stack,linker_stack);
+          prev = return_open_branch(branch_stack);
           if(!prev)
             prev = curr;
         }
@@ -3580,8 +3644,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3616,11 +3683,12 @@ struct WLNGraph
           
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
           }         
           
 
           branch_stack.push(curr);
+          ring_stack.push({0,curr});
           string_positions[i] = curr;
           prev = curr;
         }
@@ -3637,8 +3705,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3674,11 +3745,12 @@ struct WLNGraph
         
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
           }
           
 
           branch_stack.push(curr);
+          ring_stack.push({0,curr});
           string_positions[i] = curr;
           prev = curr;
         }
@@ -3695,8 +3767,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3712,7 +3787,6 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
-          pending_fv_carbon = true;
 
           curr = AllocateWLNSymbol(ch);
           curr->set_edge_and_type(4);
@@ -3723,10 +3797,8 @@ struct WLNGraph
             pending_diazo = false;
           }
 
-          // carbon atoms designated this way must have a full valence, 
-          // so we have to look back at the previous edge
+          if(prev && i < len - 1){
 
-          if(prev){
             edge = AllocateWLNEdge(curr,prev);
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
@@ -3734,9 +3806,14 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+            
+            
           }
-        
+          else{
+            fprintf(stderr,"Error: 'C' carbon designation must be able to reach max valence without hydrogens\n");
+            Fatal(i);
+          }
+
           string_positions[i] = curr;
           prev = curr;
         }
@@ -3754,8 +3831,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3789,8 +3869,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3813,15 +3896,6 @@ struct WLNGraph
           
           if(prev){
             // will add with more examples
-            switch(prev->ch){
-              case 'Z':
-                charge_additions[prev]++;
-                prev->allowed_edges++;
-                break;
-              default:
-                break;
-            }
-
             edge = AllocateWLNEdge(curr,prev);
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
@@ -3829,7 +3903,18 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-            prev_edge = edge;
+
+            switch(prev->ch){
+              case 'Z':
+                charge_additions[prev]++;
+                prev->allowed_edges++;
+                break;
+              
+              default:
+                break;
+            }
+
+            
           }
 
           string_positions[i] = curr;
@@ -3851,8 +3936,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3866,7 +3954,10 @@ struct WLNGraph
           on_locant = ch;
         }
 
-        else if (pending_J_closure && ( (i<len-1 && wln[i+1] == ' ') || i == len -1))
+        else if (pending_J_closure 
+                && ( (i<len-1 && wln[i+1] == ' ' || wln[i+1] == '&') 
+                || i == len -1)
+                )     
         {
           block_end = i;
           
@@ -3874,7 +3965,7 @@ struct WLNGraph
           std::string r_notation = get_notation(block_start,block_end);
 
           ring->FormWLNRing(r_notation,block_start);
-          ring_stack.push(ring);
+          ring_stack.push({ring,0});
 
           block_start = 0;
           block_end = 0;
@@ -3898,7 +3989,7 @@ struct WLNGraph
                 }
                 if(!edge)
                   Fatal(i);
-                prev_edge = edge;
+                
               }
             }   
             else
@@ -3926,8 +4017,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3971,8 +4065,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -3992,7 +4089,7 @@ struct WLNGraph
 
           std::string r_notation = "L6J";
           ring->FormWLNRing(r_notation,i);
-          ring_stack.push(ring);
+          ring_stack.push({ring,0});
 
           curr = ring->locants['A'];
           if(prev){
@@ -4004,13 +4101,6 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
-
-            if(!branch_stack.empty() && prev == branch_stack.top()){
-              // its possible to return to this in another branch
-              linker_stack.push(prev);
-            }
-
-            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -4031,8 +4121,11 @@ struct WLNGraph
               fprintf(stderr,"Error: accessing locants without any rings\n");
               Fatal(i);
             }
-            else
-              ring = ring_stack.top();
+            else{
+              ring = ring_stack.ring;
+              if(!ring)
+                Fatal(i);
+            }
 
             curr = ring->locants[ch];
             if(!curr){
@@ -4062,24 +4155,14 @@ struct WLNGraph
           j_skips = false;
           break;
         }
-          
-        
         else if (pending_diazo){
           fprintf(stderr,"Error: diazo assignment followed by a space seperator is a disallowed bond type\n");
           Fatal(i);
         }
-        
-        if (pending_inline_ring)
-        {
-          // send the linker into its own stack
-          if (!branch_stack.empty() && (branch_stack.top()->num_edges < branch_stack.top()->allowed_edges))
-            linker_stack.push(branch_stack.top());
-        }
- 
-        // clear the branch stack betweek locants and ions
-        while (!branch_stack.empty())
-          branch_stack.pop();
-        
+
+        // if theres anything in the branch stack, add to the other
+        empty_stack(branch_stack); 
+
         pending_locant = true;
         break;
 
@@ -4107,25 +4190,23 @@ struct WLNGraph
           pending_locant = false;
           
           empty_stack(branch_stack);
-          empty_stack(linker_stack);
-
         }
         else if(on_locant){
           curr->ch += 23;
         }
+
+        // this is always a ring pop?
         else if(i < len - 1 && wln_string[i+1] == ' '){
 
           ring = 0;
-          if(!ring_stack.empty())
-            ring_stack.pop();
-          else{
+          if(!ring_stack.pop()){
             fprintf(stderr,"Error: popping too many rings, check '&' count\n");
             Fatal(i);
           }
           
-          if(!ring_stack.empty())
-            ring = ring_stack.top();
-          else{
+          ring = ring_stack.ring;
+
+          if(!ring){
             fprintf(stderr,"Error: popping too many rings, check '&' count\n");
             Fatal(i);
           }
@@ -4149,15 +4230,18 @@ struct WLNGraph
                     if(!add_methyl(prev))
                       Fatal(i);
 
-                    prev = return_open_branch(branch_stack,linker_stack);
+                    prev = return_open_branch(branch_stack);
                   }
                   else{ 
+
+                    if(branch_stack.top() == ring_stack.top().second)
+                      ring_stack.pop();
                     branch_stack.pop();
+
                     if(branch_stack.empty()){
                       // see if we can return to a linker?
-
-                      if(!linker_stack.empty())
-                        prev = linker_stack.top();
+                      if(ring_stack.branch)
+                        prev = ring_stack.branch;
                       else{
                         fprintf(stderr,"Error: popping an empty branch\n");
                         Fatal(i);
@@ -4170,11 +4254,15 @@ struct WLNGraph
 
                 // no contractions possible, we pop the stack
                 default:
+
+                  if(branch_stack.top() == ring_stack.top().second)
+                    ring_stack.pop();
                   branch_stack.pop();
+
                   if(branch_stack.empty()){
                     // see if we can return to a linker?
-                    if(!linker_stack.empty())
-                      prev = linker_stack.top();
+                    if(ring_stack.branch)
+                      prev = ring_stack.branch;
                     else{
                       fprintf(stderr,"Error: popping an empty branch\n");
                       Fatal(i);
@@ -4188,18 +4276,18 @@ struct WLNGraph
             }
             else{
               // means a closure is done, we return to the first avaliable symbol on the branch stack
-              prev = return_open_branch(branch_stack,linker_stack);
+              prev = return_open_branch(branch_stack);
             }
           }
           else if(!ring_stack.empty()){
-            ring = 0;
             ring_stack.pop();
-            if(!ring_stack.empty())
-              ring = ring_stack.top();
-            else{
-              fprintf(stderr,"Error: popping too many rings, check '&' count\n");
-              Fatal(i);
-            }
+            if(ring_stack.top().first)
+              ring = ring_stack.top().first;
+            else
+              prev = ring_stack.top().second; 
+              
+            // if i null prev here i can check this for a linker
+
           }
           else{
             fprintf(stderr,"Error: '&' punctuation outside of branching chains is disallowed notation\n");
@@ -4254,8 +4342,15 @@ struct WLNGraph
             local_ch = *(++local);
           }
           
-          if(!found_next)
+          if(!found_next){
             pending_inline_ring = true;
+
+            // here we set the brancher if possible
+            if(!prev && ring_stack.branch){
+              prev = ring_stack.branch;
+            }
+
+          }
           else{
 
             if(gap == 1){
@@ -4287,10 +4382,11 @@ struct WLNGraph
 
               if(!edge)
                 Fatal(i);
-              prev_edge = edge;
+              
             }
 
             branch_stack.push(curr);
+            ring_stack.push({0,curr});
 
             fprintf(stderr,"%s\n",wln_ptr);
 
@@ -4579,6 +4675,7 @@ struct BabelGraph{
           atomic_num = 5;
           break;
 
+        case '1': // gives me back the 'C' character for unsaturations
         case 'C':
           atomic_num = 6;
           while(sym->num_edges < sym->allowed_edges){
