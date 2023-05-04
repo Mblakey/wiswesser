@@ -1556,6 +1556,7 @@ struct WLNRing
         ring_path.push_back(bind_1);
       }
 
+      // whilst the cpp object is large, the alternative is many more lines
       while(!broken_lookup[bind_1].empty()){
         predefined++;
         unsigned char bloc = broken_lookup[bind_1].front();
@@ -1563,7 +1564,6 @@ struct WLNRing
         bind_1 = bloc;
         ring_path.push_back(bind_1);
       }
-
 
       // --- MULTI ALGORITHM --- 
       
