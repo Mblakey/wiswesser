@@ -151,7 +151,7 @@ struct WLNSymbol
 {
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
-
+  
   unsigned int type;
   unsigned int allowed_edges;
   unsigned int num_edges;
@@ -735,7 +735,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'F':
         case 'G':
         case 'H':
-        case 'n':
+        case 'N':
         case 'U':
           created_wln->special = special;
           return created_wln;
@@ -1168,6 +1168,8 @@ struct WLNRing
   std::vector<unsigned int> rings;
   std::map<unsigned char, WLNSymbol *> locants;
   std::map<WLNSymbol*,unsigned char> locants_ch;
+
+  WLNSymbol *pi_bond; 
 
   // some bridge notation is index dependent
   struct indexed_pair{
@@ -2842,16 +2844,18 @@ struct WLNGraph
     
     std::vector<std::pair<unsigned int, int>> ionic_charges;
     
-    WLNSymbol *curr   = 0;
-    WLNSymbol *prev   = 0;
-    WLNEdge   *edge   = 0;
-    WLNRing   *ring   = 0;
+    WLNSymbol *curr       = 0;
+    WLNSymbol *prev       = 0;
+    WLNEdge   *edge       = 0;
+    WLNEdge   *prev_edge  = 0;
+    WLNRing   *ring       = 0;
 
     bool pending_locant           = false;
     bool pending_J_closure        = false;
     bool pending_inline_ring      = false;
     bool pending_spiro            = false;
     bool pending_diazo            = false;
+    bool pending_fv_carbon        = false; // full valence carbon
     bool pending_linker           = false;
 
     unsigned char on_locant = '\0';
@@ -2866,7 +2870,6 @@ struct WLNGraph
 
     unsigned int len = wln_string.length();
     const char * wln_ptr = wln_string.c_str();
-
     unsigned int zero_position = search_ionic(wln_ptr,len,ionic_charges);
     
     unsigned int i=0;
@@ -2956,6 +2959,7 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
+            prev_edge = edge;
           }
           
           std::string int_sequence;
@@ -3013,6 +3017,7 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
+            prev_edge = edge;
           }
           
           branch_stack.push(curr);
@@ -3054,6 +3059,7 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
+            prev_edge = edge;
           }
           
           branch_stack.push(curr);
@@ -3109,6 +3115,7 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3159,9 +3166,10 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
-
             if(!edge)
               Fatal(i);
+
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3216,6 +3224,7 @@ struct WLNGraph
             
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3313,15 +3322,19 @@ struct WLNGraph
           }
 
           if(prev){
+          
             edge = AllocateWLNEdge(curr,prev);
-
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
             if(!edge)
               Fatal(i);
+
+            prev_edge = edge;
           }
+
+
           
           branch_stack.push(curr);
 
@@ -3374,6 +3387,7 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3430,6 +3444,7 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
           
           branch_stack.push(curr);
@@ -3480,9 +3495,9 @@ struct WLNGraph
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
             }
-            
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3542,6 +3557,7 @@ struct WLNGraph
             
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3600,6 +3616,7 @@ struct WLNGraph
           
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }         
           
 
@@ -3657,6 +3674,7 @@ struct WLNGraph
         
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
           
 
@@ -3694,6 +3712,7 @@ struct WLNGraph
         else
         {
           on_locant = '\0';
+          pending_fv_carbon = true;
 
           curr = AllocateWLNSymbol(ch);
           curr->set_edge_and_type(4);
@@ -3704,6 +3723,9 @@ struct WLNGraph
             pending_diazo = false;
           }
 
+          // carbon atoms designated this way must have a full valence, 
+          // so we have to look back at the previous edge
+
           if(prev){
             edge = AllocateWLNEdge(curr,prev);
             if(pending_unsaturate){
@@ -3712,9 +3734,9 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
         
-          branch_stack.push(curr);
           string_positions[i] = curr;
           prev = curr;
         }
@@ -3807,6 +3829,7 @@ struct WLNGraph
             }
             if(!edge)
               Fatal(i);
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -3875,6 +3898,7 @@ struct WLNGraph
                 }
                 if(!edge)
                   Fatal(i);
+                prev_edge = edge;
               }
             }   
             else
@@ -3985,6 +4009,8 @@ struct WLNGraph
               // its possible to return to this in another branch
               linker_stack.push(prev);
             }
+
+            prev_edge = edge;
           }
 
           string_positions[i] = curr;
@@ -4261,6 +4287,7 @@ struct WLNGraph
 
               if(!edge)
                 Fatal(i);
+              prev_edge = edge;
             }
 
             branch_stack.push(curr);
