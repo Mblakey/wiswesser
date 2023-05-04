@@ -399,6 +399,8 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size){
     WLNSymbol* carbon = AllocateWLNSymbol('1');
     carbon->set_edge_and_type(4); // allows hydrogen resolve
     edge = AllocateWLNEdge(carbon,prev);
+    if(!edge)
+      return 0;
     prev = carbon;
   } 
 
@@ -2617,13 +2619,13 @@ WLNRing *AllocateWLNRing()
 }
 
 // needs to be able to hold both a WLNSymbol and WLNRing for branch returns
-struct RingStack{  
-  std::vector<std::pair<WLNRing*,WLNSymbol*>> stack;
+struct ObjectStack{  
+  std::vector<std::pair<WLNRing*,WLNSymbol*>> stack; // vector so i can iterate down
   WLNRing   *ring;
   WLNSymbol *branch;
   unsigned int size;
 
-  RingStack(){
+  ObjectStack(){
     ring = 0;
     branch = 0;
     size = 0;
@@ -2701,6 +2703,7 @@ struct RingStack{
   }
 
 };
+
 
 
 struct WLNGraph
@@ -2879,7 +2882,7 @@ struct WLNGraph
     if (opt_debug)
       fprintf(stderr, "Parsing WLN notation: %s\n",wln_string.c_str());
 
-    RingStack               ring_stack;   // access to both rings and symbols
+    ObjectStack               ring_stack;   // access to both rings and symbols
     std::stack<WLNSymbol *> branch_stack; // between locants, clean branch stack
 
     std::vector<std::pair<unsigned int, int>> ionic_charges;
@@ -2887,9 +2890,7 @@ struct WLNGraph
     WLNSymbol *curr       = 0;
     WLNSymbol *prev       = 0;
     WLNEdge   *edge       = 0;
-
     WLNRing   *ring       = 0;
-    WLNSymbol *open       = 0;
 
     bool pending_locant           = false;
     bool pending_J_closure        = false;
@@ -3955,7 +3956,7 @@ struct WLNGraph
         }
 
         else if (pending_J_closure 
-                && ( (i<len-1 && wln[i+1] == ' ' || wln[i+1] == '&') 
+                && ( (i<len-1 && (wln[i+1] == ' ' || wln[i+1] == '&')) 
                 || i == len -1)
                 )     
         {
