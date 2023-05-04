@@ -1405,6 +1405,7 @@ struct WLNRing
 
     std::map<unsigned int,std::vector<indexed_pair>> pseudo_lookup;
     std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
+    std::map<unsigned char, bool> spawned_broken;
     std::map<unsigned char,unsigned int> shared_rings; 
   
     // create all the nodes in a large straight chain
@@ -1561,8 +1562,6 @@ struct WLNRing
         broken_lookup[bind_1].pop_front();
         bind_1 = bloc;
         ring_path.push_back(bind_1);
-
-        fprintf(stderr,"pushing %d\n",bind_1);
       }
 
 
@@ -1580,9 +1579,10 @@ struct WLNRing
           WLNSymbol *child = lc->child;
           unsigned char child_loc = locants_ch[child];
 
-          // skip the broken child is no children?
-          if(child_loc > 128 && !child->bonds)
+          // skip the broken child if not yet included in a ring
+          if(child_loc > 128 && !spawned_broken[child_loc])
             continue;
+          
 
           if(child_loc >= highest_loc)
             highest_loc = child_loc;
@@ -1592,7 +1592,7 @@ struct WLNRing
           if(locant_to_int(locants_ch[path]) == local_size)
             highest_loc = locants_ch[path];
           else{
-            fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c'\n",locants_ch[path]);
+            fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c(%d)'\n",locants_ch[path],locants_ch[path]);
             return false;
           }
         }
@@ -1626,8 +1626,12 @@ struct WLNRing
       }
 
       // updates the shared rings approach -> paths must MUST be exact for this to work
-      for (unsigned char ch : ring_path)
-        shared_rings[ch]++;    
+      for (unsigned char ch : ring_path){
+        shared_rings[ch]++; 
+        if(ch > 128)
+          spawned_broken[ch] = true;
+      }
+          
       
       WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
       if(!edge)
