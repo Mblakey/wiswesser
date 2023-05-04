@@ -19,7 +19,8 @@ while read p; do
     continue
   fi;
 
-  NEW_SMILES=${NEW_SMILES::-1}
+  #NEW_SMILES=${NEW_SMILES::-1}
+  NEW_SMILES=${NEW_SMILES:0:${#NEW_SMILES}-1}
 
   if [[ "$SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
