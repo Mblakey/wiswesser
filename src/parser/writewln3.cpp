@@ -109,7 +109,7 @@ std::string get_notation(unsigned int s, unsigned int e)
   return res; 
 }
 
-
+bool WriteGraph();
 void Fatal(unsigned int pos)
 {
   fprintf(stderr, "Fatal: %s\n", wln);
@@ -119,6 +119,10 @@ void Fatal(unsigned int pos)
     fprintf(stderr, " ");
 
   fprintf(stderr, "^\n");
+
+  if(opt_debug)
+    WriteGraph();
+
   exit(1);
 }
 
@@ -1271,9 +1275,10 @@ struct WLNRing
 
   /* creates poly rings, aromaticity is defined in reverse due to the nature of notation build
   return the size of the ring, or zero if failure */
-  unsigned int CreatePolyCyclic(std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                        std::vector<bool> &aromaticity,
-                        std::map<unsigned char,bool> &bridge_locants)
+  unsigned int CreatePolyCyclic(std::vector<std::pair<unsigned int,
+                                unsigned char>> &ring_assignments, 
+                                std::vector<bool> &aromaticity,
+                                std::map<unsigned char,bool> &bridge_locants)
     {
      
     unsigned int local_size = 0; 
@@ -1395,7 +1400,7 @@ struct WLNRing
                           std::vector<indexed_pair> &pseudo_locants,
                           std::set<unsigned char> &broken_locants,
                           std::map<unsigned char,bool> &bridge_locants,
-                          unsigned char size_designator)
+                          unsigned char size_designator) // spiro only aromaticity fix
   {
     
     // create a chain size of ring designator
@@ -3923,6 +3928,32 @@ struct WLNGraph
 
           if(pending_spiro){
             ring->locants[on_locant] = prev;
+
+            // check for an aromaticity bond move?
+            if(prev->allowed_edges - prev->num_edges < 2){
+              // spiro would not be possible here, check if a double bond can be shifted
+              WLNEdge *e = 0;
+              WLNSymbol *shift = 0;
+              for (e = prev->bonds;e;e = e->nxt){
+                if (e->order == 2){
+                  e = saturate_edge(e,1);
+                  if(!e)
+                    Fatal(i);
+                  shift = e->child;
+                  break;
+                }
+              }
+              unsigned char next_loc = branch_stack.ring->locants_ch[shift+1];
+              if(!next_loc)
+                next_loc = 'A'; // must of done the full loop
+
+              e = search_edge(branch_stack.ring->locants[next_loc],shift);
+              e = unsaturate_edge(e,1);
+              if(!e)
+                Fatal(i);
+            }
+            
+            
             ring->FormWLNRing(r_notation,block_start,on_locant);
           }
           else
