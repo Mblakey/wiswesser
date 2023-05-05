@@ -109,7 +109,8 @@ std::string get_notation(unsigned int s, unsigned int e)
   return res; 
 }
 
-static void Fatal(unsigned int pos)
+
+void Fatal(unsigned int pos)
 {
   fprintf(stderr, "Fatal: %s\n", wln);
   fprintf(stderr, "       ");
@@ -118,7 +119,6 @@ static void Fatal(unsigned int pos)
     fprintf(stderr, " ");
 
   fprintf(stderr, "^\n");
-
   exit(1);
 }
 
@@ -1193,16 +1193,6 @@ struct WLNRing
   }
   ~WLNRing(){};
 
-  // both lookups needed for QOL in ring building
-  WLNSymbol* assign_locant(unsigned char loc,unsigned char type){
-    WLNSymbol *locant = 0; 
-    locant = AllocateWLNSymbol(type);
-    locants[loc] = locant; 
-    locants_ch[locant] = loc;
-    
-    locant->type = RING;
-    return locant; 
-  }
 
   // both lookups needed for QOL in ring building
   WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant){
@@ -1307,8 +1297,9 @@ struct WLNRing
     for (unsigned int i=1;i<=local_size;i++){
       unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
-        curr = assign_locant(loc,'C');
+        curr = AllocateWLNSymbol('C');
         curr->set_edge_and_type(4,RING);
+        curr = assign_locant(loc,curr);
       }
       else
         curr = locants[loc];
@@ -1380,6 +1371,7 @@ struct WLNRing
         fprintf(stderr," ]\n");
       }
 
+
       WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
       if(!edge)
         return false;
@@ -1421,8 +1413,9 @@ struct WLNRing
     for (unsigned int i=1;i<=local_size;i++){
       unsigned char loc = int_to_locant(i);
       if(!locants[loc]){
-        curr = assign_locant(loc,'C');
+        curr = AllocateWLNSymbol('C');
         curr->set_edge_and_type(4,RING);
+        curr = assign_locant(loc,curr);
       }
       else
         curr = locants[loc];
@@ -1465,8 +1458,9 @@ struct WLNRing
         
         if(!locants[loc_broken]){
           // bond them in straight away
-          WLNSymbol *broken = assign_locant(loc_broken,'C');
+          WLNSymbol *broken = AllocateWLNSymbol('C');
           broken->set_edge_and_type(4,RING);
+          broken = assign_locant(loc_broken,broken);
           broken_lookup[parent].push_back(loc_broken);
           WLNEdge *edge = AllocateWLNEdge(locants[loc_broken],locants[parent]);
           if(!edge)
@@ -1668,8 +1662,8 @@ struct WLNRing
       return relative;
   }
 
-  
-  void FormWLNRing(std::string &block, unsigned int start){
+  /* parse the WLN ring block, use ignore for already predefined spiro atoms */
+  void FormWLNRing(std::string &block, unsigned int start,unsigned char ignore_assignment='\0'){
 
   
     enum RingType{ POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
@@ -1866,6 +1860,10 @@ struct WLNRing
                 }
                 // this can only be hypervalent element
                 if(positional_locant){
+
+                        // spiro only assignment
+                  if(positional_locant == ignore_assignment && ignore_assignment)
+                    break;
                   
                   if(locants[positional_locant])
                     positional_locant++;
@@ -1906,6 +1904,10 @@ struct WLNRing
                 }
                 else{
                   if(positional_locant){
+
+                    // spiro only assignment
+                    if(positional_locant == ignore_assignment && ignore_assignment)
+                      break;
 
                     if(locants[positional_locant])
                       positional_locant++;
@@ -2080,7 +2082,12 @@ struct WLNRing
             state_multi = 3;
           }
           else if (positional_locant){
-           
+
+            // spiro only assignment
+            if(positional_locant == ignore_assignment && ignore_assignment)
+              break;
+            
+              
             if (opt_debug)
               fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
@@ -2095,7 +2102,8 @@ struct WLNRing
                 if(locants[positional_locant])
                   positional_locant++; 
 
-                new_locant = assign_locant(positional_locant,ch);
+                new_locant = AllocateWLNSymbol(ch);
+                new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(5,RING);
                 break;
 
@@ -2103,7 +2111,9 @@ struct WLNRing
               case 'Y':
                 if(locants[positional_locant])
                   positional_locant++; 
-                new_locant = assign_locant(positional_locant,ch);
+
+                new_locant = AllocateWLNSymbol(ch);
+                new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(4,RING);
                 break;
 
@@ -2114,14 +2124,17 @@ struct WLNRing
                 if(locants[positional_locant])
                   positional_locant++; 
 
-                new_locant = assign_locant(positional_locant,ch);
+                new_locant = AllocateWLNSymbol(ch);
+                new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(3,RING);
                 break;
 
               case 'V':
                 if(locants[positional_locant])
                   positional_locant++; 
-                new_locant = assign_locant(positional_locant,ch);
+
+                new_locant = AllocateWLNSymbol(ch);
+                new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(2,RING);
                 break;
 
@@ -2133,7 +2146,8 @@ struct WLNRing
                 if(locants[positional_locant])
                   positional_locant++; 
 
-                new_locant = assign_locant(positional_locant,ch);
+                new_locant = AllocateWLNSymbol(ch);
+                new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(2,RING);
                 break;
 
@@ -2144,7 +2158,8 @@ struct WLNRing
                 if(locants[positional_locant])
                   positional_locant++; 
 
-                new_locant = assign_locant(positional_locant,ch);
+                new_locant = AllocateWLNSymbol(ch);
+                new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(4,RING);
                 break;
 
@@ -2201,6 +2216,10 @@ struct WLNRing
               implied_assignment_used = true;
               positional_locant = 'A';
 
+              // spiro only assignment
+              if(positional_locant == ignore_assignment && ignore_assignment)
+                break;
+
               if (opt_debug)
                 fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
@@ -2215,7 +2234,8 @@ struct WLNRing
                   if(locants[positional_locant])
                     positional_locant++;     
 
-                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant = AllocateWLNSymbol(ch);
+                  new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(5,RING);
                   break;
 
@@ -2224,7 +2244,8 @@ struct WLNRing
                   if(locants[positional_locant])
                     positional_locant++; 
 
-                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant = AllocateWLNSymbol(ch);
+                  new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(4,RING);
                   break;
                 case 'N':
@@ -2234,14 +2255,17 @@ struct WLNRing
                   if(locants[positional_locant])
                     positional_locant++; 
 
-                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant = AllocateWLNSymbol(ch);
+                 new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(3,RING);
                   break;
 
                 case 'V':
                   if(locants[positional_locant])
                       positional_locant++; 
-                  new_locant = assign_locant(positional_locant,ch);
+                  
+                  new_locant = AllocateWLNSymbol(ch);
+                  new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(2,RING);
                   break;
 
@@ -2253,7 +2277,8 @@ struct WLNRing
                   if(locants[positional_locant])
                     positional_locant++; 
 
-                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant = AllocateWLNSymbol(ch);
+                  new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(2,RING);
                   break;
 
@@ -2264,7 +2289,8 @@ struct WLNRing
                   if(locants[positional_locant])
                     positional_locant++; 
 
-                  new_locant = assign_locant(positional_locant,ch);
+                  new_locant = AllocateWLNSymbol(ch);
+                  new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(4,RING);
                   break;
 
@@ -3895,22 +3921,25 @@ struct WLNGraph
           ring = AllocateWLNRing();
           std::string r_notation = get_notation(block_start,block_end);
 
-          ring->FormWLNRing(r_notation,block_start);
+          if(pending_spiro){
+            ring->locants[on_locant] = prev;
+            ring->FormWLNRing(r_notation,block_start,on_locant);
+          }
+          else
+            ring->FormWLNRing(r_notation,block_start);
+          
           branch_stack.push({ring,0});
 
           block_start = 0;
           block_end = 0;
 
-          if (pending_spiro)
-          {
-            // prev->type = LOCANT; 
-            // prev->previous->type = LOCANT;
-            // pending_spiro = false;
-          }
-
           // does the incoming locant check
-          if (prev && on_locant)
+
+          if(pending_spiro)
+            pending_spiro = false;
+          else if (prev && on_locant)
           {
+          
             if (ring->locants[on_locant]){
               if(prev){
                 edge = AllocateWLNEdge(ring->locants[on_locant],prev);
@@ -3920,7 +3949,6 @@ struct WLNGraph
                 }
                 if(!edge)
                   Fatal(i);
-                
               }
             }   
             else
@@ -3969,9 +3997,8 @@ struct WLNGraph
             fprintf(stderr, "Error: ring notation started without '-' denotion\n");
             Fatal(i);
           }
-          else
-            pending_inline_ring = false;
-
+          
+          pending_inline_ring = false;
           block_start = i;
           pending_J_closure = true;
         }
@@ -4369,64 +4396,85 @@ struct WLNGraph
     return true;
   }
 
-  /* dump wln tree to a dotvis file */
-  void WLNDumpToDot(FILE *fp)
-  {  
-    fprintf(fp, "digraph WLNdigraph {\n");
-    fprintf(fp, "  rankdir = LR;\n");
-    for (unsigned int i=0; i<=symbol_count;i++)
-    {
-      WLNSymbol *node = SYMBOLS[i];
-      if(!node)
-        continue;
-  
-      fprintf(fp, "  %d", index_lookup[node]);
-      if (node->ch == '*')
-        fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-      else if (node->type == RING)
-        fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
-      else{
-        if(std::isdigit(node->ch)){
-          if (!node->special.empty())
-            fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-          else
-            fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-        } 
+};
+
+
+/* dump wln tree to a dotvis file */
+void WLNDumpToDot(FILE *fp)
+{  
+  fprintf(fp, "digraph WLNdigraph {\n");
+  fprintf(fp, "  rankdir = LR;\n");
+  for (unsigned int i=0; i<=symbol_count;i++)
+  {
+    WLNSymbol *node = SYMBOLS[i];
+    if(!node)
+      continue;
+
+    fprintf(fp, "  %d", index_lookup[node]);
+    if (node->ch == '*')
+      fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+    else if (node->type == RING)
+      fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
+    else{
+      if(std::isdigit(node->ch)){
+        if (!node->special.empty())
+          fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
         else
           fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+      } 
+      else
+        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+    }
+  
+      
+    WLNEdge *edge = 0;
+    for (edge = node->bonds;edge;edge = edge->nxt){
+
+      WLNSymbol *child = edge->child;
+      unsigned int bond_order = edge->order;
+
+      // aromatic
+      if(bond_order == 4){
+        fprintf(fp, "  %d", index_lookup[node]);
+        fprintf(fp, " -> ");
+        fprintf(fp, "%d [arrowhead=none,color=red]\n", index_lookup[child]);
       }
-    
-        
-      WLNEdge *edge = 0;
-      for (edge = node->bonds;edge;edge = edge->nxt){
-
-        WLNSymbol *child = edge->child;
-        unsigned int bond_order = edge->order;
-
-        // aromatic
-        if(bond_order == 4){
-          fprintf(fp, "  %d", index_lookup[node]);
-          fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none,color=red]\n", index_lookup[child]);
-        }
-        else if (bond_order > 1){
-          for (unsigned int k=0;k<bond_order;k++){
-            fprintf(fp, "  %d", index_lookup[node]);
-            fprintf(fp, " -> ");
-            fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
-          }
-        }
-        else{
+      else if (bond_order > 1){
+        for (unsigned int k=0;k<bond_order;k++){
           fprintf(fp, "  %d", index_lookup[node]);
           fprintf(fp, " -> ");
           fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
         }
       }
+      else{
+        fprintf(fp, "  %d", index_lookup[node]);
+        fprintf(fp, " -> ");
+        fprintf(fp, "%d [arrowhead=none]\n", index_lookup[child]);
+      }
     }
-
-    fprintf(fp, "}\n");
   }
-};
+
+  fprintf(fp, "}\n");
+}
+
+bool WriteGraph(){
+  fprintf(stderr,"Dumping wln graph to wln-graph.dot:\n");
+  FILE *fp = 0;
+  fp = fopen("wln-graph.dot", "w");
+  if (!fp)
+  {
+    fprintf(stderr, "Error: could not create dump .dot file\n");
+    fclose(fp);
+    return false;
+  }
+  else
+  {
+    WLNDumpToDot(fp);
+    fclose(fp);
+  }
+  fprintf(stderr,"  dumped\n");
+  return true;
+}
 
 
 
@@ -4726,23 +4774,8 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 
   // create an optional wln dotfile
   if (opt_wln2dot)
-  {
-    fprintf(stderr,"Dumping wln graph to wln-graph.dot:\n");
-    FILE *fp = 0;
-    fp = fopen("wln-graph.dot", "w");
-    if (!fp)
-    {
-      fprintf(stderr, "Error: could not create dump .dot file\n");
-      fclose(fp);
-      return 1;
-    }
-    else
-    {
-      wln_graph.WLNDumpToDot(fp);
-      fclose(fp);
-    }
-    fprintf(stderr,"  dumped\n");
-  }
+    WriteGraph();
+  
 
   if(!wln_graph.ExpandWLNSymbols())
     return false;
