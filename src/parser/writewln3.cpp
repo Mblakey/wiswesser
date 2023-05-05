@@ -114,7 +114,6 @@ void Fatal(unsigned int pos)
 {
   fprintf(stderr, "Fatal: %s\n", wln);
   fprintf(stderr, "       ");
-
   for (unsigned int i = 0; i < pos; i++)
     fprintf(stderr, " ");
 
@@ -192,7 +191,6 @@ struct WLNSymbol
 WLNSymbol *AllocateWLNSymbol(unsigned char ch)
 {
 
-  
   symbol_count++;
   if(symbol_count > REASONABLE){
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
@@ -240,7 +238,6 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
   // use a linked list to store the bond, can also check if it already exists
 
   WLNEdge *curr = parent->bonds;
-
   if(curr){
     while(curr->nxt){
       if(curr->child == child){
@@ -1395,17 +1392,16 @@ struct WLNRing
 
   /* interesting here that the multicyclic points are not explicitly used */
   unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                          std::vector<bool> &aromaticity,
-                          std::vector<unsigned char> &multicyclic_locants,
-                          std::vector<indexed_pair> &pseudo_locants,
-                          std::set<unsigned char> &broken_locants,
-                          std::map<unsigned char,bool> &bridge_locants,
-                          unsigned char size_designator) // spiro only aromaticity fix
+                                  std::vector<bool> &aromaticity,
+                                  std::vector<unsigned char> &multicyclic_locants,
+                                  std::vector<indexed_pair> &pseudo_locants,
+                                  std::set<unsigned char> &broken_locants,
+                                  std::map<unsigned char,bool> &bridge_locants,
+                                  unsigned char size_designator) // spiro only aromaticity fix
   {
     
     // create a chain size of ring designator
     unsigned int local_size = locant_to_int(size_designator);
-
 
     std::map<unsigned int,std::vector<indexed_pair>> pseudo_lookup;
     std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
@@ -1496,9 +1492,9 @@ struct WLNRing
       unsigned int predefined = 1;
       std::deque<unsigned char> ring_path; 
       
-      
       // --- PSD BRIDGE ONLY ---
       if(!pseudo_lookup[i].empty()){
+
         indexed_pair psd_pair = pseudo_lookup[i].front(); // should only be 1
         
         bind_1 = psd_pair.bind_1;
@@ -1508,33 +1504,42 @@ struct WLNRing
         if(!edge)
           return false;
         
-        // a ring path then needs to be calculated for aromaticity assignment
-        // should be only one path
+        // just need to calculate the ring path for aromaticity assignment
+        std::stack<WLNSymbol*> dfs_stack; 
+        dfs_stack.push(locants[bind_1]);
+        
+        WLNSymbol* top = 0;
+        std::deque<WLNSymbol*> current_path; 
 
-        WLNSymbol *path = locants[bind_1];
-        unsigned char highest_loc = '\0'; // highest of each child iteration 
+        while(!dfs_stack.empty()){
+          top = dfs_stack.top();
+          dfs_stack.pop();
+          current_path.push_back(top);
 
-        ring_path.push_back(locants_ch[path]);
-        for (unsigned int i=0;i<comp_size - predefined; i++){
+          if(top == locants[bind_2]){
+            if (current_path.size() == comp_size-1){
+              for (unsigned int i=0;i<comp_size;i++)
+                ring_path.push_back(locants_ch[current_path[i]]);
+            }
+            else{
+
+                while(current_path.size() > 0){
+                  if(current_path.back() == dfs_stack.top())
+                    break;
+
+                  current_path.pop_back();
+                }
+                  
+            }
+            
+          }
+            
           WLNEdge *lc = 0;
-          for(lc = path->bonds;lc;lc = lc->nxt){
-            WLNSymbol *child = lc->child;
-            unsigned char child_loc = locants_ch[child];
-
-            // cannot be the bound symbol
-            if(child_loc == bind_2)
-              continue;
-
-            if(child_loc >= highest_loc)
-              highest_loc = child_loc;
+          for(lc = top->bonds;lc;lc = lc->nxt){
+            dfs_stack.push(lc->child);
           }
 
-          path = locants[highest_loc];
-          ring_path.push_back(locants_ch[path]);
         }
-
-        if(ring_path.back() != bind_2)
-          ring_path.push_back(bind_2);
 
         if(opt_debug){
           fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
@@ -1549,7 +1554,7 @@ struct WLNRing
       }
 
       // handle bridging bind_1 points
-      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+      while(bridge_locants[bind_1] && locants[bind_1]->num_edges > 2){
         bind_1++;
         path = locants[bind_1];
       }
@@ -1589,7 +1594,6 @@ struct WLNRing
           if(child_loc > 128 && !spawned_broken[child_loc])
             continue;
           
-
           if(child_loc >= highest_loc)
             highest_loc = child_loc;
         }
@@ -1609,7 +1613,6 @@ struct WLNRing
 
       bind_2 = highest_loc; 
 
-
       // annoying catch needed for bridge notation that is 'implied' 
       if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
         unsigned char back = ring_path.back();
@@ -1618,7 +1621,9 @@ struct WLNRing
           ring_path.pop_front();
         }
         bind_2 = back;
-        bind_1 = ring_path.front();
+        
+        if(!ring_path.empty())
+          bind_1 = ring_path.front();
 
         ring_path.push_back(bind_2);
       }
@@ -1638,7 +1643,6 @@ struct WLNRing
           spawned_broken[ch] = true;
       }
           
-      
       WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
       if(!edge)
         return false;
@@ -1650,7 +1654,6 @@ struct WLNRing
 
       fuses++;
     }
-
 
     return local_size; 
   }
@@ -1668,9 +1671,9 @@ struct WLNRing
   }
 
   /* parse the WLN ring block, use ignore for already predefined spiro atoms */
-  void FormWLNRing(std::string &block, unsigned int start,unsigned char ignore_assignment='\0'){
+  void FormWLNRing(std::string &block, unsigned int start, unsigned char spiro_atom='\0'){
 
-  
+
     enum RingType{ POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
     const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
     unsigned int ring_type = POLY;   // start in mono and climb up
@@ -1859,18 +1862,31 @@ struct WLNRing
 
                 break;
               case 1:
-                if(!implied_assignment_used){
+                if(!implied_assignment_used && !positional_locant){
                   implied_assignment_used = true;
                   positional_locant = 'A';
                 }
                 // this can only be hypervalent element
+    
                 if(positional_locant){
-
-                        // spiro only assignment
-                  if(positional_locant == ignore_assignment && ignore_assignment)
-                    break;
-                  
-                  if(locants[positional_locant])
+                  if(spiro_atom){
+                    if(positional_locant == spiro_atom){
+                      positional_locant++;
+                      block_str+=2; 
+                      i+=2;
+                      break;
+                    }
+                    else if(locants[positional_locant]){
+                      positional_locant++;
+                      if(positional_locant == spiro_atom){
+                        positional_locant++;
+                        block_str+=2; 
+                        i+=2;
+                        break;
+                      }
+                    }
+                  }
+                  else if(locants[positional_locant])
                     positional_locant++;
 
                   WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
@@ -1890,7 +1906,7 @@ struct WLNRing
                 i+=2; 
                 break;
               case 2:
-                if(!implied_assignment_used){
+                if(!implied_assignment_used && !positional_locant){
                   implied_assignment_used = true;
                   positional_locant = 'A';
                 }
@@ -1908,13 +1924,27 @@ struct WLNRing
                     ring_components.push_back({std::stoi(special),'A'});
                 }
                 else{
+
                   if(positional_locant){
 
-                    // spiro only assignment
-                    if(positional_locant == ignore_assignment && ignore_assignment)
-                      break;
-
-                    if(locants[positional_locant])
+                    if(spiro_atom){
+                      if(positional_locant == spiro_atom){
+                        positional_locant++;
+                        block_str+=3; 
+                        i+=3;
+                        break;
+                      }
+                      else if(locants[positional_locant]){
+                        positional_locant++;
+                        if(positional_locant == spiro_atom){
+                          positional_locant++;
+                          block_str+=3; 
+                          i+=3;
+                          break;
+                        }
+                      }
+                    }
+                    else if(locants[positional_locant])
                       positional_locant++;
                     
                     WLNSymbol* new_locant = assign_locant(positional_locant,define_element(special));  // elemental definition
@@ -1931,6 +1961,7 @@ struct WLNRing
                     Fatal(start+i);  
                   }
                 }
+
                 block_str+=3; 
                 i+=3;              
                 break;
@@ -1938,6 +1969,7 @@ struct WLNRing
                 fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n",gap);
                 Fatal(start+i);
             }
+
 
           }
           else if(i > 0 && block[i-1] == '&')
@@ -2088,10 +2120,10 @@ struct WLNRing
           }
           else if (positional_locant){
 
-            // spiro only assignment
-            if(positional_locant == ignore_assignment && ignore_assignment)
+            if(spiro_atom && positional_locant == spiro_atom){
+              positional_locant++;
               break;
-            
+            }
               
             if (opt_debug)
               fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
@@ -2106,6 +2138,11 @@ struct WLNRing
 
                 if(locants[positional_locant])
                   positional_locant++; 
+                
+                if(spiro_atom && positional_locant == spiro_atom){
+                  positional_locant++;
+                  break;
+                }  
 
                 new_locant = AllocateWLNSymbol(ch);
                 new_locant = assign_locant(positional_locant,new_locant);
@@ -2115,7 +2152,12 @@ struct WLNRing
               case 'X':
               case 'Y':
                 if(locants[positional_locant])
-                  positional_locant++; 
+                  positional_locant++;
+
+                if(spiro_atom && positional_locant == spiro_atom){
+                  positional_locant++;
+                  break;
+                }  
 
                 new_locant = AllocateWLNSymbol(ch);
                 new_locant = assign_locant(positional_locant,new_locant);
@@ -2127,7 +2169,12 @@ struct WLNRing
                   warned = true;
 
                 if(locants[positional_locant])
-                  positional_locant++; 
+                  positional_locant++;
+
+                if(spiro_atom && positional_locant == spiro_atom){
+                  positional_locant++;
+                  break;
+                }  
 
                 new_locant = AllocateWLNSymbol(ch);
                 new_locant = assign_locant(positional_locant,new_locant);
@@ -2136,7 +2183,7 @@ struct WLNRing
 
               case 'V':
                 if(locants[positional_locant])
-                  positional_locant++; 
+                  positional_locant++;
 
                 new_locant = AllocateWLNSymbol(ch);
                 new_locant = assign_locant(positional_locant,new_locant);
@@ -2162,6 +2209,11 @@ struct WLNRing
 
                 if(locants[positional_locant])
                   positional_locant++; 
+                
+                if(spiro_atom && positional_locant == spiro_atom){
+                  positional_locant++;
+                  break;
+                }  
 
                 new_locant = AllocateWLNSymbol(ch);
                 new_locant = assign_locant(positional_locant,new_locant);
@@ -2205,7 +2257,7 @@ struct WLNRing
             string_positions[start+i] = new_locant;
           }
           else{
-            if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ') ){
+            if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
               if(ring_components.empty()){
                 fprintf(stderr,"Error: assigning bridge locants without a ring\n");
                 Fatal(start+i);
@@ -2221,9 +2273,10 @@ struct WLNRing
               implied_assignment_used = true;
               positional_locant = 'A';
 
-              // spiro only assignment
-              if(positional_locant == ignore_assignment && ignore_assignment)
+              if(spiro_atom && positional_locant == spiro_atom){
+                positional_locant++;
                 break;
+              }
 
               if (opt_debug)
                 fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
@@ -2237,7 +2290,12 @@ struct WLNRing
                     warned = true;
 
                   if(locants[positional_locant])
-                    positional_locant++;     
+                    positional_locant++; 
+
+                  if(spiro_atom && positional_locant == spiro_atom){
+                    positional_locant++;
+                    break;
+                  }  
 
                   new_locant = AllocateWLNSymbol(ch);
                   new_locant = assign_locant(positional_locant,new_locant);
@@ -2247,7 +2305,12 @@ struct WLNRing
                 case 'X':
                 case 'Y':
                   if(locants[positional_locant])
-                    positional_locant++; 
+                    positional_locant++;
+
+                  if(spiro_atom && positional_locant == spiro_atom){
+                    positional_locant++;
+                    break;
+                  }  
 
                   new_locant = AllocateWLNSymbol(ch);
                   new_locant = assign_locant(positional_locant,new_locant);
@@ -2260,15 +2323,20 @@ struct WLNRing
                   if(locants[positional_locant])
                     positional_locant++; 
 
+                  if(spiro_atom && positional_locant == spiro_atom){
+                    positional_locant++;
+                    break;
+                  }  
+
                   new_locant = AllocateWLNSymbol(ch);
-                 new_locant = assign_locant(positional_locant,new_locant);
+                  new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(3,RING);
                   break;
 
                 case 'V':
                   if(locants[positional_locant])
                       positional_locant++; 
-                  
+
                   new_locant = AllocateWLNSymbol(ch);
                   new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(2,RING);
@@ -2293,6 +2361,11 @@ struct WLNRing
 
                   if(locants[positional_locant])
                     positional_locant++; 
+                  
+                  if(spiro_atom && positional_locant == spiro_atom){
+                    positional_locant++;
+                    break;
+                  }  
 
                   new_locant = AllocateWLNSymbol(ch);
                   new_locant = assign_locant(positional_locant,new_locant);
@@ -2319,7 +2392,6 @@ struct WLNRing
           }
 
           break;
-
 
         case 'L':
           if(state_aromatics){
@@ -2650,7 +2722,6 @@ WLNRing *AllocateWLNRing()
   RINGS[ring_count] = wln_ring;
   return wln_ring;
 }
-
 
 // needs to be able to hold both a WLNSymbol and WLNRing for branch returns
 struct ObjectStack{  
@@ -3952,7 +4023,6 @@ struct WLNGraph
               if(!e)
                 Fatal(i);
             }
-            
             
             ring->FormWLNRing(r_notation,block_start,on_locant);
           }
