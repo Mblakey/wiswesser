@@ -4002,6 +4002,7 @@ struct WLNGraph
 
             // check for an aromaticity bond move?
             if(prev->allowed_edges - prev->num_edges < 2){
+
               // spiro would not be possible here, check if a double bond can be shifted
               WLNEdge *e = 0;
               WLNSymbol *shift = 0;
@@ -4010,11 +4011,12 @@ struct WLNGraph
                   e = saturate_edge(e,1);
                   if(!e)
                     Fatal(i);
+
                   shift = e->child;
                   break;
                 }
               }
-              unsigned char next_loc = branch_stack.ring->locants_ch[shift+1];
+              unsigned char next_loc = branch_stack.ring->locants_ch[shift]+1;
               if(!next_loc)
                 next_loc = 'A'; // must of done the full loop
 
