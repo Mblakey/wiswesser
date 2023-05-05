@@ -1260,8 +1260,11 @@ struct WLNRing
         if(!edge){
           edge = search_edge(par,chi);
         }
-        if(!unsaturate_edge(edge,1))
+        if(!unsaturate_edge(edge,1)){
+          //fprintf(stderr,"par: %c  chi: %c\n",locants_ch[par],locants_ch[chi]);
           return false;
+        } 
+         
       }
     }
     
@@ -1403,11 +1406,11 @@ struct WLNRing
     // create a chain size of ring designator
     unsigned int local_size = locant_to_int(size_designator);
 
-    std::map<unsigned int,std::vector<indexed_pair>> pseudo_lookup;
+    std::map<unsigned int,std::vector<indexed_pair>>  pseudo_lookup;
     std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
-    std::map<unsigned char, bool> spawned_broken;
-    std::map<unsigned char,unsigned int> shared_rings; 
-  
+    std::map<unsigned char, bool>                     spawned_broken;
+    std::map<unsigned char,unsigned int>              shared_rings; 
+
     // create all the nodes in a large straight chain
     WLNSymbol *curr = 0; 
     WLNSymbol *prev = 0; 
@@ -1481,7 +1484,6 @@ struct WLNRing
     unsigned int fuses = 0; 
     bool aromatic = false;
 
-
     for (unsigned int i=0;i<ring_assignments.size();i++){
       std::pair<unsigned int, unsigned char> component = ring_assignments[i];
       comp_size = component.first;
@@ -1500,46 +1502,14 @@ struct WLNRing
         bind_1 = psd_pair.bind_1;
         bind_2 = psd_pair.bind_2;
 
+        unsigned int target = comp_size-1; // we get bind_1
+        // the binding is easy, its just figuring out what the ring path would be without
+        // bidirectional travel - dfs is unreliable with this struct design
+        
+        
         WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
         if(!edge)
           return false;
-        
-        // just need to calculate the ring path for aromaticity assignment
-        std::stack<WLNSymbol*> dfs_stack; 
-        dfs_stack.push(locants[bind_1]);
-        
-        WLNSymbol* top = 0;
-        std::deque<WLNSymbol*> current_path; 
-
-        while(!dfs_stack.empty()){
-          top = dfs_stack.top();
-          dfs_stack.pop();
-          current_path.push_back(top);
-
-          if(top == locants[bind_2]){
-            if (current_path.size() == comp_size-1){
-              for (unsigned int i=0;i<comp_size;i++)
-                ring_path.push_back(locants_ch[current_path[i]]);
-            }
-            else{
-
-                while(current_path.size() > 0){
-                  if(current_path.back() == dfs_stack.top())
-                    break;
-
-                  current_path.pop_back();
-                }
-                  
-            }
-            
-          }
-            
-          WLNEdge *lc = 0;
-          for(lc = top->bonds;lc;lc = lc->nxt){
-            dfs_stack.push(lc->child);
-          }
-
-        }
 
         if(opt_debug){
           fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
@@ -1554,9 +1524,10 @@ struct WLNRing
       }
 
       // handle bridging bind_1 points
-      while(bridge_locants[bind_1] && locants[bind_1]->num_edges > 2){
+      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+        predefined++;
         bind_1++;
-        path = locants[bind_1];
+        ring_path.push_back(bind_1);
       }
 
       // bind_1 is alterered up here rather than after the parse, much more sensible
@@ -1615,19 +1586,18 @@ struct WLNRing
 
       // annoying catch needed for bridge notation that is 'implied' 
       if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
+        
         unsigned char back = ring_path.back();
         while(back < int_to_locant(local_size) && !ring_path.empty()){
           back++;
+          ring_path.push_back(back);
           ring_path.pop_front();
         }
         bind_2 = back;
         
         if(!ring_path.empty())
           bind_1 = ring_path.front();
-
-        ring_path.push_back(bind_2);
       }
-
       if(opt_debug){
         fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
         for (unsigned char ch : ring_path){
@@ -1646,7 +1616,8 @@ struct WLNRing
       WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
       if(!edge)
         return false;
-      
+
+
       if(aromatic){
         if(!assign_aromatics(ring_path))
           return false;
@@ -1668,6 +1639,43 @@ struct WLNRing
     }
     else
       return relative;
+  }
+
+
+  // try to handle if errors are occuring due to path changes
+  bool handle_post_orders(std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
+                          unsigned int mode,
+                          unsigned int final_size){
+
+    // post unsaturate bonds
+    for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
+      unsigned char loc_1 = bond_pair.first;
+      unsigned char loc_2 = bond_pair.second;
+      if(loc_2 > int_to_locant(final_size)){
+        loc_1 = 'A';
+        loc_2--;
+      }
+
+      WLNEdge *edge = search_edge(locants[loc_2],locants[loc_1],false);
+      if(!edge)
+        edge = search_edge(locants[loc_1],locants[loc_2],false);
+      
+      if(!edge)
+        edge = search_edge(locants[loc_1]->bonds->child,locants[loc_1],false);
+
+      if(!edge)
+        edge = search_edge(locants[loc_1]->previous->bonds->child,locants[loc_1],false);
+
+      if(mode)
+        edge = unsaturate_edge(edge,1);
+      else
+        edge = saturate_edge(edge,1);
+
+      if(!edge)
+        return false;
+    }
+
+    return true;
   }
 
   /* parse the WLN ring block, use ignore for already predefined spiro atoms */
@@ -1727,6 +1735,10 @@ struct WLNRing
         // specials
 
         case ' ':
+
+          if(state_multi == 3)
+            state_multi = 0;
+
           if(evaluating_break){
             broken_locants.insert(positional_locant);
 
@@ -2673,38 +2685,11 @@ struct WLNRing
 
     if (!final_size)
       Fatal(start+i);
+
     
-
-
-    // post unsaturate bonds
-    for (std::pair<unsigned char, unsigned char> bond_pair : unsaturations){
-      unsigned char loc_1 = bond_pair.first;
-      unsigned char loc_2 = bond_pair.second;
-      if(loc_2 > int_to_locant(final_size)){
-        loc_1 = 'A';
-        loc_2--;
-      }
-
-      WLNEdge *increase_edge = search_edge(locants[loc_2],locants[loc_1]);
-      increase_edge = unsaturate_edge(increase_edge,1);
-      if(!increase_edge)
-        Fatal(start+i-1);
-    }
-
-    // post saturate bonds
-    for (std::pair<unsigned char, unsigned char> bond_pair : saturations){
-      unsigned char loc_1 = bond_pair.first;
-      unsigned char loc_2 = bond_pair.second;
-      if(loc_2 > int_to_locant(final_size)){
-        loc_1 = 'A';
-        loc_2--;
-      }
-
-      WLNEdge *decrease_edge = search_edge(locants[loc_2],locants[loc_1]);
-      decrease_edge = saturate_edge(decrease_edge,1);
-      if(!decrease_edge)
-        Fatal(start+i-1);
-    }
+    if( !handle_post_orders(unsaturations,1,final_size) 
+        || !handle_post_orders(saturations,0,final_size))
+      Fatal(start+i);
 
   }
 
