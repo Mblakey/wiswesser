@@ -1164,47 +1164,6 @@ unsigned int special_element_atm(std::string &special){
   return 0;
 }
 
-/* struct hold for ring sharing adj matrix*/
-struct AdjMatrix{
-  unsigned char *adjmatrix;
-  unsigned int size;
-
-  AdjMatrix(){
-    adjmatrix = 0;
-    size = 0;
-  }
-
-  ~AdjMatrix(){
-    if(adjmatrix)
-      free(adjmatrix);
-  }
-
-  void init(unsigned int max_size){
-    size = max_size; 
-    adjmatrix = (unsigned char*)malloc( (size*size)*sizeof(unsigned char));
-    for (unsigned int i=0; i<size;i++){ // sure theres a way to memset this
-      for (unsigned int j=0; j<size;j++)
-        adjmatrix[i* size+j] = '\0'; 
-    }
-  }
-
-  void display(){
-    for (unsigned int i=0; i<size;i++){ 
-      fprintf(stderr, "[ ");
-      for (unsigned int j=0; j<size;j++)
-        fprintf(stderr,"%c ",adjmatrix[i* size+j]);
-      
-      fprintf(stderr, "]\n");
-    }
-  }
-
-  bool update(std::map<unsigned char,WLNSymbol*> &locants){
-
-
-    return true;
-  }
-
-};
 
 
 /* struct to hold pointers for the wln ring */
@@ -1248,16 +1207,6 @@ struct WLNRing
     return locant; 
   }  
 
-  void debug_locants(){
-    std::map<unsigned char, WLNSymbol *>::iterator locant_itr;
-    fprintf(stderr,"alive locants: ");
-    for (locant_itr = locants.begin(); locant_itr != locants.end(); locant_itr++){
-      if(locant_itr->second){
-        fprintf(stderr," %c",locant_itr->first);
-      }
-    }
-    fprintf(stderr,"\n");
-  }
 
   bool assign_aromatics(std::deque<unsigned char> &ring_path){
     std::map<WLNSymbol*, bool> assigned; 
@@ -1477,11 +1426,6 @@ struct WLNRing
     // shared rings cannot be done purely on ring paths annoyingly, leads to missteps in 
     // bridged ring system where the ring is spawned outside the path. 
 
-    AdjMatrix connections; 
-    connections.init(locant_to_int(size_designator));
-
-    connections.display();
-    
     // pseudo pairs
     for (indexed_pair psd_pair : pseudo_locants)
       pseudo_lookup[psd_pair.index].push_back(psd_pair);
@@ -1562,6 +1506,9 @@ struct WLNRing
           if(!edge)
             return false;
 
+          ring_path.push_back(bind_1);
+          ring_path.push_back(bind_2);
+
           if(opt_debug){
             fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
             for (unsigned char ch : ring_path){
@@ -1577,16 +1524,9 @@ struct WLNRing
         continue;      
       }
 
-      // handle bridging bind_1 points
-      while(bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
-        predefined++;
-        bind_1++;
-        ring_path.push_back(bind_1);
-      }
 
-      // bind_1 is alterered up here rather than after the parse, much more sensible
-      
-      while(shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty()){
+      while(shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty()
+            || bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
         predefined++;
         bind_1++;
         ring_path.push_back(bind_1);
@@ -1671,7 +1611,7 @@ struct WLNRing
       if(!edge)
         return false;
 
-
+ 
       if(aromatic){
         if(!assign_aromatics(ring_path))
           return false;
@@ -4027,7 +3967,7 @@ struct WLNGraph
         }
 
         else if (pending_J_closure 
-                && ( (i<len-1 && (wln[i+1] == ' ' || wln[i+1] == '&')) 
+                && ( (i<len-1 && (wln_string[i+1] == ' ' || wln_string[i+1] == '&') && wln_string[i-1] != ' ') 
                 || i == len -1)
                 )     
         {
