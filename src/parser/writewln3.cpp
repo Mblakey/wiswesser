@@ -1495,7 +1495,6 @@ struct WLNRing
         bind_1 = psd_pair.bind_1;
         bind_2 = psd_pair.bind_2;
 
-        unsigned int target = comp_size-1; // we get bind_1
         // the binding is easy, its just figuring out what the ring path would be without
         // bidirectional travel - dfs is unreliable with this struct design
 
@@ -4316,7 +4315,6 @@ struct WLNGraph
 
             if(prev){
               edge = AllocateWLNEdge(curr,prev);
-              
               if(pending_unsaturate){
                 edge = unsaturate_edge(edge,pending_unsaturate);
                 pending_unsaturate = 0;
@@ -4324,6 +4322,8 @@ struct WLNGraph
               if(!edge)
                 Fatal(i);
             }
+            else
+              Fatal(i);
      
             // last notation is not neccessary
             while(wln_ptr){
