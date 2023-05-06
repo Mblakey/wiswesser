@@ -1518,8 +1518,6 @@ struct WLNRing
           }
         }
         
-      
-
         fuses++;
         continue;      
       }
@@ -2473,6 +2471,7 @@ struct WLNRing
 
           if(i==0){
             heterocyclic = true; 
+
             break;
           }
 
@@ -3003,6 +3002,7 @@ struct WLNGraph
     WLNSymbol *prev       = 0;
     WLNEdge   *edge       = 0;
     WLNRing   *ring       = 0;
+    WLNRing   *wrap_ring  = 0;
 
     bool pending_locant           = false;
     bool pending_J_closure        = false;
@@ -3010,10 +3010,12 @@ struct WLNGraph
     bool pending_spiro            = false;
     bool pending_diazo            = false;
     bool pending_linker           = false;
+    bool pending_ring_in_ring     = false; // rings in rings
 
-    unsigned char on_locant = '\0';
+
+    unsigned char on_locant = '\0';         // locant tracking
     unsigned int pending_unsaturate = 0;    // 'U' style bonding
-    bool j_skips = false; // handle skipping of 'J' if in cyclic notation legitimately 
+    bool j_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
 
     std::string special;  // special elemental definitions
     
@@ -4010,6 +4012,11 @@ struct WLNGraph
           else
             ring->FormWLNRing(r_notation,block_start);
           
+
+          if(pending_ring_in_ring && !wrap_ring)
+            wrap_ring = ring; // instant back access
+
+
           branch_stack.push({ring,0});
 
           block_start = 0;
@@ -4070,6 +4077,18 @@ struct WLNGraph
         }
         else
         {
+          if(i < len - 1 && wln_string[i+1] == '-'){
+            pending_ring_in_ring = true;
+
+            // if pending inline ring doesnt get a L or T, we know it
+            // the ring wrap symbol. 
+
+            i++;
+            wln_ptr++;
+            pending_inline_ring = true;
+            break;
+          }
+            
           if (i == 0)
             pending_inline_ring = true;
           
@@ -4285,9 +4304,43 @@ struct WLNGraph
           break;
 
         else if (pending_inline_ring)
-        {
-          fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
-          Fatal(i);
+        { 
+
+          if(pending_ring_in_ring){
+            // onlocant holds the char needed to wrap the ring back, 
+            curr = wrap_ring->locants[on_locant];
+            if(!curr){
+              fprintf(stderr,"Error: cannot access looping ring structure\n");
+              Fatal(i);
+            }
+
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+              if(!edge)
+                Fatal(i);
+            }
+     
+            // last notation is not neccessary
+            while(wln_ptr){
+              if(*wln_ptr == 'J')
+                break;
+              wln_ptr++;
+              i++;
+            }
+
+            pending_ring_in_ring = false;
+            pending_inline_ring = false;
+
+          }
+          else{
+            fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
+            Fatal(i);
+          }
         }
 #ifdef HIGH_LEVEL_ASSIGNMENTS
         else if(on_locant){
@@ -4326,13 +4379,11 @@ struct WLNGraph
           }
           
           if(!found_next){
+
             pending_inline_ring = true;
-
-            // here we set the brancher if possible
-            if(!prev && branch_stack.branch){
+  
+            if(!prev && branch_stack.branch)
               prev = branch_stack.branch;
-            }
-
           }
           else{
 
