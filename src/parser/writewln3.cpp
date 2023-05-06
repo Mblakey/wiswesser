@@ -58,6 +58,9 @@ struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
 
+struct AdjMatrix;
+struct ObjectStack;
+
 unsigned int edge_count   = 0;
 unsigned int symbol_count = 0;
 unsigned int ring_count   = 0;
@@ -125,11 +128,6 @@ void Fatal(unsigned int pos)
   exit(1);
 }
 
-template <typename T>
-static void empty_stack(std::stack<T> &stack){
-  while(!stack.empty())
-    stack.pop();
-}
 
 
 struct WLNEdge{
@@ -239,6 +237,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent){
 
   WLNEdge *curr = parent->bonds;
   if(curr){
+    
     while(curr->nxt){
       if(curr->child == child){
         fprintf(stderr,"Error: trying to bond already bonded symbols\n");
@@ -1165,6 +1164,48 @@ unsigned int special_element_atm(std::string &special){
   return 0;
 }
 
+/* struct hold for ring sharing adj matrix*/
+struct AdjMatrix{
+  unsigned char *adjmatrix;
+  unsigned int size;
+
+  AdjMatrix(){
+    adjmatrix = 0;
+    size = 0;
+  }
+
+  ~AdjMatrix(){
+    if(adjmatrix)
+      free(adjmatrix);
+  }
+
+  void init(unsigned int max_size){
+    size = max_size; 
+    adjmatrix = (unsigned char*)malloc( (size*size)*sizeof(unsigned char));
+    for (unsigned int i=0; i<size;i++){ // sure theres a way to memset this
+      for (unsigned int j=0; j<size;j++)
+        adjmatrix[i* size+j] = '\0'; 
+    }
+  }
+
+  void display(){
+    for (unsigned int i=0; i<size;i++){ 
+      fprintf(stderr, "[ ");
+      for (unsigned int j=0; j<size;j++)
+        fprintf(stderr,"%c ",adjmatrix[i* size+j]);
+      
+      fprintf(stderr, "]\n");
+    }
+  }
+
+  bool update(std::map<unsigned char,WLNSymbol*> &locants){
+
+
+    return true;
+  }
+
+};
+
 
 /* struct to hold pointers for the wln ring */
 struct WLNRing
@@ -1432,11 +1473,19 @@ struct WLNRing
       prev = curr;
     }
 
+
+    // shared rings cannot be done purely on ring paths annoyingly, leads to missteps in 
+    // bridged ring system where the ring is spawned outside the path. 
+
+    AdjMatrix connections; 
+    connections.init(locant_to_int(size_designator));
+
+    connections.display();
+    
     // pseudo pairs
     for (indexed_pair psd_pair : pseudo_locants)
       pseudo_lookup[psd_pair.index].push_back(psd_pair);
     
-
     // broken locants
     if(!broken_locants.empty()){
       // create the atoms, 
@@ -1505,19 +1554,24 @@ struct WLNRing
         unsigned int target = comp_size-1; // we get bind_1
         // the binding is easy, its just figuring out what the ring path would be without
         // bidirectional travel - dfs is unreliable with this struct design
-        
-        
-        WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
-        if(!edge)
-          return false;
 
-        if(opt_debug){
-          fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
-          for (unsigned char ch : ring_path){
-            fprintf(stderr," %c(%d)",ch,ch);
+        // sometimes the notation lists the psd bridges that can be implied from the rings
+
+        if(!search_edge(locants[bind_2],locants[bind_1],false)){
+          WLNEdge *edge = AllocateWLNEdge(locants[bind_2],locants[bind_1]);
+          if(!edge)
+            return false;
+
+          if(opt_debug){
+            fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
+            for (unsigned char ch : ring_path){
+              fprintf(stderr," %c(%d)",ch,ch);
+            }
+            fprintf(stderr," ]\n");
           }
-          fprintf(stderr," ]\n");
         }
+        
+      
 
         fuses++;
         continue;      
