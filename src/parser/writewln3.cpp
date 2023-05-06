@@ -84,14 +84,8 @@ enum WLNTYPE
 {
   STANDARD = 0,
   RING = 1,     
+  SPECIAL = 2  // for now this is only going to be the pi bond
 };
-
-
-// rule 2 - hierarchy - rules have diverged due to end terminator char, also use for locant setting from 14
-std::map<unsigned char, unsigned int> char_hierarchy =
-    {
-      {' ', 1}, {'-', 2}, {'/', 3}, {'0', 4}, {'1', 5}, {'2', 6}, {'3', 7}, {'4', 8}, {'5', 9}, {'6', 10}, {'7', 11}, {'8', 12}, {'9', 13}, {'A', 14}, {'B', 15}, {'C', 16}, {'D', 17}, {'E', 18}, {'F', 19}, {'G', 20}, {'H', 21}, {'I', 22}, {'J', 23}, {'K', 24}, {'L', 25}, {'M', 26}, {'N', 27}, {'O', 28}, {'P', 29}, {'Q', 30}, {'R', 31}, {'S', 32}, {'T', 33}, {'U', 34}, {'V', 35}, {'W', 36}, {'X', 37}, {'Y', 38}, {'Z', 40}, {'&', 41}};
-
 
 unsigned char static int_to_locant(unsigned int i){
   return i + 64;
@@ -1170,10 +1164,9 @@ unsigned int special_element_atm(std::string &special){
 struct WLNRing
 {
   std::vector<unsigned int> rings;
-  std::map<unsigned char, WLNSymbol *> locants;
+  std::map<unsigned char, WLNSymbol *> locants; 
   std::map<WLNSymbol*,unsigned char> locants_ch;
-
-  WLNSymbol *pi_bond; 
+  std::vector<std::pair<unsigned char,int>> post_charges; 
 
   // some bridge notation is index dependent
   struct indexed_pair{
@@ -1189,9 +1182,8 @@ struct WLNRing
 
   };
 
-  WLNRing(){
-    pi_bond = 0;
-  }
+  
+  WLNRing(){}
   ~WLNRing(){};
 
 
@@ -1524,6 +1516,7 @@ struct WLNRing
 
       while(shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty()
             || bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+
         predefined++;
         bind_1++;
         ring_path.push_back(bind_1);
@@ -1764,6 +1757,9 @@ struct WLNRing
           else if (state_multi == 3){
             ring_size_specifier += 23;
           }
+          else if (state_pseudo){
+            pseudo_locants.back() += 23;
+          }
           else if(positional_locant){
             
             // can only be an extension of a positional multiplier for a branch
@@ -1997,7 +1993,6 @@ struct WLNRing
                 }
                 positional_locant += 46;
                 last_locant_position = i;
-                // no need to move the global pointer here
               }
             }
             else{
@@ -2013,11 +2008,17 @@ struct WLNRing
         // numerals - easy access
 
         case '0':
-          fprintf(stderr,"Error: Metallocene and Catenane compounds are valid within WLN notation, however\n"
-                         "converting between common formats (smi & InChI) leads to undefined and undesirable\n"
-                         "behaviour, see reconnected InChi's for a modern way of representing these compounds\n"
-                         "as a line notation. For now, these will be unsupported alongside WLN 'uncertainties'\n");
-          Fatal(i+start);
+          // place the minus charges on the last ring seen
+          if(ring_components.size() == 1){
+            post_charges.push_back({'A',-1});
+          }else{
+            unsigned int track = 0;
+            for (unsigned int rn = 0; rn<ring_components.size()-1;rn)
+              track += ring_components[rn].first;
+            post_charges.push_back({int_to_locant(track + 1),-1});  // post is needed as this is before pointer assignment
+          }
+          
+          break;
 
         case '1':
         case '2':
@@ -2050,7 +2051,7 @@ struct WLNRing
           if (i > 1 && block[i-1] == ' '){
             state_multi   = 1; // enter multi state
             expected_locants = ch - '0';
-          }  
+          }
           else{
 
             if(positional_locant)
@@ -2494,7 +2495,7 @@ struct WLNRing
             state_multi = 3;
           }
           else{
-            if(i>0 && block[i-1] == ' '){
+            if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
               positional_locant = ch;
               last_locant_position = i;
             }
@@ -2674,6 +2675,10 @@ struct WLNRing
                                   ring_size_specifier);
       break;
     }
+
+    for (std::pair<unsigned char,int> &post : post_charges)
+      charge_additions[locants[post.first]] = post.second;
+    
 
     if (!final_size)
       Fatal(start+i);
@@ -3042,9 +3047,17 @@ struct WLNGraph
       case '0': // cannot be lone, must be an addition to another num
         if(pending_J_closure)
           break;
-        
-        fprintf(stderr,"Error: a lone zero mark is not allowed without positive numerals either side\n");
-        Fatal(i);
+
+        else if (pending_locant){
+          charge_additions[prev]++;
+
+          on_locant = '0';
+          pending_locant = false;
+        }
+        else{
+          fprintf(stderr,"Error: a lone zero mark is not allowed without positive numerals either side\n");
+          Fatal(i);
+        }
         break;
 
       case '1':
@@ -3092,6 +3105,37 @@ struct WLNGraph
           pending_locant = false;
           on_locant = ch;
         }
+        else if(pending_ring_in_ring && pending_inline_ring){
+            // onlocant holds the char needed to wrap the ring back, 
+          curr = wrap_ring->locants[on_locant];
+          if(!curr){
+            fprintf(stderr,"Error: cannot access looping ring structure\n");
+            Fatal(i);
+          }
+
+          if(prev){
+            edge = AllocateWLNEdge(curr,prev);
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
+            if(!edge)
+              Fatal(i);
+          }
+          else
+            Fatal(i);
+    
+          // last notation is not neccessary
+          while(wln_ptr){
+            if(*wln_ptr == 'J')
+              break;
+            wln_ptr++;
+            i++;
+          }
+
+          pending_ring_in_ring = false;
+          pending_inline_ring = false;
+        } 
         else{
           on_locant = '\0';
 
@@ -4025,19 +4069,16 @@ struct WLNGraph
 
           if(pending_spiro)
             pending_spiro = false;
-          else if (prev && on_locant)
+          else if (prev && on_locant && on_locant != '0')
           {
-          
             if (ring->locants[on_locant]){
-              if(prev){
-                edge = AllocateWLNEdge(ring->locants[on_locant],prev);
-                if(pending_unsaturate){
-                  edge = unsaturate_edge(edge,pending_unsaturate);
-                  pending_unsaturate = 0;
-                }
-                if(!edge)
-                  Fatal(i);
+              edge = AllocateWLNEdge(ring->locants[on_locant],prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
               }
+              if(!edge)
+                Fatal(i);
             }   
             else
             {
@@ -4076,7 +4117,7 @@ struct WLNGraph
         }
         else
         {
-          if(i < len - 1 && wln_string[i+1] == '-'){
+          if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
             pending_ring_in_ring = true;
 
             // if pending inline ring doesnt get a L or T, we know it
@@ -4396,6 +4437,9 @@ struct WLNGraph
               curr = define_element(special);
               if(!curr)
                 Fatal(i); 
+              
+              if(on_locant == '0')
+                charge_additions[curr]++;
             }
             else{
               fprintf(stderr,"Error: special '-' must be either 1 or 2 symbols - %d seen\n",gap);
@@ -4429,9 +4473,6 @@ struct WLNGraph
           }
         }
         break;
-
-
-      // do a lookahead here as well for multiplier symbols
 
       case '/':
         if (pending_J_closure){
@@ -4489,14 +4530,6 @@ struct WLNGraph
     }
     
 
-    // if a multiplier is here, we handle it
-    if(pending_linker){
-
-      fprintf(stderr,"will catch here\n");
-
-    }
-
-
 
     if (pending_J_closure)
     {
@@ -4521,6 +4554,7 @@ struct WLNGraph
       fprintf(stderr, "Error: expected sprio ring to be defined\n");
       Fatal(len);
     }
+
 
     if(!AssignCharges(ionic_charges))
       Fatal(len);
@@ -4620,16 +4654,14 @@ struct BabelGraph{
   ~BabelGraph(){};
 
 
-  OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,unsigned int charge=0,unsigned int hcount=0)
+  OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,int charge=0,unsigned int hcount=0)
   {
 
     OpenBabel::OBAtom* result = mol->NewAtom();
     
     result->SetAtomicNum(elem);
     result->SetImplicitHCount(hcount);
-
-    if(charge)
-      result->SetFormalCharge(charge);
+    result->SetFormalCharge(charge);
 
     return result;
   }
@@ -4710,8 +4742,8 @@ struct BabelGraph{
 
       OpenBabel::OBAtom *atom = 0;
 
+      int charge = 0; 
       unsigned int atomic_num = 0;
-      unsigned int charge = 0; 
       unsigned int hcount = 0;
 
       switch(sym->ch){
