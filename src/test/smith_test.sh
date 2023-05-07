@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 SMITH="${SCRIPT_DIR}/../../data/smith_wln.tsv"
-PARSE="${SCRIPT_DIR}/../parser/build/wln-writer3"
+PARSE="${SCRIPT_DIR}/../parser/build/readwln"
 
 COUNT=0
 TOTAL=$(wc -l < $SMITH)
@@ -31,3 +31,4 @@ while read p; do
 done <$SMITH
 
 echo -ne "\r$COUNT/$TOTAL correct\n"
+echo "unit test complete"
