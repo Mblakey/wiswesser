@@ -58,6 +58,8 @@ struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
 
+std::stack<std::string> evaluate; 
+
 struct AdjMatrix;
 struct ObjectStack;
 
@@ -1053,7 +1055,7 @@ unsigned int special_element_atm(std::string &special){
       else if (special[1] == 'R')
         return 59;
       else if (special[1] == 'T')
-        return 97;
+        return 78;
       else if (special[1] == 'U')
         return 94;
       
@@ -1382,7 +1384,7 @@ struct WLNRing
                                   std::vector<indexed_pair> &pseudo_locants,
                                   std::set<unsigned char> &broken_locants,
                                   std::map<unsigned char,bool> &bridge_locants,
-                                  unsigned char size_designator) // spiro only aromaticity fix
+                                  unsigned char size_designator) 
   {
     
     // create a chain size of ring designator
@@ -1403,8 +1405,12 @@ struct WLNRing
         curr->set_edge_and_type(4,RING);
         curr = assign_locant(loc,curr);
       }
-      else
+      else{
         curr = locants[loc];
+        if(!locants_ch[curr])
+          locants_ch[curr] = loc;
+      }
+        
 
       if(prev){
         WLNEdge *edge = AllocateWLNEdge(curr,prev);
@@ -1413,7 +1419,6 @@ struct WLNRing
       }
       prev = curr;
     }
-
 
     // shared rings cannot be done purely on ring paths annoyingly, leads to missteps in 
     // bridged ring system where the ring is spawned outside the path. 
@@ -1548,7 +1553,7 @@ struct WLNRing
           // skip the broken child if not yet included in a ring
           if(child_loc > 128 && !spawned_broken[child_loc])
             continue;
-          
+
           if(child_loc >= highest_loc)
             highest_loc = child_loc;
         }
@@ -1679,8 +1684,9 @@ struct WLNRing
     unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
     unsigned int state_pseudo         = 0; 
     unsigned int state_aromatics      = 0;
-    bool implied_assignment_used      = 0; // allows a shorthand if wanted, but not mixing
-   
+    unsigned int state_chelate        = 0;
+    bool implied_assignment_used      = false; // allows a shorthand if wanted, but not mixing
+    
     unsigned int expected_locants       = 0;
     unsigned int  evaluating_break      = 0;
     unsigned char ring_size_specifier   = '\0';
@@ -1888,6 +1894,7 @@ struct WLNRing
                   else if(locants[positional_locant])
                     positional_locant++;
 
+
                   WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(special[0]));  // elemental definition 
                   if(!new_locant)
                     Fatal(i+start);
@@ -2010,7 +2017,7 @@ struct WLNRing
         case '0':
           // place the minus charges on the last ring seen
           if(ring_components.size() == 1){
-            post_charges.push_back({'A',-1});
+            post_charges.push_back({'B',-1});
           }else{
             unsigned int track = 0;
             for (unsigned int rn = 0; rn<ring_components.size()-1;rn++)
@@ -2086,6 +2093,11 @@ struct WLNRing
         case 'X':
         case 'Y':
         case 'Z':
+          if(i == 0 && ch == 'D'){
+            state_chelate = 1;
+            heterocyclic = true;
+            break;
+          }
 
           if(state_aromatics){
             fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
@@ -2135,6 +2147,15 @@ struct WLNRing
             WLNSymbol *new_locant = 0; 
 
             switch(ch){
+              
+              case 'D':
+                if(!state_chelate){
+                  fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
+                  Fatal(start+i);
+                }
+                // means open chelating bond
+                break;
+
               case 'S':
               case 'P':
                 if(!heterocyclic)
@@ -2168,6 +2189,7 @@ struct WLNRing
                 new_locant->set_edge_and_type(4,RING);
                 break;
 
+              case 'Z': // treat as NH2
               case 'N':
                 if(!heterocyclic)
                   warned = true;
@@ -2189,6 +2211,7 @@ struct WLNRing
                 if(locants[positional_locant])
                   positional_locant++;
 
+                //  if this is a chelting oxygen, treat as nOU without any restrictions
                 new_locant = AllocateWLNSymbol(ch);
                 new_locant = assign_locant(positional_locant,new_locant);
                 new_locant->set_edge_and_type(2,RING);
@@ -2258,6 +2281,7 @@ struct WLNRing
                 fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
                 Fatal(start+i);
             }
+
             string_positions[start+i] = new_locant;
           }
           else{
@@ -2288,6 +2312,14 @@ struct WLNRing
               WLNSymbol *new_locant = 0; 
 
               switch(ch){
+                
+                case 'D':
+                if(!state_chelate){
+                  fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
+                  Fatal(start+i);
+                }
+                break;
+
                 case 'S':
                 case 'P':
                   if(!heterocyclic)
@@ -2320,6 +2352,9 @@ struct WLNRing
                   new_locant = assign_locant(positional_locant,new_locant);
                   new_locant->set_edge_and_type(4,RING);
                   break;
+
+
+                case 'Z':
                 case 'N':
                   if(!heterocyclic)
                     warned = true;
@@ -2677,7 +2712,7 @@ struct WLNRing
     }
 
     for (std::pair<unsigned char,int> &post : post_charges)
-      charge_additions[locants[post.first]] = post.second;
+      charge_additions[locants[post.first]] += post.second;
     
 
     if (!final_size)
@@ -3049,8 +3084,11 @@ struct WLNGraph
           break;
 
         else if (pending_locant){
-          charge_additions[prev]++;
+          
+          if(prev && prev->type != RING)
+            charge_additions[prev]++;
 
+          prev = 0;
           on_locant = '0';
           pending_locant = false;
         }
@@ -3107,24 +3145,27 @@ struct WLNGraph
         }
         else if(pending_ring_in_ring && pending_inline_ring){
             // onlocant holds the char needed to wrap the ring back, 
-          curr = wrap_ring->locants[on_locant];
-          if(!curr){
-            fprintf(stderr,"Error: cannot access looping ring structure\n");
-            Fatal(i);
-          }
-
-          if(prev){
-            edge = AllocateWLNEdge(curr,prev);
-            if(pending_unsaturate){
-              edge = unsaturate_edge(edge,pending_unsaturate);
-              pending_unsaturate = 0;
+          
+          if(on_locant != '0'){
+            curr = wrap_ring->locants[on_locant];
+            if(!curr){
+              fprintf(stderr,"Error: cannot access looping ring structure\n");
+              Fatal(i);
             }
-            if(!edge)
+
+            if(prev){
+              edge = AllocateWLNEdge(curr,prev);
+              if(pending_unsaturate){
+                edge = unsaturate_edge(edge,pending_unsaturate);
+                pending_unsaturate = 0;
+              }
+              if(!edge)
+                Fatal(i);
+            }
+            else
               Fatal(i);
           }
-          else
-            Fatal(i);
-    
+          
           // last notation is not neccessary
           while(wln_ptr){
             if(*wln_ptr == 'J')
@@ -3230,8 +3271,9 @@ struct WLNGraph
           break;
         else if (pending_locant)
         {
-          fprintf(stderr,"UNCERTAINTY NOT YET IMPLEMENTED\n");
-          fprintf(stderr,"Error: '%c' cannot be a locant assignment, please expand [A-W] with &\n",ch);
+          fprintf(stderr, "Wiswesser Uncertainities will produce multiple smiles per X entry\n"
+                          "since the number of these is at least the size of the ring system\n"
+                          "its likely to blow memory allocations, as such they are not supported\n");
           Fatal(i);
         }
         else
@@ -3895,7 +3937,6 @@ struct WLNGraph
         break;
 
       case 'A':
-      case 'D':
         if (pending_J_closure)
           break;
         else if (pending_locant)
@@ -3921,6 +3962,55 @@ struct WLNGraph
         else{
           fprintf(stderr,"Error: locant only symbol used in atomic definition\n");
           Fatal(i);
+        }
+        break;
+          
+      // this can start a chelating ring compound, so has the same block as 'L\T'
+      case 'D':
+        if (pending_J_closure)
+          break;
+        else if (pending_locant)
+        {
+          if(!pending_inline_ring){
+            ring = branch_stack.ring;
+            if(!ring)
+              Fatal(i);
+
+            curr = ring->locants[ch];
+            if(!curr){
+              fprintf(stderr,"Error: accessing locants out of range\n");
+              Fatal(i);
+            }
+            
+            prev = curr;
+          }
+          pending_locant = false;
+          on_locant = ch;
+        }
+        else
+        {
+          if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
+            pending_ring_in_ring = true;
+
+            i++;
+            wln_ptr++;
+            pending_inline_ring = true;
+            break;
+          }
+            
+          if (i == 0)
+            pending_inline_ring = true;
+          
+        
+          if (!pending_inline_ring)
+          {
+            fprintf(stderr, "Error: chelating ring notation started without '-' denotion\n");
+            Fatal(i);
+          }
+          
+          pending_inline_ring = false;
+          block_start = i;
+          pending_J_closure = true;
         }
         break;
           
@@ -4022,6 +4112,7 @@ struct WLNGraph
           std::string r_notation = get_notation(block_start,block_end);
 
           if(pending_spiro){
+
             ring->locants[on_locant] = prev;
 
             // check for an aromaticity bond move?
@@ -4405,7 +4496,6 @@ struct WLNGraph
           unsigned int gap = 0; 
           bool found_next = false;
 
-
           while(local_ch != '\0'){
             if(local_ch == ' ')
               break;
@@ -4438,8 +4528,11 @@ struct WLNGraph
               if(!curr)
                 Fatal(i); 
               
-              if(on_locant == '0')
+              if(on_locant == '0'){
                 charge_additions[curr]++;
+                //on_locant = '\0';
+              }
+                             
             }
             else{
               fprintf(stderr,"Error: special '-' must be either 1 or 2 symbols - %d seen\n",gap);
@@ -4468,6 +4561,7 @@ struct WLNGraph
             i+= gap+1;
             wln_ptr+= gap+1;
 
+            string_positions[i-gap] = curr;
             pending_unsaturate = 0;
             prev = curr;
           }
@@ -4936,7 +5030,6 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     return false;
   }
   
-
   // create an optional wln dotfile
   if (opt_wln2dot)
     WriteGraph();
@@ -5055,6 +5148,7 @@ int main(int argc, char *argv[])
   OpenBabel::OBMol* mol = new OpenBabel::OBMol;
   if(!ReadWLN(cli_inp,mol))
     return 1;
+
 
 
   OpenBabel::OBConversion conv;

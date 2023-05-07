@@ -22,7 +22,9 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/src
 )
 
-add_executable(wln-writer3 writewln3.cpp)
+add_executable(readwln readwln2.cpp)
+#add_executable(writewln writewln.cpp)
+#add_executable(writewln2 writewln2.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
@@ -30,7 +32,9 @@ include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
 if(WIN32)
   message(ERROR "Unsupported operating system - windows")
 elseif(APPLE)
-  target_link_libraries(wln-writer3 "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
+  target_link_libraries(readwln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
+  #target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
 elseif(UNIX)
-  target_link_libraries(wln-writer3 "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
+  target_link_libraries(readwln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
+  #target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
 endif()
