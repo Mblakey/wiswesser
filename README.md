@@ -4,6 +4,8 @@ Wisswesser Line Notation Parser, covert WLN to smiles, inchi, mol files etc
 This is the development for the WLN parser that will be added directly to OpenBabel, 
 on the release of this project, please see my local branch of babel for pre-release versions. 
 
+[release](./notes/release.md)
+
 ## Requirements
 
 **git**, **cmake**, **make** and a **c++ compiler** are all essential. <br>
@@ -18,10 +20,10 @@ A prompt will then ask you to run `source ./link.sh` which sets the babel build 
 
 ## Usage
 
-Command line utility `read-wln` should be created in the build directory of Parser. This can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
+Command line utility `readwln` should be created in the build directory of Parser. This can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
 
 ```
-read-wln <options> 'string'
+readwln <options> 'string'
 ```
 
 ### flags
@@ -40,7 +42,9 @@ By default conversion will be piped to stdout, if converting files, its recommen
 
 ### Unit Testing
 
-A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (expected 100%)
+A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (100 is NOT expected).
+
+Another text file containing all the english words is included, `./english_test.sh` will parse the reader over every capatilised english word and check for seg faults, this also returns the matches to the `data` directory for word challenges. 
 
 
 
