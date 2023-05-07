@@ -1514,8 +1514,8 @@ struct WLNRing
       }
 
 
-      while(shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty()
-            || bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2){
+      while( (shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty())
+            || (bridge_locants[bind_1] && locants[bind_1]->num_edges >= 2) ){
 
         predefined++;
         bind_1++;
@@ -2013,7 +2013,7 @@ struct WLNRing
             post_charges.push_back({'A',-1});
           }else{
             unsigned int track = 0;
-            for (unsigned int rn = 0; rn<ring_components.size()-1;rn)
+            for (unsigned int rn = 0; rn<ring_components.size()-1;rn++)
               track += ring_components[rn].first;
             post_charges.push_back({int_to_locant(track + 1),-1});  // post is needed as this is before pointer assignment
           }
