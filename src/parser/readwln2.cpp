@@ -52,8 +52,10 @@ const char *dotfile;
 static bool opt_wln2dot = false;
 static bool opt_debug = false;
 
-// --- globals ---
-const char *wln;
+// --- globals MSVC compiler did not like these inline ---
+const char *wln_string;
+std::string r_notation;
+
 struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
@@ -99,7 +101,7 @@ std::string get_notation(unsigned int s, unsigned int e)
   std::string res; 
   for (unsigned int i = s; i <= e; i++)
   {
-    res.push_back(wln[i]);
+    res.push_back(wln_string[i]);
   }
   return res; 
 }
@@ -107,7 +109,7 @@ std::string get_notation(unsigned int s, unsigned int e)
 bool WriteGraph();
 void Fatal(unsigned int pos)
 {
-  fprintf(stderr, "Fatal: %s\n", wln);
+  fprintf(stderr, "Fatal: %s\n", wln_string);
   fprintf(stderr, "       ");
   for (unsigned int i = 0; i < pos; i++)
     fprintf(stderr, " ");
@@ -170,7 +172,7 @@ struct WLNSymbol
   void add_special(unsigned int s, unsigned int e)
   {
     for (unsigned int i = s; i <= e; i++)
-      special.push_back(wln[i]);
+      special.push_back(wln_string[i]);
   }
 
 };
@@ -1709,7 +1711,10 @@ struct WLNRing
   
     unsigned int i = 0;    
     unsigned int len = block.size();
-    const char *block_str = block.c_str();
+
+    // somehow need to give 
+
+    const char *block_str = block.c_str(); // this should be now globally alive
     unsigned char ch = *block_str++;
 
     while(ch){
@@ -3057,10 +3062,9 @@ struct WLNGraph
     unsigned int block_start = 0;
     unsigned int block_end = 0;
 
-    std::string wln_string = std::string(wln_ptr); // constant reference
-    unsigned int len =strlen(wln_ptr);
+    unsigned int len = strlen(wln_ptr);
     unsigned int zero_position = search_ionic(wln_ptr,len,ionic_charges);
-    
+
     unsigned int i=0;
     unsigned char ch = *wln_ptr;
     
@@ -4104,7 +4108,7 @@ struct WLNGraph
           block_end = i;
           
           ring = AllocateWLNRing();
-          std::string r_notation = get_notation(block_start,block_end);
+          r_notation = get_notation(block_start,block_end);
 
           if(pending_spiro){
 
@@ -4259,7 +4263,7 @@ struct WLNGraph
           on_locant = '\0';
           ring = AllocateWLNRing();
 
-          std::string r_notation = "L6J";
+          r_notation = "L6J";
           ring->FormWLNRing(r_notation,i);
           branch_stack.push({ring,0});
 
@@ -5009,7 +5013,7 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     return false;
   }
   else 
-    wln = ptr; 
+    wln_string = ptr; 
 
   WLNGraph wln_graph;
   BabelGraph obabel; 
