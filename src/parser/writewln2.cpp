@@ -52,6 +52,7 @@ GNU General Public License for more details.
 
 // --- inputs ---
 const char *cli_inp;
+const char *inp_format; // only needed for outside babel build
 const char *dotfile;
 
 // --- options ---
@@ -279,62 +280,7 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n){
   return edge;
 }
 
-WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
-  if(!edge){
-    fprintf(stderr,"Error: saturating non-existent edge\n");
-    return 0;
-  }
 
-  if(edge->order < 2)
-    return edge;
-  
-  edge->order -= n; 
-  edge->parent->num_edges -= n;
-  edge->child->num_edges -= n;
-
-  return edge;
-}
-
-
-bool remove_edge(WLNSymbol *head,WLNEdge *edge){
-  if(!head || !edge){
-    fprintf(stderr,"Error: removing bond of non-existent symbols\n");
-    return false;
-  }
-  
-  head->num_edges--;
-  edge->child->num_edges--;
-
-  if(head->bonds == edge){
-    head->bonds = 0;
-    return true;
-  }
-
-  bool found = false;
-  WLNEdge *search = head->bonds;
-
-  WLNEdge *prev = 0;
-  while(search){
-    if(search == edge){ 
-      found = true;
-      break;
-    }
-    prev = search; 
-    search = search->nxt;
-  }
-
-  if(!found){
-    fprintf(stderr,"Error: trying to remove bond from wln character[%c] - bond not found\n",head->ch);
-    return false;
-  }
-  else{
-    WLNEdge *tmp = edge->nxt;
-    prev->nxt = tmp;
-    // dont null the edges as we use the mempool to release them
-  }
-
-  return true;
-}
 
 struct WLNGraph
 {
@@ -355,8 +301,7 @@ struct WLNGraph
 };
 
 
-// holds all the functions for WLN graph conversion, mol object is assumed ALIVE AT ALL TIMES
-// uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
+/* graph now interprets all babel mol bonds and atoms, created wln graph */
 struct BabelGraph{
 
     BabelGraph(){};
@@ -375,14 +320,48 @@ struct BabelGraph{
 
         WLNSymbol *node = 0;
         switch(atom->GetAtomicNum()){
+          case 1:
+            node = AllocateWLNSymbol('H');
+            break; 
+
+          case 5:
+            node = AllocateWLNSymbol('B');
+            break;
+
           case 6:
             node = AllocateWLNSymbol('C');
-            node->set_edge_and_type(4,STANDARD);
             break;
 
           case 7:
             node = AllocateWLNSymbol('N');
-            node->set_edge_and_type(3,STANDARD);
+            break;
+          
+          case 8:
+            node = AllocateWLNSymbol('O');
+            break;
+          
+          case 9:
+            node = AllocateWLNSymbol('F');
+            break;
+
+          case 15:
+            node = AllocateWLNSymbol('P');
+            break;
+
+          case 16:
+            node = AllocateWLNSymbol('S');
+            break;
+
+          case 17:
+            node = AllocateWLNSymbol('G');
+            break;
+
+          case 35:
+            node = AllocateWLNSymbol('E');
+            break;
+
+          case 53:
+            node = AllocateWLNSymbol('I');
             break;
 
           default:
@@ -390,6 +369,9 @@ struct BabelGraph{
             return false;
 
         }
+
+        if(node)
+          node->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
 
         if(!wln_graph.root)
           wln_graph.root = node; 
@@ -416,9 +398,6 @@ struct BabelGraph{
         }
 
       }
-
-
-
 
       return true;
     }
@@ -520,6 +499,7 @@ static void DisplayUsage()
 {
   fprintf(stderr, "writewln <options> < input (escaped) >\n");
   fprintf(stderr, "<options>\n");
+  fprintf(stderr, "  -i<format>                    choose the input format for reading\n");
   fprintf(stderr, "  -d | --debug                  print debug messages to stderr\n");
   fprintf(stderr, "  -h | --help                   print debug messages to stderr\n");
   fprintf(stderr, "  -w | --wln2dot                dump wln trees to dot file in [build]\n");
@@ -554,6 +534,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 
       case 'h':
         DisplayHelp();
+        break;
 
       case 'w':
         opt_wln2dot = true;
@@ -562,20 +543,21 @@ static void ProcessCommandLine(int argc, char *argv[])
       case '-':
 
         if (!strcmp(ptr, "--debug"))
-        {
           opt_debug = true;
-          break;
-        }
         else if (!strcmp(ptr, "--help"))
-        {
           DisplayHelp();
-        }
         else if (!strcmp(ptr, "--wln2dot"))
-        {
           opt_wln2dot = true;
-          break;
-        }
+  
+      break;
 
+      case 'i':
+        if (!strcmp(ptr, "-ismi"))
+          inp_format = "smi";
+        else if (!strcmp(ptr, "-iinchi"))
+          inp_format = "inchi";
+        break;
+        
       default:
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
         DisplayUsage();
@@ -592,6 +574,11 @@ static void ProcessCommandLine(int argc, char *argv[])
       }
   }
 
+  if(!inp_format){
+    fprintf(stderr,"Error: please select an input format for string\n");
+    DisplayUsage();
+  }
+
   return;
 }
 
@@ -604,7 +591,7 @@ int main(int argc, char *argv[])
   OpenBabel::OBMol* mol = new OpenBabel::OBMol;
 
   OpenBabel::OBConversion conv;
-  conv.SetInFormat("smi");
+  conv.SetInFormat(inp_format);
   conv.ReadString(mol,cli_inp);
   
   BabelGraph obabel; 
