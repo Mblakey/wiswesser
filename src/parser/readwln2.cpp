@@ -4593,7 +4593,7 @@ struct WLNGraph
 
             // some trick recusion is going to go here, but should generalise the linking
 
-            char local_arr [strlen(wln_ptr)+1]; 
+            char *local_arr  = new char [strlen(wln_ptr)+1]; 
             memset(local_arr,'\0',strlen(wln_ptr)+1);
             memcpy(local_arr,wln_ptr,strlen(wln_ptr));
             const char *local = local_arr;
@@ -4615,6 +4615,10 @@ struct WLNGraph
               local_ch = *(++local);
             }
 
+            if(local_arr){
+              delete [] local_arr;
+              local_arr = 0;
+            }
           }
         }
         
