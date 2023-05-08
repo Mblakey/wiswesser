@@ -14,69 +14,87 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
-#include <stdio.h>
-#include <stdlib.h>
-
-#include "parsefunctions.h"
-
 #include <vector>
 #include <iostream>
+#include <cmath>
 #include <stack>
-#include <iterator>
-
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/obconversion.h>
 #include <openbabel/obiter.h>
 #include <openbabel/ring.h>
+#include <iterator>
+
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
+//testing header
+//#include "southampton_wln.h"
 
-struct BondContainer{
+////////////////////////////////////////////////////////////////////////
+// Utility Classes
 
-  unsigned int atom_1_index;
-  unsigned int atom_2_index;
-  unsigned int atom_1_degree;
-  unsigned int atom_2_degree;
-  unsigned int atom_1_label;
-  unsigned int atom_2_label;
-  unsigned int bond_order;
-  bool aromatic;
-  bool ring_bond;
-  unsigned int bonded_connections;
-  unsigned int state;
-  unsigned int stack_index;
+class BondContainer{
+public:
+    unsigned int atom_1_index{};
+    unsigned int atom_2_index{};
 
-    
-  BondContainer() {
+    unsigned int atom_1_degree{};
+    unsigned int atom_2_degree{};
+
+    unsigned int atom_1_label{};
+    unsigned int atom_2_label{};
+
+    unsigned int bond_order{};
+    bool aromatic{};
+    bool ring_bond{};
+    unsigned int bonded_connections{};
+
+    unsigned int state{0};
+    unsigned int stack_index{};
+public:
+    BondContainer();
+    BondContainer(  unsigned int stack_pos,
+                    unsigned int start, unsigned int end,
+                    unsigned int deg_1, unsigned deg_2,
+                    unsigned int type_1,unsigned int type_2,
+                    unsigned int order_val,
+                    bool is_aromatic,
+                    bool is_ring);
+
+    BondContainer(const BondContainer &source);
+
+    void Display();
+};
+
+BondContainer::BondContainer() {
     atom_1_index = atom_2_index = NAN;
     atom_1_degree = atom_2_degree = NAN;
     atom_1_label = atom_2_label = NAN;
     bond_order = NAN;
-    aromatic = false;
+    aromatic = {false};
     state = 0;
     stack_index = NAN;
     bonded_connections = 0;
-  }
+}
 
-    
-  BondContainer(unsigned int stack_pos,
-                unsigned int start, unsigned int end,
-                unsigned int deg_1, unsigned int deg_2,
-                unsigned int type_1, unsigned int type_2,
-                unsigned int order_val,
-                bool is_aromatic, bool is_ring)
-        : stack_index{stack_pos},
-          atom_1_index{start}, atom_2_index{end},
-          atom_1_degree{deg_1}, atom_2_degree{deg_2},
-          atom_1_label{type_1}, atom_2_label{type_2},
-          bond_order{order_val},
-          aromatic{is_aromatic},
-          ring_bond{is_ring}{state = 1;};
+BondContainer::BondContainer(   unsigned int stack_pos,
+                                unsigned int start, unsigned int end,
+                                unsigned int deg_1, unsigned int deg_2,
+                                unsigned int type_1, unsigned int type_2,
+                                unsigned int order_val,
+                                bool is_aromatic, bool is_ring)
+        :   stack_index{stack_pos},
+            atom_1_index{start}, atom_2_index{end},
+            atom_1_degree{deg_1}, atom_2_degree{deg_2},
+            atom_1_label{type_1}, atom_2_label{type_2},
+            bond_order{order_val},
+            aromatic{is_aromatic},
+            ring_bond{is_ring}{state = 1;};
 
-    BondContainer(const BondContainer &source)
+
+BondContainer::BondContainer(const BondContainer &source)
         :   stack_index{source.stack_index},
             atom_1_index{source.atom_1_index}, atom_2_index{source.atom_2_index},
             atom_1_degree{source.atom_1_degree}, atom_2_degree{source.atom_2_degree},
@@ -85,75 +103,105 @@ struct BondContainer{
             aromatic{source.aromatic},bonded_connections{source.bonded_connections},
             ring_bond{source.ring_bond}{state=1;};
 
-    void Display(){
-      fprintf(stderr,"--- bond display ---\n");
-      fprintf(stderr,"Bond: Atoms (%d,%d)\n",atom_1_index,atom_2_index);
-      fprintf(stderr,"Degrees (%d,%d)\n",atom_1_index, atom_2_index);
-      fprintf(stderr,"Connections: %d",bonded_connections);
-      fprintf(stderr,"Type (%d,%d)\n",atom_1_label,atom_2_label); 
-      fprintf(stderr, "Order: %d\n",bond_order);
-      fprintf(stderr,"Aromatic: %d\n",aromatic);
-      fprintf(stderr,"Ring: %d\n",ring_bond);
-      fprintf(stderr,"Stack Index: %d\n", stack_index);
-      fprintf(stderr,"--- end bond ---\n");
-    }
-    
-};
+
+void BondContainer::Display() {
+    std::cout << "Bond: Atoms(" << atom_1_index << "," << atom_2_index <<")";
+    std::cout << " Degrees(" << atom_1_degree << ',' << atom_2_degree << ')';
+    std::cout << " Connections(" << bonded_connections <<")";
+    std::cout << " Type(" << atom_1_label << ',' << atom_2_label <<")";
+    std::cout << " Order(" << bond_order << ")";
+    std::cout << " Aromatic(" << aromatic << ")";
+    std::cout << " Ring(" << ring_bond << ")";
+    std::cout << " Stack Index(" << stack_index << ")";
+    std::cout << std::endl;
+}
 
 
 
-
-struct AtomContainer{
-
+class AtomContainer{
+public:
     unsigned int atom_index;
     unsigned int atom_degree;
     unsigned int atom_label;
     bool isinring;
-    std::vector<BondContainer> connected_bonds;
-    std::vector<unsigned int> inbound_atoms;
-    std::vector<unsigned int> outbound_atoms;
-    unsigned int atom_state = 0;
+    std::vector<BondContainer> connected_bonds{};
+    std::vector<unsigned int> inbound_atoms{};
+    std::vector<unsigned int> outbound_atoms{};
+    unsigned int atom_state =0;
 
-    AtomContainer():atom_index{0},atom_degree{0},atom_label{0},atom_state{0}{};
-
+public:
+    AtomContainer();
     AtomContainer(unsigned int atom_index_val, unsigned int atom_degree_val, unsigned int atom_label_val,
-                  std::vector<BondContainer> connected_bonds_val, bool isinring_val)
-        : atom_index{atom_index_val},atom_degree{atom_degree_val},atom_label{atom_label_val},
-          connected_bonds{std::move(connected_bonds_val)},atom_state{1}, isinring(isinring_val){};
+                  std::vector<BondContainer> connected_bonds_val, bool isinring_val);
+    AtomContainer(const AtomContainer &source);
+    void Display();
+};
 
-    AtomContainer(const AtomContainer &source)
+// Constructors etc.
+AtomContainer::AtomContainer()
+        :atom_index{0},atom_degree{0},atom_label{0},atom_state{0}{};
+
+AtomContainer::AtomContainer(unsigned int atom_index_val, unsigned int atom_degree_val, unsigned int atom_label_val,
+                             std::vector<BondContainer> connected_bonds_val, bool isinring_val)
+        :atom_index{atom_index_val},atom_degree{atom_degree_val},atom_label{atom_label_val},connected_bonds{std::move(connected_bonds_val)}
+        ,atom_state{1}, isinring(isinring_val){};
+
+AtomContainer::AtomContainer(const AtomContainer &source)
         :atom_index{source.atom_index},atom_degree{source.atom_degree},atom_label{source.atom_label},
          connected_bonds{source.connected_bonds}, inbound_atoms{source.inbound_atoms}, outbound_atoms{source.outbound_atoms},
          atom_state{source.atom_state}, isinring{source.isinring}{};
 
+void AtomContainer::Display() {
+    std::cout << "Atom: Index(" << atom_index << ")    ";
+    std::cout << "Label(" << atom_label << ")    ";
+    std::cout << "Degree(" << atom_degree << ")    ";
+    std::cout << "InRing(" << isinring << ")    ";
 
-    void Display(){
-      fprintf(stderr,"--- atom display ---\n");
-      fprintf(stderr,"Index: %d\n",atom_index);
-      fprintf(stderr,"Label: %d\n",atom_label);
-      fprintf(stderr,"Degree: %d\n",atom_degree);
-      fprintf(stderr,"Ring?: %d\n",isinring);
-      fprintf(stderr, "--- end atom --- \n");      
+    if (!connected_bonds.empty()){
+        std::cout << "   Connected Bonds: (";
+        std::cout << connected_bonds.size();
+        std::cout << ")";
     };
-};
+
+    std::cout << "   Inbounds: (";
+    std::copy(inbound_atoms.begin(), inbound_atoms.end(), std::ostream_iterator<unsigned int>(std::cout, ","));
+    std::cout << ")";
 
 
-struct RingContainer{
+    std::cout << "   Outbounds: (";
+    std::copy(outbound_atoms.begin(), outbound_atoms.end(), std::ostream_iterator<unsigned int>(std::cout, ","));
+    std::cout << ")";
 
-    std::vector<AtomContainer> ring_atoms;
-    std::vector<BondContainer> ring_bonds;
-    std::vector<std::tuple< AtomContainer,unsigned int>> active_atoms;
+    std::cout << "\n";
+}
+
+
+class RingContainer{
+public:
+    std::vector<AtomContainer> ring_atoms{};
+    std::vector<BondContainer> ring_bonds{};
+    std::vector<std::tuple< AtomContainer,unsigned int>> active_atoms{};
     AtomContainer start_atom;
     AtomContainer end_atom;
     unsigned int stack_val;
     char hetero = 'L';
     unsigned int size;
-    bool aromatic;
+    bool aromatic{};
     std::string type;
 
+public:
+    RingContainer();
+    RingContainer(const RingContainer &source);
 
-    RingContainer(){};
-    RingContainer(const RingContainer &source)
+    void Display();
+};
+
+
+RingContainer::RingContainer()
+        :ring_atoms{}{};
+
+
+RingContainer::RingContainer(const RingContainer &source)
         :ring_atoms{source.ring_atoms},
          ring_bonds{source.ring_bonds},
          active_atoms{source.active_atoms},
@@ -165,20 +213,18 @@ struct RingContainer{
          type{source.type},
          stack_val{source.stack_val}{};
 
-    void Display(){
-      fprintf(stderr,"--- ring display ---\n");
-      fprintf(stderr,"Size: %d\n",size);
-      fprintf(stderr,"Type: %s\n",type.c_str());
-      fprintf(stderr,"Aromatic?: %d\n",aromatic);
-      fprintf(stderr,"hetero atoms?: %d\n",hetero);
-      fprintf(stderr,"start atom: %d, end atom %d\n",start_atom.atom_index,end_atom.atom_index);
-      fprintf(stderr,"--- end ring ---\n");
-    };
-};
 
-
-
-
+void RingContainer::Display() {
+    std::cout << stack_val << " ";
+    std::cout << "Ring: Size(" << size << ")   ";
+    std::cout << "Type(" << type << ")   ";
+    std::cout << "Aromatic(" << aromatic << ")    ";
+    std::cout << "Atom Start(" << start_atom.atom_index << ")   ";
+    std::cout << "Atom End(" << end_atom.atom_index << ")   ";
+    std::cout << "Hetero: " << hetero << "   ";
+    std::cout << "Active Atoms[" << active_atoms.size() << "]   ";
+    std::cout << "\n";
+}
 
 
 
@@ -420,9 +466,9 @@ class WriteWLN{
 public:
     char* smiles;
     OpenBabel::OBMol *Mol;
-    std::vector<BondContainer> global_bond_stack{};
-    std::vector<AtomContainer> global_atom_stack{};
-    std::vector<RingContainer> global_ring_stack{};
+    std::vector<BondContainer> global_bond_stack;
+    std::vector<AtomContainer> global_atom_stack;
+    std::vector<RingContainer> global_ring_stack;
 
 public:
     // Constructors/Destructors
@@ -476,9 +522,6 @@ public:
     unsigned int ScoreLists(std::vector<AtomContainer> list_1, std::vector<AtomContainer> list_2);
 
 };
-
-
-// this is made for look ahead type def? 
 std::string TranslateToWLN(const char* smiles_string);
 
 
@@ -572,10 +615,8 @@ bool WriteWLN::BuildGlobalStacks(OpenBabel::OBMol *Mol) {
         global_ring_stack.push_back(ring_container);
     }
 
-    // Mol deletion checked
     return true;
 }
-
 bool WriteWLN::SegmentAtomStack(std::vector<WLNSymbol> &wln_vector){
     if (global_atom_stack.empty())
         return false;
@@ -1649,7 +1690,7 @@ bool WriteWLN::SanitiseString(std::vector<char> &wln_string){
 //  --- Output Function ---
 bool WriteWLN::CreateString(std::vector<char> &wln_string){
 
-    std::vector<WLNSymbol> wln_vector{};
+    std::vector<WLNSymbol> wln_vector;
     if(!BuildGlobalStacks(Mol))
         return Error("stacks");
 
@@ -1681,8 +1722,6 @@ bool WriteWLN::CreateString(std::vector<char> &wln_string){
 
     return true;
 }
-
-
 bool WriteWLN::Error(const char* type){
     fprintf(stderr, "Error in wln write\n");
     fprintf(stderr, "Type: %s \n", type);
@@ -2862,29 +2901,33 @@ bool WriteWLN::CloneRingData(WLNSymbol &merged_ring, WLNSymbol &subject ,WLNSymb
 }
 
 
+// Working Function for executable testing
+std::string TranslateToWLN(const char* smiles_string){
+    OpenBabel::OBMol *Mol = new OpenBabel::OBMol;
+    OpenBabel::OBConversion conv;
+    conv.SetInFormat("smi");
+    if(!conv.ReadString(Mol, smiles_string))
+        return "NULL - SMILES READ ERROR";
+    Mol->DeleteHydrogens();
 
-/* assume user control over heap Mol object*/
-void ConvertSMI(const char *input_string, const char *format, OpenBabel::OBMol *Mol){
-  OpenBabel::OBConversion conv;
-  conv.SetInFormat("smi");
-  if(!conv.ReadString(Mol, input_string))
-    fprintf(stdout,"Error: obabel smiles read error\n");
-  Mol->DeleteHydrogens();
+    WriteWLN bond_engine{Mol};
+    std::vector<char> wln_out;
+    bond_engine.CreateString(wln_out);
+    std::string res(begin(wln_out), end(wln_out));
+    return res;
+};
 
-  WriteWLN wln_engine{Mol};
-  std::vector<char> wln_out;
-  wln_engine.CreateString(wln_out);
-  
-  if (wln_out.empty())
-    fprintf(stdout,"Error: no conversion possible - %s\n",input_string);
-  else{
-    fprintf(stdout,"wln: ");
-    for (char ch : wln_out)
-      fprintf(stdout,"%c",ch);
-    fprintf(stdout,"\n");
-  }
+
+bool MBWriterWLN(OpenBabel::OBMol *mol, std::string &buffer){
+    // converts wln to a given buffer
+    WriteWLN wr(mol);
+    std::vector<char> wln_string;
+    if (!wr.CreateString(wln_string))
+        return wr.Error("Write");
+    wln_string.push_back('\n'); 
+    // this should return the wln string
+    std::string res(begin(wln_string), end(wln_string));
+    buffer = res;
+    return true;
 }
-
-
-
 

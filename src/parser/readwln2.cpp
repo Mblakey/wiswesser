@@ -57,10 +57,6 @@ const char *wln;
 struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
-
-std::stack<std::string> evaluate; 
-
-struct AdjMatrix;
 struct ObjectStack;
 
 unsigned int edge_count   = 0;
@@ -123,7 +119,6 @@ void Fatal(unsigned int pos)
 
   exit(1);
 }
-
 
 
 struct WLNEdge{
@@ -1699,10 +1694,10 @@ struct WLNRing
     std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
     std::vector<std::pair<unsigned char, unsigned char>>  saturations; 
 
-    std::vector<unsigned char>  pseudo_locants;
-    std::vector<unsigned int>   pseudo_positions; 
-    std::vector<unsigned char>  multicyclic_locants;
-    std::set<unsigned char>     broken_locants;
+    std::vector<unsigned char>    pseudo_locants;
+    std::vector<unsigned int>     pseudo_positions; 
+    std::vector<unsigned char>    multicyclic_locants;
+    std::set<unsigned char>       broken_locants;
     std::map<unsigned char,bool>  bridge_locants;
     
     // broken locants start at A = 129 for extended ascii 
@@ -1712,11 +1707,10 @@ struct WLNRing
     std::vector<indexed_pair>                            indexed_bindings;  
     
   
-    unsigned int i = 0; 
-    const char *block_str = block.c_str();    
+    unsigned int i = 0;    
     unsigned int len = block.size();
+    const char *block_str = block.c_str();
     unsigned char ch = *block_str++;
-
 
     while(ch){
 
@@ -1804,9 +1798,8 @@ struct WLNRing
         case '-':{
 
           // gives us a local working copy
-          char local_arr [strlen(block_str)+1]; 
-          memset(local_arr,'\0',strlen(block_str)+1);
-          memcpy(local_arr,block_str,strlen(block_str));
+          char local_arr [strlen(block_str)+1] = {0}; 
+          strcpy(local_arr,block_str);
           const char *local = local_arr;
 
           unsigned char local_ch = *(local)++; // moved it over
@@ -3026,11 +3019,13 @@ struct WLNGraph
 
 
   /* returns the head of the graph, parse all normal notation */
-  bool ParseWLNString(std::string wln_string) 
+  bool ParseWLNString(const char *wln_ptr) 
   {
+    
+    // keep the memory alive
 
     if (opt_debug)
-      fprintf(stderr, "Parsing WLN notation: %s\n",wln_string.c_str());
+      fprintf(stderr, "Parsing WLN notation: %s\n",wln_ptr);
 
     ObjectStack branch_stack;   // access to both rings and symbols
     branch_stack.reserve(100);  // reasonable size given
@@ -3062,8 +3057,8 @@ struct WLNGraph
     unsigned int block_start = 0;
     unsigned int block_end = 0;
 
-    unsigned int len = wln_string.length();
-    const char * wln_ptr = wln_string.c_str();
+    std::string wln_string = std::string(wln_ptr); // constant reference
+    unsigned int len =strlen(wln_ptr);
     unsigned int zero_position = search_ionic(wln_ptr,len,ionic_charges);
     
     unsigned int i=0;
@@ -4487,9 +4482,8 @@ struct WLNGraph
 
           // look ahead and consume the special
 
-          char local_arr [strlen(wln_ptr)+1]; 
-          memset(local_arr,'\0',strlen(wln_ptr)+1);
-          memcpy(local_arr,wln_ptr,strlen(wln_ptr));
+          char local_arr [strlen(wln_ptr)+1] = {0}; 
+          strcpy(local_arr,wln_ptr);
           const char *local = local_arr;
           
           unsigned char local_ch = *(++local); // moved it over
@@ -4695,12 +4689,7 @@ void WLNDumpToDot(FILE *fp)
       unsigned int bond_order = edge->order;
 
       // aromatic
-      if(bond_order == 4){
-        fprintf(fp, "  %d", index_lookup[node]);
-        fprintf(fp, " -> ");
-        fprintf(fp, "%d [arrowhead=none,color=red]\n", index_lookup[child]);
-      }
-      else if (bond_order > 1){
+      if (bond_order > 1){
         for (unsigned int k=0;k<bond_order;k++){
           fprintf(fp, "  %d", index_lookup[node]);
           fprintf(fp, " -> ");
@@ -5025,7 +5014,7 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
-  if(!wln_graph.ParseWLNString(std::string(ptr))){
+  if(!wln_graph.ParseWLNString(ptr)){
     fprintf(stderr,"Error: string pass was successful but return nullptr for wln graph\n");
     return false;
   }
@@ -5061,10 +5050,8 @@ static void DisplayHelp()
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "wln-writer <options> < input (escaped) >\n");
+  fprintf(stderr, "readwln <options> < input (escaped) >\n");
   fprintf(stderr, "<options>\n");
-  fprintf(stderr, "  -a | --allow-changes          allow changes to notation to allow parsing\n");
-  fprintf(stderr, "  -c | --convert                convert the wln graph into SCT table\n");
   fprintf(stderr, "  -d | --debug                  print debug messages to stderr\n");
   fprintf(stderr, "  -h | --help                   print debug messages to stderr\n");
   fprintf(stderr, "  -w | --wln2dot                dump wln trees to dot file in [build]\n");
