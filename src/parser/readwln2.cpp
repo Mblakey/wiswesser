@@ -65,6 +65,7 @@ unsigned int ring_count   = 0;
 WLNSymbol *SYMBOLS[REASONABLE];
 WLNEdge   *EDGES  [REASONABLE];
 WLNRing   *RINGS  [REASONABLE];
+void  RELEASE_MEMORY();
 
 std::map<WLNSymbol *, unsigned int> index_lookup;
 std::map<unsigned int, WLNSymbol *> symbol_lookup;
@@ -103,7 +104,6 @@ std::string get_notation(unsigned int s, unsigned int e)
   return res; 
 }
 
-bool WriteGraph();
 void Fatal(unsigned int pos)
 {
   fprintf(stderr, "Fatal: %s\n", wln_string);
@@ -113,11 +113,11 @@ void Fatal(unsigned int pos)
 
   fprintf(stderr, "^\n");
 
-  if(opt_debug)
-    WriteGraph();
-
+  RELEASE_MEMORY();
   exit(1);
 }
+
+
 
 
 struct WLNEdge{
@@ -135,6 +135,7 @@ struct WLNEdge{
     order = 0;
     nxt = 0;
   }
+  ~WLNEdge(){};
 };
 
 
@@ -156,6 +157,7 @@ struct WLNSymbol
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
+    type = 0;
     previous = 0;
     bonds = 0;
   }
@@ -182,11 +184,15 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch)
   symbol_count++;
   if(symbol_count > REASONABLE){
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
-    exit(0);
+    return 0;
   }
-  
-  WLNSymbol *wln = new WLNSymbol;
 
+  if(!ch){
+    fprintf(stderr,"Error: null char used to symbol creation\n");
+    return 0;
+  }
+
+  WLNSymbol *wln = new WLNSymbol;
   SYMBOLS[symbol_count] = wln;
   
   wln->ch = ch;
@@ -445,16 +451,15 @@ bool resolve_methyls(WLNSymbol *target){
 }
 
 
-WLNSymbol* define_hypervalent_element(unsigned char sym,WLNSymbol *override=0){
+WLNSymbol* define_hypervalent_element(unsigned char sym){
 
-  WLNSymbol *new_symbol = 0;
-  if(!override)
-    new_symbol = AllocateWLNSymbol(sym);
-  else{
-    new_symbol = override;
-    new_symbol->ch = sym;
+  if(!sym){
+    fprintf(stderr,"Error: null char used for hypervalent element allocation\n");
+    return 0;
   }
 
+  WLNSymbol *new_symbol = 0;
+  
   switch(sym){
     
     case 'P':
@@ -463,32 +468,23 @@ WLNSymbol* define_hypervalent_element(unsigned char sym,WLNSymbol *override=0){
     case 'E':
     case 'I':
     case 'F':
+      new_symbol = AllocateWLNSymbol(sym);
       new_symbol->set_edge_and_type(6);            // allows FCl6
-      return new_symbol;
+      break;
 
     default:
       fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
-      return 0;
+      break;
   }
   
   return new_symbol;
 }
 
 /* allocate new or override exisiting node*/
-WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
+WLNSymbol* define_element(std::string special){
     
   WLNSymbol *created_wln = 0;
-
-  if(!remake)
-    created_wln = AllocateWLNSymbol('*');
-  else{
-    created_wln = remake;
-    created_wln->ch = '*';
-  }
-   
-
-  created_wln->allowed_edges = 18; // allow anything for now;
-
+  
   switch (special[0]){
 
     case 'A':
@@ -501,13 +497,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'S':
         case 'T':
         case 'U':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'B':
       switch(special[1]){
@@ -517,13 +514,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'I':
         case 'K':
         case 'R':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
       
 
     case 'C':
@@ -538,39 +536,42 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'R':
         case 'S':
         case 'U':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
       
     case 'D':
       switch(special[1]){
         case 'B':
         case 'S':
         case 'Y':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'E':
       switch(special[1]){
         case 'R':
         case 'S':
         case 'U':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'F':
       switch(special[1]){
@@ -578,26 +579,28 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'L':
         case 'M':
         case 'R':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'G':
       switch(special[1]){
         case 'A':
         case 'D':
         case 'E':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'H':
       switch(special[1]){
@@ -606,39 +609,41 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'G':
         case 'O':
         case 'S':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'I':
       switch(special[1]){
         case 'N':
         case 'R':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'K':
-      if (special[1] == 'R')
-        created_wln->special = "KR";
-      else if (special[1] == 'A'){
-        created_wln->special = "KA";
-        return created_wln;
-      }
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-        return (WLNSymbol *)0;
+      switch(special[1]){
+        case 'R':
+        case 'A':
+          created_wln = AllocateWLNSymbol('*');
+          break;
+
+        default:
+          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
+          return (WLNSymbol *)0;
       }
       break;
+      
 
     case 'L':
       switch(special[1]){
@@ -647,13 +652,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'R':
         case 'U':
         case 'V':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'M':
       switch(special[1]){
@@ -663,13 +669,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'N':
         case 'O':
         case 'T':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'N':
       switch(special[1]){
@@ -681,26 +688,28 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'I':
         case 'O':
         case 'P':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
 
     case 'O':
       switch(special[1]){
         case 'O':
         case 'G':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'P':
       switch(special[1]){
@@ -712,13 +721,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'R':
         case 'T':
         case 'U':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'R':
       switch(special[1]){
@@ -730,13 +740,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'H':
         case 'N':
         case 'U':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
      
 
     case 'S':
@@ -749,13 +760,14 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'M':
         case 'N':
         case 'R':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
 
     case 'T':
@@ -769,17 +781,18 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
         case 'L':
         case 'M':
         case 'S':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
       }
+      break;
 
     case 'U':
       if(special[1] == 'R')
-        created_wln->special = "UR";
+        created_wln = AllocateWLNSymbol('*');
       else
       {
         fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
@@ -789,7 +802,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
 
     case 'V':
       if (special[1] == 'A')
-        created_wln->special = "VA";
+        created_wln = AllocateWLNSymbol('*');
       else
       {
         fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
@@ -799,7 +812,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
     
     case 'W':
       if(special[1] == 'T')
-        created_wln->special = "WT";
+        created_wln = AllocateWLNSymbol('*');
       else
       {
         fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
@@ -810,7 +823,7 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
 
     case 'X':
       if (special[1] == 'E')
-        created_wln->special = "XE";
+        created_wln = AllocateWLNSymbol('*');
       else
       {
         fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
@@ -822,8 +835,8 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
       switch(special[1]){
         case 'B':
         case 'T':
-          created_wln->special = special;
-          return created_wln;
+          created_wln = AllocateWLNSymbol('*');
+          break;
           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
@@ -835,9 +848,9 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
       switch(special[1]){
         case 'N':
         case 'R':
-          created_wln->special = special;
-          return created_wln;
-          
+          created_wln = AllocateWLNSymbol('*');
+          break;
+           
         default:
           fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
           return (WLNSymbol *)0;
@@ -849,7 +862,9 @@ WLNSymbol* define_element(std::string special,WLNSymbol *remake = 0){
       return (WLNSymbol *)0;
   }
 
-  return 0;
+  created_wln->special = special;
+  created_wln->allowed_edges = 8; // allow anything for now;
+  return created_wln;
 }
 
 
@@ -1181,7 +1196,6 @@ struct WLNRing
   
   WLNRing(){}
   ~WLNRing(){};
-
 
   // both lookups needed for QOL in ring building
   WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant){
@@ -1822,6 +1836,12 @@ struct WLNRing
             local_ch = *local++;
           }
 
+          if(local_arr){
+            delete [] local_arr;
+            local = 0;
+            local_arr = 0;
+          }
+
           // this will change on metallocenes defintions
           if( (state_multi || state_pseudo) && expected_locants){
            gap = 0;
@@ -1862,7 +1882,7 @@ struct WLNRing
                 }
 
                 break;
-              case 1:
+              case 1:{
                 if(!implied_assignment_used && !positional_locant){
                   implied_assignment_used = true;
                   positional_locant = 'A';
@@ -1907,7 +1927,8 @@ struct WLNRing
                 block_str+=2; 
                 i+=2; 
                 break;
-              case 2:
+              }
+              case 2:{
                 if(!implied_assignment_used && !positional_locant){
                   implied_assignment_used = true;
                   positional_locant = 'A';
@@ -1967,6 +1988,7 @@ struct WLNRing
                 block_str+=3; 
                 i+=3;              
                 break;
+              }
               default:
                 fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n",gap);
                 Fatal(start+i);
@@ -2004,10 +2026,7 @@ struct WLNRing
             }
 
           }
-          if(local_arr){
-            delete [] local_arr;
-            local_arr = 0;
-          }
+
 
           special.clear();
           break;
@@ -2863,17 +2882,7 @@ struct WLNGraph
   WLNSymbol *root;
 
   WLNGraph() : root{(WLNSymbol *)0} {};
-  ~WLNGraph()
-  {
-    for (unsigned int i = 0; i < 1024;i++){
-      if(SYMBOLS[i])
-        delete SYMBOLS[i];
-      if(EDGES[i])
-        delete EDGES[i];
-      if(RINGS[i])
-        delete RINGS[i];
-    }
-  };
+  ~WLNGraph(){};
 
 
 
@@ -4432,7 +4441,7 @@ struct WLNGraph
         break;
 
 
-      case '-':
+      case '-':{
         if (pending_J_closure)
           break;
 
@@ -4509,6 +4518,12 @@ struct WLNGraph
             gap++;
             local_ch = *(++local);
           }
+
+          if(local_arr){
+            delete [] local_arr;
+            local = 0;
+            local_arr = 0;
+          }
           
           if(!found_next){
 
@@ -4567,13 +4582,10 @@ struct WLNGraph
             prev = curr;
           }
 
-          if(local_arr){
-            delete [] local_arr;
-            local_arr = 0;
-          }
         }
         break;
-
+      }
+      
       case '/':
         if (pending_J_closure){
           j_skips = true;
@@ -4584,43 +4596,10 @@ struct WLNGraph
           Fatal(i);
         }
         else{
-
           fprintf(stderr,"Error: multipliers are not currently supported\n");
           Fatal(i);
-          
-          if(pending_linker){
-            // we are expected to look for a linker to evaulate
-
-            // some trick recusion is going to go here, but should generalise the linking
-
-            char *local_arr  = new char [strlen(wln_ptr)+1]; 
-            memset(local_arr,'\0',strlen(wln_ptr)+1);
-            memcpy(local_arr,wln_ptr,strlen(wln_ptr));
-            const char *local = local_arr;
-            
-            unsigned char local_ch = *(++local); // moved it over
-            unsigned int gap = 0; 
-            bool found_next = false;
-
-            while(local_ch != '\0'){
-              if(local_ch == ' ')
-                break;
-              if(local_ch == '-'){
-                // this calculates the gap to the next '-'
-                found_next = true;
-                break;
-              }
-              special.push_back(local_ch);
-              gap++;
-              local_ch = *(++local);
-            }
-
-            if(local_arr){
-              delete [] local_arr;
-              local_arr = 0;
-            }
-          }
         }
+        
         
         break;
 
@@ -4734,10 +4713,10 @@ bool WriteGraph(){
     return false;
   }
   else
-  {
     WLNDumpToDot(fp);
-    fclose(fp);
-  }
+  
+  fclose(fp);
+  fp = 0;
   fprintf(stderr,"  dumped\n");
   return true;
 }
@@ -5004,7 +4983,6 @@ struct BabelGraph{
           OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
           if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
             return false;
-
         }
 
       }
@@ -5030,28 +5008,35 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
-  if(!wln_graph.ParseWLNString(ptr)){
-    fprintf(stderr,"Error: string pass was successful but return nullptr for wln graph\n");
-    return false;
-  }
+  bool state = true;
+
+  if(state)
+    state = wln_graph.ParseWLNString(ptr);
   
   // create an optional wln dotfile
   if (opt_wln2dot)
     WriteGraph();
   
+  if(state)
+    state = wln_graph.ExpandWLNSymbols();
 
-  if(!wln_graph.ExpandWLNSymbols())
-    return false;
+  if(state)
+    state = obabel.ConvertFromWLN(mol,wln_graph);
 
-  if(!obabel.ConvertFromWLN(mol,wln_graph))
-    return false;
+  if(state)
+    state = obabel.NMOBSanitizeMol(mol);
 
-  if(!obabel.NMOBSanitizeMol(mol))
-    return false; 
-
-  return true;
+  RELEASE_MEMORY();
+  return state;
 }
 
+void RELEASE_MEMORY(){
+  for (unsigned int i = 0; i < 1024;i++){
+    delete SYMBOLS[i];
+    delete EDGES[i];
+    delete RINGS[i];
+  }
+}
 
 static void DisplayHelp()
 {
@@ -5148,18 +5133,15 @@ int main(int argc, char *argv[])
   ProcessCommandLine(argc, argv);
   
   std::string res;
-  OpenBabel::OBMol* mol = new OpenBabel::OBMol;
-  if(!ReadWLN(cli_inp,mol))
+  OpenBabel::OBMol mol;
+  if(!ReadWLN(cli_inp,&mol))
     return 1;
-
-
+  
 
   OpenBabel::OBConversion conv;
   conv.SetOutFormat("smi");
-  res = conv.WriteString(mol);
+  res = conv.WriteString(&mol);
 
   std::cout << res;
-
-  delete mol; 
   return 0;
 }
