@@ -56,7 +56,7 @@ const char *inp_format; // only needed for outside babel build
 const char *dotfile;
 
 // --- options ---
-static bool opt_wln2dot = false;
+static bool WLNDOT = false;
 static bool opt_debug = false;
 
 // --- globals ---
@@ -537,7 +537,7 @@ static void ProcessCommandLine(int argc, char *argv[])
         break;
 
       case 'w':
-        opt_wln2dot = true;
+        WLNDOT = true;
         break;
 
       case '-':
@@ -547,7 +547,7 @@ static void ProcessCommandLine(int argc, char *argv[])
         else if (!strcmp(ptr, "--help"))
           DisplayHelp();
         else if (!strcmp(ptr, "--wln2dot"))
-          opt_wln2dot = true;
+          WLNDOT = true;
   
       break;
 
