@@ -376,7 +376,8 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
     case 'I':
     case 'F':
       new_symbol = AllocateWLNSymbol(sym,graph);
-      new_symbol->set_edge_and_type(6);            // allows FCl6
+      if(new_symbol)
+        new_symbol->set_edge_and_type(6);            // allows FCl6
       break;
 
     default:
@@ -1259,11 +1260,18 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
   WLNSymbol *carbon = AllocateWLNSymbol('C',graph);
   WLNSymbol *hydrogen = 0;
   WLNEdge   *edge = 0;
-  carbon->set_edge_and_type(4); // used for hydrogens
+  
+  if(carbon)
+    carbon->set_edge_and_type(4); // used for hydrogens
+  else 
+    return 0;
   
   for(unsigned int i=0;i<3;i++){
     hydrogen = AllocateWLNSymbol('H',graph);
-    hydrogen->set_edge_and_type(1);
+    if(hydrogen)
+      hydrogen->set_edge_and_type(1);
+    else
+      return 0;
     edge = AllocateWLNEdge(hydrogen,carbon,graph);
     if(!edge)
       return 0;
@@ -1307,12 +1315,17 @@ bool add_diazo(WLNSymbol *head,WLNGraph &graph){
   WLNSymbol *oxygen = 0;
 
   oxygen = AllocateWLNSymbol('O',graph);
+  if(!oxygen)
+    return false;
+
   oxygen->set_edge_and_type(2,head->type);
   graph.charge_additions[oxygen] = -1;
 
   edge = AllocateWLNEdge(oxygen,head,graph);
   
   oxygen = AllocateWLNSymbol('O',graph);
+  if(!oxygen)
+    return false;
   oxygen->set_edge_and_type(2,head->type);
   edge = AllocateWLNEdge(oxygen,head,graph);
   
@@ -1584,6 +1597,9 @@ unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char
     unsigned char loc = int_to_locant(i);
     if(!ring->locants[loc]){
       curr = AllocateWLNSymbol('C',graph);
+      if(!curr)
+        return 0;
+
       curr->set_edge_and_type(4,RING);
       curr = assign_locant(loc,curr,ring);
     }
@@ -2951,7 +2967,11 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         sym->ch = 'C';
         sym->set_edge_and_type(4);
         WLNSymbol *oxygen = AllocateWLNSymbol('O',graph);
-        oxygen->set_edge_and_type(2);
+        if(oxygen)
+          oxygen->set_edge_and_type(2);
+        else
+          return false;
+
         WLNEdge *e = AllocateWLNEdge(oxygen,sym,graph);
         e = unsaturate_edge(e,1);
         if(!e)
