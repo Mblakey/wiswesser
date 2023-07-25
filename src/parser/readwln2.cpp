@@ -267,11 +267,9 @@ struct ObjectStack{
     ring = 0;
     branch = 0;
 
-    if(stack.empty()){
-      fprintf(stderr,"Error: popping empty ring stack\n");
+    if(stack.empty())
       return false;
-    }
-     
+    
     for (int i=size-1;i>-1;i--){
       
       if(!ring && stack[i].first)
@@ -1300,6 +1298,8 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   for(unsigned int i=0;i<size-1;i++){
     WLNSymbol* carbon = AllocateWLNSymbol('1',graph);
     carbon->set_edge_and_type(4); // allows hydrogen resolve
+    if(!carbon)
+      return 0;
     edge = AllocateWLNEdge(carbon,prev,graph);
     if(!edge)
       return 0;
@@ -4751,10 +4751,10 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
   fprintf(fp, "}\n");
 }
 
-bool WriteGraph(WLNGraph &graph){
-  fprintf(stderr,"Dumping wln graph to wln-graph.dot:\n");
+bool WriteGraph(WLNGraph &graph,const char*filename){
+  fprintf(stderr,"Dumping wln graph to %s:\n",filename);
   FILE *fp = 0;
-  fp = fopen("wln-graph.dot", "w");
+  fp = fopen(filename, "w");
   if (!fp)
   {
     fprintf(stderr, "Error: could not create dump .dot file\n");
@@ -5075,7 +5075,7 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   
   // create an optional wln dotfile
   if (opt_wln2dot)
-    WriteGraph(wln_graph);
+    WriteGraph(wln_graph,"wln-graph.dot");
   
   if(state)
     state = ExpandWLNSymbols(wln_graph);
