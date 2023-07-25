@@ -1311,29 +1311,60 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   return prev;
 }
 
+
+/* W is going to need to be post resolved */
 bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   WLNEdge *edge = 0;
+  WLNEdge *sedge = 0; 
   WLNSymbol *oxygen = 0;
+  WLNSymbol *binded_symbol = 0; 
 
-  oxygen = AllocateWLNSymbol('O',graph);
-  if(!oxygen)
-    return false;
+  if(head->bonds){
+    binded_symbol = head->bonds->child;
+    edge = head->bonds; 
+  }
+  else{
+    binded_symbol = head->previous;
+    WLNEdge *e = 0; 
+    for(e=binded_symbol->bonds;e;e=e->nxt){
+      if(e->child == head)
+        edge = e;
+    }
+  }
+  
+  // nitrogen is special
+  if(binded_symbol->ch == 'N')
+    binded_symbol->num_edges += -1; 
 
-  oxygen->set_edge_and_type(2,head->type);
+  // 2 options here, either the symbol is binded 'W' -> sym
+  // or the symbol is binded sym -> 'W'
 
-  edge = AllocateWLNEdge(oxygen,head,graph);
-  edge = unsaturate_edge(edge,1);
+  if(!binded_symbol){
+    fprintf(stderr,"Error: dioxo seems to be unbound\n");
+    return false; 
+  }
+
+  head->ch = 'O'; // change the W symbol into the first oxygen
+  head->set_edge_and_type(2,head->type);
   
   oxygen = AllocateWLNSymbol('O',graph);
-  if(!oxygen)
-    return false;
   oxygen->set_edge_and_type(2,head->type);
-  edge = AllocateWLNEdge(oxygen,head,graph);
-  
-  edge = unsaturate_edge(edge,1);
-  if(!edge)
+  sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+  if(!sedge)
     return false;
+
+
+  if(binded_symbol->num_edges < binded_symbol->allowed_edges)
+     edge = unsaturate_edge(edge,1);
+  if(binded_symbol->num_edges < binded_symbol->allowed_edges)
+     sedge = unsaturate_edge(sedge,1);
+  
+  if(head->num_edges != 2)
+    graph.charge_additions[head] = -1;
+   
+  if(oxygen->num_edges != 2)
+    graph.charge_additions[oxygen] = -1;
   
   return true;
 }
@@ -2470,16 +2501,17 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 unsaturations.push_back({positional_locant,positional_locant+1});
               break;
 
+            // just be normal
             case 'W':
-              switch(ring->locants[positional_locant]->ch){
-                case 'K':
-                  ring->locants[positional_locant]->allowed_edges++;
-                  break;
-                default:
-                  break;
-              }
-              if(!add_dioxo(ring->locants[positional_locant],graph))
-                Fatal(i+start);
+              if(!heterocyclic)
+                warned = true;
+
+              if(ring->locants[positional_locant])
+                positional_locant++; 
+
+              new_locant = AllocateWLNSymbol(ch,graph);
+              new_locant = assign_locant(positional_locant,new_locant,ring);
+              new_locant->set_edge_and_type(2,RING);
               break;
 
             // has the effect of unsaturating a bond
@@ -2954,6 +2986,16 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 bool ExpandWLNSymbols(WLNGraph &graph){
 
   unsigned int stop = graph.symbol_count;
+  // dioxo must be handled before 
+  for (unsigned int i=1;i<=stop;i++){
+    WLNSymbol *sym = graph.SYMBOLS[i];
+    if(sym->ch == 'W'){
+      if(!add_dioxo(sym,graph))
+        return false;
+    }
+  }
+
+  stop = graph.symbol_count;
   for (unsigned int i=1;i<=stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
 
@@ -2981,14 +3023,6 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         break;
       }
       
-      case 'W':
-        sym->ch = 'C';
-        sym->set_edge_and_type(4);
-        if(!add_dioxo(sym,graph))
-          return false;
-        break;
-
-
       default:
         break; // ignore
     }
@@ -3114,7 +3148,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_J_closure        = false;
   bool pending_inline_ring      = false;
   bool pending_spiro            = false;
-  bool pending_diazo            = false;
   bool pending_ring_in_ring     = false; // rings in rings
 
 
@@ -3247,12 +3280,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol('1',graph);
         curr->set_edge_and_type(4);
 
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
-
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
@@ -3305,12 +3332,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(3);
 
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
-
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
@@ -3346,12 +3367,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(4);
-
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3399,11 +3414,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
-          Fatal(i);
-        }
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(2);
 
@@ -3448,11 +3458,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: diazo assignment to an oxygen is a disallowed bond type\n");
-          Fatal(i);
-        }
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(1);
 
@@ -3501,10 +3506,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: diazo assignment to an carbonyl is a disallowed bond type\n");
-          Fatal(i);
-        }
+
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(2,STANDARD);
         if(prev){
@@ -3548,22 +3550,29 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: double diazo assignment is a disallowed bond type\n");
-          Fatal(i);
-        }
+        
+        // create this 'W' symbol for post processing
+        curr = AllocateWLNSymbol(ch,graph);
+        curr->set_edge_and_type(1);
 
         if(prev){
-          prev->allowed_edges++;
-          if(!add_dioxo(prev,graph))
+          edge = AllocateWLNEdge(curr,prev,graph);
+          if(pending_unsaturate){
+            fprintf(stderr,"Error: a bond unsaturation followed by dioxo is undefined notation\n");
+            Fatal(i);
+          }
+          if(!edge)
             Fatal(i);
         }
-        else
-          pending_diazo = true;
-        
+
         graph.string_positions[i] = curr;
         pending_unsaturate = 0;
-        prev = curr;
+
+        // if there is no prev, this is then a character we go from, 
+        // else do not update.
+
+        if(!prev)
+          prev = curr;
       }
       break;
 
@@ -3597,13 +3606,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(3);
-
-        if(pending_diazo){
-          curr->allowed_edges++; // special allowance for Nitro
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3647,10 +3649,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: diazo assignment to NH is a disallowed bond type\n");
-          Fatal(i);
-        }
 
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(2);
@@ -3698,16 +3696,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        
-    
+      
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(4);
-
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3751,11 +3742,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       { 
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: diazo assignment to NH2 is a disallowed bond type\n");
-          Fatal(i);
-        }
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(1);
 
@@ -3807,10 +3793,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        if(pending_diazo){
-          fprintf(stderr,"Error: diazo assignment to a non expanded valence halogen is a disallowed bond type\n");
-          Fatal(i);
-        }
 
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(1);
@@ -3865,12 +3847,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(3);
 
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
-
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
@@ -3915,15 +3891,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
 
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(6);
-
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3971,12 +3940,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(4);
-
-        if(pending_diazo){
-          if(!add_dioxo(curr,graph))
-            Fatal(i-1);
-          pending_diazo = false;
-        }
 
         if(prev && i < len - 1){
 
@@ -4373,10 +4336,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_locant = false;
         on_locant = ch;
       }
-      else if (pending_diazo){
-        fprintf(stderr,"Error: diazo assignment followed by a bond increase is a disallowed bond type\n");
-        Fatal(i);
-      }
       else{
         on_locant = '\0';
         pending_unsaturate++;
@@ -4390,10 +4349,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         j_skips = false;
         break;
       }
-      else if (pending_diazo){
-        fprintf(stderr,"Error: diazo assignment followed by a space seperator is a disallowed bond type\n");
-        Fatal(i);
-      }
 
       // only burn the stacks now on ionic clearance
 
@@ -4403,10 +4358,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
 
     case '&':
-      if (pending_diazo){
-        fprintf(stderr,"Error: diazo assignment followed by a branch terminator is a disallowed bond type\n");
-        Fatal(i);
-      }
 
       if (pending_J_closure)
         break;
@@ -4608,12 +4559,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             Fatal(i);
           }
 
-          if(pending_diazo){
-            if(!add_dioxo(curr,graph))
-              Fatal(i-1);
-            pending_diazo = false;
-          }
-          
           if(prev){
             if(!gap && ring)
               edge = AllocateWLNEdge(ring->locants[prev->ch],prev,graph);
@@ -4643,10 +4588,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       if (pending_J_closure){
         j_skips = true;
         break;
-      }
-      else if (pending_diazo){
-        fprintf(stderr,"Error: diazo assignment followed by a multiplier is a disallowed bond type\n");
-        Fatal(i);
       }
       else{
         fprintf(stderr,"Error: multipliers are not currently supported\n");

@@ -41,7 +41,7 @@ G1UU1G	ClC#CCl
 OCO	[O]C[O]
 NCH	C#N
 QNO	ON[O]
-WNQ	[N](=O)([O-])O
+WNQ	[N](=O)(=O)O
 ONONO	[O]NON[O]
 NNU1	NN=C
 2CN	CCC#N
@@ -65,10 +65,10 @@ G2N2&3	ClCCN(CC)CCC
 2OPO&O2	CCOP([O])OCC
 Q1XGG2Y1Q1Z	OCC(Cl)(Cl)CCC(CO)CN
 1S2YZVMYVQS1	CSCCC(N)C(=O)NC(C(=O)O)SC
-W-G-QO	[Cl](=O)([O-])(O)[O]
+W-G-QO	[Cl](=O)(=O)(O)[O]
 F-G-FF	F[Cl](F)F
-12SW12	CCCCCCCCCCCC[S](=O)([O-])CCCCCCCCCCCC
-WS2&12	[S](=O)([O-])(CC)CCCCCCCCCCCC
+12SW12	CCCCCCCCCCCC[S](=O)(=O)CCCCCCCCCCCC
+WS2&12	[S](=O)(=O)(CC)CCCCCCCCCCCC
 QVY9&19	OC(=O)C(CCCCCCCCC)CCCCCCCCCCCCCCCCCCC
 12M1	CCCCCCCCCCCCNC
 12N3&2	CCCCCCCCCCCCN(CCC)CC
@@ -76,10 +76,10 @@ QVY9&19	OC(=O)C(CCCCCCCCC)CCCCCCCCCCCCCCCCCCC
 QVY19&2Q	OC(=O)C(CCCCCCCCCCCCCCCCCCC)CCO
 G1XGGYP3&3&&P2&2	ClCC(Cl)(Cl)C(P(CCC)CCC)P(CC)CC
 OK2&2&2	[O][N+](CC)(CC)CC
-WSQO1	[S](=O)([O-])(O)OC
+WSQO1	[S](=O)(=O)(O)OC
 2B2&2	CCB(CC)CC
 ZXZUS	NC(=S)N
-ZSW2	N[S](=O)([O-])CC
+ZSW2	N[S](=O)(=O)CC
 QVYZY2&2	OC(=O)C(N)C(CC)CC
 QY	OC(C)C
 1Y&N1&1	CC(C)N(C)C
@@ -95,8 +95,8 @@ ZVSH &ZV1Z	NC(=O)S.NC(=O)CN
 Z6Z &Q2 &Q2	NCCCCCCN.OCC.OCC
 Z3Z &QH &QH	NCCCN.O.O
 QV2 &ZH	OC(=O)CC.[NH3+]
-WSQ2G &ZH	[S](=O)([O-])(O)CCCl.[NH3+]
-3M3 &WSQQ	CCCNCCC.[S](=O)([O-])(O)O
+WSQ2G &ZH	[S](=O)(=O)(O)CCCl.[NH3+]
+3M3 &WSQQ	CCCNCCC.[S](=O)(=O)(O)O
 4N4&4 &GH	CCCCN(CCCC)CCCC.Cl
 Z3Z &GH &GH &QH &QH	NCCCN.Cl.Cl.O.O
 QVVQ &ZH &ZH	OC(=O)C(=O)O.[NH3+].[NH3+]
@@ -108,31 +108,31 @@ OV1 &OV1 &-CA-	[O]C(=O)C.[O]C(=O)C.[Ca]
 GV1N2&R	ClC(=O)CN(CC)c1ccccc1
 QY2&XQR&R	OC(CC)C(O)(c1ccccc1)c1ccccc1
 RM1R	c1(ccccc1)NCc1ccccc1
-WNR CVM1VQ	[N](=O)([O-])c1cc(ccc1)C(=O)NCC(=O)O
+WNR CVM1VQ	[N](=O)(=O)c1cc(ccc1)C(=O)NCC(=O)O
 Z1YQR DO1	NCC(O)c1ccc(cc1)OC
 QVR BNUNR DN1&1	OC(=O)c1c(cccc1)N=Nc1ccc(cc1)N(C)C
 2N2&R COVMR DO1	CCN(CC)c1cc(ccc1)OC(=O)Nc1ccc(cc1)OC
-WNR DMNU1R CNW	[N](=O)([O-])c1ccc(cc1)NN=Cc1cc(ccc1)[N](=O)[O-]
-WNR BMNU1R CNW	[N](=O)([O-])c1c(cccc1)NN=Cc1cc(ccc1)[N](=O)[O-]
-WNR CMNU1R BNW	[N](=O)([O-])c1cc(ccc1)NN=Cc1c(cccc1)[N](=O)[O-]
-WNR DMNU1R DNW	[N](=O)([O-])c1ccc(cc1)NN=Cc1ccc(cc1)[N](=O)[O-]
-ZSWR DSZW	N[S](=O)([O-])c1ccc(cc1)[S](=O)(N)[O-]
+WNR DMNU1R CNW	[N](=O)(=O)c1ccc(cc1)NN=Cc1cc(ccc1)[N](=O)(=O)
+WNR BMNU1R CNW	[N](=O)(=O)c1c(cccc1)NN=Cc1cc(ccc1)[N](=O)(=O)
+WNR CMNU1R BNW	[N](=O)(=O)c1cc(ccc1)NN=Cc1c(cccc1)[N](=O)(=O)
+WNR DMNU1R DNW	[N](=O)(=O)c1ccc(cc1)NN=Cc1ccc(cc1)[N](=O)(=O)
+ZSWR DSZW	N[S](=O)(=O)c1ccc(cc1)[S](=O)(N)(=O)
 ZMR CG	NNc1cc(ccc1)Cl
 QMR BE	ONc1c(cccc1)Br
 VHR CSH	C(=O)c1cc(ccc1)S
 SHR DVQ	Sc1ccc(cc1)C(=O)O
 QV1N1VQR BVQ	OC(=O)CN(CC(=O)O)c1c(cccc1)C(=O)O
-ZSWR CN1O2&1O2	N[S](=O)([O-])c1cc(ccc1)N(COCC)COCC
+ZSWR CN1O2&1O2	N[S](=O)(=O)c1cc(ccc1)N(COCC)COCC
 2O1N1O2&R B2O1	CCOCN(COCC)c1c(cccc1)CCOC
-ZSWR D-AS-U-AS-R DSWQ	N[S](=O)([O-])c1ccc(cc1)[As][As]c1ccc(cc1)[S](=O)([O-])O
+ZSWR D-AS-U-AS-R DSWQ	N[S](=O)(=O)c1ccc(cc1)[As][As]c1ccc(cc1)[S](=O)(=O)O
 ZR BG DE	Nc1c(cc(cc1)Br)Cl
 ZR CG BE	Nc1c(c(ccc1)Cl)Br
-ZR BQ ENW	Nc1c(ccc(c1)[N](=O)[O-])O
+ZR BQ ENW	Nc1c(ccc(c1)[N](=O)(=O)O
 ZR BG EVQ	Nc1c(ccc(c1)C(=O)O)Cl
-WNR CG FE DOV1	[N](=O)([O-])c1cc(c(cc1Br)OC(=O)C)Cl
+WNR CG FE DOV1	[N](=O)(=O)c1cc(c(cc1Br)OC(=O)C)Cl
 3OR BF E2 CM1	CCCOc1c(c(cc(c1)CC)NC)F
 1VOR CG EF BO1 DVO1	CC(=O)Oc1c(c(c(c(c1)F)C(=O)OC)Cl)OC
-WNR BQ CNW ENW	[N](=O)([O-])c1c(c(cc(c1)[N](=O)[O-])[N](=O)[O-])O
+WNR BQ CNW ENW	[N](=O)(=O)c1c(c(cc(c1)[N](=O)[O-])[N](=O)[O-])O
 QVR BG FVQ	OC(=O)c1c(cccc1C(=O)O)Cl
 WNR CNW DMNU2	[N](=O)([O-])c1cc(c(cc1)NN=CC)[N](=O)[O-]
 ZR C1U1R DZ	Nc1cc(ccc1)C=Cc1ccc(cc1)N
