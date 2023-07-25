@@ -48,6 +48,8 @@ const char *cli_inp;
 // --- options ---
 static bool opt_wln2dot = false;
 static bool opt_debug = false;
+static bool opt_inchi = false; 
+static bool opt_canonical_smi = false;
 
 
 const char *wln_string;
@@ -5104,11 +5106,13 @@ static void DisplayHelp()
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "readwln <options> < input (escaped) >\n");
+  fprintf(stderr, "readwln <options> -s < input (escaped) >\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -d                   print debug messages to stderr\n");
   fprintf(stderr, " -h                   print debug messages to stderr\n");
   fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
+  fprintf(stderr, " -c                   output canonical smiles\n");
+  fprintf(stderr, " -i                   output InChi\n");
   exit(1);
 }
 
@@ -5129,7 +5133,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 
     ptr = argv[i];
 
-    if (ptr[0] == '-' && ptr[1] && ptr[2] == ' ')
+    if (ptr[0] == '-' && ptr[1])
       switch (ptr[1])
       {
 
@@ -5144,19 +5148,30 @@ static void ProcessCommandLine(int argc, char *argv[])
         opt_wln2dot = true;
         break;
 
+      case 'c':
+        fprintf(stderr,"setting output: canonical smiles\n");
+        opt_canonical_smi = true;
+        break;
+      
+      case 'i':
+        fprintf(stderr,"setting output: inchi\n");
+        opt_inchi = true;
+        break; 
+
+      case 's':
+        if(i+1 >= argc){
+          fprintf(stderr,"Error: must add string after -s\n");
+          DisplayUsage();
+        }
+        else{
+          cli_inp = argv[i+1];
+          i++;
+        }
+        break;
+
       default:
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
         DisplayUsage();
-      }
-
-    else
-      switch (j++)
-      {
-      case 0:
-        cli_inp = ptr;
-        break;
-      default:
-        break;
       }
   }
 
@@ -5174,9 +5189,15 @@ int main(int argc, char *argv[])
   
 
   OpenBabel::OBConversion conv;
-  conv.SetOutFormat("smi");
-  res = conv.WriteString(&mol);
 
+  if(opt_canonical_smi)
+    conv.SetOutFormat("can");
+  else if (opt_inchi)
+    conv.SetOutFormat("inchi");
+  else
+    conv.SetOutFormat("smi");
+
+  res = conv.WriteString(&mol);
   std::cout << res;
   return 0;
 }
