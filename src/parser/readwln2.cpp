@@ -5106,9 +5106,9 @@ static void DisplayUsage()
 {
   fprintf(stderr, "readwln <options> < input (escaped) >\n");
   fprintf(stderr, "<options>\n");
-  fprintf(stderr, "  -d | --debug                  print debug messages to stderr\n");
-  fprintf(stderr, "  -h | --help                   print debug messages to stderr\n");
-  fprintf(stderr, "  -w | --wln2dot                dump wln trees to dot file in [build]\n");
+  fprintf(stderr, " -d                   print debug messages to stderr\n");
+  fprintf(stderr, " -h                   print debug messages to stderr\n");
+  fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
   exit(1);
 }
 
@@ -5129,7 +5129,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 
     ptr = argv[i];
 
-    if (ptr[0] == '-' && ptr[1])
+    if (ptr[0] == '-' && ptr[1] && ptr[2] == ' ')
       switch (ptr[1])
       {
 
@@ -5143,23 +5143,6 @@ static void ProcessCommandLine(int argc, char *argv[])
       case 'w':
         opt_wln2dot = true;
         break;
-
-      case '-':
-
-        if (!strcmp(ptr, "--debug"))
-        {
-          opt_debug = true;
-          break;
-        }
-        else if (!strcmp(ptr, "--help"))
-        {
-          DisplayHelp();
-        }
-        else if (!strcmp(ptr, "--wln2dot"))
-        {
-          opt_wln2dot = true;
-          break;
-        }
 
       default:
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
