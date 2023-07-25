@@ -24,7 +24,7 @@ TOTAL=$(wc -l < $FILE)
 
 while read p; do
 	WLN=$(echo -n "$p")
-  NEW_SMILES=$($PARSE "${WLN}" 2> /dev/null)
+  NEW_SMILES=$($PARSE -s "${WLN}" 2> /dev/null)
 
   echo -ne "${WLN} :"
 

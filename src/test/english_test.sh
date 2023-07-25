@@ -11,7 +11,7 @@ echo "Checking whole english language for WLN notation ..."
 echo "Performing large seg fault unit test, this will take multiple minutes ..."
 
 while read ENTRY; do
-	SMILES=$($PARSE "${ENTRY^^}" 2> /dev/null)
+	SMILES=$($PARSE -s "${ENTRY^^}" 2> /dev/null)
 	if [ -n "$SMILES" ]; then
 		echo -ne "${ENTRY^^}\t$SMILES\n"
 		echo -ne "${ENTRY^^}\t$SMILES\n" >> "${SCRIPT_DIR}/../../data/english_wln.tsv"
