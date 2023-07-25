@@ -24,6 +24,7 @@ include_directories(
 
 add_executable(readwln readwln2.cpp)
 add_executable(writewln writewln2.cpp)
+add_executable(can_babel obabelcanonical.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/../openbabel/include/")
@@ -33,7 +34,9 @@ if(WIN32)
 elseif(APPLE)
   target_link_libraries(readwln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
+  target_link_libraries(can_babel "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.7.dylib")
 elseif(UNIX)
   target_link_libraries(readwln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
+  target_link_libraries(can_babel "${CMAKE_SOURCE_DIR}/../openbabel/build/lib/libopenbabel.so.7")
 endif()

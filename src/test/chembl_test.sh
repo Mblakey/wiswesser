@@ -2,7 +2,7 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-SMITH="${SCRIPT_DIR}/../../data/smith.tsv"
+SMITH="${SCRIPT_DIR}/../../data/chembl24.tsv"
 PARSE="${SCRIPT_DIR}/../parser/build/readwln"
 
 COUNT=0
@@ -10,9 +10,9 @@ TOTAL=$(wc -l < $SMITH)
 
 while read p; do
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
-  SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
+  SMILES=$(echo -n "$p" | cut -d $'\t' -f3)
   
-  NEW_SMILES=$($PARSE -s "${WLN}" 2> /dev/null)
+  NEW_SMILES=$($PARSE -c -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z $NEW_SMILES ]; then
     echo "$WLN != $SMILES"
