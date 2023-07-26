@@ -1340,13 +1340,20 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   // a charge, we do, if not, we add a positive charge to the 
   // target symbol
   
-
   if(!binded_symbol){
     fprintf(stderr,"Error: dioxo seems to be unbound\n");
     return false; 
   }
 
+
   unsigned int remaining_edges = binded_symbol->allowed_edges - binded_symbol->num_edges; 
+
+  // nitrogen will have a special valence lift, so increase to 5 if needed
+
+  if(binded_symbol->ch == 'N'){
+
+  }
+
 
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->set_edge_and_type(2,head->type);
@@ -1371,13 +1378,14 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   }
 
   else if(remaining_edges == 1){
-    // double charged species
-    //graph.charge_additions[binded_symbol] = +2;
-    //graph.charge_additions[head] = -1;
+    // require we always double bond 1
+    binded_symbol->allowed_edges += 1;
+    graph.charge_additions[binded_symbol] = +1;
+    graph.charge_additions[head] = -1;
     oxygen = AllocateWLNSymbol('O',graph);
     oxygen->set_edge_and_type(2,head->type);
     sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
-    //graph.charge_additions[oxygen] = -1;
+    sedge = unsaturate_edge(sedge,1); 
   }
   else{
     fprintf(stderr,"Error: character %c can not bind a dioxo group, check valence\n",binded_symbol->ch);
@@ -3042,25 +3050,16 @@ bool multiply_carbon(WLNSymbol *sym){
   unsigned int back_edges = back->allowed_edges - back->num_edges; 
   unsigned int forward_edges = forward->allowed_edges - forward->num_edges;
 
-  // it seems to be the convention that if we can split these across 2 doubles, we do
+ 
+  // it seems to be the convention
+  // that if the back symbol can take a triple bond, we do it
   
-  if(back_edges >= 1 && forward_edges >= 1){
-    
-    for(edge=back->bonds;edge;edge=edge->nxt){      
-      if(edge->child == sym){
-        if(!unsaturate_edge(edge,1))
-          return false;
-      }
-    }
-    
-    if(!unsaturate_edge(fedge,1))
-      return false;
-  }
-  else if(back_edges == 0 && forward_edges >= 2){
+  
+  if(back_edges <=  1 && forward_edges >= 2){
     if(!unsaturate_edge(fedge,2))
       return false;
   }
-  else if (back_edges >= 2 && forward_edges == 0){
+  else if (back_edges >= 2 && forward_edges <= 1){
     for(edge=back->bonds;edge;edge=edge->nxt){      
       if(edge->child == sym){
         if(!unsaturate_edge(edge,2))
@@ -3068,8 +3067,31 @@ bool multiply_carbon(WLNSymbol *sym){
       }
     }
   }
+  else if (back_edges > 1 && forward_edges > 1){
+    for(edge=back->bonds;edge;edge=edge->nxt){      
+      if(edge->child == sym){
+        if(!unsaturate_edge(edge,2))
+          return false;
+      }
+    }
+  }
+  else if( (back_edges == 1 && forward_edges == 1)){
+ 
+    for(edge=back->bonds;edge;edge=edge->nxt){      
+      if(edge->child == sym){
+        if(!unsaturate_edge(edge,1))
+          return false;
+      }
+
+      if(!unsaturate_edge(fedge,1))
+        return false;
+    }
+  }
   else{
     fprintf(stderr,"Error: symbol choose for multiplier carbon C does not allow bond unsaturation\n");
+
+
+
     return false;
   }
 

@@ -1,13 +1,48 @@
 digraph WLNdigraph {
   rankdir = LR;
-  1[shape=circle,label="S",color=green];
+  1[shape=circle,label="W"];
   1 -> 2 [arrowhead=none]
-  1 -> 5 [arrowhead=none]
-  2[shape=circle,label="W",color=green];
+  2[shape=circle,label="N"];
   2 -> 3 [arrowhead=none]
   3[shape=circle,label="C",color=green];
   3 -> 4 [arrowhead=none]
+  3 -> 4 [arrowhead=none]
+  3 -> 8 [arrowhead=none]
   4[shape=circle,label="C",color=green];
   4 -> 5 [arrowhead=none]
+  4 -> 11 [arrowhead=none]
   5[shape=circle,label="C",color=green];
+  5 -> 6 [arrowhead=none]
+  5 -> 6 [arrowhead=none]
+  6[shape=circle,label="C",color=green];
+  6 -> 7 [arrowhead=none]
+  6 -> 9 [arrowhead=none]
+  7[shape=circle,label="C",color=green];
+  7 -> 8 [arrowhead=none]
+  7 -> 8 [arrowhead=none]
+  8[shape=circle,label="C",color=green];
+  9[shape=circle,label="N"];
+  9 -> 10 [arrowhead=none]
+  10[shape=circle,label="W"];
+  11[shape=circle,label="C",color=green];
+  11 -> 12 [arrowhead=none]
+  11 -> 12 [arrowhead=none]
+  11 -> 16 [arrowhead=none]
+  12[shape=circle,label="C",color=green];
+  12 -> 13 [arrowhead=none]
+  12 -> 17 [arrowhead=none]
+  13[shape=circle,label="C",color=green];
+  13 -> 14 [arrowhead=none]
+  13 -> 14 [arrowhead=none]
+  13 -> 18 [arrowhead=none]
+  14[shape=circle,label="C",color=green];
+  14 -> 15 [arrowhead=none]
+  15[shape=circle,label="C",color=green];
+  15 -> 16 [arrowhead=none]
+  15 -> 16 [arrowhead=none]
+  16[shape=circle,label="C",color=green];
+  17[shape=circle,label="G"];
+  18[shape=circle,label="N"];
+  18 -> 19 [arrowhead=none]
+  19[shape=circle,label="W"];
 }
