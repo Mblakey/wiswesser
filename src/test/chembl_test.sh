@@ -4,7 +4,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 CHEMBL="${SCRIPT_DIR}/../../data/chembl24.tsv"
 PARSE="${SCRIPT_DIR}/../parser/build/readwln"
-CANONICAL="${SCRIPT_DIR}/../parser/build/can_babel"
+CANONICAL="${SCRIPT_DIR}/../parser/build/obabel_strip"
 
 rm chembl_false.tsv 2> /dev/null
 
