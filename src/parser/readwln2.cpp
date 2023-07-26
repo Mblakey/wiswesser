@@ -2975,7 +2975,51 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
 
 
+bool multiply_carbon(WLNSymbol *sym){
+  
+  WLNEdge   *edge     = 0;
+  WLNSymbol *back     = sym->previous; 
+  WLNEdge   *fedge    = sym->bonds;
+  WLNSymbol *forward  = fedge->child;
 
+ 
+  unsigned int back_edges = back->allowed_edges - back->num_edges; 
+  unsigned int forward_edges = forward->allowed_edges - forward->num_edges;
+
+  // it seems to be the convention that if we can split these across 2 doubles, we do
+  
+  if(back_edges >= 1 && forward_edges >= 1){
+    
+    for(edge=back->bonds;edge;edge=edge->nxt){      
+      if(edge->child == sym){
+        if(!unsaturate_edge(edge,1))
+          return false;
+      }
+    }
+    
+    if(!unsaturate_edge(fedge,1))
+      return false;
+  }
+  else if(back_edges == 0 && forward_edges >= 2){
+    if(!unsaturate_edge(fedge,2))
+      return false;
+  }
+  else if (back_edges >= 2 && forward_edges == 0){
+    for(edge=back->bonds;edge;edge=edge->nxt){      
+      if(edge->child == sym){
+        if(!unsaturate_edge(edge,2))
+          return false;
+      }
+    }
+  }
+  else{
+    fprintf(stderr,"Error: symbol choose for multiplier carbon C does not allow bond unsaturation\n");
+    return false;
+  }
+
+
+  return true; 
+}
 
 
 
@@ -2986,11 +3030,21 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 bool ExpandWLNSymbols(WLNGraph &graph){
 
   unsigned int stop = graph.symbol_count;
+  
   // dioxo must be handled before 
   for (unsigned int i=1;i<=stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
     if(sym->ch == 'W'){
       if(!add_dioxo(sym,graph))
+        return false;
+    }
+  }
+
+  // unsaturated carbons with C
+  for (unsigned int i=1;i<=stop;i++){
+    WLNSymbol *sym = graph.SYMBOLS[i];
+    if(sym->ch == 'C'){
+      if(!multiply_carbon(sym))
         return false;
     }
   }
@@ -3950,8 +4004,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           if(!edge)
             Fatal(i);
-          
-          
         }
         else{
           fprintf(stderr,"Error: 'C' carbon designation must be able to reach max valence without hydrogens\n");
