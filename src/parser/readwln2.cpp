@@ -3054,6 +3054,13 @@ bool multiply_carbon(WLNSymbol *sym){
   // it seems to be the convention
   // that if the back symbol can take a triple bond, we do it
   
+  // this cannot be done for alkyl numbers, so
+
+  if(std::isdigit(back->ch))
+    back_edges = 0;
+  if(std::isdigit(forward->ch))
+    forward_edges = 0;
+
   
   if(back_edges <=  1 && forward_edges >= 2){
     if(!unsaturate_edge(fedge,2))
@@ -3075,7 +3082,8 @@ bool multiply_carbon(WLNSymbol *sym){
       }
     }
   }
-  else if( (back_edges == 1 && forward_edges == 1)){
+  else{
+    // try force a distrubtion of the bonds
  
     for(edge=back->bonds;edge;edge=edge->nxt){      
       if(edge->child == sym){
@@ -3087,15 +3095,7 @@ bool multiply_carbon(WLNSymbol *sym){
         return false;
     }
   }
-  else{
-    fprintf(stderr,"Error: symbol choose for multiplier carbon C does not allow bond unsaturation\n");
-
-
-
-    return false;
-  }
-
-
+  
   return true; 
 }
 
