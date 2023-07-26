@@ -1320,6 +1320,9 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   WLNSymbol *oxygen = 0;
   WLNSymbol *binded_symbol = 0; 
 
+  // 2 options here, either the symbol is binded 'W' -> sym
+  // or the symbol is binded sym -> 'W'
+
   if(head->bonds){
     binded_symbol = head->bonds->child;
     edge = head->bonds; 
@@ -1332,40 +1335,58 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
         edge = e;
     }
   }
-  
-  // nitrogen is special
-  if(binded_symbol->ch == 'N')
-    binded_symbol->num_edges += -1; 
 
-  // 2 options here, either the symbol is binded 'W' -> sym
-  // or the symbol is binded sym -> 'W'
+  // lets define the convention, if we can double bond without
+  // a charge, we do, if not, we add a positive charge to the 
+  // target symbol
+  
 
   if(!binded_symbol){
     fprintf(stderr,"Error: dioxo seems to be unbound\n");
     return false; 
   }
 
+  unsigned int remaining_edges = binded_symbol->allowed_edges - binded_symbol->num_edges; 
+
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->set_edge_and_type(2,head->type);
+
+  // we add the pure dioxo
+  if(remaining_edges >= 3){
+    edge = unsaturate_edge(edge,1);
+    oxygen = AllocateWLNSymbol('O',graph);
+    oxygen->set_edge_and_type(2,head->type);
+    sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+    sedge = unsaturate_edge(sedge,1);
+  }
+
+  // this adds a tautomeric charged species with a double oxygen
+  else if (remaining_edges == 2){
+    //graph.charge_additions[binded_symbol] = +1;
+    //graph.charge_additions[head] = -1;
+    oxygen = AllocateWLNSymbol('O',graph);
+    oxygen->set_edge_and_type(2,head->type);
+    sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+    sedge = unsaturate_edge(sedge,1);
+  }
+
+  else if(remaining_edges == 1){
+    // double charged species
+    //graph.charge_additions[binded_symbol] = +2;
+    //graph.charge_additions[head] = -1;
+    oxygen = AllocateWLNSymbol('O',graph);
+    oxygen->set_edge_and_type(2,head->type);
+    sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+    //graph.charge_additions[oxygen] = -1;
+  }
+  else{
+    fprintf(stderr,"Error: character %c can not bind a dioxo group, check valence\n",binded_symbol->ch);
+    return false;
+  }
   
-  oxygen = AllocateWLNSymbol('O',graph);
-  oxygen->set_edge_and_type(2,head->type);
-  sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
-  if(!sedge)
+  if(!edge || !sedge)
     return false;
 
-
-  if(binded_symbol->num_edges < binded_symbol->allowed_edges)
-     edge = unsaturate_edge(edge,1);
-  if(binded_symbol->num_edges < binded_symbol->allowed_edges)
-     sedge = unsaturate_edge(sedge,1);
-  
-  if(head->num_edges != 2)
-    graph.charge_additions[head] = -1;
-   
-  if(oxygen->num_edges != 2)
-    graph.charge_additions[oxygen] = -1;
-  
   return true;
 }
 
@@ -2501,18 +2522,29 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 unsaturations.push_back({positional_locant,positional_locant+1});
               break;
 
-            // just be normal
-            case 'W':
+            // externally bonded to the symbol as a locant symbol
+            case 'W':{
               if(!heterocyclic)
                 warned = true;
 
-              if(ring->locants[positional_locant])
-                positional_locant++; 
+              // the carbon might not be created yet
+              if(!ring->locants[positional_locant]){
+                new_locant = AllocateWLNSymbol('C',graph);
+                new_locant = assign_locant(positional_locant,new_locant,ring);
+                new_locant->set_edge_and_type(2,RING);
+              }
+              else
+                new_locant = ring->locants[positional_locant];
+                
 
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(2,RING);
+              WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
+              dioxo->set_edge_and_type(1,RING);
+              WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
+              if(!e)
+                Fatal(start+i);
+              
               break;
+            }
 
             // has the effect of unsaturating a bond
             case 'H':
@@ -2658,6 +2690,30 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               case 'U':
                 unsaturations.push_back({positional_locant,positional_locant+1});
               break;
+
+              // externally bonded to the symbol as a locant symbol
+            case 'W':{
+              if(!heterocyclic)
+                warned = true;
+
+              // the carbon might not be created yet
+              if(!ring->locants[positional_locant]){
+                new_locant = AllocateWLNSymbol('C',graph);
+                new_locant = assign_locant(positional_locant,new_locant,ring);
+                new_locant->set_edge_and_type(2,RING);
+              }
+              else
+                new_locant = ring->locants[positional_locant];
+                
+
+              WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
+              dioxo->set_edge_and_type(1,RING);
+              WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
+              if(!e)
+                Fatal(start+i);
+              
+              break;
+            }
 
                 // has the effect of unsaturating a bond
               case 'H':
@@ -3043,7 +3099,8 @@ bool ExpandWLNSymbols(WLNGraph &graph){
   // unsaturated carbons with C
   for (unsigned int i=1;i<=stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
-    if(sym->ch == 'C'){
+    if(sym->ch == 'c'){
+      sym->ch = 'C';
       if(!multiply_carbon(sym))
         return false;
     }
@@ -3992,7 +4049,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
 
-        curr = AllocateWLNSymbol(ch,graph);
+        // set lower case for multiplier carbon
+        curr = AllocateWLNSymbol('c',graph);
         curr->set_edge_and_type(4);
 
         if(prev && i < len - 1){

@@ -1,0 +1,13 @@
+digraph WLNdigraph {
+  rankdir = LR;
+  1[shape=circle,label="S",color=green];
+  1 -> 2 [arrowhead=none]
+  1 -> 5 [arrowhead=none]
+  2[shape=circle,label="W",color=green];
+  2 -> 3 [arrowhead=none]
+  3[shape=circle,label="C",color=green];
+  3 -> 4 [arrowhead=none]
+  4[shape=circle,label="C",color=green];
+  4 -> 5 [arrowhead=none]
+  5[shape=circle,label="C",color=green];
+}

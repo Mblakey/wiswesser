@@ -1301,7 +1301,7 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   return prev;
 }
 
-bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
+bool add_diazo(WLNSymbol *head,WLNGraph &graph){
 
   WLNEdge *edge = 0;
   WLNSymbol *oxygen = 0;
@@ -2460,7 +2460,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 default:
                   break;
               }
-              if(!add_dioxo(ring->locants[positional_locant],graph))
+              if(!add_diazo(ring->locants[positional_locant],graph))
                 Fatal(i+start);
               break;
 
@@ -2962,7 +2962,7 @@ bool ExpandWLNSymbols(WLNGraph &graph){
       case 'W':
         sym->ch = 'C';
         sym->set_edge_and_type(4);
-        if(!add_dioxo(sym,graph))
+        if(!add_diazo(sym,graph))
           return false;
         break;
 
@@ -3226,7 +3226,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(4);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3284,7 +3284,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(3);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3326,7 +3326,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(4);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3533,7 +3533,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
           prev->allowed_edges++;
-          if(!add_dioxo(prev,graph))
+          if(!add_diazo(prev,graph))
             Fatal(i);
         }
         else
@@ -3578,7 +3578,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(pending_diazo){
           curr->allowed_edges++; // special allowance for Nitro
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3682,7 +3682,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(4);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3844,7 +3844,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(3);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3898,7 +3898,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(6);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -3951,7 +3951,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(4);
 
         if(pending_diazo){
-          if(!add_dioxo(curr,graph))
+          if(!add_diazo(curr,graph))
             Fatal(i-1);
           pending_diazo = false;
         }
@@ -4587,7 +4587,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           if(pending_diazo){
-            if(!add_dioxo(curr,graph))
+            if(!add_diazo(curr,graph))
               Fatal(i-1);
             pending_diazo = false;
           }

@@ -17,6 +17,9 @@
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
+
+#include <openbabel/stereo/stereo.h> // remove stereo
+
 const char *smiles; 
 
 
@@ -69,6 +72,11 @@ int main(int argc, char *argv[]){
   conv.SetOutFormat("can"); 
 
   conv.ReadString(&mol,smiles);
+  
+  // removes all the stereo
+  mol.DeleteData(27);
+  
+
   res = conv.WriteString(&mol);
   std::cout << res;
   return 0; 
