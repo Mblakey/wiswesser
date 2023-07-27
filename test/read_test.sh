@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 FILE=$1
-PARSE="${SCRIPT_DIR}/../parser/build/readwln"
+PARSE="${SCRIPT_DIR}/../src/parser/build/readwln"
 
 RED='\033[0;41m'
 NC='\033[0m' # No Color
