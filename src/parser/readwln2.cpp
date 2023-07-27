@@ -1355,15 +1355,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     return false; 
   }
 
-
   unsigned int remaining_edges = binded_symbol->allowed_edges - binded_symbol->num_edges; 
-
-  // nitrogen will have a special valence lift, so increase to 5 if needed
-
-  if(binded_symbol->ch == 'N'){
-
-  }
-
 
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->set_edge_and_type(2,head->type);
@@ -1440,14 +1432,13 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
 
 WLNRing *AllocateWLNRing(WLNGraph &graph)
 {
-  graph.ring_count++;
   if(graph.ring_count > REASONABLE){
     fprintf(stderr,"Error: creating more than 1024 wln rings - is this reasonable?\n");
     return 0;
   }
 
   WLNRing *wln_ring = new WLNRing;
-  graph.RINGS[graph.ring_count] = wln_ring;
+  graph.RINGS[graph.ring_count++] = wln_ring;
   return wln_ring;
 }
 
@@ -3040,10 +3031,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   if( !handle_post_orders(unsaturations,1,final_size,ring) 
       || !handle_post_orders(saturations,0,final_size,ring))
     Fatal(start+i);
-
-  if(!ResolveAromatics(ring))
-    Fatal(start+i);
-
 }
 
 
@@ -3115,10 +3102,6 @@ bool multiply_carbon(WLNSymbol *sym){
   
   return true; 
 }
-
-
-
-
 
 
 /* must be performed before sending to obabel graph*/
@@ -3265,6 +3248,22 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
     }
   }
   return true;
+}
+
+
+bool ParseAromaticRings(WLNGraph &graph){
+  for (unsigned int i=0;i<graph.ring_count;i++){
+    WLNRing *ring = graph.RINGS[i]; 
+
+    if(!ring){
+      fprintf(stderr,"bad access!\n");
+      return false;
+    }
+
+    if(!ResolveAromatics(ring))
+      return false;
+  }
+  return true; 
 }
 
 
@@ -4975,7 +4974,8 @@ struct BabelGraph{
 
         case 'Y':
           atomic_num = 6;
-          hcount = 1;
+          if(sym->type != RING)
+            hcount = 1;
           break;
 
         case 'N':
@@ -5159,6 +5159,9 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 
   if(state)
     state = ParseWLNString(ptr,wln_graph);
+
+  if(state)
+    state = ParseAromaticRings(wln_graph); 
   
   // create an optional wln dotfile
   if (opt_wln2dot)
