@@ -39,6 +39,7 @@ GNU General Public License for more details.
 #include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
+#include <openbabel/graphsym.h>
 
 
 #define REASONABLE 1024
@@ -108,14 +109,11 @@ struct WLNEdge{
   WLNSymbol *parent;
   WLNSymbol *child;
   WLNEdge *nxt;
-
-  bool aromatic;
   unsigned int order;
 
   WLNEdge(){
     parent = 0;
     child = 0;
-    aromatic = 0;
     order = 0;
     nxt = 0;
   }
@@ -194,6 +192,9 @@ struct WLNGraph
     // ionic parsing
   std::map<unsigned int,WLNSymbol*> string_positions; 
   std::map<WLNSymbol*,int> charge_additions;
+  std::map<WLNEdge*,bool> aromatic_edges; // testing aromatic case
+  std::map<WLNSymbol*,bool> aromatic_atoms;
+  // red black tree so iteration access O(n)
 
   WLNGraph(){
     edge_count   = 0;
@@ -778,7 +779,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
 
 /* checks are already made, this should just return*/
 unsigned int special_element_atm(std::string &special){
-  
+
   switch (special[0]){
 
     case 'A':
@@ -1076,6 +1077,8 @@ unsigned int special_element_atm(std::string &special){
 
   return 0;
 }
+
+
 
 
 // this one pops based on bond numbers
@@ -1455,57 +1458,33 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 }  
 
 
-bool assign_aromatics(std::deque<unsigned char> &ring_path, WLNRing *ring){
-  std::map<WLNSymbol*, bool> assigned; 
-
+bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring, WLNGraph &graph){
+  WLNSymbol *par = 0;
+  WLNSymbol *chi = 0;
   for (unsigned int i=1;i<ring_path.size();i++){
-  
     WLNSymbol *par = ring->locants[ring_path[i-1]];
     WLNSymbol *chi = ring->locants[ring_path[i]];
 
-    if(i == 1){
-      switch(par->ch){
-        case 'N':
-          par->allowed_edges = 4;
-        break;
-        default:
-          break;
-      }
-    }
+    graph.aromatic_atoms[par] = true;
+    graph.aromatic_atoms[chi] = true;
 
-    switch(chi->ch){
-      case 'N':
-        chi->allowed_edges = 4;
-      break;
-
-      default:
-        break;
-    }
-
-    // cannot have double bonds following each other
-    if(assigned[par] || assigned[chi])
-      continue;
-
-    // must have double bonds outside of the ring
-    if(par->ch == 'Y' || chi->ch == 'Y')
-      continue;
-
-    if(par->num_edges < par->allowed_edges && chi->num_edges < chi->allowed_edges){
-      assigned[par]  = true;
-      assigned[chi]  = true;
-      WLNEdge * edge = search_edge(chi,par,false);
-      if(!edge){
-        edge = search_edge(par,chi);
-      }
-      if(!unsaturate_edge(edge,1)){
-        //fprintf(stderr,"par: %c  chi: %c\n",locants_ch[par],locants_ch[chi]);
-        return false;
-      } 
-        
-    }
+    WLNEdge * edge = search_edge(chi,par,false);
+    if(!edge)
+      edge = search_edge(par,chi);
+    
+    graph.aromatic_edges[edge] = true;
   }
-  
 
+  // get the last ring element 
+  par = ring->locants[ring_path[0]];
+  chi = ring->locants[ring_path[ring_path.size()-1]];
+
+  WLNEdge * edge = search_edge(chi,par,false);
+  if(!edge)
+    edge = search_edge(par,chi);
+  graph.aromatic_edges[edge] = true;
+
+  graph.aromatic_atoms[par] = true;
   return true;
 }
 
@@ -1621,7 +1600,8 @@ unsigned int CreatePolyCyclic(std::vector<std::pair<unsigned int,
       return false;
 
     if(aromatic){
-      if(!assign_aromatics(ring_path,ring))
+      graph.aromatic_edges[edge] = true;
+      if(!assign_aromatics2(ring_path,ring,graph))
         return false;
     }
       
@@ -1867,7 +1847,8 @@ unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char
 
 
     if(aromatic){
-      if(!assign_aromatics(ring_path,ring))
+      graph.aromatic_edges[edge] = true;
+      if(!assign_aromatics2(ring_path,ring,graph))
         return false;
     }
 
@@ -3061,7 +3042,6 @@ bool multiply_carbon(WLNSymbol *sym){
   if(std::isdigit(forward->ch))
     forward_edges = 0;
 
-  
   if(back_edges <=  1 && forward_edges >= 2){
     if(!unsaturate_edge(fedge,2))
       return false;
@@ -3075,10 +3055,17 @@ bool multiply_carbon(WLNSymbol *sym){
     }
   }
   else if (back_edges > 1 && forward_edges > 1){
-    for(edge=back->bonds;edge;edge=edge->nxt){      
-      if(edge->child == sym){
-        if(!unsaturate_edge(edge,2))
-          return false;
+    // unless a cyano is seen, force the first triple
+    if(forward->ch == 'N'){
+      if(!unsaturate_edge(fedge,2))
+        return false;
+    }
+    else{
+      for(edge=back->bonds;edge;edge=edge->nxt){      
+        if(edge->child == sym){
+          if(!unsaturate_edge(edge,2))
+            return false;
+        }
       }
     }
   }
@@ -4218,8 +4205,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           switch(prev->ch){
             case 'Z':
-              graph.charge_additions[prev]++;
-              prev->allowed_edges++;
+              if(prev->num_edges > 1){
+                graph.charge_additions[prev]++;
+                prev->allowed_edges++;
+              }
               break;
             
             default:
@@ -4482,8 +4471,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         break;
       }
 
-      // only burn the stacks now on ionic clearance
+      // returns to last ring
+      if(i > 1 && wln_string[i-1] == '&'){
 
+      }
+
+      // only burn the stacks now on ionic clearance
       pending_locant = true;
       break;
 
@@ -4864,23 +4857,20 @@ struct BabelGraph{
 
   OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,int charge=0,unsigned int hcount=0)
   {
-
     OpenBabel::OBAtom* result = mol->NewAtom();
-    
     result->SetAtomicNum(elem);
     result->SetImplicitHCount(hcount);
     result->SetFormalCharge(charge);
-
     return result;
   }
 
-  void NMOBAtomSetAromatic(OpenBabel::OBAtom* atm, bool arom)
+  void NMOBAtomSetAromatic(OpenBabel::OBAtom* atm)
   {
     OpenBabel::OBMol* mol = (OpenBabel::OBMol*)atm->GetParent();
     if (mol && !mol->HasAromaticPerceived())
-        mol->SetAromaticPerceived();
+      mol->SetAromaticPerceived();
 
-    atm->SetAromatic(arom);
+    atm->SetAromatic();
   }
 
 
@@ -4899,6 +4889,9 @@ struct BabelGraph{
       fprintf(stderr,"  bonding: atoms %3d --> %3d [%d]\n",s->GetIdx(),e->GetIdx(),order);
     
 
+    if(arom)
+      order = 1;
+
     if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)){
       fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
       return false;
@@ -4912,8 +4905,8 @@ struct BabelGraph{
 
     if (arom){
       bptr->SetAromatic();
-      NMOBAtomSetAromatic(s,true);
-      NMOBAtomSetAromatic(e,true);
+      NMOBAtomSetAromatic(s);
+      NMOBAtomSetAromatic(e);
     }
     return true;
   }
@@ -4922,16 +4915,11 @@ struct BabelGraph{
   bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
   {
     
-    mol->SetAromaticPerceived(false);
-
-    if(!OBKekulize(mol)){
-      fprintf(stderr,"Error: failed on kekulize mol\n");
-      return false;
-    }
-      
-    
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
     mol->SetChiralityPerceived(true);
+
+    if(!OBKekulize(mol))
+      fprintf(stderr,"Warning: failed to kekulize mol - check aromaticity\n");
     
     return true;
   }
@@ -4947,7 +4935,6 @@ struct BabelGraph{
     // set up atoms
     for (unsigned int i=1; i<=graph.symbol_count;i++){
       WLNSymbol *sym = graph.SYMBOLS[i];
-
       OpenBabel::OBAtom *atom = 0;
 
       int charge = 0; 
@@ -4965,13 +4952,15 @@ struct BabelGraph{
           atomic_num = 5;
           break;
 
-        case '1': // gives me back the 'C' character for unsaturations
+        case '1': 
         case 'C':
           atomic_num = 6;
           while(sym->num_edges < sym->allowed_edges){
             hcount++;
             sym->num_edges++;
           }
+          if(hcount && graph.aromatic_atoms[sym])
+            hcount--;
           break;
 
         case 'X':
@@ -4987,12 +4976,16 @@ struct BabelGraph{
 
         case 'N':
           atomic_num = 7;
-          if(sym->type == RING && sym->allowed_edges > 3)
+          if(sym->type == RING)
             sym->allowed_edges = 3;
 
-          while(sym->num_edges < sym->allowed_edges){
-            hcount++;
-            sym->num_edges++;
+          if(graph.aromatic_atoms[sym])
+            hcount = 0;
+          else{
+             while(sym->num_edges < sym->allowed_edges){
+              hcount++;
+              sym->num_edges++;
+            }
           }
           break;
 
@@ -5065,6 +5058,34 @@ struct BabelGraph{
       
         case '*':
           atomic_num = special_element_atm(sym->special);
+          if(!sym->num_edges){
+            switch (atomic_num){
+              case 3:
+              case 11:
+              case 19:
+              case 37:
+              case 55:
+              case 87:
+                charge = +1; 
+                break;
+            
+              case 4:
+              case 12:
+              case 20:
+              case 35:
+              case 56:
+              case 85:
+                charge = +2;
+
+              case 5:
+              case 13:
+              case 31:
+              case 49:
+              case 81:
+              case 114:
+                charge = +3;
+            }
+          }
           break;
 
         default:
@@ -5098,20 +5119,17 @@ struct BabelGraph{
 
       unsigned int parent_id = graph.index_lookup[parent];
       OpenBabel::OBAtom *par_atom = babel_atom_lookup[parent_id];
-
       WLNEdge *e = 0;
-      
       if(parent->bonds){
         
         for (e = parent->bonds;e;e = e->nxt){
-          
           WLNSymbol *child = e->child;
-
           unsigned int bond_order = e->order;  
     
           unsigned int child_id = graph.index_lookup[child];
           OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
-          if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
+          
+          if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,graph.aromatic_edges[e]))
             return false;
         }
 
