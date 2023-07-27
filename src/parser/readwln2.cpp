@@ -2022,6 +2022,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           break;
         }
         else if (state_multi == 3){
+          
+          if(positional_locant == 'T'){
+            fprintf(stderr,"its here\n");
+          }
+          
           ring_size_specifier += 23;
         }
         else if (state_pseudo){
@@ -2813,7 +2818,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
         if(i==0){
           heterocyclic = true; 
-
           break;
         }
 
@@ -2837,23 +2841,13 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           state_multi = 3;
         }
         else{
-          if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
-            positional_locant = ch;
-            last_locant_position = i;
-          }
-          else{
-            // this must be an aromatic state right?
-            state_aromatics = 1;
-            aromaticity.push_back(0);
-          }
+          positional_locant = ch;
+          last_locant_position = i;
         }
-          
-
         break;
 
       
       // CLOSE
-
       case 'J':
         if(state_aromatics)
           state_aromatics = 0;
