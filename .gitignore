@@ -6,3 +6,4 @@ src/parser/.vscode/
 src/openbabel/
 src/grammars/.antlr
 .vscode
+external
