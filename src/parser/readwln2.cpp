@@ -326,6 +326,15 @@ struct ObjectStack{
       return false;
   }
 
+  WLNRing *pop_to_ring(){
+    std::pair<WLNRing*,WLNSymbol*> t;
+    while(!t.first && !stack.empty()){
+      t = top();
+      pop();
+    }
+    return ring;
+  }
+
 };
 
 
@@ -4473,13 +4482,19 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       // returns to last ring
       if(i > 1 && wln_string[i-1] == '&'){
-
+       
+        // need to pop down to where the next ring is
+        
+        ring = branch_stack.pop_to_ring();
+        if(!ring){
+          fprintf(stderr,"Error: popping too many rings, check '&' count\n");
+          Fatal(i);
+        }
       }
 
       // only burn the stacks now on ionic clearance
       pending_locant = true;
       break;
-
 
 
     case '&':
@@ -4503,18 +4518,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(on_locant){
         curr->ch += 23;
-      }
-
-      // this is always a ring pop?
-      else if(i < len - 1 && wln_string[i+1] == ' '){
-
-        branch_stack.pop(); // forced closure
-        ring = branch_stack.ring;
-        if(!ring){
-          fprintf(stderr,"Error: popping too many rings, check '&' count\n");
-          Fatal(i);
-        }
-        break;
       }
       else
       {
