@@ -2,8 +2,8 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-PUBCHEM="${SCRIPT_DIR}/../../data/pubchem.txt"
-PARSE="${SCRIPT_DIR}/../parser/build/readwln"
+PUBCHEM="${SCRIPT_DIR}/../data/pubchem.txt"
+PARSE="${SCRIPT_DIR}/../src/parser/build/readwln"
 
 COUNT=0
 TOTAL=$(wc -l < $PUBCHEM)

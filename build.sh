@@ -19,18 +19,22 @@ if ! command -v make &> /dev/null;then
     exit 1
 fi
 
-
-if [ -d "$SCRIPT_DIR/src/openbabel" ] 
+if [ ! -d "$SCRIPT_DIR/external/" ]
 then
-    mkdir -p "$SCRIPT_DIR/src/openbabel/build"
-    cd "$SCRIPT_DIR/src/openbabel/build"
+  mkdir "$SCRIPT_DIR/external/"
+fi
+
+if [ -d "$SCRIPT_DIR/external/openbabel" ] 
+then
+    mkdir -p "$SCRIPT_DIR/external/openbabel/build"
+    cd "$SCRIPT_DIR/external/openbabel/build"
     cmake ..
     make -j 10
 else
-    cd src
+    cd external
     git clone https://github.com/openbabel/openbabel.git
-    mkdir "$SCRIPT_DIR/src/openbabel/build"
-    cd "$SCRIPT_DIR/src/openbabel/build"
+    mkdir "$SCRIPT_DIR/external/openbabel/build"
+    cd "$SCRIPT_DIR/external/openbabel/build"
     cmake ..
     make -j 10
 fi
