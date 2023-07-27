@@ -3137,11 +3137,13 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         break;
 
       case 'V':{
+        bool aromatic = false;
         sym->ch = 'C';
-        sym->set_edge_and_type(4);
+        sym->set_edge_and_type(4, sym->type);
+        
         WLNSymbol *oxygen = AllocateWLNSymbol('O',graph);
         if(oxygen)
-          oxygen->set_edge_and_type(2);
+          oxygen->set_edge_and_type(2,sym->type);
         else
           return false;
 
@@ -3149,6 +3151,7 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         e = unsaturate_edge(e,1);
         if(!e)
           return false;
+        
         break;
       }
       
@@ -4890,9 +4893,6 @@ struct BabelGraph{
       fprintf(stderr,"  bonding: atoms %3d --> %3d [%d]\n",s->GetIdx(),e->GetIdx(),order);
     
 
-    if(arom)
-      order = 1;
-
     if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)){
       fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
       return false;
@@ -4962,11 +4962,17 @@ struct BabelGraph{
           }
           if(hcount && graph.aromatic_atoms[sym])
             hcount--;
+          fprintf(stderr,"%d\n",hcount);
+          break;
+
+        
+        case 'X':
+          atomic_num = 6;
           break;
 
         case 'Y':
-        case 'X':
           atomic_num = 6;
+          hcount = 1;
           break;
 
         case 'N':
@@ -5004,6 +5010,8 @@ struct BabelGraph{
           atomic_num = 8;
           if(!sym->num_edges)
             charge = -1;
+          if(graph.aromatic_atoms[sym] && sym->num_edges < 2)
+            hcount++;
           break;
 
         case 'Q':
