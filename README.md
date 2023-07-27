@@ -1,6 +1,6 @@
-# WLN Parser out of Babel Build
+# WLN Parser External Build
 
-Wisswesser Line Notation Parser, covert WLN to smiles, inchi, mol files etc
+Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files etc
 This is the development for the WLN parser that will be added directly to OpenBabel, 
 on the release of this project, please see my local branch of babel for pre-release versions. 
 
