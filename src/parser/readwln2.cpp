@@ -332,7 +332,7 @@ struct ObjectStack{
       t = top();
       pop();
     }
-    return ring;
+    return t.first;
   }
 
 };
@@ -4480,17 +4480,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         break;
       }
 
-      // returns to last ring
-      if(i > 1 && wln_string[i-1] == '&'){
-       
-        // need to pop down to where the next ring is
-        
-        ring = branch_stack.pop_to_ring();
-        if(!ring){
-          fprintf(stderr,"Error: popping too many rings, check '&' count\n");
-          Fatal(i);
-        }
-      }
 
       // only burn the stacks now on ionic clearance
       pending_locant = true;
@@ -4518,6 +4507,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(on_locant){
         curr->ch += 23;
+      }
+      // returns to last ring
+      else if(i < len && wln_string[i+1] == ' '){
+        // need to pop down to where the next ring is
+        ring = branch_stack.pop_to_ring();
+        if(!ring){
+          fprintf(stderr,"Error: popping too many rings, check '&' count\n");
+          Fatal(i);
+        }
       }
       else
       {
@@ -4966,15 +4964,9 @@ struct BabelGraph{
             hcount--;
           break;
 
+        case 'Y':
         case 'X':
           atomic_num = 6;
-          hcount = 0; // this must have 4 + methyl
-          break;
-
-        case 'Y':
-          atomic_num = 6;
-          if(sym->type != RING)
-            hcount = 1;
           break;
 
         case 'N':
