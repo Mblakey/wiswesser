@@ -75,7 +75,6 @@ int main(int argc, char *argv[]){
   
   // removes all the stereo
   mol.DeleteData(27);
-  
 
   res = conv.WriteString(&mol);
   std::cout << res;
