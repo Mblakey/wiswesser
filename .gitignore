@@ -5,3 +5,4 @@ src/parser/build/
 src/parser/.vscode/
 src/openbabel/
 src/grammars/.antlr
+.vscode
