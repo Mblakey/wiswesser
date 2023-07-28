@@ -30,8 +30,8 @@ readwln <options> -s 'string'
 
 `-d` - enable all debugging logs to stderr<br>
 `-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands
-`-c` - output canonical smiles
-`-i` - output InChI 
+`-c` - output canonical smiles <br>
+`-i` - output InChI  <br>
 
 ```
 dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
