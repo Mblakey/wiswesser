@@ -29,7 +29,7 @@ readwln <options> -s 'string'
 ### flags
 
 `-d` - enable all debugging logs to stderr<br>
-`-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands
+`-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands <br>
 `-c` - output canonical smiles <br>
 `-i` - output InChI  <br>
 
