@@ -1558,7 +1558,7 @@ unsigned int CreatePolyCyclic(std::vector<std::pair<unsigned int,
 
 
 /* interesting here that the multicyclic points are not explicitly used */
-unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                                 std::vector<bool> &aromaticity,
                                 std::vector<unsigned char> &multicyclic_locants,
                                 std::vector<indexed_pair> &pseudo_locants,
@@ -2897,7 +2897,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       break;
     case PERI:
     case PSDBRIDGED:
-      final_size = CreateMultiCyclic(ring_components,aromaticity,
+      final_size = BuildCyclic(ring_components,aromaticity,
                                 multicyclic_locants,indexed_bindings,
                                 broken_locants,
                                 bridge_locants,

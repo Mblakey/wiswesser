@@ -164,7 +164,7 @@ struct WLNRing
   std::map<unsigned char, WLNSymbol *> locants; 
   std::map<WLNSymbol*,unsigned char> locants_ch;
   std::vector<std::pair<unsigned char,int>> post_charges; 
-  std::set<WLNEdge*> aromatic_edges; 
+  std::vector<WLNEdge*> aromatic_edges; // order must be maintained
   
   WLNRing(){}
   ~WLNRing(){};
@@ -1465,8 +1465,8 @@ bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring){
     WLNEdge * edge = search_edge(chi,par,false);
     if(!edge)
       edge = search_edge(par,chi);
-    
-    ring->aromatic_edges.insert(edge);
+
+    ring->aromatic_edges.push_back(edge);
   }
 
   par = ring->locants[ring_path[0]];
@@ -1476,15 +1476,17 @@ bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring){
   if(!edge)
     edge = search_edge(par,chi);
 
-  ring->aromatic_edges.insert(edge);
+  ring->aromatic_edges.push_back(edge);
   return true;
 }
 
+
+/* this needs to maximise the number of double bonds */
 bool ResolveAromatics(WLNRing *ring){
   if(ring->aromatic_edges.empty())
     return true; 
 
-  std::set<WLNEdge*>::iterator iter; 
+  std::vector<WLNEdge*>::iterator iter; 
   std::map<WLNSymbol*,bool> involved; // so we dont get =P= coming in
   // red black tree so linear time
   for(iter = ring->aromatic_edges.begin(); iter != ring->aromatic_edges.end();iter++){
@@ -1512,130 +1514,8 @@ bool ResolveAromatics(WLNRing *ring){
 }
 
 
-/*  poly rings, aromaticity is defined in reverse due to the nature of notation build
-return the size of the ring, or zero if failure */
-unsigned int CreatePolyCyclic(std::vector<std::pair<unsigned int,
-                              unsigned char>> &ring_assignments, 
-                              std::vector<bool> &aromaticity,
-                              std::map<unsigned char,bool> &bridge_locants,
-                              WLNRing *ring,
-                              WLNGraph &graph)
-  {
-    
-  unsigned int local_size = 0; 
-  for (unsigned int i=0;i<ring_assignments.size();i++){
-    std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
-    if(local_size)
-      local_size += component.first - 2;
-    else
-      local_size = component.first;
-  }
-
-  for (unsigned int i=0;i<252;i++){
-    if(bridge_locants[i])
-      local_size+= -1; 
-  }
-
-  // create all the nodes in a large straight chain
-  
-  WLNSymbol *curr= 0; 
-  WLNSymbol *prev = 0; 
-  for (unsigned int i=1;i<=local_size;i++){
-    unsigned char loc = int_to_locant(i);
-    if(!ring->locants[loc]){
-      curr = AllocateWLNSymbol('C',graph);
-      curr->set_edge_and_type(4,RING);
-      curr = assign_locant(loc,curr,ring);
-    }
-    else
-      curr = ring->locants[loc];
-
-    if(prev){
-      WLNEdge *edge = AllocateWLNEdge(curr,prev,graph);
-      if(!edge)
-        return false;
-    }
-    prev = curr;
-  }
-
-
-  // calculate bindings and then traversals round the loops
-  unsigned int comp_size = 0;
-  unsigned char bind_1 = '\0';
-  unsigned char bind_2 = '\0';
-  unsigned int fuses = 0; 
-  bool aromatic = false; 
-
-
-  for (unsigned int i=0;i<ring_assignments.size();i++){
-    std::pair<unsigned int, unsigned char> component = ring_assignments[i];
-    comp_size = component.first;
-    bind_1 = component.second;
-    aromatic = aromaticity[i];
-    WLNSymbol *path = ring->locants[bind_1];
-
-    while(bridge_locants[bind_1] && ring->locants[bind_1]->num_edges >= 2){
-      bind_1++;
-    }
-
-    std::deque<unsigned char> ring_path;
-    // first pair can be calculated directly without a path travel
-    if(!fuses){
-      bind_2 = bind_1 + comp_size - 1; // includes start atom
-      for (unsigned int i=0; i<comp_size;i++)
-        ring_path.push_back(bind_1+i);
-    }
-    else{
-      //there needs to be a graph travel here taking the longest locant
-
-      // 1. starting on bind_1, travel n-1 places through the maximal locant path, to calculate fuse
-
-      unsigned char highest_loc = '\0';
-      for (unsigned int i=0;i<comp_size - 1; i++){
-        ring_path.push_back(ring->locants_ch[path]);
-
-        WLNEdge *lc = 0;
-        for(lc = path->bonds;lc;lc = lc->nxt){
-          WLNSymbol *child = lc->child;
-          unsigned char child_loc = ring->locants_ch[child];
-          if(child_loc > highest_loc)
-            highest_loc = child_loc;
-        }    
-        path = ring->locants[highest_loc];
-      }
-
-      ring_path.push_back(ring->locants_ch[path]); // add the last symbol
-      bind_2 = highest_loc;
-    }
-
-
-    if(opt_debug){
-      fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
-      for (unsigned char ch : ring_path){
-        fprintf(stderr," %c(%d)",ch,ch);
-      }
-      fprintf(stderr," ]\n");
-    }
-
-
-    WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-    if(!edge)
-      return false;
-
-    if(aromatic){
-      if(!assign_aromatics2(ring_path,ring))
-        return false;
-    }
-      
-    fuses++;
-  }
-
-  return local_size; 
-}
-
-
 /* interesting here that the multicyclic points are not explicitly used */
-unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
+unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                                 std::vector<bool> &aromaticity,
                                 std::vector<unsigned char> &multicyclic_locants,
                                 std::vector<indexed_pair> &pseudo_locants,
@@ -1645,9 +1525,24 @@ unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char
                                 WLNRing *ring,
                                 WLNGraph &graph) 
 {
-  
-  // create a chain size of ring designator
-  unsigned int local_size = locant_to_int(size_designator);
+  unsigned int local_size = 0;
+  if(!size_designator){
+ 
+    for (unsigned int i=0;i<ring_assignments.size();i++){
+      std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
+      if(local_size)
+        local_size += component.first - 2;
+      else
+        local_size = component.first;
+    }
+
+    for (unsigned int i=0;i<252;i++){
+      if(bridge_locants[i])
+        local_size+= -1; 
+    }
+  }
+  else
+    local_size = locant_to_int(size_designator);
 
   std::map<unsigned int,std::vector<indexed_pair>>  pseudo_lookup;
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
@@ -1744,6 +1639,11 @@ unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char
     
     unsigned int predefined = 1;
     std::deque<unsigned char> ring_path; 
+
+    if(!path){
+      fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
+      return 0;
+    }
     
     // --- PSD BRIDGE ONLY ---
     if(!pseudo_lookup[i].empty()){
@@ -1774,7 +1674,6 @@ unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char
           fprintf(stderr," ]\n");
         }
       }
-      
       fuses++;
       continue;      
     }
@@ -1782,11 +1681,11 @@ unsigned int CreateMultiCyclic( std::vector<std::pair<unsigned int,unsigned char
 
     while( (shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty())
           || (bridge_locants[bind_1] && ring->locants[bind_1]->num_edges >= 2) ){
-
       predefined++;
       bind_1++;
-      ring_path.push_back(bind_1);
+      ring_path.push_front(bind_1);
     }
+
 
     // whilst the cpp object is large, the alternative is many more lines
     while(!broken_lookup[bind_1].empty()){
@@ -1929,16 +1828,8 @@ bool handle_post_orders(std::vector<std::pair<unsigned char, unsigned char>> &bo
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
 void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph &graph,unsigned char spiro_atom='\0'){
 
-
-  enum RingType{ POLY=1, PERI=2, BRIDGED=3, PSDBRIDGED = 4}; 
-  const char* ring_strings[] = {"MONO","POLY","PERI","BRIDGED","PSDBRIDGED"};
-  unsigned int ring_type = POLY;   // start in mono and climb up
-
   bool warned             = false;  // limit warning messages to console
   bool heterocyclic       = false;  // L|T designator can throw warnings
-
-  // -- paths -- // 
-  // int allows way more description in states
 
   unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
   unsigned int state_pseudo         = 0; 
@@ -2892,12 +2783,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             Fatal(start+i);
           }
 
-          if (pseudo_locants.size() > 0)
-            ring_type = PSDBRIDGED;
-
-          if (multicyclic_locants.size() > 0 && ring_type < PSDBRIDGED)
-            ring_type = PERI;
-
           if (aromaticity.size() == 1 && aromaticity[0] == false){
             while(aromaticity.size() < ring_components.size())
               aromaticity.push_back(false);
@@ -2977,8 +2862,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   // debug here
   if (opt_debug){
     
-    fprintf(stderr,"  ring type: %s\n",ring_strings[ring_type]);
-
     fprintf(stderr,"  ring components: ");
     for (std::pair<unsigned int, unsigned char> comp : ring_components){
       
@@ -3028,37 +2911,25 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   }
   
   unsigned int final_size = 0;
-  switch(ring_type){
-    case POLY:
-      final_size = CreatePolyCyclic(ring_components,aromaticity,bridge_locants,ring,graph);
-      break;
-    case PERI:
-    case PSDBRIDGED:
-      final_size = CreateMultiCyclic(ring_components,aromaticity,
+  final_size = BuildCyclic(ring_components,aromaticity,
                                 multicyclic_locants,indexed_bindings,
                                 broken_locants,
                                 bridge_locants,
                                 ring_size_specifier,
                                 ring,
                                 graph);
-    break;
-  }
+
 
   for (std::pair<unsigned char,int> &post : ring->post_charges)
     graph.charge_additions[ring->locants[post.first]] += post.second;
   
-
   if (!final_size)
     Fatal(start+i);
 
-  
   if( !handle_post_orders(unsaturations,1,final_size,ring) 
       || !handle_post_orders(saturations,0,final_size,ring))
     Fatal(start+i);
 }
-
-
-
 
 
 bool multiply_carbon(WLNSymbol *sym){
@@ -5185,8 +5056,8 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   if(state)
     state = ParseWLNString(ptr,wln_graph);
 
-  // if(state)
-  //   state = ParseAromaticRings(wln_graph); 
+  if(state)
+    state = ParseAromaticRings(wln_graph); 
   
   // create an optional wln dotfile
   if (opt_wln2dot)
