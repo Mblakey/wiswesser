@@ -14,7 +14,7 @@ while read p; do
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   
-  NEW_SMILES=$($PARSE -c -s "${WLN}" 2> /dev/null)
+  NEW_SMILES=$($PARSE -r -c -s "${WLN}" 2> /dev/null)
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
 
   if [ -z $NEW_SMILES ]; then
@@ -29,7 +29,7 @@ while read p; do
   if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
   else
-  	echo "$LINE: $WLN != $SMILES    $NEW_SMILES"
+  	echo "$LINE: $WLN != $CAN_SMILES    $NEW_SMILES"
   fi;
 
 done <$SPIDER
