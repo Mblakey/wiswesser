@@ -2016,6 +2016,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         positional_locant = '\0'; // hard resets on spaces
         break;
 
+
       case '&':
         if (state_aromatics){
           aromaticity.push_back(1);
@@ -2535,7 +2536,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
             // externally bonded to the symbol as a locant symbol
-            case 'W':{
+            case 'W':
+              break;
+#ifndef BUG
+            {
               if(!heterocyclic)
                 warned = true;
 
@@ -2557,6 +2561,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               
               break;
             }
+#endif
 
             // has the effect of unsaturating a bond
             case 'H':
@@ -2704,8 +2709,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
               // externally bonded to the symbol as a locant symbol
-            case 'W':{
-              if(!heterocyclic)
+            case 'W':
+              break;
+#ifdef BUG              
+              {if(!heterocyclic)
                 warned = true;
 
               // the carbon might not be created yet
@@ -2717,7 +2724,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               else
                 new_locant = ring->locants[positional_locant];
                 
-
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
               dioxo->set_edge_and_type(1,RING);
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
@@ -2725,8 +2731,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 Fatal(start+i);
               
               break;
-            }
-
+              }
+#endif
                 // has the effect of unsaturating a bond
               case 'H':
                 // no need to put this in implied, it has to be specified
@@ -2841,8 +2847,15 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           state_multi = 3;
         }
         else{
-          positional_locant = ch;
-          last_locant_position = i;
+          if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
+            positional_locant = ch;
+            last_locant_position = i;
+          }
+          else{
+            // this must be an aromatic state right?
+            state_aromatics = 1;
+            aromaticity.push_back(0);
+          }
         }
         break;
 
@@ -3665,7 +3678,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         break;
       else if (pending_locant)
       {
-
         if(!pending_inline_ring){
           ring = branch_stack.ring;
           if(!ring)
@@ -4513,13 +4525,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->ch += 23;
       }
       // returns to last ring
-      else if(i < len && wln_string[i+1] == ' '){
+      else if(i < len - 1 && wln_string[i+1] == ' '){
         // need to pop down to where the next ring is
         ring = branch_stack.pop_to_ring();
         if(!ring){
           fprintf(stderr,"Error: popping too many rings, check '&' count\n");
           Fatal(i);
         }
+        break;
       }
       else
       {
@@ -4919,9 +4932,10 @@ struct BabelGraph{
     mol->SetChiralityPerceived(true);
     mol->SetAromaticPerceived(false);
 
-    if(!OBKekulize(mol))
-      fprintf(stderr,"Warning: failed to kekulize mol - check aromaticity\n");
-
+    //if(!OBKekulize(mol))
+    //  fprintf(stderr,"Warning: failed to kekulize mol - check aromaticity\n");
+    
+    mol->DeleteHydrogens();
     return true;
   }
 
@@ -5270,6 +5284,7 @@ int main(int argc, char *argv[])
   
 
   OpenBabel::OBConversion conv;
+  conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
 
   if(opt_canonical_smi)
     conv.SetOutFormat("can");
