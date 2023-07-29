@@ -2536,10 +2536,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
             // externally bonded to the symbol as a locant symbol
-            case 'W':
-              break;
-#ifndef BUG
-            {
+            case 'W':{
               if(!heterocyclic)
                 warned = true;
 
@@ -2561,7 +2558,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               
               break;
             }
-#endif
 
             // has the effect of unsaturating a bond
             case 'H':
@@ -2709,10 +2705,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
               // externally bonded to the symbol as a locant symbol
-            case 'W':
-              break;
-#ifdef BUG              
-              {if(!heterocyclic)
+            case 'W':{
+              if(!heterocyclic)
                 warned = true;
 
               // the carbon might not be created yet
@@ -2732,7 +2726,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               
               break;
               }
-#endif
                 // has the effect of unsaturating a bond
               case 'H':
                 // no need to put this in implied, it has to be specified
@@ -2791,6 +2784,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           ring_size_specifier = ch;
           state_multi = 3;
         }
+        else if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
+            if(ring_components.empty()){
+              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+              Fatal(start+i);
+            }
+            else
+              bridge_locants[ch] = true;
+        }
         else{
           if(i>0 && block[i-1] == ' '){
             positional_locant = ch;
@@ -2845,6 +2846,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         else if(state_multi == 2){
           ring_size_specifier = ch;
           state_multi = 3;
+        }
+        else if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
+            if(ring_components.empty()){
+              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+              Fatal(start+i);
+            }
+            else
+              bridge_locants[ch] = true;
         }
         else{
           if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
@@ -2931,6 +2940,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         else if(state_multi == 2){
           ring_size_specifier = ch;
           state_multi = 3;
+        }
+        else if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
+            if(ring_components.empty()){
+              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+              Fatal(start+i);
+            }
+            else
+              bridge_locants[ch] = true;
         }
         else{
           if(i>0 && block[i-1] == ' '){
@@ -5168,8 +5185,8 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   if(state)
     state = ParseWLNString(ptr,wln_graph);
 
-  if(state)
-    state = ParseAromaticRings(wln_graph); 
+  // if(state)
+  //   state = ParseAromaticRings(wln_graph); 
   
   // create an optional wln dotfile
   if (opt_wln2dot)
