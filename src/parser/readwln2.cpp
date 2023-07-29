@@ -49,6 +49,7 @@ const char *cli_inp;
 // --- options ---
 static bool opt_wln2dot = false;
 static bool opt_debug = false;
+static bool opt_correct = false; 
 static bool opt_inchi = false; 
 static bool opt_canonical_smi = false;
 
@@ -1106,6 +1107,37 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
   return top;
 }
 
+
+bool RaiseBranchingSymbol(WLNSymbol *sym){
+  if(!opt_correct)
+    return false;
+
+  switch(sym->ch){
+    case 'Y':
+      fprintf(stderr,"Warning: Y branches are exceeding 3, raising to X\n");
+      sym->allowed_edges++;
+      sym->ch = 'X';
+      break;
+
+    case 'M':
+      fprintf(stderr,"Warning: M branches are exceeding 2, raising to N\n");
+      sym->allowed_edges++;
+      sym->ch = 'N';
+      break;
+
+    case 'N':
+      fprintf(stderr,"Warning: N branches are exceeding 3, raising to K\n");
+      sym->allowed_edges++;
+      sym->ch = 'K';
+      break;
+
+    default:
+      fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", sym->ch,sym->num_edges+1, sym->allowed_edges);
+      return 0;
+  }
+  return true;
+}
+
 /**********************************************************************
                           WLNEdge Functions
 **********************************************************************/
@@ -1124,21 +1156,18 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
     return 0;
   }
   
-  if ((child->num_edges + 1) > child->allowed_edges){
+  if ( ((child->num_edges + 1) > child->allowed_edges) && !RaiseBranchingSymbol(child) ){
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
     return 0;
   }
   
-  if ((parent->num_edges + 1) > parent->allowed_edges){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
+  if ( ((parent->num_edges + 1) > parent->allowed_edges) && !RaiseBranchingSymbol(parent)){
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
     return 0;
   }
 
   WLNEdge *edge = new WLNEdge;
   graph.EDGES[graph.edge_count] = edge;
-
-  // use a linked list to store the bond, can also check if it already exists
-
   WLNEdge *curr = parent->bonds;
   if(curr){
     
@@ -1194,13 +1223,13 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n){
   edge->parent->num_edges += n;
   edge->child->num_edges+= n;
 
-  if(edge->parent->num_edges > edge->parent->allowed_edges){
+  if( (edge->parent->num_edges > edge->parent->allowed_edges) && !RaiseBranchingSymbol(edge->parent) ){
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
     return 0;
   }
 
-  if(edge->child->num_edges > edge->child->allowed_edges){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
+  if( (edge->child->num_edges > edge->child->allowed_edges) && !RaiseBranchingSymbol(edge->parent)){
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
     return 0;
   }
 
@@ -4972,6 +5001,7 @@ struct BabelGraph{
               case 56:
               case 85:
                 charge = +2;
+                break;
 
               case 5:
               case 13:
@@ -4980,6 +5010,7 @@ struct BabelGraph{
               case 81:
               case 114:
                 charge = +3;
+                break;
             }
           }
           break;
@@ -5097,6 +5128,7 @@ static void DisplayUsage()
   fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
   fprintf(stderr, " -c                   output canonical smiles\n");
   fprintf(stderr, " -i                   output InChi\n");
+  fprintf(stderr, " -r                   allow run-time spelling correction where possible\n");
   exit(1);
 }
 
@@ -5150,6 +5182,10 @@ static void ProcessCommandLine(int argc, char *argv[])
           cli_inp = argv[i+1];
           i++;
         }
+        break;
+
+      case 'r':
+        opt_correct = true;
         break;
 
       default:
