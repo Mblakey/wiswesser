@@ -9,7 +9,7 @@ on the release of this project, please see my local branch of babel for pre-rele
 ## Requirements
 
 **git**, **cmake**, **make** and a **c++ compiler** are all essential. <br>
-**graphviz** is an optional install to view wln graphs. 
+**graphviz** is an optional install to view wln graphs (not needed for build). 
 
 ## Build
 
@@ -23,13 +23,15 @@ A prompt will then ask you to run `source ./link.sh` which sets the babel build 
 Command line utility `readwln` should be created in the build directory of Parser. This can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
 
 ```
-readwln <options> 'string'
+readwln <options> -s 'string'
 ```
 
 ### flags
 
 `-d` - enable all debugging logs to stderr<br>
-`-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands
+`-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands <br>
+`-c` - output canonical smiles <br>
+`-i` - output InChI  <br>
 
 ```
 dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
@@ -42,9 +44,11 @@ By default conversion will be piped to stdout, if converting files, its recommen
 
 ### Unit Testing
 
-A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (100 is NOT expected).
+A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (100 is NOT expected), some incorrect strings are present
 
 Another text file containing all the english words is included, `./english_test.sh` will parse the reader over every capatilised english word and check for seg faults, this also returns the matches to the `data` directory for word challenges. 
+
+For Chembl, Chemspider and PubChem, run the equivilent shell files. 
 
 
 
