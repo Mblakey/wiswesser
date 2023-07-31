@@ -4420,7 +4420,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
 
     case '&':
-
       if (pending_J_closure)
         break;
       
@@ -4439,7 +4438,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         branch_stack.clear_all(); // burn stack
       }
       else if(on_locant){
-        curr->ch += 23;
+        on_locant += 23;
       }
       // returns to last ring
       else if(i < len - 1 && wln_string[i+1] == ' '){
