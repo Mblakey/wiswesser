@@ -1251,18 +1251,6 @@ bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
 }
 
 
-
-static void DisplayHelp()
-{
-  fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
-  fprintf(stderr, " This parser writes to wiswesser\n"
-                  " line notation (wln) from smiles/inchi, the parser is native\n"
-                  " and will can return either a reformatted string*\n"
-                  " *if rules do not parse exactly, and the connection\n"
-                  " table which can be used in other libraries\n");
-  exit(1);
-}
-
 static void DisplayUsage()
 {
   fprintf(stderr, "writewln <options> -i<format> -s <input (escaped)>\n");
@@ -1272,6 +1260,17 @@ static void DisplayUsage()
   fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
   fprintf(stderr, "  -w                    dump wln trees to dot file in [build]\n");
   exit(1);
+}
+
+static void DisplayHelp()
+{
+  fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
+  fprintf(stderr, " This parser writes to wiswesser\n"
+                  " line notation (wln) from smiles/inchi, the parser is native\n"
+                  " and will can return either a reformatted string*\n"
+                  " *if rules do not parse exactly, and the connection\n"
+                  " table which can be used in other libraries\n");
+  DisplayUsage();
 }
 
 static void ProcessCommandLine(int argc, char *argv[])
@@ -1345,6 +1344,11 @@ static void ProcessCommandLine(int argc, char *argv[])
 
   if(!format){
     fprintf(stderr,"Error: no input format selected\n");
+    DisplayUsage();
+  }
+
+  if(!cli_inp){
+    fprintf(stderr,"Error: no input string entered\n");
     DisplayUsage();
   }
 
