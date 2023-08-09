@@ -45,14 +45,12 @@ GNU General Public License for more details.
 #define REASONABLE 1024
 
 const char *cli_inp;
+const char *format; 
 
 // --- options ---
 static bool opt_wln2dot = false;
 static bool opt_debug = false;
 static bool opt_correct = false; 
-static bool opt_inchi = false; 
-static bool opt_canonical_smi = false;
-
 
 const char *wln_string;
 struct WLNSymbol;
@@ -5115,19 +5113,18 @@ static void DisplayHelp()
                   " and will can return either a reformatted string*\n"
                   " *if rules do not parse exactly, and the connection\n"
                   " table which can be used in other libraries\n");
-  exit(1);
+  DisplayUsage();
 }
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "readwln <options> -s < input (escaped) >\n");
+  fprintf(stderr, "readwln <options> -o<format> -s <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
+  fprintf(stderr, " -c                   allow run-time spelling correction where possible\n");
   fprintf(stderr, " -d                   print debug messages to stderr\n");
-  fprintf(stderr, " -h                   print debug messages to stderr\n");
+  fprintf(stderr, " -h                   show the help for executable usage\n");
+  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
   fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
-  fprintf(stderr, " -c                   output canonical smiles\n");
-  fprintf(stderr, " -i                   output InChi\n");
-  fprintf(stderr, " -r                   allow run-time spelling correction where possible\n");
   exit(1);
 }
 
@@ -5138,6 +5135,7 @@ static void ProcessCommandLine(int argc, char *argv[])
   int i;
 
   cli_inp = (const char *)0;
+  format = (const char *)0;
 
   if (argc < 2)
     DisplayUsage();
@@ -5151,6 +5149,10 @@ static void ProcessCommandLine(int argc, char *argv[])
       switch (ptr[1])
       {
 
+      case 'c':
+        opt_correct = true;
+        break;
+
       case 'd':
         opt_debug = true;
         break;
@@ -5161,16 +5163,27 @@ static void ProcessCommandLine(int argc, char *argv[])
       case 'w':
         opt_wln2dot = true;
         break;
-
-      case 'c':
-        fprintf(stderr,"setting output: canonical smiles\n");
-        opt_canonical_smi = true;
-        break;
       
-      case 'i':
-        fprintf(stderr,"setting output: inchi\n");
-        opt_inchi = true;
-        break; 
+      case 'o':
+        if (!strcmp(ptr, "-osmi"))
+        {
+          format = "smi";
+          break;
+        }
+        else if (!strcmp(ptr, "-oinchi"))
+        {
+          format = "inchi";
+          break;
+        }
+        else if (!strcmp(ptr, "-ocan"))
+        {
+          format = "can";
+          break;
+        }
+        else{
+          fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can']\n");
+          DisplayUsage();
+        } 
 
       case 's':
         if(i+1 >= argc){
@@ -5183,14 +5196,15 @@ static void ProcessCommandLine(int argc, char *argv[])
         }
         break;
 
-      case 'r':
-        opt_correct = true;
-        break;
-
       default:
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
         DisplayUsage();
       }
+  }
+
+  if(!format){
+    fprintf(stderr,"Error: no output format selected\n");
+    DisplayUsage();
   }
 
   return;
@@ -5205,16 +5219,9 @@ int main(int argc, char *argv[])
   if(!ReadWLN(cli_inp,&mol))
     return 1;
   
-
   OpenBabel::OBConversion conv;
   conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
-
-  if(opt_canonical_smi)
-    conv.SetOutFormat("can");
-  else if (opt_inchi)
-    conv.SetOutFormat("inchi");
-  else
-    conv.SetOutFormat("smi");
+  conv.SetOutFormat(format);
 
   res = conv.WriteString(&mol);
   std::cout << res;
