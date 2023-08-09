@@ -5103,19 +5103,6 @@ bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   return state;
 }
 
-
-
-static void DisplayHelp()
-{
-  fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
-  fprintf(stderr, " This parser reads and evaluates wiswesser\n"
-                  " line notation (wln), the parser is native\n"
-                  " and will can return either a reformatted string*\n"
-                  " *if rules do not parse exactly, and the connection\n"
-                  " table which can be used in other libraries\n");
-  DisplayUsage();
-}
-
 static void DisplayUsage()
 {
   fprintf(stderr, "readwln <options> -o<format> -s <input (escaped)>\n");
@@ -5126,6 +5113,17 @@ static void DisplayUsage()
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
   fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
   exit(1);
+}
+
+static void DisplayHelp()
+{
+  fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
+  fprintf(stderr, " This parser reads and evaluates wiswesser\n"
+                  " line notation (wln), the parser is native\n"
+                  " and will can return either a reformatted string*\n"
+                  " *if rules do not parse exactly, and the connection\n"
+                  " table which can be used in other libraries\n");
+  DisplayUsage();
 }
 
 static void ProcessCommandLine(int argc, char *argv[])
