@@ -18,7 +18,7 @@ while read p; do
   
 
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
-  NEW_SMILES=$($PARSE -c -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
+  NEW_SMILES=$($PARSE -ocan -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z $NEW_SMILES ]; then
     echo "$LINE: $WLN != anything"
