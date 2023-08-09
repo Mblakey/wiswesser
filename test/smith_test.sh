@@ -12,7 +12,7 @@ while read p; do
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   
-  NEW_SMILES=$($PARSE -s "${WLN}" 2> /dev/null)
+  NEW_SMILES=$($PARSE -osmi -s "${WLN}" 2> /dev/null)
 
   if [ -z $NEW_SMILES ]; then
     echo "$WLN != $SMILES"
