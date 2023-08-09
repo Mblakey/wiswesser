@@ -1265,12 +1265,12 @@ static void DisplayHelp()
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "writewln <options> <format> < input (escaped) >\n");
+  fprintf(stderr, "writewln <options> -i<format> -s <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
-  fprintf(stderr, "  -i<format>                    select read format smi|inchi\n");
-  fprintf(stderr, "  -d | --debug                  print debug messages to stderr\n");
-  fprintf(stderr, "  -h | --help                   print debug messages to stderr\n");
-  fprintf(stderr, "  -w | --wln2dot                dump wln trees to dot file in [build]\n");
+  fprintf(stderr, "  -d                    print debug messages to stderr\n");
+  fprintf(stderr, "  -h                    show the help for executable usage\n");
+  fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
+  fprintf(stderr, "  -w                    dump wln trees to dot file in [build]\n");
   exit(1);
 }
 
@@ -1286,74 +1286,61 @@ static void ProcessCommandLine(int argc, char *argv[])
   if (argc < 2)
     DisplayUsage();
 
-  j = 0;
   for (i = 1; i < argc; i++)
   {
 
     ptr = argv[i];
+    if (ptr[0] == '-' && ptr[1]){
+      switch (ptr[1]){
 
-    if (ptr[0] == '-' && ptr[1])
-      switch (ptr[1])
-      {
-
-      case 'd':
-        opt_debug = true;
-        break;
-
-      case 'h':
-        DisplayHelp();
-
-      case 'w':
-        opt_wln2dot = true;
-        break;
-
-      case 'i':
-        if (!strcmp(ptr, "-ismi"))
-        {
-          format = "smi";
-          break;
-        }
-        else if (!strcmp(ptr, "-iinchi"))
-        {
-          format = "inchi";
-          break;
-        }
-        else{
-          fprintf(stderr,"Error: unrecognised format, choose between 'smi' or 'inchi'\n");
-          DisplayUsage();
-        }
-
-      case '-':
-
-        if (!strcmp(ptr, "--debug"))
-        {
+        case 'd':
           opt_debug = true;
           break;
-        }
-        else if (!strcmp(ptr, "--help"))
-        {
+
+        case 'h':
           DisplayHelp();
-        }
-        else if (!strcmp(ptr, "--wln2dot"))
-        {
+
+        case 'w':
           opt_wln2dot = true;
           break;
-        }
 
-      default:
-        fprintf(stderr, "Error: unrecognised input %s\n", ptr);
-        DisplayUsage();
-      }
+        case 'i':
+          if (!strcmp(ptr, "-ismi"))
+          {
+            format = "smi";
+            break;
+          }
+          else if (!strcmp(ptr, "-iinchi"))
+          {
+            format = "inchi";
+            break;
+          }
+          else if (!strcmp(ptr, "-ican"))
+          {
+            format = "can";
+            break;
+          }
+          else{
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can']\n");
+            DisplayUsage();
+          }
 
-    else
-      switch (j++)
-      {
-      case 0:
-        cli_inp = ptr;
-        break;
-      default:
-        break;
+        case 's':
+          if(i+1 >= argc){
+            fprintf(stderr,"Error: must add string after -s\n");
+            DisplayUsage();
+          }
+          else{
+            cli_inp = argv[i+1];
+            i++;
+          }
+          break;
+
+        default:
+          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
+          DisplayUsage();
       }
+    }
   }
 
   if(!format){

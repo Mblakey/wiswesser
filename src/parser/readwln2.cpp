@@ -5145,7 +5145,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 
     ptr = argv[i];
 
-    if (ptr[0] == '-' && ptr[1])
+    if (ptr[0] == '-' && ptr[1]){
       switch (ptr[1])
       {
 
@@ -5200,10 +5200,16 @@ static void ProcessCommandLine(int argc, char *argv[])
         fprintf(stderr, "Error: unrecognised input %s\n", ptr);
         DisplayUsage();
       }
+    }
   }
 
   if(!format){
     fprintf(stderr,"Error: no output format selected\n");
+    DisplayUsage();
+  }
+
+  if(!cli_inp){
+    fprintf(stderr,"Error: no input string entered\n");
     DisplayUsage();
   }
 
