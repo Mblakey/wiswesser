@@ -28,10 +28,11 @@ readwln <options> -s 'string'
 
 ### flags
 
+`-c` - enable run-time string correction, this allows correction of branching symbols and spaces where a valid WLN string can be seen <br>
 `-d` - enable all debugging logs to stderr<br>
+`-h` - display the help menu <br>
+`-o` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
 `-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands <br>
-`-c` - output canonical smiles <br>
-`-i` - output InChI  <br>
 
 ```
 dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
@@ -44,7 +45,9 @@ By default conversion will be piped to stdout, if converting files, its recommen
 
 ### Unit Testing
 
-A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (100 is NOT expected), some incorrect strings are present
+A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh` contained in the src/test directory. This will give a score of successful conversions (100 is NOT expected), some incorrect strings are present. 
+
+Data from Chembl, Chemspider and PubChem are also contained and have their corresponding unit test shell files in the `test` directory. These are run like the smith test, due to incorrect OCR it is not expected to be at 100%.
 
 Another text file containing all the english words is included, `./english_test.sh` will parse the reader over every capatilised english word and check for seg faults, this also returns the matches to the `data` directory for word challenges. 
 
