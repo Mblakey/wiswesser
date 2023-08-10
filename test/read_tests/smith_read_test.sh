@@ -2,8 +2,8 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-SMITH="${SCRIPT_DIR}/../data/smith.tsv"
-PARSE="${SCRIPT_DIR}/../src/parser/build/readwln"
+SMITH="${SCRIPT_DIR}/../../data/smith.tsv"
+PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
 
 COUNT=0
 TOTAL=$(wc -l < $SMITH)

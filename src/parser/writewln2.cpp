@@ -1121,10 +1121,10 @@ struct BabelGraph{
 
 
   /* add the starting atom to build a tree for a locant position */
-  bool BuildWLNTree(OpenBabel::OBAtom* start_atom, OpenBabel::OBMol *mol,WLNGraph &graph){
+  WLNSymbol* BuildWLNTree(OpenBabel::OBAtom* start_atom, OpenBabel::OBMol *mol,WLNGraph &graph){
 
     // has to be done as DFS in order to keep bond direction on the tree
-
+    WLNSymbol *root = 0; 
     WLNSymbol *node   = 0; 
     WLNSymbol *child  = 0; 
     WLNEdge   *edge   = 0; 
@@ -1139,12 +1139,26 @@ struct BabelGraph{
       atom_stack.pop();
       visited[atom] = true;
 
+      // negative oxygen should be given a W character, therefore pointing in
+      if(atom->GetFormalCharge() == -1 && atom->GetAtomicNum() == 8){
+        FOR_NBORS_OF_ATOM(iterator, atom){
+          OpenBabel::OBAtom *neighbour = &(*iterator);
+          if(!visited[neighbour])
+            atom_stack.push(neighbour); 
+        }
+        continue;
+      }
+
       // create the first atom if needed
       if(!atom_symbol_map[atom]){
         node = CreateWLNNode(atom,graph); 
+
+        if(!root)
+          root = node;
+
         if(!node){
           fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
-          return false;
+          return 0;
         }
         node->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
         atom_symbol_map[atom] = node; 
@@ -1160,7 +1174,7 @@ struct BabelGraph{
           child = CreateWLNNode(neighbour,graph); 
           if(!child){
             fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
-            return false;
+            return 0;
           }
           child->set_edge_and_type(neighbour->GetTotalValence(),STANDARD); // allow smiles to dictate
           atom_symbol_map[neighbour] = child; 
@@ -1170,7 +1184,7 @@ struct BabelGraph{
           OpenBabel::OBBond *bond = atom->GetBond(neighbour); 
           if(!bond){
             fprintf(stderr,"Error: accessing non-existent bond in BuildWLNTree\n");
-            return false;
+            return 0;
           }
           unsigned int order = bond->GetBondOrder(); 
           edge = AllocateWLNEdge(child,node,graph); 
@@ -1184,19 +1198,45 @@ struct BabelGraph{
 
     }
     
-    return true;
+    return root;
   }
 
 
-  bool ReadBabelGraph(OpenBabel::OBMol *mol,WLNGraph &graph){
-
+  // reads the babel graph into the appropriate wln graph
+  std::vector<WLNSymbol*> ReadBabelGraph(OpenBabel::OBMol *mol,WLNGraph &graph){
     // no cycles, build from root node and output
-    if(mol->GetSSSR().empty())
-      return BuildWLNTree (mol->GetAtomById(0),mol,graph); 
+    std::vector<WLNSymbol*> roots; 
+    if(mol->GetSSSR().empty()){
+      OpenBabel::OBAtomAtomIter iter; 
+      FOR_ATOMS_OF_MOL(iter,mol){
+        OpenBabel::OBAtom *atom = &(*iter);
+        if(!atom_symbol_map[atom]){
+          WLNSymbol *root_node = BuildWLNTree (atom,mol,graph); 
+          if(!root_node){
+            fprintf(stderr,"Error: failure in building tree from source atom\n");
+            return {}; 
+          }
+          else
+            roots.push_back(root_node); 
+        }
+      }
+    }
     else
-      CYCLIC = true; // set the flag 
+      CYCLIC = true; // set the flag, temp for now
     
-      
+    return roots; 
+  }
+
+  bool ParseWLNGraph(std::vector<WLNSymbol*> &roots, WLNGraph &graph, std::string &buffer){
+    if(!CYCLIC){
+      for (unsigned int i=0;i<roots.size();i++){
+        if(!WriteWLNFromNode(roots[i],graph,buffer))
+          return false;
+
+        if(i<roots.size()-1)
+          buffer += " &"; // add for ionic
+      }
+    }
     return true; 
   }
 
@@ -1234,7 +1274,16 @@ struct BabelGraph{
     while(carbon_sym->num_children == 1){
       carbons++;
       handled[carbon_sym] = true;
-      carbon_sym = carbon_sym->bonds->child;
+
+      if(carbon_sym->bonds && carbon_sym->bonds->order == 1 && carbon_sym->bonds->child->ch == 'C')
+        carbon_sym = carbon_sym->bonds->child;
+      else 
+        break;
+    }
+
+    if(!carbon_sym->num_children && !handled[carbon_sym]){
+      carbons++; 
+      handled[carbon_sym] = true;
     }
 
     return carbons; 
@@ -1268,8 +1317,12 @@ struct BabelGraph{
       
 
 // branching returns
+      if( top->previous && top->previous != prev && 
+          !branch_stack.empty() && !handled[top]){
 
-      if(top->previous && top->previous != prev){
+        fprintf(stderr,"top: %c\n",top->ch);
+        fprintf(stderr,"branch_top: %c\n",branch_stack.top()->ch);
+
         while(!branch_stack.empty() && top->previous != branch_stack.top()){
           buffer += '&';
           branch_stack.pop();
@@ -1286,7 +1339,7 @@ struct BabelGraph{
         if(order == 2)
           buffer+='U';
         if(order == 3)
-          buffer+='UU';        
+          buffer+="UU";        
 
         switch (top->ch){
 
@@ -1300,7 +1353,6 @@ struct BabelGraph{
             if(!branch_stack.empty())
               prev = branch_stack.top(); 
             break;
-
 
 // carbons 
           case 'C':
@@ -1408,17 +1460,6 @@ struct BabelGraph{
     return true;
   }
 
-
-  bool ParseWLNGraph(WLNGraph &graph,std::string &buffer){
-    if(!CYCLIC)
-      return WriteWLNFromNode(graph.root,graph,buffer);
-
-    return true; 
-  }
-
-
-
-
 };
 
 
@@ -1435,17 +1476,18 @@ bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
   BabelGraph obabel; 
 
   bool state = true;
+  std::vector<WLNSymbol*> roots; 
 
-
-  if(state)
-    state = obabel.ReadBabelGraph(mol,wln_graph);
+  roots = obabel.ReadBabelGraph(mol,wln_graph);
+  if(roots.empty() && !obabel.CYCLIC)
+    return false; 
   
   // create an optional wln dotfile
   if (opt_wln2dot)
     WriteGraph(wln_graph);
 
   if(state)
-    state = obabel.ParseWLNGraph(wln_graph,buffer);
+    state = obabel.ParseWLNGraph(roots,wln_graph,buffer);
 
   return state;
 }
