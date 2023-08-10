@@ -1414,25 +1414,13 @@ struct BabelGraph{
 
 // halogens
           case 'E':
-            buffer += 'E';
-            if(!branch_stack.empty())
-              prev = branch_stack.top(); 
-            break;
-
           case 'F':
-            buffer += 'F';
-            if(!branch_stack.empty())
-              prev = branch_stack.top(); 
-            break;
-
           case 'G':
-            buffer += 'G';
-            if(!branch_stack.empty())
-              prev = branch_stack.top(); 
-            break;
-
           case 'I':
-            buffer += 'I';
+            buffer += top->ch;
+            if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
+              buffer += 'H';
+
             if(!branch_stack.empty())
               prev = branch_stack.top(); 
             break;
