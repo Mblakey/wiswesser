@@ -969,64 +969,36 @@ unsigned char create_relative_position(unsigned char parent){
 
 
 
-
-
-
-
 /**********************************************************************
                          High Level Parser Functions
 **********************************************************************/
 
 
-/* dfs style standard evaluator */
-bool EvaluateStandardNotation(std::string &buffer, WLNSymbol *start_node,WLNGraph &graph){
+/* dfs style standard evaluator for writing the wln string
+starting at a root node  */
+bool WriteWLNTree(std::string &buffer, WLNSymbol *start_node,WLNGraph &graph){
 
   WLNSymbol *top = start_node;
   std::stack<WLNSymbol*> dfs_stack; 
   dfs_stack.push(top);
-
-  std::map<WLNSymbol*,bool> visitied; // used for '&' type branching
-  std::map<WLNSymbol*,bool> skip;     // if we have evaulated a group we skip
-
+  std::map<WLNSymbol*,bool> visited; // used for '&' type branching
 
   while(!dfs_stack.empty()){
-    fprintf(stderr,"running: %c\n",top->ch);  
-    
     top = dfs_stack.top();
-    visitied[top] = true;
+    visited[top] = true;
     dfs_stack.pop();
-
     WLNEdge *edge = 0;
     for (edge = top->bonds;edge;edge=edge->nxt){
-      
-      fprintf(stderr,"pushing\n");
-      if(!skip[edge->child]){
-        fprintf(stderr,"pushing\n");
+      if(!visited[edge->child])
         dfs_stack.push(edge->child);
-      }
-        
     }
   }
-
-
-
-
 
   return true;
 }
 
 
 bool ParseWLNGraph(std::string &buffer, WLNGraph &graph){
-
-
-  // easy route if there are no rings
-  if(!graph.ring_count)
-    return EvaluateStandardNotation(buffer,graph.SYMBOLS[1],graph);
-  
-
-
-
-
 
 
 
@@ -1123,78 +1095,138 @@ struct BabelGraph{
   ~BabelGraph(){};
 
 
+  WLNSymbol* CreateWLNNode(OpenBabel::OBAtom* atom,  WLNGraph &graph){
+
+    if(!atom){
+      fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
+      return 0; 
+    }
+
+    WLNSymbol *node = 0;
+    switch(atom->GetAtomicNum()){
+      case 1:
+        node = AllocateWLNSymbol('H',graph);
+        break; 
+
+      case 5:
+        node = AllocateWLNSymbol('B',graph);
+        break;
+
+      case 6:
+        node = AllocateWLNSymbol('C',graph);
+        break;
+
+      case 7:
+        node = AllocateWLNSymbol('N',graph);
+        break;
+      
+      case 8:
+        node = AllocateWLNSymbol('O',graph);
+        break;
+      
+      case 9:
+        node = AllocateWLNSymbol('F',graph);
+        break;
+
+      case 15:
+        node = AllocateWLNSymbol('P',graph);
+        break;
+
+      case 16:
+        node = AllocateWLNSymbol('S',graph);
+        break;
+
+      case 17:
+        node = AllocateWLNSymbol('G',graph);
+        break;
+
+      case 35:
+        node = AllocateWLNSymbol('E',graph);
+        break;
+
+      case 53:
+        node = AllocateWLNSymbol('I',graph);
+        break;
+
+      default:
+        fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
+        return 0;
+    }
+    
+    if(!graph.root)
+      graph.root = node; 
+
+    return node; 
+  }
+
 
   /* this has to be a tad more sophisticated */
-  bool BuildWLNGraph(OpenBabel::OBMol *mol,WLNGraph &graph){
+  bool BuildWLNTree(OpenBabel::OBAtom* start_atom, OpenBabel::OBMol *mol,WLNGraph &graph){
 
-    // we can do the reverse to create the babel graph
+    // has to be done as DFS in order to keep bond direction on the tree
 
-    OpenBabel::OBAtom* atom = 0;
-    FOR_ATOMS_OF_MOL(atom,mol){
-      
-      if(opt_debug)
-        fprintf(stderr,"  created: atom[%d] - atomic num(%d), charge(%d)\n",atom->GetIdx(),atom->GetAtomicNum(),atom->GetFormalCharge());
+    WLNSymbol *node   = 0; 
+    WLNSymbol *child  = 0; 
+    WLNEdge   *edge   = 0; 
 
-      WLNSymbol *node = 0;
-      switch(atom->GetAtomicNum()){
-        case 1:
-          node = AllocateWLNSymbol('H',graph);
-          break; 
+    OpenBabel::OBAtom* atom = start_atom;
+    std::map<OpenBabel::OBAtom*,bool> visited; 
+    std::map<OpenBabel::OBAtom*, WLNSymbol*> created; 
+    std::stack<OpenBabel::OBAtom*> atom_stack; 
+    atom_stack.push(atom); 
 
-        case 5:
-          node = AllocateWLNSymbol('B',graph);
-          break;
+    while(!atom_stack.empty()){
+      atom = atom_stack.top(); 
+      atom_stack.pop();
+      visited[atom] = true;
 
-        case 6:
-          node = AllocateWLNSymbol('C',graph);
-          break;
-
-        case 7:
-          node = AllocateWLNSymbol('N',graph);
-          break;
-        
-        case 8:
-          node = AllocateWLNSymbol('O',graph);
-          break;
-        
-        case 9:
-          node = AllocateWLNSymbol('F',graph);
-          break;
-
-        case 15:
-          node = AllocateWLNSymbol('P',graph);
-          break;
-
-        case 16:
-          node = AllocateWLNSymbol('S',graph);
-          break;
-
-        case 17:
-          node = AllocateWLNSymbol('G',graph);
-          break;
-
-        case 35:
-          node = AllocateWLNSymbol('E',graph);
-          break;
-
-        case 53:
-          node = AllocateWLNSymbol('I',graph);
-          break;
-
-        default:
-          fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
+      // create the first atom if needed
+      if(!created[atom]){
+        node = CreateWLNNode(atom,graph); 
+        if(!node){
+          fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
           return false;
-
+        }
+        node->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
+        created[atom] = node; 
       }
+      else
+        node = created[atom]; 
 
-      if(!node)
-        return false;
-      
-      node->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
+      // this will look back, so order is important to maintain
+      FOR_NBORS_OF_ATOM(iterator, atom){
+        OpenBabel::OBAtom *neighbour = &(*iterator);
+        if(!created[neighbour]){
+          child = CreateWLNNode(neighbour,graph); 
+          if(!child){
+            fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
+            return false;
+          }
+          child->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
+          created[neighbour] = child; 
 
-      if(!graph.root)
-        graph.root = node; 
+          // bond here, and don't consider the symbol if the atom is already made 
+          OpenBabel::OBBond *bond = atom->GetBond(neighbour); 
+          if(!bond){
+            fprintf(stderr,"Error: accessing non-existent bond in BuildWLNTree\n");
+            return false;
+          }
+          unsigned int order = bond->GetBondOrder(); 
+          edge = AllocateWLNEdge(child,node,graph); 
+          if(order > 1)
+            edge = unsaturate_edge(edge,order-1);
+        }
+          
+        if(!visited[neighbour])
+          atom_stack.push(neighbour); 
+      } 
+
     }
+    
+
+
+
+#ifdef LATER
 
     // set up the bonds
     OpenBabel::OBBond* bond = 0;
@@ -1214,7 +1246,21 @@ struct BabelGraph{
           edge = unsaturate_edge(edge,1);
       }
     }
+
+#endif
+
     return true;
+  }
+
+
+  bool ReadBabelGraph(OpenBabel::OBMol *mol,WLNGraph &graph){
+
+    // no cycles, build from root node and output
+    if(mol->GetSSSR().empty())
+      return BuildWLNTree (mol->GetAtomById(0),mol,graph); 
+    
+
+    return true; 
   }
 
 
@@ -1229,15 +1275,15 @@ struct BabelGraph{
 
 bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
 {   
-  // ptr should be null?
-
+ 
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
   bool state = true;
 
+
   if(state)
-    state = obabel.BuildWLNGraph(mol,wln_graph);
+    state = obabel.ReadBabelGraph(mol,wln_graph);
   
   // create an optional wln dotfile
   if (opt_wln2dot)
