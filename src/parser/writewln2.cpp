@@ -24,6 +24,7 @@ GNU General Public License for more details.
 #include <vector>
 #include <stack>
 #include <map>
+#include <string>
 
 #include <utility> // std::pair
 #include <iterator>
@@ -40,7 +41,6 @@ GNU General Public License for more details.
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
-
 #define REASONABLE 1024
 
 const char *cli_inp;
@@ -51,7 +51,6 @@ static bool opt_wln2dot = false;
 static bool opt_debug = false;
 
 
-const char *wln_string;
 struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
@@ -74,28 +73,6 @@ unsigned int static locant_to_int(unsigned char loc){
   return loc - 64;
 }
 
-
-std::string get_notation(unsigned int s, unsigned int e)
-{
-  std::string res; 
-  for (unsigned int i = s; i <= e; i++)
-  {
-    res.push_back(wln_string[i]);
-  }
-  return res; 
-}
-
-void Fatal(unsigned int pos)
-{
-  fprintf(stderr, "Fatal: %s\n", wln_string);
-  fprintf(stderr, "       ");
-  for (unsigned int i = 0; i < pos; i++)
-    fprintf(stderr, " ");
-
-  fprintf(stderr, "^\n");
-
-  exit(1);
-}
 
 
 /**********************************************************************
@@ -131,6 +108,8 @@ struct WLNSymbol
   unsigned int allowed_edges;
   unsigned int num_edges;
 
+  unsigned int num_children; // specifically for forward edges
+
   WLNSymbol *previous;
   WLNEdge   *bonds; // array of bonds
 
@@ -143,18 +122,13 @@ struct WLNSymbol
     type = 0;
     previous = 0;
     bonds = 0;
+    num_children = 0; 
   }
   ~WLNSymbol(){};
 
   void set_edge_and_type(unsigned int e, unsigned int t=STANDARD){
     allowed_edges = e;
     type = t;
-  }
-
-  void add_special(unsigned int s, unsigned int e)
-  {
-    for (unsigned int i = s; i <= e; i++)
-      special.push_back(wln_string[i]);
   }
 
 };
@@ -836,7 +810,17 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
   edge->parent = parent; 
   edge->child = child;
   edge->order = 1;
+
+  parent->num_children++;
   return edge;
+}
+
+
+void debug_edge(WLNEdge *edge){
+  if(!edge)
+    fprintf(stderr,"Error: debugging nullptr edge\n");  
+  else
+    fprintf(stderr,"%c -- %d --> %c\n",edge->parent->ch, edge->order ,edge->child->ch);
 }
 
 
@@ -974,38 +958,6 @@ unsigned char create_relative_position(unsigned char parent){
 **********************************************************************/
 
 
-/* dfs style standard evaluator for writing the wln string
-starting at a root node  */
-bool WriteWLNTree(std::string &buffer, WLNSymbol *start_node,WLNGraph &graph){
-
-  WLNSymbol *top = start_node;
-  std::stack<WLNSymbol*> dfs_stack; 
-  dfs_stack.push(top);
-  std::map<WLNSymbol*,bool> visited; // used for '&' type branching
-
-  while(!dfs_stack.empty()){
-    top = dfs_stack.top();
-    visited[top] = true;
-    dfs_stack.pop();
-    WLNEdge *edge = 0;
-    for (edge = top->bonds;edge;edge=edge->nxt){
-      if(!visited[edge->child])
-        dfs_stack.push(edge->child);
-    }
-  }
-
-  return true;
-}
-
-
-bool ParseWLNGraph(std::string &buffer, WLNGraph &graph){
-
-
-
-  return true;
-}
-
-
 /* dump wln tree to a dotvis file */
 void WLNDumpToDot(FILE *fp, WLNGraph &graph)
 {  
@@ -1080,6 +1032,7 @@ bool WriteGraph(WLNGraph &graph){
 
 
 
+
 /**********************************************************************
                          BABEL Mol Functions
 **********************************************************************/
@@ -1089,7 +1042,11 @@ bool WriteGraph(WLNGraph &graph){
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
 
-  std::map<unsigned int,OpenBabel::OBAtom*> babel_atom_lookup;
+  std::map<OpenBabel::OBAtom*, WLNSymbol*>  atom_symbol_map; 
+  std::map<WLNSymbol*,OpenBabel::OBAtom*>   symbol_atom_map; 
+  
+  bool CYCLIC = 0;
+
 
   BabelGraph(){};
   ~BabelGraph(){};
@@ -1121,7 +1078,10 @@ struct BabelGraph{
         break;
       
       case 8:
-        node = AllocateWLNSymbol('O',graph);
+        if(atom->GetExplicitValence() == 1 && atom->GetFormalCharge() != -1)
+          node = AllocateWLNSymbol('Q',graph);
+        else
+          node = AllocateWLNSymbol('O',graph);
         break;
       
       case 9:
@@ -1160,7 +1120,7 @@ struct BabelGraph{
   }
 
 
-  /* this has to be a tad more sophisticated */
+  /* add the starting atom to build a tree for a locant position */
   bool BuildWLNTree(OpenBabel::OBAtom* start_atom, OpenBabel::OBMol *mol,WLNGraph &graph){
 
     // has to be done as DFS in order to keep bond direction on the tree
@@ -1171,7 +1131,6 @@ struct BabelGraph{
 
     OpenBabel::OBAtom* atom = start_atom;
     std::map<OpenBabel::OBAtom*,bool> visited; 
-    std::map<OpenBabel::OBAtom*, WLNSymbol*> created; 
     std::stack<OpenBabel::OBAtom*> atom_stack; 
     atom_stack.push(atom); 
 
@@ -1181,29 +1140,31 @@ struct BabelGraph{
       visited[atom] = true;
 
       // create the first atom if needed
-      if(!created[atom]){
+      if(!atom_symbol_map[atom]){
         node = CreateWLNNode(atom,graph); 
         if(!node){
           fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
           return false;
         }
         node->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
-        created[atom] = node; 
+        atom_symbol_map[atom] = node; 
+        symbol_atom_map[node] = atom;
       }
       else
-        node = created[atom]; 
+        node = atom_symbol_map[atom]; 
 
       // this will look back, so order is important to maintain
       FOR_NBORS_OF_ATOM(iterator, atom){
         OpenBabel::OBAtom *neighbour = &(*iterator);
-        if(!created[neighbour]){
+        if(!atom_symbol_map[neighbour]){
           child = CreateWLNNode(neighbour,graph); 
           if(!child){
             fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
             return false;
           }
-          child->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
-          created[neighbour] = child; 
+          child->set_edge_and_type(neighbour->GetTotalValence(),STANDARD); // allow smiles to dictate
+          atom_symbol_map[neighbour] = child; 
+          symbol_atom_map[child] = neighbour; 
 
           // bond here, and don't consider the symbol if the atom is already made 
           OpenBabel::OBBond *bond = atom->GetBond(neighbour); 
@@ -1223,32 +1184,6 @@ struct BabelGraph{
 
     }
     
-
-
-
-#ifdef LATER
-
-    // set up the bonds
-    OpenBabel::OBBond* bond = 0;
-    FOR_BONDS_OF_MOL(bond,mol){
-
-      unsigned int b_idx = bond->GetBeginAtomIdx();
-      unsigned int e_idx = bond->GetEndAtomIdx();
-      unsigned int order = bond->GetBondOrder();
-
-      if(opt_debug)
-        fprintf(stderr,"  bonding: atoms %3d --> %3d [%d]\n",b_idx,e_idx,order);
-
-      WLNEdge *edge = 0; 
-      edge = AllocateWLNEdge(graph.symbol_lookup[b_idx],graph.symbol_lookup[e_idx],graph);
-      if(order > 1){
-        for (unsigned int i=1;i<order;i++)
-          edge = unsaturate_edge(edge,1);
-      }
-    }
-
-#endif
-
     return true;
   }
 
@@ -1258,10 +1193,230 @@ struct BabelGraph{
     // no cycles, build from root node and output
     if(mol->GetSSSR().empty())
       return BuildWLNTree (mol->GetAtomById(0),mol,graph); 
+    else
+      CYCLIC = true; // set the flag 
     
+      
+    return true; 
+  }
+
+
+
+  // will also add to handled
+  bool CheckOXO(WLNSymbol *sym, std::map<WLNSymbol*,bool> &handled){
+
+    WLNEdge *edge = 0; 
+    WLNEdge *e_oxo_1 = 0; 
+    WLNEdge *e_oxo_2 = 0; 
+
+    for(edge=sym->bonds;edge;edge=edge->nxt){
+      if((edge->child->ch == 'O') && (edge->order == 2 || symbol_atom_map[edge->child]->GetFormalCharge() == -1)){
+        if(!e_oxo_1)
+          e_oxo_1 = edge; 
+        else
+          e_oxo_2 = edge; 
+      }
+    }
+
+    if(!e_oxo_1 || !e_oxo_2)
+      return false;
+    else{
+      handled[e_oxo_1->child] = true;
+      handled[e_oxo_2->child] = true;
+      return true;
+    } 
+  }
+
+  unsigned int CheckCarbonChain(WLNSymbol *sym, std::map<WLNSymbol*,bool> &handled){
+    unsigned int carbons = 0; 
+    WLNSymbol *carbon_sym = sym;
+
+    while(carbon_sym->num_children == 1){
+      carbons++;
+      handled[carbon_sym] = true;
+      carbon_sym = carbon_sym->bonds->child;
+    }
+
+    return carbons; 
+  }
+
+
+
+  bool WriteWLNFromNode(WLNSymbol *root,WLNGraph &graph,std::string &buffer){
+
+    // dfs style notational build from a given root, use to build the notation 
+
+    WLNSymbol *top = 0; 
+    WLNSymbol *prev = 0; 
+    WLNEdge   *edge = 0; // for iterating
+    
+    std::stack<std::pair<WLNSymbol*,unsigned int>> stack; 
+    std::stack <WLNSymbol*> branch_stack; // this is for non-cyclics, simpler than writing
+    std::map<WLNSymbol*,bool> visited;
+    std::map<WLNSymbol*,bool> handled; // if a character corresponds to multiple symbols 
+
+    
+    unsigned int order = 0; 
+    unsigned int carbon_chain = 0;   
+
+
+    stack.push({root,0});
+
+    while(!stack.empty()){
+      top = stack.top().first;
+      order = stack.top().second; 
+      
+
+// branching returns
+
+      if(top->previous && top->previous != prev){
+        while(!branch_stack.empty() && top->previous != branch_stack.top()){
+          buffer += '&';
+          branch_stack.pop();
+        }
+      }
+      
+      stack.pop();
+      visited[top] = true; 
+      prev = top; // use for checks on branching stack
+
+      if(!handled[top]){
+
+// bond unsaturations
+        if(order == 2)
+          buffer+='U';
+        if(order == 3)
+          buffer+='UU';        
+
+        switch (top->ch){
+
+// oxygens
+          case 'O':
+            buffer += 'O';
+            break;
+
+          case 'Q':
+            buffer += 'Q';
+            if(!branch_stack.empty())
+              prev = branch_stack.top(); 
+            break;
+
+
+// carbons 
+          case 'C':
+            // special V case
+            if(top->num_children == 2){
+              
+              if(CheckOXO(top, handled))
+                buffer += 'W'; 
+              else{
+                // V case
+                for(edge=top->bonds;edge;edge=edge->nxt){
+                  if(edge->order == 2 && edge->child->ch == 'O'){
+                    buffer+='V';
+                    handled[edge->child] = true; 
+                  }
+                }
+              }
+            }
+            else if(top->num_children > 1){
+              if(top->num_edges == 4)
+                buffer += 'X';
+              else if(top->num_edges == 3)
+                buffer += 'Y'; 
+
+              if(CheckOXO(top, handled))
+                buffer += 'W'; 
+              
+              branch_stack.push(top);
+            }
+            else{
+              carbon_chain = CheckCarbonChain(top,handled);
+              char digits[4] = {0}; 
+              sprintf (digits,"%d",carbon_chain);
+              buffer += digits;
+            }
+            break;
+
+// nitrogen
+          case 'N':
+            if(top->num_edges == 1)
+              buffer += 'Z';
+            else if(top->num_edges == 2)
+              buffer += 'M';
+            else if (top->num_edges == 3){
+              buffer += 'N';
+              if(CheckOXO(top, handled))
+                buffer += 'W'; 
+
+              branch_stack.push(top);
+            }
+            else{
+              buffer += 'K';
+              if(CheckOXO(top, handled))
+                buffer += 'W';
+              branch_stack.push(top); 
+            }
+            break;
+
+
+// halogens
+          case 'E':
+            buffer += 'E';
+            if(!branch_stack.empty())
+              prev = branch_stack.top(); 
+            break;
+
+          case 'F':
+            buffer += 'F';
+            if(!branch_stack.empty())
+              prev = branch_stack.top(); 
+            break;
+
+          case 'G':
+            buffer += 'G';
+            if(!branch_stack.empty())
+              prev = branch_stack.top(); 
+            break;
+
+          case 'I':
+            buffer += 'I';
+            if(!branch_stack.empty())
+              prev = branch_stack.top(); 
+            break;
+
+// branching heteroatoms 
+          case 'S':
+            branch_stack.push(top);
+            buffer += 'S';
+            if(CheckOXO(top, handled))
+              buffer += 'W'; 
+            break;
+
+          default:
+            fprintf(stderr,"Error: unhandled WLN char %c\n",top->ch); 
+            return false; 
+        }
+      }
+
+      for(edge=top->bonds;edge;edge=edge->nxt){
+        if(!visited[edge->child])
+          stack.push({edge->child,edge->order}); 
+      }
+
+    }
+    return true;
+  }
+
+
+  bool ParseWLNGraph(WLNGraph &graph,std::string &buffer){
+    if(!CYCLIC)
+      return WriteWLNFromNode(graph.root,graph,buffer);
 
     return true; 
   }
+
+
 
 
 };
@@ -1289,9 +1444,8 @@ bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
   if (opt_wln2dot)
     WriteGraph(wln_graph);
 
-
   if(state)
-    state = ParseWLNGraph(buffer,wln_graph);
+    state = obabel.ParseWLNGraph(wln_graph,buffer);
 
   return state;
 }
