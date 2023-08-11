@@ -26,11 +26,14 @@ while read p; do
   fi;
 
   NEW_SMILES=$($READER -ocan -s "${NEW_WLN}" 2> /dev/null) 
-
+  
+  if [ -z "$NEW_SMILES" ]; then
+    echo "$LINE: $NEW_WLN != anything"
+    continue
+  fi;
 
   if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
-    echo "$LINE: PASS";
   else
     echo "$LINE: $WLN != $NEW_WLN   $CAN_SMILES"
   fi;
