@@ -671,8 +671,8 @@ struct BabelGraph{
       return 0; 
     }
 
-    bool carbonyl_seen = false; 
     unsigned int neighbours = 0; 
+    unsigned int orders = 0; 
     OpenBabel::OBAtom *neighbour = 0; 
     OpenBabel::OBBond *bond = 0; 
 
@@ -687,15 +687,16 @@ struct BabelGraph{
         break;
 
       case 6:
-        neighbours = 0; 
         FOR_NBORS_OF_ATOM(iterator, atom){
           neighbour = &(*iterator);
+          bond = atom->GetBond(neighbour);
+          orders += bond->GetBondOrder(); 
           neighbours++;
         }
         if(neighbours <= 2) // check enviroment
           node = AllocateWLNSymbol('1',graph);
         else if(neighbours > 2){
-          if(atom->GetTotalValence() == 3)
+          if(orders == 3)
             node = AllocateWLNSymbol('Y',graph);
           else
             node = AllocateWLNSymbol('X',graph);
@@ -1617,7 +1618,6 @@ struct BabelGraph{
           else
             branch_stack.push(top);
           break;
-
 
 
         default:
