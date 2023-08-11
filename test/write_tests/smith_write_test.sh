@@ -2,7 +2,7 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-CHEMBL="${SCRIPT_DIR}/../../data/chembl24.tsv"
+SMITH="${SCRIPT_DIR}/../../data/smith.tsv"
 WRITER="${SCRIPT_DIR}/../../src/parser/build/writewln"
 READER="${SCRIPT_DIR}/../../src/parser/build/readwln"
 CANONICAL="${SCRIPT_DIR}/../../src/parser/build/obabel_strip"
@@ -15,7 +15,7 @@ while read p; do
   ((LINE++));
 
   WLN=$(echo -n "$p" | cut -d $'\t' -f1)
-  SMILES=$(echo -n "$p" | cut -d $'\t' -f3)
+  SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
 
   NEW_WLN=$($WRITER -ismi -s "${CAN_SMILES}" 2> /dev/null) # chembl is canonical smiles
@@ -38,7 +38,7 @@ while read p; do
     echo "$LINE: $WLN != $NEW_WLN   $CAN_SMILES"
   fi;
 
-done <$CHEMBL
+done <$SMITH
 
 echo -ne "\r$COUNT/$TOTAL correct\n"
 echo "unit test complete"
