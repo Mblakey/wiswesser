@@ -871,7 +871,7 @@ unsigned int special_element_atm(std::string &special){
       else if (special[1] == 'M')
         return 100;
       else if (special[1] == 'R')
-        return 97;
+        return 87;
       break;
 
     case 'G':
@@ -906,7 +906,7 @@ unsigned int special_element_atm(std::string &special){
 
     case 'K':
       if (special[1] == 'R')
-        return 39;
+        return 36;
       else if(special[1] == 'A')
         return 19;
       break;

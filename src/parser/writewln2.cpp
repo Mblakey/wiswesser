@@ -363,394 +363,6 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
   return new_symbol;
 }
 
-/* allocate new or override exisiting node*/
-WLNSymbol* define_element(std::string special, WLNGraph &graph){
-    
-  WLNSymbol *created_wln = 0;
-  
-  switch (special[0]){
-
-    case 'A':
-      switch(special[1]){
-        case 'C':
-        case 'G':
-        case 'L':
-        case 'M':
-        case 'R':
-        case 'S':
-        case 'T':
-        case 'U':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'B':
-      switch(special[1]){
-        case 'A':
-        case 'E':
-        case 'H':
-        case 'I':
-        case 'K':
-        case 'R':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-      
-
-    case 'C':
-      switch(special[1]){
-        case 'A':
-        case 'D':
-        case 'E':
-        case 'F':
-        case 'M':
-        case 'N':
-        case 'O':
-        case 'R':
-        case 'S':
-        case 'U':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-      
-    case 'D':
-      switch(special[1]){
-        case 'B':
-        case 'S':
-        case 'Y':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'E':
-      switch(special[1]){
-        case 'R':
-        case 'S':
-        case 'U':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'F':
-      switch(special[1]){
-        case 'E':
-        case 'L':
-        case 'M':
-        case 'R':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'G':
-      switch(special[1]){
-        case 'A':
-        case 'D':
-        case 'E':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'H':
-      switch(special[1]){
-        case 'E':
-        case 'F':
-        case 'G':
-        case 'O':
-        case 'S':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'I':
-      switch(special[1]){
-        case 'N':
-        case 'R':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'K':
-      switch(special[1]){
-        case 'R':
-        case 'A':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-      
-
-    case 'L':
-      switch(special[1]){
-        case 'A':
-        case 'I':
-        case 'R':
-        case 'U':
-        case 'V':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'M':
-      switch(special[1]){
-        case 'C':
-        case 'D':
-        case 'G':
-        case 'N':
-        case 'O':
-        case 'T':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'N':
-      switch(special[1]){
-        case 'A':
-        case 'B':
-        case 'D':
-        case 'E':
-        case 'H':
-        case 'I':
-        case 'O':
-        case 'P':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-
-    case 'O':
-      switch(special[1]){
-        case 'O':
-        case 'G':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'P':
-      switch(special[1]){
-        case 'A':
-        case 'B':
-        case 'D':
-        case 'M':
-        case 'O':
-        case 'R':
-        case 'T':
-        case 'U':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'R':
-      switch(special[1]){
-        case 'A':
-        case 'B':
-        case 'E':
-        case 'F':
-        case 'G':
-        case 'H':
-        case 'N':
-        case 'U':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-     
-
-    case 'S':
-      switch(special[1]){
-        case 'B':
-        case 'C':
-        case 'E':
-        case 'G':
-        case 'I':
-        case 'M':
-        case 'N':
-        case 'R':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-
-    case 'T':
-      switch(special[1]){
-        case 'A':
-        case 'B':
-        case 'C':
-        case 'E':
-        case 'H':
-        case 'I':
-        case 'L':
-        case 'M':
-        case 'S':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'U':
-      if(special[1] == 'R')
-        created_wln = AllocateWLNSymbol('*',graph);
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'V':
-      if (special[1] == 'A')
-        created_wln = AllocateWLNSymbol('*',graph);
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-        return (WLNSymbol *)0;
-      }
-      break;
-    
-    case 'W':
-      if(special[1] == 'T')
-        created_wln = AllocateWLNSymbol('*',graph);
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-        return (WLNSymbol *)0;
-      }
-      break;
-    
-
-    case 'X':
-      if (special[1] == 'E')
-        created_wln = AllocateWLNSymbol('*',graph);
-      else
-      {
-        fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-        return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'Y':
-      switch(special[1]){
-        case 'B':
-        case 'T':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-          
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    case 'Z':
-      switch(special[1]){
-        case 'N':
-        case 'R':
-          created_wln = AllocateWLNSymbol('*',graph);
-          break;
-           
-        default:
-          fprintf(stderr, "Error: invalid element symbol in special definition - %s\n",special.c_str());
-          return (WLNSymbol *)0;
-      }
-      break;
-
-    default:
-      fprintf(stderr, "Error: invalid character in special definition switch\n");
-      return (WLNSymbol *)0;
-  }
-
-  created_wln->special = special;
-  created_wln->allowed_edges = 8; // allow anything for now;
-  return created_wln;
-}
-
-
 
 /**********************************************************************
                           WLNEdge Functions
@@ -1052,12 +664,17 @@ struct BabelGraph{
   ~BabelGraph(){};
 
 
-  WLNSymbol* CreateWLNNode(OpenBabel::OBAtom* atom,  WLNGraph &graph){
+  WLNSymbol* CreateWLNNode(OpenBabel::OBAtom* atom, WLNGraph &graph){
 
     if(!atom){
       fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
       return 0; 
     }
+
+    bool carbonyl_seen = false; 
+    unsigned int neighbours = 0; 
+    OpenBabel::OBAtom *neighbour = 0; 
+    OpenBabel::OBBond *bond = 0; 
 
     WLNSymbol *node = 0;
     switch(atom->GetAtomicNum()){
@@ -1070,8 +687,23 @@ struct BabelGraph{
         break;
 
       case 6:
-        node = AllocateWLNSymbol('C',graph);
+        neighbours = 0; 
+        FOR_NBORS_OF_ATOM(iterator, atom){
+          neighbour = &(*iterator);
+          neighbours++;
+        }
+        if(neighbours <= 2) // check enviroment
+          node = AllocateWLNSymbol('1',graph);
+        else if(neighbours > 2){
+          if(atom->GetTotalValence() == 3)
+            node = AllocateWLNSymbol('Y',graph);
+          else
+            node = AllocateWLNSymbol('X',graph);
+        }
+        else
+          node = AllocateWLNSymbol('C',graph);
         break;
+      
 
       case 7:
         node = AllocateWLNSymbol('N',graph);
@@ -1107,6 +739,545 @@ struct BabelGraph{
       case 53:
         node = AllocateWLNSymbol('I',graph);
         break;
+
+
+
+// all special elemental cases
+
+      case 89:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AC";
+        break;
+
+      case 47:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AG";
+        break;
+    
+      case 13:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AL";
+        break;
+
+      case 95:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AM";
+        break;
+
+      case 18:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AR";
+        break;
+
+      case 33:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AS";
+        break;
+
+      case 85:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AT";
+        break;
+
+      case 79:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "AU";
+        break;
+
+
+      case 56:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "BA";
+        break;
+
+      case 4:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "BE";
+        break;
+
+      case 107:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "BH";
+        break;
+
+      case 83:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "BI";
+        break;
+
+      case 97:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "BK";
+        break;
+
+      case 20:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CA";
+        break;
+      
+      case 48:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CD";
+        break;
+
+      case 58:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CE";
+        break;
+
+      case 98:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CF";
+        break;
+
+      case 96:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CN";
+        break;
+
+      case 112:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CN";
+        break;
+
+      case 27:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CO";
+        break;
+
+      case 24:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CR";
+        break;
+
+      case 55:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CS";
+        break;
+
+      case 29:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "CU";
+        break;
+
+      case 105:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "DB";
+        break;
+
+      case 110:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "DS";
+        break;
+
+      case 66:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "DY";
+        break;
+
+      case 68:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "ER";
+        break;
+
+      case 99:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "ES";
+        break;
+
+      case 63:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "EU";
+        break;
+
+      case 26:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "FE";
+        break;
+
+      case 114:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "FL";
+        break;
+
+      case 100:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "FM";
+        break;
+
+      case 87:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "FR";
+        break;
+
+      case 31:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "GA";
+        break;
+
+      case 64:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "GD";
+        break;
+
+      case 32:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "GE";
+        break;
+
+      case 2:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "HE";
+        break;
+
+      case 72:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "HF";
+        break;
+
+      case 80:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "HG";
+        break;
+
+      case 67:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "HO";
+        break;
+
+      case 108:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "HS";
+        break;
+
+      case 49:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "IN";
+        break;
+
+      case 77:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "IR";
+        break;
+
+      case 36:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "KR";
+        break;
+
+      case 19:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "KA";
+        break;
+
+      case 57:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "LA";
+        break;
+
+      case 3:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "LI";
+        break;
+
+      case 103:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "LR";
+        break;
+
+      case 71:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "LU";
+        break;
+
+      case 116:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "LV";
+        break;
+
+      case 115:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "MC";
+        break;
+
+      case 101:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "MD";
+        break;
+
+      case 12:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "MG";
+        break;
+
+      case 25:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "MN";
+        break;
+
+      case 42:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "MO";
+        break;
+
+      case 109:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "MT";
+        break;
+
+      case 11:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NA";
+        break;
+
+      case 41:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NB";
+        break;
+
+      case 60:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "ND";
+        break;
+
+      case 10:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NE";
+        break;
+
+      case 113:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NH";
+        break;
+
+      case 28:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NI";
+        break;
+
+      case 102:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NO";
+        break;
+
+      case 93:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "NP";
+        break;
+
+
+      case 118:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "OG";
+        break;
+
+      case 76:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "OS";
+        break;
+
+
+      case 91:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PA";
+        break;
+
+      case 82:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PB";
+        break;
+
+      case 46:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PD";
+        break;
+
+      case 61:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PM";
+        break;
+
+      case 84:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PO";
+        break;
+
+      case 59:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PR";
+        break;
+
+      case 78:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PT";
+        break;
+
+      case 94:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "PU";
+        break;
+
+      case 88:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RA";
+        break;
+
+      case 37:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RB";
+        break;
+
+      case 75:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RE";
+        break;
+
+      case 104:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RF";
+        break;
+
+      case 111:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RG";
+        break;
+
+      case 45:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RH";
+        break;
+
+      case 86:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RN";
+        break;
+
+      case 44:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "RU";
+        break;
+
+      case 51:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SB";
+        break;
+
+      case 21:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SC";
+        break;
+
+      case 34:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SE";
+        break;
+
+      case 106:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SG";
+        break;
+
+      case 14:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SI";
+        break;
+
+      case 62:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SM";
+        break;
+
+      case 50:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SN";
+        break;
+
+      case 38:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "SR";
+        break;
+
+
+      case 73:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TA";
+        break;
+
+      case 65:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TB";
+        break;
+
+      case 43:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TC";
+        break;
+
+      case 52:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TE";
+        break;
+
+      case 90:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TH";
+        break;
+
+      case 22:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TI";
+        break;
+
+      case 81:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TL";
+        break;
+
+      case 69:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TM";
+        break;
+
+      case 117:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "TS";
+        break;
+
+      case 92:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "UR";
+        break;
+
+      case 23:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "VA";
+        break;
+
+      case 54:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "XE";
+        break;
+
+      case 39:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "YT";
+        break;
+
+      case 70:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "YB";
+        break;
+
+      case 30:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "ZN";
+        break;
+
+      case 40:
+        node = AllocateWLNSymbol('*',graph);
+        node->special += "ZR";
+        break;
+      
 
       default:
         fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
@@ -1240,6 +1411,24 @@ struct BabelGraph{
     return true; 
   }
 
+  // will also add to handled
+  bool CheckCarbonyl(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited){
+    WLNEdge *edge = 0; 
+    WLNEdge *oxygen = 0; 
+  
+    for(edge=sym->bonds;edge;edge=edge->nxt){
+      if((edge->child->ch == 'O') && (edge->order == 2 || symbol_atom_map[edge->child]->GetFormalCharge() == -1)){
+        oxygen = edge; 
+        break;
+      }
+    }
+    if(!oxygen)
+      return false;
+    else{
+      visited[oxygen->child] = true;
+      return true;
+    } 
+  }
 
 
   // will also add to handled
@@ -1267,19 +1456,19 @@ struct BabelGraph{
     } 
   }
 
-  WLNSymbol* CheckCarbonChain(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited, char *digits){
+  // writes to the buffer
+  WLNSymbol* WriteCarbonChain(WLNSymbol *sym, std::string &buffer){
+    
     unsigned int carbons = 1; 
     WLNSymbol *carbon_sym = sym;
 
-    // has to look ahead 
-    while(carbon_sym->bonds && carbon_sym->bonds->child->ch == 'C' 
-          && carbon_sym->bonds->order == 1){
+    while(carbon_sym->bonds && carbon_sym->bonds->child->ch == '1' && carbon_sym->bonds->order == 1){
       carbons++;
       carbon_sym = carbon_sym->bonds->child;
     }
-    
-    sprintf (digits,"%d",carbons);
-    return carbon_sym; 
+
+    buffer += std::to_string(carbons);
+    return carbon_sym;
   }
 
 
@@ -1345,46 +1534,26 @@ struct BabelGraph{
           break;
 
 // carbons 
-        case 'C':
-          // special V case
-          if(top->num_children == 2){
-            
-            if(CheckOXO(top, visited)){
-              buffer += 'W'; 
-              break;  // immediate break out
-            } 
-            else{
-              // V case
-              for(edge=top->bonds;edge;edge=edge->nxt){
-                if(edge->order == 2 && edge->child->ch == 'O'){
-                  buffer+='V';
-                  visited[edge->child] = true;
-                  top->ch = 'V';
-                }
-              }
-              if(top->ch == 'V') // remove goto, compare ptr
-                break;
-            }
-          }
-          
-          if(top->num_children > 1){
-            if(top->num_edges == 4)
-              buffer += 'X';
-            else if(top->num_edges == 3)
-              buffer += 'Y'; 
+        // alkyl chain 
+        case '1':
+          top = WriteCarbonChain(top,buffer);
+          prev = top;
+          break;
 
-            if(CheckOXO(top, visited))
-              buffer += 'W'; 
-            
+        case 'Y':
+        case 'X':
+          if(CheckOXO(top, visited)){
+            buffer += top->ch;
+            buffer += 'W'; 
+          }
+          else if(CheckCarbonyl(top,visited))
+            buffer += 'V'; 
+          else{
+            buffer += top->ch;
             branch_stack.push(top);
           }
-          else{
-            char digits[4] = {0}; 
-            top = CheckCarbonChain(top,visited, digits);
-            prev = top;
-            buffer += digits;
-          }
           break;
+
 
 // nitrogen
         case 'N':
@@ -1430,11 +1599,26 @@ struct BabelGraph{
 
 // branching heteroatoms 
         case 'S':
+        case 'P':
           branch_stack.push(top);
-          buffer += 'S';
+          buffer += top->ch;
           if(CheckOXO(top, visited))
             buffer += 'W'; 
           break;
+
+
+// specials 
+        case '*':
+          buffer += '-';
+          buffer += top->special;
+          buffer += '-';
+          if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
+            buffer += 'H';
+          else
+            branch_stack.push(top);
+          break;
+
+
 
         default:
           fprintf(stderr,"Error: unhandled WLN char %c\n",top->ch); 
