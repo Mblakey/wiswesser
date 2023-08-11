@@ -1320,10 +1320,7 @@ struct BabelGraph{
       if( top->previous && top->previous != prev && 
           !branch_stack.empty() && !handled[top]){
 
-        fprintf(stderr,"top: %c\n",top->ch);
-        fprintf(stderr,"branch_top: %c\n",branch_stack.top()->ch);
-
-        while(!branch_stack.empty() && top->previous != branch_stack.top()){
+        while(!branch_stack.empty() && prev != branch_stack.top()){
           buffer += '&';
           branch_stack.pop();
         }
@@ -1359,19 +1356,25 @@ struct BabelGraph{
             // special V case
             if(top->num_children == 2){
               
-              if(CheckOXO(top, handled))
+              if(CheckOXO(top, handled)){
                 buffer += 'W'; 
+                break;  // immediate break out
+              } 
               else{
                 // V case
                 for(edge=top->bonds;edge;edge=edge->nxt){
                   if(edge->order == 2 && edge->child->ch == 'O'){
                     buffer+='V';
                     handled[edge->child] = true; 
+                    goto out_switch;
                   }
                 }
               }
+
+
             }
-            else if(top->num_children > 1){
+            
+            if(top->num_children > 1){
               if(top->num_edges == 4)
                 buffer += 'X';
               else if(top->num_edges == 3)
@@ -1404,10 +1407,14 @@ struct BabelGraph{
               branch_stack.push(top);
             }
             else{
-              buffer += 'K';
-              if(CheckOXO(top, handled))
+              if(CheckOXO(top, handled)){
+                buffer += 'N';
                 buffer += 'W';
-              branch_stack.push(top); 
+              }
+              else{
+                buffer += 'K';
+                branch_stack.push(top); 
+              }
             }
             break;
 
@@ -1439,6 +1446,7 @@ struct BabelGraph{
         }
       }
 
+      out_switch:
       for(edge=top->bonds;edge;edge=edge->nxt){
         if(!visited[edge->child])
           stack.push({edge->child,edge->order}); 
