@@ -1374,8 +1374,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   }
 
   // lets define the convention, if we can double bond without
-  // a charge, we do, if not, we add a positive charge to the 
-  // target symbol
+  // a charge, we do, if not, we add a single bond negative oxygen
   
   if(!binded_symbol){
     fprintf(stderr,"Error: dioxo seems to be unbound\n");
@@ -1398,8 +1397,6 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   // this adds a tautomeric charged species with a double oxygen
   else if (remaining_edges == 2){
-    //graph.charge_additions[binded_symbol] = +1;
-    //graph.charge_additions[head] = -1;
     oxygen = AllocateWLNSymbol('O',graph);
     oxygen->set_edge_and_type(2,head->type);
     sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
@@ -1410,7 +1407,6 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     // require we always double bond 1
     binded_symbol->allowed_edges += 1;
     graph.charge_additions[binded_symbol] = +1;
-    graph.charge_additions[head] = -1;
     oxygen = AllocateWLNSymbol('O',graph);
     oxygen->set_edge_and_type(2,head->type);
     sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
@@ -4127,12 +4123,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else{
         on_locant = '\0';
-
-        // explicit hydrogens
         curr = AllocateWLNSymbol(ch,graph);
         curr->set_edge_and_type(1);
-
-        
+  
         if(prev){
           // will add with more examples
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -4145,12 +4138,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           switch(prev->ch){
             case 'Z':
-              if(prev->num_edges > 1){
                 graph.charge_additions[prev]++;
                 prev->allowed_edges++;
-              }
-              break;
-            
+                break;
             default:
               break;
           }
@@ -4929,8 +4919,10 @@ struct BabelGraph{
 
         case 'O':
           atomic_num = 8;
-          if(!sym->num_edges)
+          if(sym->num_edges == 1)
             charge = -1;
+          if(!sym->num_edges)
+            charge = -2; 
           break;
 
         case 'Q':

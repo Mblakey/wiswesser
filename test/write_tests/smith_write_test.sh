@@ -8,7 +8,7 @@ READER="${SCRIPT_DIR}/../../src/parser/build/readwln"
 CANONICAL="${SCRIPT_DIR}/../../src/parser/build/obabel_strip"
 
 COUNT=0
-TOTAL=$(wc -l < $CHEMBL)
+TOTAL=$(wc -l < $SMITH)
 
 LINE=0
 while read p; do
