@@ -1078,7 +1078,7 @@ struct BabelGraph{
         break;
       
       case 8:
-        if(atom->GetExplicitValence() == 1 && atom->GetFormalCharge() != -1)
+        if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1)
           node = AllocateWLNSymbol('Q',graph);
         else
           node = AllocateWLNSymbol('O',graph);
@@ -1243,7 +1243,7 @@ struct BabelGraph{
 
 
   // will also add to handled
-  bool CheckOXO(WLNSymbol *sym, std::map<WLNSymbol*,bool> &handled){
+  bool CheckOXO(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited){
 
     WLNEdge *edge = 0; 
     WLNEdge *e_oxo_1 = 0; 
@@ -1261,32 +1261,25 @@ struct BabelGraph{
     if(!e_oxo_1 || !e_oxo_2)
       return false;
     else{
-      handled[e_oxo_1->child] = true;
-      handled[e_oxo_2->child] = true;
+      visited[e_oxo_1->child] = true;
+      visited[e_oxo_2->child] = true;
       return true;
     } 
   }
 
-  unsigned int CheckCarbonChain(WLNSymbol *sym, std::map<WLNSymbol*,bool> &handled){
-    unsigned int carbons = 0; 
+  WLNSymbol* CheckCarbonChain(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited, char *digits){
+    unsigned int carbons = 1; 
     WLNSymbol *carbon_sym = sym;
 
-    while(carbon_sym->num_children == 1){
+    // has to look ahead 
+    while(carbon_sym->bonds && carbon_sym->bonds->child->ch == 'C' 
+          && carbon_sym->bonds->order == 1){
       carbons++;
-      handled[carbon_sym] = true;
-
-      if(carbon_sym->bonds && carbon_sym->bonds->order == 1 && carbon_sym->bonds->child->ch == 'C')
-        carbon_sym = carbon_sym->bonds->child;
-      else 
-        break;
+      carbon_sym = carbon_sym->bonds->child;
     }
-
-    if(!carbon_sym->num_children && !handled[carbon_sym]){
-      carbons++; 
-      handled[carbon_sym] = true;
-    }
-
-    return carbons; 
+    
+    sprintf (digits,"%d",carbons);
+    return carbon_sym; 
   }
 
 
@@ -1294,7 +1287,6 @@ struct BabelGraph{
   bool WriteWLNFromNode(WLNSymbol *root,WLNGraph &graph,std::string &buffer){
 
     // dfs style notational build from a given root, use to build the notation 
-
     WLNSymbol *top = 0; 
     WLNSymbol *prev = 0; 
     WLNEdge   *edge = 0; // for iterating
@@ -1302,12 +1294,9 @@ struct BabelGraph{
     std::stack<std::pair<WLNSymbol*,unsigned int>> stack; 
     std::stack <WLNSymbol*> branch_stack; // this is for non-cyclics, simpler than writing
     std::map<WLNSymbol*,bool> visited;
-    std::map<WLNSymbol*,bool> handled; // if a character corresponds to multiple symbols 
-
     
     unsigned int order = 0; 
     unsigned int carbon_chain = 0;   
-
 
     stack.push({root,0});
 
@@ -1315,10 +1304,13 @@ struct BabelGraph{
       top = stack.top().first;
       order = stack.top().second; 
       
-
 // branching returns
       if( top->previous && top->previous != prev && 
-          !branch_stack.empty() && !handled[top]){
+          !branch_stack.empty()){
+
+        if(opt_debug){
+          fprintf(stderr,"top->ch = %c, branch_stack.top()->ch = %c, prev->ch = %c\n",top->ch, branch_stack.top()->ch,prev->ch);
+        }
 
         while(!branch_stack.empty() && prev != branch_stack.top()){
           buffer += '&';
@@ -1327,129 +1319,129 @@ struct BabelGraph{
       }
       
       stack.pop();
-      visited[top] = true; 
-      prev = top; // use for checks on branching stack
-
-      if(!handled[top]){
+      visited[top] = true;
+      prev = top; // use for checks on branching stack      
 
 // bond unsaturations
-        if(order == 2)
-          buffer+='U';
-        if(order == 3)
-          buffer+="UU";        
+      if(order == 2)
+        buffer+='U';
+      if(order == 3)
+        buffer+="UU";        
 
-        switch (top->ch){
+      switch (top->ch){
 
 // oxygens
-          case 'O':
-            buffer += 'O';
-            break;
+        case 'O':
+          buffer += 'O';
+          break;
 
-          case 'Q':
-            buffer += 'Q';
-            if(!top->num_edges)
-              buffer += 'H';
+        case 'Q':
+          buffer += 'Q';
+          if(!top->num_edges)
+            buffer += 'H';
 
-            if(!branch_stack.empty())
-              prev = branch_stack.top(); 
-            break;
+          if(!branch_stack.empty())
+            prev = branch_stack.top(); 
+          break;
 
 // carbons 
-          case 'C':
-            // special V case
-            if(top->num_children == 2){
-              
-              if(CheckOXO(top, handled)){
-                buffer += 'W'; 
-                break;  // immediate break out
-              } 
-              else{
-                // V case
-                for(edge=top->bonds;edge;edge=edge->nxt){
-                  if(edge->order == 2 && edge->child->ch == 'O'){
-                    buffer+='V';
-                    handled[edge->child] = true; 
-                    goto out_switch;
-                  }
+        case 'C':
+          // special V case
+          if(top->num_children == 2){
+            
+            if(CheckOXO(top, visited)){
+              buffer += 'W'; 
+              break;  // immediate break out
+            } 
+            else{
+              // V case
+              for(edge=top->bonds;edge;edge=edge->nxt){
+                if(edge->order == 2 && edge->child->ch == 'O'){
+                  buffer+='V';
+                  visited[edge->child] = true;
+                  top->ch = 'V';
                 }
               }
-
-
+              if(top->ch == 'V') // remove goto, compare ptr
+                break;
             }
+          }
+          
+          if(top->num_children > 1){
+            if(top->num_edges == 4)
+              buffer += 'X';
+            else if(top->num_edges == 3)
+              buffer += 'Y'; 
+
+            if(CheckOXO(top, visited))
+              buffer += 'W'; 
             
-            if(top->num_children > 1){
-              if(top->num_edges == 4)
-                buffer += 'X';
-              else if(top->num_edges == 3)
-                buffer += 'Y'; 
-
-              if(CheckOXO(top, handled))
-                buffer += 'W'; 
-              
-              branch_stack.push(top);
-            }
-            else{
-              carbon_chain = CheckCarbonChain(top,handled);
-              char digits[4] = {0}; 
-              sprintf (digits,"%d",carbon_chain);
-              buffer += digits;
-            }
-            break;
+            branch_stack.push(top);
+          }
+          else{
+            char digits[4] = {0}; 
+            top = CheckCarbonChain(top,visited, digits);
+            prev = top;
+            buffer += digits;
+          }
+          break;
 
 // nitrogen
-          case 'N':
-            if(top->num_edges < 1)
-              buffer += 'Z';
-            else if(top->num_edges == 2)
-              buffer += 'M';
-            else if (top->num_edges == 3){
-              buffer += 'N';
-              if(CheckOXO(top, handled))
-                buffer += 'W'; 
+        case 'N':
+          if(top->num_edges < 2){
+            buffer += 'Z';
+            if(!top->num_edges)
+              buffer += 'H';
+          }
+          else if(top->num_edges == 2)
+            buffer += 'M';
+          else if (top->num_edges == 3){
+            buffer += 'N';
+            if(CheckOXO(top, visited))
+              buffer += 'W'; 
 
-              branch_stack.push(top);
+            branch_stack.push(top);
+          }
+          else{
+            if(CheckOXO(top, visited)){
+              buffer += 'N';
+              buffer += 'W';
             }
             else{
-              if(CheckOXO(top, handled)){
-                buffer += 'N';
-                buffer += 'W';
-              }
-              else{
-                buffer += 'K';
-                branch_stack.push(top); 
-              }
+              buffer += 'K';
+              branch_stack.push(top); 
             }
-            break;
+          }
+          break;
 
 
 // halogens
-          case 'E':
-          case 'F':
-          case 'G':
-          case 'I':
-            buffer += top->ch;
-            if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
-              buffer += 'H';
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'I':
+          buffer += top->ch;
+          if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
+            buffer += 'H';
 
-            if(!branch_stack.empty())
-              prev = branch_stack.top(); 
-            break;
+          if(!branch_stack.empty())
+            prev = branch_stack.top(); 
+          break;
 
 // branching heteroatoms 
-          case 'S':
-            branch_stack.push(top);
-            buffer += 'S';
-            if(CheckOXO(top, handled))
-              buffer += 'W'; 
-            break;
+        case 'S':
+          branch_stack.push(top);
+          buffer += 'S';
+          if(CheckOXO(top, visited))
+            buffer += 'W'; 
+          break;
 
-          default:
-            fprintf(stderr,"Error: unhandled WLN char %c\n",top->ch); 
-            return false; 
-        }
+        default:
+          fprintf(stderr,"Error: unhandled WLN char %c\n",top->ch); 
+          return false; 
       }
+    
 
-      out_switch:
       for(edge=top->bonds;edge;edge=edge->nxt){
         if(!visited[edge->child])
           stack.push({edge->child,edge->order}); 

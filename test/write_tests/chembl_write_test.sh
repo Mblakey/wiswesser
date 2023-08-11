@@ -30,6 +30,7 @@ while read p; do
 
   if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
+    echo "$LINE: PASS";
   else
     echo "$LINE: $WLN != $NEW_WLN   $CAN_SMILES"
   fi;
