@@ -1347,6 +1347,9 @@ struct BabelGraph{
 
           case 'Q':
             buffer += 'Q';
+            if(!top->num_edges)
+              buffer += 'H';
+
             if(!branch_stack.empty())
               prev = branch_stack.top(); 
             break;
@@ -1395,7 +1398,7 @@ struct BabelGraph{
 
 // nitrogen
           case 'N':
-            if(top->num_edges == 1)
+            if(top->num_edges < 1)
               buffer += 'Z';
             else if(top->num_edges == 2)
               buffer += 'M';
