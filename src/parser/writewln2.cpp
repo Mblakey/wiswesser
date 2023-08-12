@@ -18,6 +18,7 @@ GNU General Public License for more details.
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #include <set>
 #include <deque>
@@ -331,36 +332,6 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
   graph.symbol_lookup[graph.glob_index] = wln;
   graph.glob_index++;
   return wln;
-}
-
-WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
-
-  if(!sym){
-    fprintf(stderr,"Error: null char used for hypervalent element allocation\n");
-    return 0;
-  }
-
-  WLNSymbol *new_symbol = 0;
-  
-  switch(sym){
-    
-    case 'P':
-    case 'S':
-    case 'G':
-    case 'E':
-    case 'I':
-    case 'F':
-      new_symbol = AllocateWLNSymbol(sym,graph);
-      if(new_symbol)
-        new_symbol->set_edge_and_type(6);            // allows FCl6
-      break;
-
-    default:
-      fprintf(stderr,"Error: character %c does not need - notation for valence expansion, please remove -\n",sym);
-      break;
-  }
-  
-  return new_symbol;
 }
 
 
@@ -1433,26 +1404,25 @@ struct BabelGraph{
 
 
   // will also add to handled
-  bool CheckOXO(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited){
+  bool CheckDIOXO(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited){
 
     WLNEdge *edge = 0; 
-    WLNEdge *e_oxo_1 = 0; 
-    WLNEdge *e_oxo_2 = 0; 
-
+    // needs to a be a priority, so taking a double bond =O over a =O + -O-
+    std::deque<WLNSymbol*> oxygens;
     for(edge=sym->bonds;edge;edge=edge->nxt){
-      if((edge->child->ch == 'O') && (edge->order == 2 || symbol_atom_map[edge->child]->GetFormalCharge() == -1)){
-        if(!e_oxo_1)
-          e_oxo_1 = edge; 
-        else
-          e_oxo_2 = edge; 
-      }
+      // highest priority double bond =O
+      if(edge->child->ch == 'O' && edge->order == 2)
+        oxygens.push_front(edge->child); 
+      // lower priority  =O + -O-
+      else if(edge->child->ch == 'O' && symbol_atom_map[edge->child]->GetFormalCharge() == -1)
+        oxygens.push_back(edge->child); 
     }
 
-    if(!e_oxo_1 || !e_oxo_2)
+    if(oxygens.size() < 2)
       return false;
     else{
-      visited[e_oxo_1->child] = true;
-      visited[e_oxo_2->child] = true;
+      visited[oxygens[0]] = true;
+      visited[oxygens[1]] = true;
       return true;
     } 
   }
@@ -1482,11 +1452,11 @@ struct BabelGraph{
     WLNEdge   *edge = 0; // for iterating
     
     std::stack<std::pair<WLNSymbol*,unsigned int>> stack; 
-    std::stack <WLNSymbol*> branch_stack; // this is for non-cyclics, simpler than writing
+    std::stack <std::pair<WLNSymbol*,unsigned int>> branch_stack; // this is for non-cyclics, simpler than writing
     std::map<WLNSymbol*,bool> visited;
     
-    unsigned int order = 0; 
-    unsigned int carbon_chain = 0;   
+    bool following_terminator = false;
+    unsigned int order = 0;  
 
     stack.push({root,0});
 
@@ -1495,18 +1465,24 @@ struct BabelGraph{
       order = stack.top().second; 
       
 // branching returns
-      if( top->previous && top->previous != prev && 
+      if( (top->previous && prev) && top->previous != prev && 
           !branch_stack.empty()){
-
-        if(opt_debug){
-          fprintf(stderr,"top->ch = %c, branch_stack.top()->ch = %c, prev->ch = %c\n",top->ch, branch_stack.top()->ch,prev->ch);
-        }
-
-        while(!branch_stack.empty() && prev != branch_stack.top()){
+          
+        // distinction between a closure and a pop
+        if(!following_terminator)
           buffer += '&';
+
+
+        while(!branch_stack.empty() && top->previous != branch_stack.top().first){
+          if(!branch_stack.top().second)
+            buffer += '&';
           branch_stack.pop();
         }
+
+        branch_stack.top().second--; 
       }
+
+      following_terminator = false;
       
       stack.pop();
       visited[top] = true;
@@ -1530,8 +1506,11 @@ struct BabelGraph{
           if(!top->num_edges)
             buffer += 'H';
 
-          if(!branch_stack.empty())
-            prev = branch_stack.top(); 
+          if(!branch_stack.empty()){
+            prev = branch_stack.top().first;
+            branch_stack.top().second--; 
+            following_terminator = true;
+          }
           break;
 
 // carbons 
@@ -1543,7 +1522,7 @@ struct BabelGraph{
 
         case 'Y':
         case 'X':
-          if(CheckOXO(top, visited)){
+          if(CheckDIOXO(top, visited)){
             buffer += top->ch;
             buffer += 'W'; 
           }
@@ -1551,7 +1530,7 @@ struct BabelGraph{
             buffer += 'V'; 
           else{
             buffer += top->ch;
-            branch_stack.push(top);
+            branch_stack.push({top,top->num_children});
           }
           break;
 
@@ -1562,24 +1541,30 @@ struct BabelGraph{
             buffer += 'Z';
             if(!top->num_edges)
               buffer += 'H';
+
+            if(!branch_stack.empty()){
+              prev = branch_stack.top().first;
+              branch_stack.top().second--; 
+              following_terminator = true;
+            }
           }
-          else if(top->num_edges == 2)
+          else if(top->num_children < 2 && top->num_edges < 3)
             buffer += 'M';
-          else if (top->num_edges == 3){
+          else if (top->num_children < 3 && top->num_edges < 4){
             buffer += 'N';
-            if(CheckOXO(top, visited))
+            if(CheckDIOXO(top, visited))
               buffer += 'W'; 
 
-            branch_stack.push(top);
+            branch_stack.push({top,top->num_children});
           }
           else{
-            if(CheckOXO(top, visited)){
+            if(CheckDIOXO(top, visited)){
               buffer += 'N';
               buffer += 'W';
             }
             else{
               buffer += 'K';
-              branch_stack.push(top); 
+              branch_stack.push({top,top->num_children});
             }
           }
           break;
@@ -1590,21 +1575,36 @@ struct BabelGraph{
         case 'F':
         case 'G':
         case 'I':
-          buffer += top->ch;
-          if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
-            buffer += 'H';
+          if(top->num_edges > 1){
+            buffer += '-';
+            buffer += top->ch;
+            buffer += '-';
+            if(CheckDIOXO(top, visited))
+              buffer += 'W'; 
+            branch_stack.push({top,top->num_children});
+          }
+          else{
+            buffer += top->ch;
+            if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
+              buffer += 'H';
 
-          if(!branch_stack.empty())
-            prev = branch_stack.top(); 
+            if(!branch_stack.empty()){
+              prev = branch_stack.top().first;
+              branch_stack.top().second--; 
+              following_terminator = true;
+            }
+          }
           break;
 
 // branching heteroatoms 
+        case 'B':
         case 'S':
         case 'P':
-          branch_stack.push(top);
           buffer += top->ch;
-          if(CheckOXO(top, visited))
+          if(CheckDIOXO(top, visited))
             buffer += 'W'; 
+
+          branch_stack.push({top,top->num_children});
           break;
 
 
@@ -1616,7 +1616,7 @@ struct BabelGraph{
           if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
             buffer += 'H';
           else
-            branch_stack.push(top);
+            branch_stack.push({top,top->num_children});
           break;
 
 
