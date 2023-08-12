@@ -1160,7 +1160,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
   }
   
   if ( ((parent->num_edges + 1) > parent->allowed_edges) && !RaiseBranchingSymbol(parent)){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
     return 0;
   }
 
@@ -1221,12 +1221,12 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n){
   edge->parent->num_edges += n;
   edge->child->num_edges+= n;
 
-  if( (edge->parent->num_edges > edge->parent->allowed_edges) && !RaiseBranchingSymbol(edge->parent) ){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
+  if( (edge->child->num_edges > edge->child->allowed_edges) && !RaiseBranchingSymbol(edge->child)){
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
     return 0;
   }
 
-  if( (edge->child->num_edges > edge->child->allowed_edges) && !RaiseBranchingSymbol(edge->parent)){
+  if( (edge->parent->num_edges > edge->parent->allowed_edges) && !RaiseBranchingSymbol(edge->parent) ){
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
     return 0;
   }
