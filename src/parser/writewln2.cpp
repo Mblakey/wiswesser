@@ -632,9 +632,6 @@ struct BabelGraph{
   std::map<OpenBabel::OBAtom*, WLNSymbol*>  atom_symbol_map; 
   std::map<WLNSymbol*,OpenBabel::OBAtom*>   symbol_atom_map; 
   
-  bool CYCLIC = 0;
-
-
   BabelGraph(){};
   ~BabelGraph(){};
 
@@ -1372,40 +1369,41 @@ struct BabelGraph{
   }
 
 
-  // reads the babel graph into the appropriate wln graph
-  std::vector<WLNSymbol*> ReadBabelGraph(OpenBabel::OBMol *mol,WLNGraph &graph){
+  /* reads the babel graph into the appropriate wln graph
+      either return roots for ionic species to build tree,
+      or if cyclic, return ring objects to parse  */
+
+
+  std::vector<WLNSymbol*> ReadBabelNonCyclic(OpenBabel::OBMol *mol,WLNGraph &graph){
     // no cycles, build from root node and output
+    
     std::vector<WLNSymbol*> roots; 
-    if(mol->GetSSSR().empty()){
-      OpenBabel::OBAtomAtomIter iter; 
-      FOR_ATOMS_OF_MOL(iter,mol){
-        OpenBabel::OBAtom *atom = &(*iter);
-        if(!atom_symbol_map[atom]){
-          WLNSymbol *root_node = BuildWLNTree (atom,mol,graph); 
-          if(!root_node){
-            fprintf(stderr,"Error: failure in building tree from source atom\n");
-            return {}; 
-          }
-          else
-            roots.push_back(root_node); 
+    OpenBabel::OBAtomAtomIter iter; 
+    FOR_ATOMS_OF_MOL(iter,mol){
+      OpenBabel::OBAtom *atom = &(*iter);
+      if(!atom_symbol_map[atom]){
+        WLNSymbol *root_node = BuildWLNTree (atom,mol,graph); 
+        if(!root_node){
+          fprintf(stderr,"Error: failure in building tree from source atom\n");
+          return {}; 
         }
+        else
+          roots.push_back(root_node); 
       }
     }
-    else
-      CYCLIC = true; // set the flag, temp for now
-    
+  
     return roots; 
   }
 
-  bool ParseWLNGraph(std::vector<WLNSymbol*> &roots, WLNGraph &graph, std::string &buffer){
-    if(!CYCLIC){
-      for (unsigned int i=0;i<roots.size();i++){
-        if(!WriteWLNFromNode(roots[i],graph,buffer))
-          return false;
 
-        if(i<roots.size()-1)
-          buffer += " &"; // add for ionic
-      }
+  /* handles non cyclic and ionic species from roots vector */
+  bool ParseNonCyclicWLN(std::vector<WLNSymbol*> &roots, WLNGraph &graph, std::string &buffer){    
+    for (unsigned int i=0;i<roots.size();i++){
+      if(!WriteWLNFromNode(roots[i],graph,buffer))
+        return false;
+
+      if(i<roots.size()-1)
+        buffer += " &"; // add for ionic
     }
     return true; 
   }
@@ -1690,19 +1688,44 @@ bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
+  bool cyclic = false;
   bool state = true;
   std::vector<WLNSymbol*> roots; 
+  std::vector<WLNRing*> rings; 
 
-  roots = obabel.ReadBabelGraph(mol,wln_graph);
-  if(roots.empty() && !obabel.CYCLIC)
-    return false; 
-  
-  // create an optional wln dotfile
-  if (opt_wln2dot)
-    WriteGraph(wln_graph);
+  if(!mol->GetSSSR().empty())
+    cyclic = true; 
 
-  if(state)
-    state = obabel.ParseWLNGraph(roots,wln_graph,buffer);
+
+  if(!cyclic){
+    roots = obabel.ReadBabelNonCyclic(mol,wln_graph);
+    if(roots.empty())
+      return false; 
+
+    // create an optional wln dotfile
+    if (opt_wln2dot)
+      WriteGraph(wln_graph);
+
+    if(state)
+      state = obabel.ParseNonCyclicWLN(roots,wln_graph,buffer);
+  }
+  else{
+    // right so we have cyclic species, first thing
+    // is to build the intitial ring
+    OpenBabel::OBMolRingIter riter; 
+    OpenBabel::OBRing *obring = 0;
+    FOR_RINGS_OF_MOL(riter,mol){
+      obring = &(*riter); 
+
+      
+    }
+
+
+
+
+
+
+  }
 
   return state;
 }
