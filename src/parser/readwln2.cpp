@@ -4138,7 +4138,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           switch(prev->ch){
             case 'Z':
-                graph.charge_additions[prev]++;
+                //graph.charge_additions[prev]++;
                 prev->allowed_edges++;
                 break;
             default:
@@ -4467,7 +4467,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
               // no contractions possible, we pop the stack
               default:
-
                 // default pop
                 branch_stack.pop();
                 prev = branch_stack.branch; // if prev is nulled, then a ring is active
