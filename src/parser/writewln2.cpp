@@ -109,7 +109,8 @@ struct WLNSymbol
   unsigned int allowed_edges;
   unsigned int num_edges;
 
-  unsigned int num_children; // specifically for forward edges
+  unsigned int num_children;  // specifically for forward edges
+  unsigned int on_child;      // which branch are we on for stack tracking
 
   WLNSymbol *previous;
   WLNEdge   *bonds; // array of bonds
@@ -123,7 +124,10 @@ struct WLNSymbol
     type = 0;
     previous = 0;
     bonds = 0;
+
+
     num_children = 0; 
+    on_child = 0; 
   }
   ~WLNSymbol(){};
 
@@ -651,10 +655,12 @@ struct BabelGraph{
     switch(atom->GetAtomicNum()){
       case 1:
         node = AllocateWLNSymbol('H',graph);
+        node->set_edge_and_type(1);
         break; 
 
       case 5:
         node = AllocateWLNSymbol('B',graph);
+        node->set_edge_and_type(3);
         break;
 
       case 6:
@@ -664,52 +670,70 @@ struct BabelGraph{
           orders += bond->GetBondOrder(); 
           neighbours++;
         }
-        if(neighbours <= 2) // check enviroment
+        if(neighbours <= 2){
           node = AllocateWLNSymbol('1',graph);
-        else if(neighbours > 2){
-          if(orders == 3)
-            node = AllocateWLNSymbol('Y',graph);
-          else
-            node = AllocateWLNSymbol('X',graph);
+          node->set_edge_and_type(4);
         }
-        else
+        else if(neighbours > 2){
+          if(orders == 3){
+            node = AllocateWLNSymbol('Y',graph);
+            node->set_edge_and_type(3);
+          }
+          else{
+            node = AllocateWLNSymbol('X',graph);
+            node->set_edge_and_type(4);
+          }
+        }
+        else{
           node = AllocateWLNSymbol('C',graph);
+          node->set_edge_and_type(4);
+        }
         break;
       
-
       case 7:
         node = AllocateWLNSymbol('N',graph);
+        node->set_edge_and_type(atom->GetExplicitValence());
         break;
       
       case 8:
-        if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1)
+        if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1){
           node = AllocateWLNSymbol('Q',graph);
-        else
+          node->set_edge_and_type(1);
+        }
+        else{
           node = AllocateWLNSymbol('O',graph);
+          node->set_edge_and_type(2);
+        }
         break;
       
       case 9:
         node = AllocateWLNSymbol('F',graph);
+        node->set_edge_and_type(atom->GetExplicitValence());
         break;
 
       case 15:
         node = AllocateWLNSymbol('P',graph);
+        node->set_edge_and_type(6);
         break;
 
       case 16:
         node = AllocateWLNSymbol('S',graph);
+        node->set_edge_and_type(6);
         break;
 
       case 17:
         node = AllocateWLNSymbol('G',graph);
+        node->set_edge_and_type(atom->GetExplicitValence());
         break;
 
       case 35:
         node = AllocateWLNSymbol('E',graph);
+        node->set_edge_and_type(atom->GetExplicitValence());
         break;
 
       case 53:
         node = AllocateWLNSymbol('I',graph);
+        node->set_edge_and_type(atom->GetExplicitValence());
         break;
 
 
@@ -1259,6 +1283,9 @@ struct BabelGraph{
     if(!graph.root)
       graph.root = node; 
 
+    if(!node->allowed_edges)
+      node->set_edge_and_type(8);
+
     return node; 
   }
 
@@ -1303,7 +1330,7 @@ struct BabelGraph{
           fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
           return 0;
         }
-        node->set_edge_and_type(atom->GetTotalValence(),STANDARD); // allow smiles to dictate
+        
         atom_symbol_map[atom] = node; 
         symbol_atom_map[node] = atom;
       }
@@ -1319,7 +1346,7 @@ struct BabelGraph{
             fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
             return 0;
           }
-          child->set_edge_and_type(neighbour->GetTotalValence(),STANDARD); // allow smiles to dictate
+
           atom_symbol_map[neighbour] = child; 
           symbol_atom_map[child] = neighbour; 
 
@@ -1452,7 +1479,7 @@ struct BabelGraph{
     WLNEdge   *edge = 0; // for iterating
     
     std::stack<std::pair<WLNSymbol*,unsigned int>> stack; 
-    std::stack <std::pair<WLNSymbol*,unsigned int>> branch_stack; // this is for non-cyclics, simpler than writing
+    std::stack <WLNSymbol*> branch_stack; 
     std::map<WLNSymbol*,bool> visited;
     
     bool following_terminator = false;
@@ -1467,26 +1494,39 @@ struct BabelGraph{
 // branching returns
       if( (top->previous && prev) && top->previous != prev && 
           !branch_stack.empty()){
-          
+
+        prev = top->previous;
+        
+        if(opt_debug)
+          fprintf(stderr,"%c is on branch: %d\n",prev->ch,prev->on_child);
+
         // distinction between a closure and a pop
         if(!following_terminator)
           buffer += '&';
 
-
-        while(!branch_stack.empty() && top->previous != branch_stack.top().first){
-          if(!branch_stack.top().second)
+        WLNSymbol *branch_top = 0; 
+        while(!branch_stack.empty() && prev != branch_stack.top()){
+          branch_top = branch_stack.top();
+          if(opt_debug)
+            fprintf(stderr,"stack_top: %c - %d\n",branch_top->ch,branch_top->on_child);
+          
+          if( (branch_top->num_children != branch_top->on_child) 
+              || branch_top->num_edges < branch_top->allowed_edges)
             buffer += '&';
+
           branch_stack.pop();
         }
 
-        branch_stack.top().second--; 
+        prev->on_child++;
       }
+      else if(prev)
+        prev->on_child++;
 
       following_terminator = false;
       
       stack.pop();
       visited[top] = true;
-      prev = top; // use for checks on branching stack      
+      prev = top;      
 
 // bond unsaturations
       if(order == 2)
@@ -1507,8 +1547,7 @@ struct BabelGraph{
             buffer += 'H';
 
           if(!branch_stack.empty()){
-            prev = branch_stack.top().first;
-            branch_stack.top().second--; 
+            prev = branch_stack.top();
             following_terminator = true;
           }
           break;
@@ -1530,7 +1569,7 @@ struct BabelGraph{
             buffer += 'V'; 
           else{
             buffer += top->ch;
-            branch_stack.push({top,top->num_children});
+            branch_stack.push(top);
           }
           break;
 
@@ -1543,8 +1582,7 @@ struct BabelGraph{
               buffer += 'H';
 
             if(!branch_stack.empty()){
-              prev = branch_stack.top().first;
-              branch_stack.top().second--; 
+              prev = branch_stack.top();
               following_terminator = true;
             }
           }
@@ -1555,7 +1593,7 @@ struct BabelGraph{
             if(CheckDIOXO(top, visited))
               buffer += 'W'; 
 
-            branch_stack.push({top,top->num_children});
+            branch_stack.push(top);
           }
           else{
             if(CheckDIOXO(top, visited)){
@@ -1564,7 +1602,7 @@ struct BabelGraph{
             }
             else{
               buffer += 'K';
-              branch_stack.push({top,top->num_children});
+              branch_stack.push(top); // implied methyl, must add to branch
             }
           }
           break;
@@ -1581,7 +1619,8 @@ struct BabelGraph{
             buffer += '-';
             if(CheckDIOXO(top, visited))
               buffer += 'W'; 
-            branch_stack.push({top,top->num_children});
+
+            branch_stack.push(top);
           }
           else{
             buffer += top->ch;
@@ -1589,8 +1628,7 @@ struct BabelGraph{
               buffer += 'H';
 
             if(!branch_stack.empty()){
-              prev = branch_stack.top().first;
-              branch_stack.top().second--; 
+              prev = branch_stack.top();
               following_terminator = true;
             }
           }
@@ -1604,7 +1642,9 @@ struct BabelGraph{
           if(CheckDIOXO(top, visited))
             buffer += 'W'; 
 
-          branch_stack.push({top,top->num_children});
+          if(top->num_children > 0)
+            branch_stack.push(top);
+          
           break;
 
 
@@ -1615,10 +1655,10 @@ struct BabelGraph{
           buffer += '-';
           if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
             buffer += 'H';
-          else
-            branch_stack.push({top,top->num_children});
+          else if(top->num_children > 0)
+            branch_stack.push(top);
+          
           break;
-
 
         default:
           fprintf(stderr,"Error: unhandled WLN char %c\n",top->ch); 
@@ -1692,9 +1732,8 @@ static void DisplayHelp()
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
-
   const char *ptr = 0;
-  int i, j;
+  int i;
 
   cli_inp = (const char *)0;
   format = (const char *)0;
