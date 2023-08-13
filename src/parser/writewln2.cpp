@@ -1673,6 +1673,51 @@ struct BabelGraph{
     return true;
   }
 
+
+  /* WLN works from the intital ring, and spans out from there */
+  WLNRing* ReadBabelCyclic(OpenBabel::OBAtom *ring_root, OpenBabel::OBMol *mol, WLNGraph &graph){
+    // right so we have cyclic species, first thing
+    // is to build the intitial ring, this could be 2 or SSSRs so we need to 
+    // construct this properly
+
+    if(!ring_root){
+      fprintf(stderr,"Error: ring root is nullptr\n");
+      return 0; 
+    }
+
+    // from the first SSSR, get the root atom, and DFS to build the first intital ring
+    WLNRing *wln_ring = 0; 
+
+    std::map<OpenBabel::OBAtom*,bool> visited; 
+    std::stack<OpenBabel::OBAtom*> atom_stack; 
+    
+
+    OpenBabel::OBAtom *atom = 0; 
+    OpenBabel::OBAtom *neighbour = 0; 
+    OpenBabel::OBAtomIterator aiter; 
+
+    atom_stack.push(ring_root); 
+    while(!atom_stack.empty()){
+      atom = atom_stack.top(); 
+      atom_stack.pop();
+      visited[atom] = true; 
+
+      fprintf(stderr,"atom %d in ring\n",atom->GetIdx());
+
+      FOR_NBORS_OF_ATOM(aiter,atom){
+        neighbour = &(*aiter); 
+        if(neighbour->IsInRing() && !visited[neighbour]){
+          atom_stack.push(neighbour); 
+          visited[neighbour] = true;
+        }
+          
+      }
+    }
+
+    return wln_ring;   
+  }
+  
+
 };
 
 
@@ -1688,14 +1733,13 @@ bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
-  bool cyclic = false;
+  unsigned int cyclic = 0;
   bool state = true;
   std::vector<WLNSymbol*> roots; 
-  std::vector<WLNRing*> rings; 
+  WLNRing* start_ring = 0; 
 
-  if(!mol->GetSSSR().empty())
-    cyclic = true; 
-
+  FOR_RINGS_OF_MOL(r,mol)
+    cyclic++;
 
   if(!cyclic){
     roots = obabel.ReadBabelNonCyclic(mol,wln_graph);
@@ -1710,21 +1754,10 @@ bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
       state = obabel.ParseNonCyclicWLN(roots,wln_graph,buffer);
   }
   else{
-    // right so we have cyclic species, first thing
-    // is to build the intitial ring
-    OpenBabel::OBMolRingIter riter; 
-    OpenBabel::OBRing *obring = 0;
-    FOR_RINGS_OF_MOL(riter,mol){
-      obring = &(*riter); 
 
-      
-    }
-
-
-
-
-
-
+    // get the start ring, and then use that as the jump point
+    start_ring = obabel.ReadBabelCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol ,wln_graph);
+    
   }
 
   return state;
