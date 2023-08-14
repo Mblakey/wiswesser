@@ -1574,89 +1574,6 @@ struct BabelGraph{
     return true;
   }
 
-  bool WritePolyCyclic(OBMol *mol, unsigned int size,std::set<std::pair<OBAtom*,OBAtom*>> &pair_cuts, bool hetero ,std::string &buffer){
-
-    if(opt_debug){
-      fprintf(stderr,"Writing polycyclic\n");
-      fprintf(stderr,"  preparing locant chain\n");
-    }
-
-    /*
-      The locant path can be calculated without an NP-hard solution as follows:
-    
-      *cut* any bonds that fuse rings together, leaving a loop. Start from one of the cut
-      points, and a locant path will emerge. (not minimal, but valid).
-    */
-    
-    OBAtom *locant_start = 0; 
-    OBAtom *locant_end = 0;
-
-    // remove the bonds and choose start
-    for (std::set<std::pair<OBAtom*,OBAtom*>>::iterator iter = pair_cuts.begin(); iter != pair_cuts.end(); iter++){
-      OBBond *bond = mol->GetBond((*iter).first , (*iter).second); 
-      
-      if(!locant_start)
-        locant_start = (*iter).first; 
-
-      if(opt_debug)
-        fprintf(stderr,"    cutting bond from atom %d to atom %d\n",(*iter).first->GetIdx(),(*iter).second->GetIdx());
-    
-      mol->DeleteBond(bond);
-    }
-
-    // this now leaves a ring, need to choose a direction and cut ends. 
-    FOR_NBORS_OF_ATOM(aiter,locant_start){
-      locant_end = &(*aiter); 
-      break;
-    }
-
-    if(opt_debug)
-      fprintf(stderr,"    cutting bond from atom %d to atom %d\n",locant_start->GetIdx(),locant_end->GetIdx());
-
-    mol->DeleteBond(mol->GetBond(locant_start,locant_end));
-    
-    
-    // now leaves a chain
-    std::map<OBAtom*,bool> seen; 
-    OBAtom **locant_chain = (OBAtom**)malloc(sizeof(OBAtom*) * size); 
-    for(unsigned int i=0;i<size;i++)
-      locant_chain[i] = 0;
-
-    unsigned int i=0;
-    OBAtom *atom = locant_start;
-    while(i < size){
-      locant_chain[i++] = atom; 
-      seen[atom] = true;
-      FOR_NBORS_OF_ATOM(aiter,atom){
-        if(!seen[&(*aiter)]){
-          atom = &(*aiter); 
-          break;
-        }
-      }
-    }
-
-    if(opt_debug){
-      fprintf(stderr,"  locant path: [ ");
-      for(unsigned int i=0;i<size;i++){
-        fprintf(stderr,"%d ",locant_chain[i]->GetIdx());
-      }
-      fprintf(stderr,"]\n");
-    }
-
-
-
-    if(hetero)
-      buffer += 'T';
-    else
-      buffer += 'L'; 
-
-   
-    buffer += 'J';
-
-    free(locant_chain);
-    return true; 
-  }
-
 
   /* WLN works from the intital ring, and spans out from there */
   WLNRing* ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol, WLNGraph &graph){
@@ -1760,10 +1677,9 @@ struct BabelGraph{
     }
 
 
-    if(multicyclic.empty() && branching.empty()){
-      WritePolyCyclic(mol,size,pair_cuts,hetero,buffer);
-    }
+    if(multicyclic.empty() && branching.empty()){}
 
+    // we need to flow from ring to ring, otherwise this cannot be stable 
     
     return wln_ring;   
   }
