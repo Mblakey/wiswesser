@@ -42,6 +42,8 @@ GNU General Public License for more details.
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
 
+using namespace OpenBabel; 
+
 #define REASONABLE 1024
 
 const char *cli_inp;
@@ -629,14 +631,14 @@ bool WriteGraph(WLNGraph &graph){
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
 
-  std::map<OpenBabel::OBAtom*, WLNSymbol*>  atom_symbol_map; 
-  std::map<WLNSymbol*,OpenBabel::OBAtom*>   symbol_atom_map; 
+  std::map<OBAtom*, WLNSymbol*>  atom_symbol_map; 
+  std::map<WLNSymbol*,OBAtom*>   symbol_atom_map; 
   
   BabelGraph(){};
   ~BabelGraph(){};
 
 
-  WLNSymbol* CreateWLNNode(OpenBabel::OBAtom* atom, WLNGraph &graph){
+  WLNSymbol* CreateWLNNode(OBAtom* atom, WLNGraph &graph){
 
     if(!atom){
       fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
@@ -645,8 +647,8 @@ struct BabelGraph{
 
     unsigned int neighbours = 0; 
     unsigned int orders = 0; 
-    OpenBabel::OBAtom *neighbour = 0; 
-    OpenBabel::OBBond *bond = 0; 
+    OBAtom *neighbour = 0; 
+    OBBond *bond = 0; 
 
     WLNSymbol *node = 0;
     switch(atom->GetAtomicNum()){
@@ -1288,7 +1290,7 @@ struct BabelGraph{
 
 
   /* add the starting atom to build a tree for a locant position */
-  WLNSymbol* BuildWLNTree(OpenBabel::OBAtom* start_atom, OpenBabel::OBMol *mol,WLNGraph &graph){
+  WLNSymbol* BuildWLNTree(OBAtom* start_atom, OBMol *mol,WLNGraph &graph){
 
     // has to be done as DFS in order to keep bond direction on the tree
     WLNSymbol *root = 0; 
@@ -1296,9 +1298,9 @@ struct BabelGraph{
     WLNSymbol *child  = 0; 
     WLNEdge   *edge   = 0; 
 
-    OpenBabel::OBAtom* atom = start_atom;
-    std::map<OpenBabel::OBAtom*,bool> visited; 
-    std::stack<OpenBabel::OBAtom*> atom_stack; 
+    OBAtom* atom = start_atom;
+    std::map<OBAtom*,bool> visited; 
+    std::stack<OBAtom*> atom_stack; 
     atom_stack.push(atom); 
 
     while(!atom_stack.empty()){
@@ -1309,7 +1311,7 @@ struct BabelGraph{
       // negative oxygen should be given a W character, therefore pointing in
       if(atom->GetFormalCharge() == -1 && atom->GetAtomicNum() == 8){
         FOR_NBORS_OF_ATOM(iterator, atom){
-          OpenBabel::OBAtom *neighbour = &(*iterator);
+          OBAtom *neighbour = &(*iterator);
           if(!visited[neighbour])
             atom_stack.push(neighbour); 
         }
@@ -1336,7 +1338,7 @@ struct BabelGraph{
 
       // this will look back, so order is important to maintain
       FOR_NBORS_OF_ATOM(iterator, atom){
-        OpenBabel::OBAtom *neighbour = &(*iterator);
+        OBAtom *neighbour = &(*iterator);
         if(!atom_symbol_map[neighbour]){
           child = CreateWLNNode(neighbour,graph); 
           if(!child){
@@ -1348,7 +1350,7 @@ struct BabelGraph{
           symbol_atom_map[child] = neighbour; 
 
           // bond here, and don't consider the symbol if the atom is already made 
-          OpenBabel::OBBond *bond = atom->GetBond(neighbour); 
+          OBBond *bond = atom->GetBond(neighbour); 
           if(!bond){
             fprintf(stderr,"Error: accessing non-existent bond in BuildWLNTree\n");
             return 0;
@@ -1374,13 +1376,13 @@ struct BabelGraph{
       or if cyclic, return ring objects to parse  */
 
 
-  std::vector<WLNSymbol*> ReadBabelNonCyclic(OpenBabel::OBMol *mol,WLNGraph &graph){
+  std::vector<WLNSymbol*> ReadBabelNonCyclic(OBMol *mol,WLNGraph &graph){
     // no cycles, build from root node and output
     
     std::vector<WLNSymbol*> roots; 
-    OpenBabel::OBAtomAtomIter iter; 
+    OBAtomAtomIter iter; 
     FOR_ATOMS_OF_MOL(iter,mol){
-      OpenBabel::OBAtom *atom = &(*iter);
+      OBAtom *atom = &(*iter);
       if(!atom_symbol_map[atom]){
         WLNSymbol *root_node = BuildWLNTree (atom,mol,graph); 
         if(!root_node){
@@ -1673,47 +1675,113 @@ struct BabelGraph{
     return true;
   }
 
+  bool WritePolyCyclic(WLNRing *ring, std::set<OBAtom*> &fuses){
+
+
+
+    return true; 
+  }
+
 
   /* WLN works from the intital ring, and spans out from there */
-  WLNRing* ReadBabelCyclic(OpenBabel::OBAtom *ring_root, OpenBabel::OBMol *mol, WLNGraph &graph){
+  WLNRing* ReadBabelCyclic(OBAtom *ring_root, OBMol *mol, WLNGraph &graph){
     // right so we have cyclic species, first thing
-    // is to build the intitial ring, this could be 2 or SSSRs so we need to 
+    // is to build the intitial ring, this could be 2 or more SSSRs so we need to 
     // construct this properly
+
+     if(opt_debug)
+      fprintf(stderr,"Building ring\n");
 
     if(!ring_root){
       fprintf(stderr,"Error: ring root is nullptr\n");
       return 0; 
     }
 
-    // from the first SSSR, get the root atom, and DFS to build the first intital ring
     WLNRing *wln_ring = 0; 
+    wln_ring = AllocateWLNRing(graph);
 
-    std::map<OpenBabel::OBAtom*,bool> visited; 
-    std::stack<OpenBabel::OBAtom*> atom_stack; 
+    std::map<OBAtom*,bool> visited; 
+    std::stack<OBAtom*> atom_stack; 
     
+    unsigned int size = 0; 
+    unsigned int in_rings = 0; 
+    OBAtom *atom = 0; 
+    OBAtom *neighbour = 0; 
+    OBAtomIterator aiter; 
 
-    OpenBabel::OBAtom *atom = 0; 
-    OpenBabel::OBAtom *neighbour = 0; 
-    OpenBabel::OBAtomIterator aiter; 
+    std::set<OBAtom*> fuses;
+    std::set<OBAtom*> multicyclic;
+    std::set<OBAtom*> branching; 
+
+    std::set<OBRing*> ring_set; 
+
 
     atom_stack.push(ring_root); 
     while(!atom_stack.empty()){
+      in_rings = 0;
       atom = atom_stack.top(); 
       atom_stack.pop();
       visited[atom] = true; 
+      size++;
 
-      fprintf(stderr,"atom %d in ring\n",atom->GetIdx());
-
+      FOR_RINGS_OF_MOL(r,mol){
+        OBRing *obring = &(*r);
+        if(obring->IsMember(atom)){
+          in_rings++;
+          ring_set.insert(obring); // use to get the SSSR size into WLNRing 
+        }
+      }
+      
       FOR_NBORS_OF_ATOM(aiter,atom){
         neighbour = &(*aiter); 
         if(neighbour->IsInRing() && !visited[neighbour]){
           atom_stack.push(neighbour); 
           visited[neighbour] = true;
         }
-          
       }
+
+      if(in_rings > 3)
+        branching.insert(atom);
+      else if(in_rings == 3)
+        multicyclic.insert(atom);
+      else if(in_rings == 2)
+        fuses.insert(atom); 
     }
 
+    if(opt_debug)
+      fprintf(stderr,"  SSSR for system:    ");
+    std::set<OBRing*>::iterator set_iter; // rb tree so O(n) iterator
+    for(set_iter = ring_set.begin();set_iter != ring_set.end();set_iter++){
+      if(opt_debug)
+        fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
+
+      wln_ring->rings.push_back((*set_iter)->Size());
+    }
+    if(opt_debug)
+      fprintf(stderr,"\n");
+
+    if(opt_debug)
+      fprintf(stderr,"  ring size:          %d\n",size);
+
+    if(opt_debug){
+      fprintf(stderr,"  fuse points:        %ld\n",fuses.size());
+      fprintf(stderr,"  multicyclic points: %ld\n",multicyclic.size());
+      fprintf(stderr,"  branching points:   %ld\n",branching.size());
+    }
+
+
+    // build conditions 
+    if(branching.size() || multicyclic.size()){
+      // multicyclic
+    }
+    else if(fuses.size()){
+      // polycyclic
+    }
+    else{
+      // monocyclic
+    }
+
+    
     return wln_ring;   
   }
   
@@ -1727,7 +1795,7 @@ struct BabelGraph{
 **********************************************************************/
 
 
-bool WriteWLN(std::string &buffer, OpenBabel::OBMol* mol)
+bool WriteWLN(std::string &buffer, OBMol* mol)
 {   
  
   WLNGraph wln_graph;
@@ -1872,8 +1940,8 @@ int main(int argc, char *argv[])
   ProcessCommandLine(argc, argv);
   
   std::string res;
-  OpenBabel::OBMol mol;
-  OpenBabel::OBConversion conv;
+  OBMol mol;
+  OBConversion conv;
 
   conv.SetInFormat(format);
   res = conv.ReadString(&mol,cli_inp);

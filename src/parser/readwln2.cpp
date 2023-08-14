@@ -41,6 +41,7 @@ GNU General Public License for more details.
 #include <openbabel/obmolecformat.h>
 #include <openbabel/graphsym.h>
 
+using namespace OpenBabel; 
 
 #define REASONABLE 1024
 
@@ -4770,24 +4771,24 @@ bool WriteGraph(WLNGraph &graph,const char*filename){
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
 
-  std::map<unsigned int,OpenBabel::OBAtom*> babel_atom_lookup;
+  std::map<unsigned int,OBAtom*> babel_atom_lookup;
 
   BabelGraph(){};
   ~BabelGraph(){};
 
 
-  OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem,int charge=0,unsigned int hcount=0)
+  OBAtom* NMOBMolNewAtom(OBMol* mol, unsigned int elem,int charge=0,unsigned int hcount=0)
   {
-    OpenBabel::OBAtom* result = mol->NewAtom();
+    OBAtom* result = mol->NewAtom();
     result->SetAtomicNum(elem);
     result->SetImplicitHCount(hcount);
     result->SetFormalCharge(charge);
     return result;
   }
 
-  void NMOBAtomSetAromatic(OpenBabel::OBAtom* atm)
+  void NMOBAtomSetAromatic(OBAtom* atm)
   {
-    OpenBabel::OBMol* mol = (OpenBabel::OBMol*)atm->GetParent();
+    OBMol* mol = (OBMol*)atm->GetParent();
     if (mol && !mol->HasAromaticPerceived())
       mol->SetAromaticPerceived();
 
@@ -4795,9 +4796,9 @@ struct BabelGraph{
   }
 
 
-  bool NMOBMolNewBond(OpenBabel::OBMol* mol,
-                      OpenBabel::OBAtom* s,
-                      OpenBabel::OBAtom* e,
+  bool NMOBMolNewBond(OBMol* mol,
+                      OBAtom* s,
+                      OBAtom* e,
                       unsigned int order, bool arom)
   {
     
@@ -4814,7 +4815,7 @@ struct BabelGraph{
       return false;
     }
         
-    OpenBabel::OBBond* bptr = mol->GetBond(mol->NumBonds() - 1);
+    OBBond* bptr = mol->GetBond(mol->NumBonds() - 1);
     if(!bptr){
       fprintf(stderr,"Error: could not re-return bond for checking\n");
       return false;
@@ -4829,7 +4830,7 @@ struct BabelGraph{
   }
 
 
-  bool NMOBSanitizeMol(OpenBabel::OBMol* mol)
+  bool NMOBSanitizeMol(OBMol* mol)
   {
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
     mol->SetChiralityPerceived(true);
@@ -4843,7 +4844,7 @@ struct BabelGraph{
   }
 
 
-  bool ConvertFromWLN(OpenBabel::OBMol* mol,WLNGraph &graph){
+  bool ConvertFromWLN(OBMol* mol,WLNGraph &graph){
 
     // aromaticity is handled by reducing the edges
 
@@ -4853,7 +4854,7 @@ struct BabelGraph{
     // set up atoms
     for (unsigned int i=1; i<=graph.symbol_count;i++){
       WLNSymbol *sym = graph.SYMBOLS[i];
-      OpenBabel::OBAtom *atom = 0;
+      OBAtom *atom = 0;
 
       int charge = 0; 
       unsigned int atomic_num = 0;
@@ -5031,7 +5032,7 @@ struct BabelGraph{
       WLNSymbol *parent = graph.SYMBOLS[i];
 
       unsigned int parent_id = graph.index_lookup[parent];
-      OpenBabel::OBAtom *par_atom = babel_atom_lookup[parent_id];
+      OBAtom *par_atom = babel_atom_lookup[parent_id];
       WLNEdge *e = 0;
       if(parent->bonds){
         
@@ -5039,7 +5040,7 @@ struct BabelGraph{
           WLNSymbol *child = e->child;
           unsigned int bond_order = e->order;  
           unsigned int child_id = graph.index_lookup[child];
-          OpenBabel::OBAtom *chi_atom = babel_atom_lookup[child_id];
+          OBAtom *chi_atom = babel_atom_lookup[child_id];
           if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
             return false;
         }
@@ -5058,7 +5059,7 @@ struct BabelGraph{
 **********************************************************************/
 
 
-bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
+bool ReadWLN(const char *ptr, OBMol* mol)
 {   
   if(!ptr){
     fprintf(stderr,"Error: could not read wln string pointer\n");
@@ -5210,12 +5211,12 @@ int main(int argc, char *argv[])
   ProcessCommandLine(argc, argv);
   
   std::string res;
-  OpenBabel::OBMol mol;
+  OBMol mol;
   if(!ReadWLN(cli_inp,&mol))
     return 1;
   
-  OpenBabel::OBConversion conv;
-  conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
+  OBConversion conv;
+  conv.AddOption("h",OBConversion::OUTOPTIONS);
   conv.SetOutFormat(format);
 
   res = conv.WriteString(&mol);
