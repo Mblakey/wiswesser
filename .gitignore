@@ -7,3 +7,4 @@ src/openbabel/
 src/grammars/.antlr
 .vscode
 external
+scripts
