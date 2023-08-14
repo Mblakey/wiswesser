@@ -77,6 +77,14 @@ unsigned int static locant_to_int(unsigned char loc){
 }
 
 
+// keeps the pair order irrevlent for use in maps
+std::pair<OBAtom*,OBAtom*> static make_atom_pair(OBAtom *a, OBAtom *b) 
+{
+    if ( a < b ) return std::pair<OBAtom*, OBAtom*>(a,b);
+    else return std::pair<OBAtom*, OBAtom*>(b,a);
+}
+
+
 
 /**********************************************************************
                           STRUCT DEFINTIONS
@@ -140,6 +148,7 @@ struct WLNSymbol
 
 };
 
+
 struct WLNRing
 {
   std::vector<unsigned int> rings;
@@ -197,116 +206,6 @@ struct WLNGraph
       delete RINGS[i];
     }
   }
-};
-
-// some bridge notation is index dependent
-struct indexed_pair{
-  unsigned char bind_1 = '\0';
-  unsigned char bind_2 = '\0';
-  unsigned int index   = 0;
-
-  void set(unsigned char a, unsigned char b, unsigned int p){
-    bind_1 = a;
-    bind_2 = b;
-    index = p;
-  }
-
-};
-
-// needs to be able to hold both a WLNSymbol and WLNRing for branch returns
-struct ObjectStack{  
-  std::vector<std::pair<WLNRing*,WLNSymbol*>> stack; // vector so i can iterate down and instant access
-  WLNRing   *ring;
-  WLNSymbol *branch;
-  unsigned int size;
-
-  ObjectStack(){
-    ring = 0;
-    branch = 0;
-    size = 0;
-  }
-
-  void reserve(unsigned int n){
-    stack.reserve(n);
-  }
-
-  bool peek(){
-    if(!size){
-      fprintf(stderr,"Error: peeking empty ring stack\n");
-      return false;
-    }
-    else{
-      fprintf(stderr,"top: ring: %p   branch: %p\n",stack.back().first,stack.back().second);
-      return true;
-    }
-     
-  }
-
-  bool pop(){
-    stack.pop_back();
-    size--;
-
-    ring = 0;
-    branch = 0;
-
-    if(stack.empty()){
-      fprintf(stderr,"Error: popping empty ring stack\n");
-      return false;
-    }
-     
-    for (int i=size-1;i>-1;i--){
-      
-      if(!ring && stack[i].first)
-        ring = stack[i].first;
-      
-      if(!branch && stack[i].second)
-        branch = stack[i].second;        
-    }
-
-    return true; 
-  }
-
-  void push(std::pair<WLNRing*,WLNSymbol*> pair,bool verbose = false){
-    stack.push_back(pair);
-    if(pair.first)
-      ring = pair.first;
-
-    if(pair.second)
-      branch = pair.second;
-
-    if(verbose){
-      fprintf(stderr,"pushed: ring: %p    branch: %p\n",pair.first,pair.second);
-    }
-
-    size++;
-  }
-
-
-  bool empty(){
-    if (stack.empty())
-      return true;
-    else 
-      return false;
-  }
-
-  void clear_all(){
-    ring = 0;
-    branch = 0;
-    stack.clear();
-  }
-
-  std::pair<WLNRing*,WLNSymbol*> & top(){
-    return stack.back();
-  }
-
-  // cleans branches
-  bool branch_avaliable(){
-    if(branch && branch->num_edges < branch->allowed_edges)
-      return true;
-    else
-      return false;
-  }
-
 };
 
 
@@ -1675,16 +1574,92 @@ struct BabelGraph{
     return true;
   }
 
-  bool WritePolyCyclic(WLNRing *ring, std::set<OBAtom*> &fuses){
+  bool WritePolyCyclic(OBMol *mol, unsigned int size,std::set<std::pair<OBAtom*,OBAtom*>> &pair_cuts, bool hetero ,std::string &buffer){
+
+    if(opt_debug){
+      fprintf(stderr,"Writing polycyclic\n");
+      fprintf(stderr,"  preparing locant chain\n");
+    }
+
+    /*
+      The locant path can be calculated without an NP-hard solution as follows:
+    
+      *cut* any bonds that fuse rings together, leaving a loop. Start from one of the cut
+      points, and a locant path will emerge. (not minimal, but valid).
+    */
+    
+    OBAtom *locant_start = 0; 
+    OBAtom *locant_end = 0;
+
+    // remove the bonds and choose start
+    for (std::set<std::pair<OBAtom*,OBAtom*>>::iterator iter = pair_cuts.begin(); iter != pair_cuts.end(); iter++){
+      OBBond *bond = mol->GetBond((*iter).first , (*iter).second); 
+      
+      if(!locant_start)
+        locant_start = (*iter).first; 
+
+      if(opt_debug)
+        fprintf(stderr,"    cutting bond from atom %d to atom %d\n",(*iter).first->GetIdx(),(*iter).second->GetIdx());
+    
+      mol->DeleteBond(bond);
+    }
+
+    // this now leaves a ring, need to choose a direction and cut ends. 
+    FOR_NBORS_OF_ATOM(aiter,locant_start){
+      locant_end = &(*aiter); 
+      break;
+    }
+
+    if(opt_debug)
+      fprintf(stderr,"    cutting bond from atom %d to atom %d\n",locant_start->GetIdx(),locant_end->GetIdx());
+
+    mol->DeleteBond(mol->GetBond(locant_start,locant_end));
+    
+    
+    // now leaves a chain
+    std::map<OBAtom*,bool> seen; 
+    OBAtom **locant_chain = (OBAtom**)malloc(sizeof(OBAtom*) * size); 
+    for(unsigned int i=0;i<size;i++)
+      locant_chain[i] = 0;
+
+    unsigned int i=0;
+    OBAtom *atom = locant_start;
+    while(i < size){
+      locant_chain[i++] = atom; 
+      seen[atom] = true;
+      FOR_NBORS_OF_ATOM(aiter,atom){
+        if(!seen[&(*aiter)]){
+          atom = &(*aiter); 
+          break;
+        }
+      }
+    }
+
+    if(opt_debug){
+      fprintf(stderr,"  locant path: [ ");
+      for(unsigned int i=0;i<size;i++){
+        fprintf(stderr,"%d ",locant_chain[i]->GetIdx());
+      }
+      fprintf(stderr,"]\n");
+    }
 
 
 
+    if(hetero)
+      buffer += 'T';
+    else
+      buffer += 'L'; 
+
+   
+    buffer += 'J';
+
+    free(locant_chain);
     return true; 
   }
 
 
   /* WLN works from the intital ring, and spans out from there */
-  WLNRing* ReadBabelCyclic(OBAtom *ring_root, OBMol *mol, WLNGraph &graph){
+  WLNRing* ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol, WLNGraph &graph){
     // right so we have cyclic species, first thing
     // is to build the intitial ring, this could be 2 or more SSSRs so we need to 
     // construct this properly
@@ -1703,35 +1678,39 @@ struct BabelGraph{
     std::map<OBAtom*,bool> visited; 
     std::stack<OBAtom*> atom_stack; 
     
+    bool hetero = false; 
     unsigned int size = 0; 
     unsigned int in_rings = 0; 
     OBAtom *atom = 0; 
     OBAtom *neighbour = 0; 
     OBAtomIterator aiter; 
 
-    std::set<OBAtom*> fuses;
     std::set<OBAtom*> multicyclic;
-    std::set<OBAtom*> branching; 
-
-    std::set<OBRing*> ring_set; 
-
+    std::set<OBAtom*> branching;   
+    std::set<OBRing*> local_SSSR; 
+    std::set<std::pair<OBAtom*,OBAtom*>> pair_cuts; // reverse locant chain building
+    std::map<OBAtom*,unsigned int> ring_shares; 
 
     atom_stack.push(ring_root); 
     while(!atom_stack.empty()){
       in_rings = 0;
-      atom = atom_stack.top(); 
+      atom = atom_stack.top();
       atom_stack.pop();
       visited[atom] = true; 
       size++;
+
+      if(atom->GetAtomicNum() != 6)
+        hetero = true;
 
       FOR_RINGS_OF_MOL(r,mol){
         OBRing *obring = &(*r);
         if(obring->IsMember(atom)){
           in_rings++;
-          ring_set.insert(obring); // use to get the SSSR size into WLNRing 
+          local_SSSR.insert(obring); // use to get the SSSR size into WLNRing 
         }
       }
-      
+      ring_shares[atom] = in_rings; 
+
       FOR_NBORS_OF_ATOM(aiter,atom){
         neighbour = &(*aiter); 
         if(neighbour->IsInRing() && !visited[neighbour]){
@@ -1744,41 +1723,45 @@ struct BabelGraph{
         branching.insert(atom);
       else if(in_rings == 3)
         multicyclic.insert(atom);
-      else if(in_rings == 2)
-        fuses.insert(atom); 
     }
 
-    if(opt_debug)
-      fprintf(stderr,"  SSSR for system:    ");
-    std::set<OBRing*>::iterator set_iter; // rb tree so O(n) iterator
-    for(set_iter = ring_set.begin();set_iter != ring_set.end();set_iter++){
-      if(opt_debug)
-        fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
 
-      wln_ring->rings.push_back((*set_iter)->Size());
+    // bit of a horrible nest, but will work
+    OBAtom* sbj = 0; 
+    OBAtom* trg = 0; 
+    for (std::map<OBAtom*,unsigned int>::iterator i = ring_shares.begin(); i != ring_shares.end(); i++) {
+      if( (*i).second > 1)
+        sbj = (*i).first;
+      else
+        continue;
+    
+      for (std::map<OBAtom*,unsigned int>::iterator j = i; j != ring_shares.end(); j++) {
+        if( (*j).second > 1)
+          trg = (*j).first;
+        else
+          continue;
+
+        if(mol->GetBond(sbj,trg))
+          pair_cuts.insert(make_atom_pair(sbj,trg));
+      }
     }
-    if(opt_debug)
-      fprintf(stderr,"\n");
 
-    if(opt_debug)
-      fprintf(stderr,"  ring size:          %d\n",size);
 
     if(opt_debug){
-      fprintf(stderr,"  fuse points:        %ld\n",fuses.size());
+      fprintf(stderr,"  SSSR for system:    ");
+      for(std::set<OBRing*>::iterator set_iter = local_SSSR.begin();set_iter != local_SSSR.end();set_iter++)
+        fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  ring size:          %d\n",size);
       fprintf(stderr,"  multicyclic points: %ld\n",multicyclic.size());
       fprintf(stderr,"  branching points:   %ld\n",branching.size());
+      fprintf(stderr,"  pair cuts:          %ld\n",pair_cuts.size());
     }
 
 
-    // build conditions 
-    if(branching.size() || multicyclic.size()){
-      // multicyclic
-    }
-    else if(fuses.size()){
-      // polycyclic
-    }
-    else{
-      // monocyclic
+    if(multicyclic.empty() && branching.empty()){
+      WritePolyCyclic(mol,size,pair_cuts,hetero,buffer);
     }
 
     
@@ -1824,7 +1807,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
   else{
 
     // get the start ring, and then use that as the jump point
-    start_ring = obabel.ReadBabelCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol ,wln_graph);
+    start_ring = obabel.ReadBabelCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),buffer,mol ,wln_graph);
     
   }
 
