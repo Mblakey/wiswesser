@@ -502,7 +502,7 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
   fprintf(fp, "}\n");
 }
 
-bool WriteGraph(WLNGraph &graph){
+bool WriteWLNDotGraph(WLNGraph &graph){
   fprintf(stderr,"Dumping wln graph to wln-graph.dot:\n");
   FILE *fp = 0;
   fp = fopen("wln-graph.dot", "w");
@@ -522,6 +522,46 @@ bool WriteGraph(WLNGraph &graph){
 }
 
 
+void BabelDumptoDot(FILE *fp, OBMol *mol){
+
+  fprintf(fp, "digraph BABELdigraph {\n");
+  fprintf(fp, "  rankdir = LR;\n");
+  FOR_ATOMS_OF_MOL(aiter,mol){
+    OBAtom* atom = &(*aiter); 
+    fprintf(fp, "  %d", atom->GetIdx());
+    fprintf(fp, "[shape=circle,label=\"%s\"];\n", std::to_string(atom->GetIdx()).c_str());
+  }
+
+  FOR_BONDS_OF_MOL(biter,mol){
+    OBBond* bond = &(*biter); 
+    fprintf(fp, "  %d", bond->GetBeginAtom()->GetIdx() );
+    fprintf(fp, " -> ");
+    fprintf(fp, "%d\n", bond->GetEndAtom()->GetIdx() );
+
+  }
+
+  fprintf(fp, "}\n");
+}
+
+
+bool WriteBabelDotGraph(OBMol *mol){
+  fprintf(stderr,"Dumping babel graph to babel-graph.dot:\n");
+  FILE *fp = 0;
+  fp = fopen("babel-graph.dot", "w");
+  if (!fp)
+  {
+    fprintf(stderr, "Error: could not create dump .dot file\n");
+    fclose(fp);
+    return false;
+  }
+  else
+    BabelDumptoDot(fp,mol);
+  
+  fclose(fp);
+  fp = 0;
+  fprintf(stderr,"  dumped\n");
+  return true;
+}
 
 
 /**********************************************************************
@@ -1577,6 +1617,62 @@ struct BabelGraph{
     return true;
   }
 
+
+// fprintf(stderr, "%d -- %d --> %d\n",ls_atom->GetIdx(),rsize-1,le_atom->GetIdx());
+
+  // use path jumps across array read to create notation
+  bool ReadLocantArray(OBMol *mol, OBAtom **locant_array,unsigned int size,std::vector<OBRing*> &ring_order, std::map<OBAtom*,unsigned int> &ring_shares){
+    return true; 
+
+    // WIP
+
+
+    std::map<OBAtom*,OBAtom*> jumps; 
+    std::map<OBAtom*,unsigned int> position; 
+    
+    // keep positions instant access
+    for(unsigned int i=0;i<size;i++)
+      position[locant_array[i]] = i; 
+
+    for(unsigned int i=0;i<ring_order.size();i++){
+      unsigned int rsize = ring_order[i]->Size();
+      fprintf(stderr,"ring size: %d\n",rsize);
+
+      OBAtom *ls_atom = 0;
+      OBAtom *le_atom = 0;
+
+      // does whole locant path
+      for(unsigned int j=0;j<size;j++){
+        unsigned int steps = 0;
+        ls_atom = locant_array[j];
+        le_atom = ls_atom; 
+        while(steps < rsize-1){
+          if(jumps[le_atom])
+            le_atom = jumps[le_atom]; 
+          else if(position[le_atom] < size-1)
+            le_atom = locant_array[position[le_atom]+1]; 
+          else
+            le_atom = locant_array[0]; // wrap back
+
+          steps++;
+        }
+
+        if(ring_shares[ls_atom] > 1 && ring_shares[le_atom] > 1){
+          fprintf(stderr, "%d -- %d --> %d\n",ls_atom->GetIdx(),rsize-1,le_atom->GetIdx());
+          jumps[ls_atom] = le_atom;
+
+          std::cout << int_to_locant(position[ls_atom] + 1) << rsize << " ";
+          break;
+        }
+          
+      }
+
+
+    }
+
+    return true; 
+  }
+
   /* works on priority, and creates locant path via array shifting */
   OBAtom **CreateLocantArray(OBMol *mol, std::set<OBRing*> &local_SSSR, std::map<OBAtom*,unsigned int> &ring_shares, unsigned int size){
 
@@ -1589,9 +1685,11 @@ struct BabelGraph{
     unsigned int rings_handled = 0; 
     unsigned int locant_pos = 0;
 
+    std::vector<OBRing*> ring_order; 
     std::map<OBRing*,bool> rings_seen; 
     std::map<OBAtom*,bool> atoms_seen; 
     OBRing *obring = *(local_SSSR.begin());
+    ring_order.push_back(obring);
 
      // add into the array directly for precondition, shift until highest priority is found  
     unsigned int init_priority = 0;
@@ -1635,6 +1733,7 @@ struct BabelGraph{
               next_seed = ratom;
               hp_pos = i;
               obring = (*iter);
+              ring_order.push_back(obring);
               found = true;
               break;
             }
@@ -1670,14 +1769,25 @@ struct BabelGraph{
         print_locant_array(locant_path,size); 
       }
 
-
     }
+
+
+    WriteBabelDotGraph(mol);
+
+    // ring order is preserved for the locant path, read here
+    //ReadLocantArray(mol,locant_path,size,ring_order, ring_shares);
+
 
     return locant_path;
   }
 
 
-  /* Works from a starting ring atom, build up local SSSR from there*/
+
+  /* 
+  Works from a starting ring atom, build up local SSSR from there
+  returns active rings atoms for non-cyclic root check 
+  */
+
   WLNRing* ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol, WLNGraph &graph){
 
     if(opt_debug)
@@ -1758,12 +1868,20 @@ struct BabelGraph{
     OBAtom **locant_path = 0;
     if(!branching)
       locant_path = CreateLocantArray(mol,local_SSSR,ring_shares,size);
-
-
-    if(locant_path){
-      free(locant_path);
-      locant_path = 0; 
+    else{
+      fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
+      return wln_ring;
     }
+
+    if(hetero)
+      buffer+='T';
+    else
+      buffer+='L';
+
+ 
+    buffer+='J';
+    free(locant_path);
+    locant_path = 0; 
     return wln_ring;   
   }
   
@@ -1798,7 +1916,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
 
     // create an optional wln dotfile
     if (opt_wln2dot)
-      WriteGraph(wln_graph);
+      WriteWLNDotGraph(wln_graph);
 
     if(state)
       state = obabel.ParseNonCyclicWLN(roots,wln_graph,buffer);
