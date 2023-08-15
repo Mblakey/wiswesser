@@ -1741,9 +1741,15 @@ struct BabelGraph{
       fprintf(stderr,"  branching points:   %d\n",branching);
     }
 
+    OBAtom **locant_path = 0;
+    if(!branching)
+      locant_path = CreateLocantArray(mol,local_SSSR,ring_shares,size);
 
-    OBAtom **locant_path = CreateLocantArray(mol,local_SSSR,ring_shares,size);
 
+    if(locant_path){
+      free(locant_path);
+      locant_path = 0; 
+    }
     return wln_ring;   
   }
   
