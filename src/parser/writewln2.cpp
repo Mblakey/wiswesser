@@ -1626,6 +1626,7 @@ struct BabelGraph{
 
       // this needs to be done on the array, with a external ring check
       for(unsigned int i=0;i<locant_pos;i++){
+        bool found = false;
         ratom = locant_path[i];
         if(ring_shares[ratom] > 1){
           // find out if its pointing at a ring we havent yet considered
@@ -1634,12 +1635,18 @@ struct BabelGraph{
               next_seed = ratom;
               hp_pos = i;
               obring = (*iter);
+              found = true;
               break;
             }
           }
+          if(found)
+            break;
         }
       }
 
+      if(opt_debug)
+        fprintf(stderr,"  shift %d from position %d\n",obring->_path.size(),hp_pos);
+      
       // --- shift and add procedure ---
       // rings atoms must flow clockwise in _path to form the locant path correctly
       // is this an obabel default? --> algorithm relies on it
@@ -1647,9 +1654,14 @@ struct BabelGraph{
       for(unsigned int i=0;i<obring->_path.size();i++){
         ratom = mol->GetAtom(obring->_path[i]);
         if(!atoms_seen[ratom]){
-          locant_path[locant_pos++] = locant_path[hp_pos+1+j];
-          locant_path[hp_pos+1+(j++)] = ratom;
+          // shift
+          for(int k=size-1;k>hp_pos+j;k--)
+            locant_path[k]= locant_path[k-1];
+            
+          locant_path[hp_pos+1+j] = ratom;
           atoms_seen[ratom] = true;
+          j++;
+          locant_pos++;
         }
       }
 
@@ -1657,6 +1669,8 @@ struct BabelGraph{
         fprintf(stderr,"  locant path: ");
         print_locant_array(locant_path,size); 
       }
+
+
     }
 
     return locant_path;
