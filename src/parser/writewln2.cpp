@@ -77,11 +77,16 @@ unsigned int static locant_to_int(unsigned char loc){
 }
 
 
-// keeps the pair order irrevlent for use in maps
-std::pair<OBAtom*,OBAtom*> static make_atom_pair(OBAtom *a, OBAtom *b) 
-{
-    if ( a < b ) return std::pair<OBAtom*, OBAtom*>(a,b);
-    else return std::pair<OBAtom*, OBAtom*>(b,a);
+static void print_locant_array(OBAtom **locant_path, unsigned int size){
+  fprintf(stderr,"[ ");
+  for(unsigned int i=0; i<size;i++){
+    if(!locant_path[i])
+      fprintf(stderr,"0 ");
+    else
+      fprintf(stderr,"%d ",locant_path[i]->GetIdx());
+  }
+    
+  fprintf(stderr,"]\n");
 }
 
 
@@ -207,8 +212,6 @@ struct WLNGraph
     }
   }
 };
-
-
 
 /**********************************************************************
                          WLNSYMBOL Functions
@@ -1574,15 +1577,97 @@ struct BabelGraph{
     return true;
   }
 
+  /* works on priority, and creates locant path via array shifting */
+  OBAtom **CreateLocantArray(OBMol *mol, std::set<OBRing*> &local_SSSR, std::map<OBAtom*,unsigned int> &ring_shares, unsigned int size){
 
-  /* WLN works from the intital ring, and spans out from there */
+    OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * size); 
+    for(unsigned int i=0;i<size;i++)
+      locant_path[i] = 0; 
+
+   
+    OBAtom *ratom = 0;
+    unsigned int rings_handled = 0; 
+    unsigned int locant_pos = 0;
+
+    std::map<OBRing*,bool> rings_seen; 
+    std::map<OBAtom*,bool> atoms_seen; 
+    OBRing *obring = *(local_SSSR.begin());
+
+     // add into the array directly for precondition, shift until highest priority is found  
+    unsigned int init_priority = 0;
+    for(unsigned int i=0;i<obring->_path.size();i++){
+      ratom = mol->GetAtom(obring->_path[i]);
+      locant_path[locant_pos++] = ratom;
+      atoms_seen[ratom] = true;
+      if(init_priority < ring_shares[ratom])
+        init_priority = ring_shares[ratom];  
+    }
+
+    // shift so A is guaranteed a ring share
+    while(ring_shares[locant_path[0]] != init_priority){
+      locant_path[locant_pos] = locant_path[0];
+      for(unsigned int i=0;i<size-1;i++)
+        locant_path[i] = locant_path[i+1];
+    }
+
+    if(opt_debug){
+      fprintf(stderr,"  locant path: ");
+      print_locant_array(locant_path,size); 
+    }
+
+    while(rings_handled < local_SSSR.size()-1){
+
+      rings_seen[obring] = true;
+      rings_handled++; 
+
+      // find the first point seen with an external ring condition
+      OBAtom *next_seed = 0;
+      unsigned int hp_pos = 0; 
+
+      // this needs to be done on the array, with a external ring check
+      for(unsigned int i=0;i<locant_pos;i++){
+        ratom = locant_path[i];
+        if(ring_shares[ratom] > 1){
+          // find out if its pointing at a ring we havent yet considered
+          for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
+            if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
+              next_seed = ratom;
+              hp_pos = i;
+              obring = (*iter);
+              break;
+            }
+          }
+        }
+      }
+
+      // --- shift and add procedure ---
+      // rings atoms must flow clockwise in _path to form the locant path correctly
+      // is this an obabel default? --> algorithm relies on it
+      unsigned int j=0;
+      for(unsigned int i=0;i<obring->_path.size();i++){
+        ratom = mol->GetAtom(obring->_path[i]);
+        if(!atoms_seen[ratom]){
+          locant_path[locant_pos++] = locant_path[hp_pos+1+j];
+          locant_path[hp_pos+1+(j++)] = ratom;
+          atoms_seen[ratom] = true;
+        }
+      }
+
+      if(opt_debug){
+        fprintf(stderr,"  locant path: ");
+        print_locant_array(locant_path,size); 
+      }
+    }
+
+    return locant_path;
+  }
+
+
+  /* Works from a starting ring atom, build up local SSSR from there*/
   WLNRing* ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol, WLNGraph &graph){
-    // right so we have cyclic species, first thing
-    // is to build the intitial ring, this could be 2 or more SSSRs so we need to 
-    // construct this properly
 
-     if(opt_debug)
-      fprintf(stderr,"Building ring\n");
+    if(opt_debug)
+    fprintf(stderr,"Building ring\n");
 
     if(!ring_root){
       fprintf(stderr,"Error: ring root is nullptr\n");
@@ -1600,12 +1685,12 @@ struct BabelGraph{
     unsigned int in_rings = 0; 
     OBAtom *atom = 0; 
     OBAtom *neighbour = 0; 
-    OBAtomIterator aiter; 
 
-    std::set<OBAtom*> multicyclic;
-    std::set<OBAtom*> branching;   
+
+    unsigned int fuses = 0;
+    unsigned int multicyclic = 0;
+    unsigned int branching = 0;   
     std::set<OBRing*> local_SSSR; 
-    std::set<std::pair<OBAtom*,OBAtom*>> pair_cuts; // reverse locant chain building
     std::map<OBAtom*,unsigned int> ring_shares; 
 
     atom_stack.push(ring_root); 
@@ -1637,32 +1722,12 @@ struct BabelGraph{
       }
 
       if(in_rings > 3)
-        branching.insert(atom);
+        branching++;
       else if(in_rings == 3)
-        multicyclic.insert(atom);
+        multicyclic++;
+      else if (in_rings == 2)
+        fuses++;
     }
-
-
-    // bit of a horrible nest, but will work
-    OBAtom* sbj = 0; 
-    OBAtom* trg = 0; 
-    for (std::map<OBAtom*,unsigned int>::iterator i = ring_shares.begin(); i != ring_shares.end(); i++) {
-      if( (*i).second > 1)
-        sbj = (*i).first;
-      else
-        continue;
-    
-      for (std::map<OBAtom*,unsigned int>::iterator j = i; j != ring_shares.end(); j++) {
-        if( (*j).second > 1)
-          trg = (*j).first;
-        else
-          continue;
-
-        if(mol->GetBond(sbj,trg))
-          pair_cuts.insert(make_atom_pair(sbj,trg));
-      }
-    }
-
 
     if(opt_debug){
       fprintf(stderr,"  SSSR for system:    ");
@@ -1671,16 +1736,14 @@ struct BabelGraph{
       fprintf(stderr,"\n");
 
       fprintf(stderr,"  ring size:          %d\n",size);
-      fprintf(stderr,"  multicyclic points: %ld\n",multicyclic.size());
-      fprintf(stderr,"  branching points:   %ld\n",branching.size());
-      fprintf(stderr,"  pair cuts:          %ld\n",pair_cuts.size());
+      fprintf(stderr,"  fuse points:        %d\n",fuses);
+      fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
+      fprintf(stderr,"  branching points:   %d\n",branching);
     }
 
 
-    if(multicyclic.empty() && branching.empty()){}
+    OBAtom **locant_path = CreateLocantArray(mol,local_SSSR,ring_shares,size);
 
-    // we need to flow from ring to ring, otherwise this cannot be stable 
-    
     return wln_ring;   
   }
   
