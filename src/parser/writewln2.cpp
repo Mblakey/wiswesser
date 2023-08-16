@@ -1618,63 +1618,75 @@ struct BabelGraph{
   }
 
 
-// fprintf(stderr, "%d -- %d --> %d\n",ls_atom->GetIdx(),rsize-1,le_atom->GetIdx());
-
-  // use path jumps across array read to create notation
-  bool ReadLocantArray(OBMol *mol, OBAtom **locant_array,unsigned int size,std::vector<OBRing*> &ring_order, std::map<OBAtom*,unsigned int> &ring_shares){
-    return true; 
-
-    // WIP
-
-
-    std::map<OBAtom*,OBAtom*> jumps; 
-    std::map<OBAtom*,unsigned int> position; 
+  bool ReadLocantArray(OBMol *mol, OBAtom **locant_array,unsigned int size,
+                      unsigned int rcount, unsigned int spawn_size,
+                      std::map<OBAtom*,OBAtom*> &nt_connections,std::map<std::set<OBAtom*>,
+                      unsigned int> &formed_rings,
+                      std::string &buffer)
+  {
     
-    // keep positions instant access
-    for(unsigned int i=0;i<size;i++)
-      position[locant_array[i]] = i; 
+    // can you take an uninterupted path to the desired locant in nt_connections,
+    // if so, write the ring size, otherwise shift order 
 
-    for(unsigned int i=0;i<ring_order.size();i++){
-      unsigned int rsize = ring_order[i]->Size();
-      fprintf(stderr,"ring size: %d\n",rsize);
+    unsigned int rings_formed = 0;
 
-      OBAtom *ls_atom = 0;
-      OBAtom *le_atom = 0;
+      
+    for(unsigned int i=0;i<size;i++){
+      OBAtom* src = locant_array[i]; 
+      if(nt_connections[src]){
+        // try to take an uninterrupted walk
+        unsigned int j = i+1;
+        while(j < size){
+          OBAtom* trg = locant_array[j];
+          if(trg == src){
+            fprintf(stderr,"Error: full locant loop made, incorrect path likely\n");
+            return false;
+          }
 
-      // does whole locant path
-      for(unsigned int j=0;j<size;j++){
-        unsigned int steps = 0;
-        ls_atom = locant_array[j];
-        le_atom = ls_atom; 
-        while(steps < rsize-1){
-          if(jumps[le_atom])
-            le_atom = jumps[le_atom]; 
-          else if(position[le_atom] < size-1)
-            le_atom = locant_array[position[le_atom]+1]; 
-          else
-            le_atom = locant_array[0]; // wrap back
-
-          steps++;
-        }
-
-        if(ring_shares[ls_atom] > 1 && ring_shares[le_atom] > 1){
-          fprintf(stderr, "%d -- %d --> %d\n",ls_atom->GetIdx(),rsize-1,le_atom->GetIdx());
-          jumps[ls_atom] = le_atom;
-
-          std::cout << int_to_locant(position[ls_atom] + 1) << rsize << " ";
-          break;
-        }
+          // interrupted path, move on 
+          if(nt_connections[trg] && nt_connections[trg] != src)
+            break;
           
+          else if(nt_connections[trg] && nt_connections[trg] == src){
+            // take the minimum locant of the two
+            unsigned int rsize = formed_rings[{src,trg}];
+            unsigned char locant = 'A';
+            if(i < j)
+              locant = int_to_locant(i+1);
+            else
+              locant = int_to_locant(j+1);
+
+            if(locant != 'A'){
+              buffer += ' ';
+              buffer += locant;
+            }
+              
+            buffer += std::to_string(rsize);
+            rings_formed++;
+            break;
+          }
+
+          // loop around the array
+          j++;
+          if(j == size)
+            j = 0;
+        }  
       }
-
-
     }
+
+    // write the spawning ring size
+    buffer += std::to_string(spawn_size);
 
     return true; 
   }
 
+
   /* works on priority, and creates locant path via array shifting */
-  OBAtom **CreateLocantArray(OBMol *mol, std::set<OBRing*> &local_SSSR, std::map<OBAtom*,unsigned int> &ring_shares, unsigned int size){
+  OBAtom **CreateLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
+                              std::map<OBAtom*,unsigned int> &ring_shares, 
+                              unsigned int size,
+                              std::string &buffer)
+  {
 
     OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * size); 
     for(unsigned int i=0;i<size;i++)
@@ -1682,14 +1694,20 @@ struct BabelGraph{
 
    
     OBAtom *ratom = 0;
+    OBRing *obring = *(local_SSSR.begin());
+
     unsigned int rings_handled = 0; 
     unsigned int locant_pos = 0;
-
-    std::vector<OBRing*> ring_order; 
+    unsigned int spawn_size = obring->Size(); 
     std::map<OBRing*,bool> rings_seen; 
     std::map<OBAtom*,bool> atoms_seen; 
-    OBRing *obring = *(local_SSSR.begin());
-    ring_order.push_back(obring);
+
+    std::map<OBAtom*,OBAtom*> nt_connections; // non-trivial connections
+    std::map<std::set<OBAtom*>,unsigned int> formed_rings; 
+    
+    if(opt_debug){
+      fprintf(stderr,"  spawning ring size: %d\n",spawn_size);
+    }
 
      // add into the array directly for precondition, shift until highest priority is found  
     unsigned int init_priority = 0;
@@ -1708,18 +1726,11 @@ struct BabelGraph{
         locant_path[i] = locant_path[i+1];
     }
 
-    if(opt_debug){
-      fprintf(stderr,"  locant path: ");
-      print_locant_array(locant_path,size); 
-    }
-
     while(rings_handled < local_SSSR.size()-1){
-
       rings_seen[obring] = true;
       rings_handled++; 
 
       // find the first point seen with an external ring condition
-      OBAtom *next_seed = 0;
       unsigned int hp_pos = 0; 
 
       // this needs to be done on the array, with a external ring check
@@ -1730,10 +1741,8 @@ struct BabelGraph{
           // find out if its pointing at a ring we havent yet considered
           for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
             if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
-              next_seed = ratom;
               hp_pos = i;
               obring = (*iter);
-              ring_order.push_back(obring);
               found = true;
               break;
             }
@@ -1743,18 +1752,15 @@ struct BabelGraph{
         }
       }
 
-      if(opt_debug)
-        fprintf(stderr,"  shift %d from position %d\n",obring->_path.size(),hp_pos);
       
       // --- shift and add procedure ---
       // rings atoms must flow clockwise in _path to form the locant path correctly
       // enforce by shifting until the target atom is seen at hp_pos
 
       std::deque<int> path;
-      for(unsigned int i=0;i<obring->_path.size();i++)
+      for(unsigned int i=0;i<obring->Size();i++)
         path.push_back(obring->_path[i]);
-
-
+        
       // so atoms line up
       while(path[0] != locant_path[hp_pos]->GetIdx()){
         unsigned int tmp = path[0];
@@ -1762,10 +1768,19 @@ struct BabelGraph{
         path.push_back(tmp);
       }
       
+      // when you perform a shift, hp_pos and hp_pos+1 must still be bonded
+      // = non trivial bonds in the ring system
+      if(opt_debug)
+        fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
+
+      // add both directions
+      nt_connections[locant_path[hp_pos]] = locant_path[hp_pos+1];
+      nt_connections[locant_path[hp_pos+1]] = locant_path[hp_pos];
+      formed_rings[{locant_path[hp_pos],locant_path[hp_pos+1]}] = obring->Size();
+
       unsigned int j=0;
-      for(unsigned int i=0;i<path.size();i++){
+      for(unsigned int i=0;i<obring->Size();i++){
         ratom = mol->GetAtom(path[i]);
-        fprintf(stderr,"adding: %d\n",path[i]);
         if(!atoms_seen[ratom]){
           // shift
           for(int k=size-1;k>hp_pos+j;k--) // potential off by 1 here. 
@@ -1777,21 +1792,20 @@ struct BabelGraph{
           locant_pos++;
         }
       }
-
-      if(opt_debug){
-        fprintf(stderr,"  locant path: ");
-        print_locant_array(locant_path,size); 
-      }
-
     }
 
-
-    WriteBabelDotGraph(mol);
+    if(opt_debug){
+      fprintf(stderr,"  locant path: ");
+      print_locant_array(locant_path,size); 
+    }
 
     // ring order is preserved for the locant path, read here
-    //ReadLocantArray(mol,locant_path,size,ring_order, ring_shares);
 
+    buffer+='L';
 
+    ReadLocantArray(mol,locant_path,size,rings_handled,spawn_size,nt_connections,formed_rings,buffer);
+
+    buffer += 'J';
     return locant_path;
   }
 
@@ -1818,7 +1832,6 @@ struct BabelGraph{
     std::map<OBAtom*,bool> visited; 
     std::stack<OBAtom*> atom_stack; 
     
-    bool hetero = false; 
     unsigned int size = 0; 
     unsigned int in_rings = 0; 
     OBAtom *atom = 0; 
@@ -1838,9 +1851,6 @@ struct BabelGraph{
       atom_stack.pop();
       visited[atom] = true; 
       size++;
-
-      if(atom->GetAtomicNum() != 6)
-        hetero = true;
 
       FOR_RINGS_OF_MOL(r,mol){
         OBRing *obring = &(*r);
@@ -1881,19 +1891,13 @@ struct BabelGraph{
 
     OBAtom **locant_path = 0;
     if(!branching)
-      locant_path = CreateLocantArray(mol,local_SSSR,ring_shares,size);
+      locant_path = CreateLocantArray(mol,local_SSSR,ring_shares,size,buffer);
     else{
       fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
       return wln_ring;
     }
 
-    if(hetero)
-      buffer+='T';
-    else
-      buffer+='L';
-
  
-    buffer+='J';
     free(locant_path);
     locant_path = 0; 
     return wln_ring;   
