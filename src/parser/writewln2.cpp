@@ -1748,13 +1748,27 @@ struct BabelGraph{
       
       // --- shift and add procedure ---
       // rings atoms must flow clockwise in _path to form the locant path correctly
-      // is this an obabel default? --> algorithm relies on it
+      // enforce by shifting until the target atom is seen at hp_pos
+
+      std::deque<int> path;
+      for(unsigned int i=0;i<obring->_path.size();i++)
+        path.push_back(obring->_path[i]);
+
+
+      // so atoms line up
+      while(path[0] != locant_path[hp_pos]->GetIdx()){
+        unsigned int tmp = path[0];
+        path.pop_front();
+        path.push_back(tmp);
+      }
+      
       unsigned int j=0;
-      for(unsigned int i=0;i<obring->_path.size();i++){
-        ratom = mol->GetAtom(obring->_path[i]);
+      for(unsigned int i=0;i<path.size();i++){
+        ratom = mol->GetAtom(path[i]);
+        fprintf(stderr,"adding: %d\n",path[i]);
         if(!atoms_seen[ratom]){
           // shift
-          for(int k=size-1;k>hp_pos+j;k--)
+          for(int k=size-1;k>hp_pos+j;k--) // potential off by 1 here. 
             locant_path[k]= locant_path[k-1];
             
           locant_path[hp_pos+1+j] = ratom;
