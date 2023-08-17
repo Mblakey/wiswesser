@@ -1848,9 +1848,11 @@ struct BabelGraph{
 
     if(!nt_pairs.empty()){
       fprintf(stderr,"Error: safety caught on reduced locant loop\n");
+
+      std::cout << ring_str << std::endl;
+
       return false;
     }
-
 
 
     free(reduced_path);
