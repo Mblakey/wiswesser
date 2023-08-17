@@ -76,6 +76,18 @@ unsigned int static locant_to_int(unsigned char loc){
   return loc - 64;
 }
 
+unsigned char static create_relative_position(unsigned char parent){
+  // A = 129
+  unsigned int relative = 128 + locant_to_int(parent);
+  if(relative > 252){
+    fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
+    return '\0';
+  }
+  else
+    return relative;
+}
+
+
 
 static void print_locant_array(OBAtom **locant_path, unsigned int size){
   fprintf(stderr,"[ ");
@@ -151,18 +163,6 @@ struct WLNSymbol
     type = t;
   }
 
-};
-
-
-struct WLNRing
-{
-  std::vector<unsigned int> rings;
-  std::map<unsigned char, WLNSymbol *> locants; 
-  std::map<WLNSymbol*,unsigned char> locants_ch;
-  std::vector<std::pair<unsigned char,int>> post_charges; 
-  
-  WLNRing(){}
-  ~WLNRing(){};
 };
 
 
@@ -394,52 +394,6 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
   }
 
   return true;
-}
-
-
-
-/**********************************************************************
-                          WLNRing Functions
-**********************************************************************/
-
-WLNRing *AllocateWLNRing(WLNGraph &graph)
-{
-  graph.ring_count++;
-  if(graph.ring_count > REASONABLE){
-    fprintf(stderr,"Error: creating more than 1024 wln rings - is this reasonable?\n");
-    return 0;
-  }
-
-  WLNRing *wln_ring = new WLNRing;
-  graph.RINGS[graph.ring_count] = wln_ring;
-  return wln_ring;
-}
-
-
-// both lookups needed for QOL in ring building
-WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
-    
-  if(!locant)
-    return 0;
-  
-  ring->locants[loc] = locant; 
-  ring->locants_ch[locant] = loc;
-  locant->type = RING;
-  return locant; 
-}  
-
-
-
-
-unsigned char create_relative_position(unsigned char parent){
-  // A = 129
-  unsigned int relative = 128 + locant_to_int(parent);
-  if(relative > 252){
-    fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
-    return '\0';
-  }
-  else
-    return relative;
 }
 
 
@@ -1698,7 +1652,9 @@ struct BabelGraph{
 
   /* works on priority, and creates locant path via array shifting */
   bool FillLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
-                        std::map<OBAtom*,unsigned int> &ring_shares, 
+                        std::map<OBAtom*,unsigned int> &ring_shares,
+                        std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                        std::vector<unsigned int> &nt_sizes,
                         OBAtom **locant_path, unsigned int path_size)
   {
 
@@ -1709,11 +1665,7 @@ struct BabelGraph{
     std::map<OBRing*,bool> rings_seen; 
     std::map<OBAtom*,bool> atoms_seen; 
 
-    std::map<OBAtom*,OBAtom*> nt_connections; // non-trivial connections
-    std::map<std::set<OBAtom*>,unsigned int> formed_rings; 
-    
-    
-     // add into the array directly for precondition, shift until highest priority is found  
+    // add into the array directly for precondition, shift until highest priority is found  
     unsigned int init_priority = 0;
     for(unsigned int i=0;i<obring->_path.size();i++){
       ratom = mol->GetAtom(obring->_path[i]);
@@ -1775,11 +1727,10 @@ struct BabelGraph{
       if(opt_debug)
         fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
 
-      // add both directions
-      nt_connections[locant_path[hp_pos]] = locant_path[hp_pos+1];
-      nt_connections[locant_path[hp_pos+1]] = locant_path[hp_pos];
-      formed_rings[{locant_path[hp_pos],locant_path[hp_pos+1]}] = obring->Size();
-
+      // add nt pair + size
+      nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
+      nt_sizes.push_back(obring->Size()); 
+      
       unsigned int j=0;
       for(unsigned int i=0;i<obring->Size();i++){
         ratom = mol->GetAtom(path[i]);
@@ -1796,102 +1747,159 @@ struct BabelGraph{
       }
     }
 
-    if(opt_debug){
-      fprintf(stderr,"  locant path: ");
-      print_locant_array(locant_path,path_size); 
-    }
 
-    // ring order is preserved for the locant path, read here
-
+    // read non-trival positions
     return true;
   }
 
-#ifdef WIP
-  bool ReadLocantArray(OBMol *mol, OBAtom **locant_array,unsigned int size,
-                      unsigned int rcount, unsigned int spawn_size)
+  bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
+    for(unsigned int i=0;i<size;i++){
+      if(locant_array[i]->GetAtomicNum() != 6)
+        return true;
+    }
+    return false; 
+  }
+
+
+  void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned int size,
+                          std::map<OBAtom*,unsigned int> &ring_shares){
+    for(unsigned int i=0;i<size;i++){
+      if(ring_shares[locant_path[i]] > 1)
+        reduced_path[i] = locant_path[i];
+      else
+        reduced_path[i] = 0; 
+    }
+  }
+
+
+  bool ReadLocantArray(OBAtom **locant_path,unsigned int path_size,
+                       std::map<OBAtom*,unsigned int> &ring_shares,
+                       std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                       std::vector<unsigned int> &nt_sizes,
+                       unsigned int expected_rings,
+                       unsigned int spawned_size,
+                       std::string &ring_str)
   {
     
-    // can you take an uninterupted path to the desired locant in nt_connections,
-    // if so, write the ring size, otherwise shift order 
+    // can we take an interrupted walk between the points, if so, write ring size 
+    // and remove 
 
-    unsigned int rings_formed = 0;
+    // create a reduced array 
+    OBAtom **reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
+    UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
 
-      
-    for(unsigned int i=0;i<size;i++){
-      OBAtom* src = locant_array[i]; 
-      if(nt_connections[src]){
-        // try to take an uninterrupted walk
-        unsigned int j = i+1;
-        while(j < size){
-          OBAtom* trg = locant_array[j];
-          if(trg == src){
-            fprintf(stderr,"Error: full locant loop made, incorrect path likely\n");
-            return false;
-          }
+    fprintf(stderr,"  reduced path: ");
+    print_locant_array(reduced_path,path_size);
 
-          // interrupted path, move on 
-          if(nt_connections[trg] && nt_connections[trg] != src)
+    unsigned int safety = 0;
+    while(!nt_pairs.empty() && safety < expected_rings){
+    
+      for(unsigned int i=0;i<nt_pairs.size();i++){
+        OBAtom *first =  nt_pairs[i].first; 
+        OBAtom *second = nt_pairs[i].second; 
+
+        // find the position of first in the array
+        unsigned int pos = 0; 
+        for(pos;pos < path_size;pos++){
+          if(locant_path[pos] == first)
             break;
-          
-          else if(nt_connections[trg] && nt_connections[trg] == src){
-            // take the minimum locant of the two
-            unsigned int rsize = formed_rings[{src,trg}];
-            unsigned char locant = 'A';
-            if(i < j)
-              locant = int_to_locant(i+1);
-            else
-              locant = int_to_locant(j+1);
+        }
 
-            if(locant != 'A'){
-              buffer += ' ';
-              buffer += locant;
+        // can we go to the second without interuption
+        bool popped = false;
+        for(unsigned int j=pos+1;j < path_size;j++){
+          if(reduced_path[j] && reduced_path[j] != second){
+            // interuption - pair cannot be handled in this iteration
+            // break out of search, search next pair
+            break;
+          }
+          else if(reduced_path[j] && reduced_path[j] == second){
+            // write the ring, and pop nt_pair and nt_ring at position 
+
+            if(pos){
+              ring_str+= ' ';
+              ring_str+= int_to_locant(pos+1);
             }
-              
-            buffer += std::to_string(rsize);
-            rings_formed++;
+            ring_str += std::to_string(nt_sizes[i]);
+
+            nt_pairs.erase(nt_pairs.begin() + i);
+            nt_sizes.erase(nt_sizes.begin() + i);
+
+            // update the reduced locant path based on ring_shares
+            ring_shares[first]--;
+            ring_shares[second]--;
+            UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
+
+            // requires reset to while loop 
+            popped = true; 
             break;
           }
+        }
 
-          // loop around the array
-          j++;
-          if(j == size)
-            j = 0;
-        }  
+        if(popped) // resets to while
+          break;
       }
+      
+      safety++;
     }
 
-    // write the spawning ring size
-    buffer += std::to_string(spawn_size);
+    // write the spawned ring size at A
+    ring_str += std::to_string(spawned_size);
 
-    return true; 
+    if(!nt_pairs.empty()){
+      fprintf(stderr,"Error: safety caught on reduced locant loop\n");
+      return false;
+    }
+
+
+
+    free(reduced_path);
+    reduced_path=0;
+    return true;
   }
-#endif
 
 
 
   OBAtom **ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol){
-
+    std::string cyclic_str; 
+    
     OBAtom **locant_path = 0;
     std::set<OBRing*> local_SSSR; 
     std::map<OBAtom*,unsigned int> ring_shares; 
+    std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
+    std::vector<unsigned int>               nt_sizes;  
+
+    bool hetero_ring = false;
+    unsigned int spawn_size = 0; 
+    unsigned int expected_rings = 0;
     unsigned int path_size = ConstructLocalSSSR(ring_root,mol,ring_shares,local_SSSR); 
     if(path_size){
       
-      unsigned int spawn_size = (*local_SSSR.begin())->Size(); 
-      if(opt_debug)
-        fprintf(stderr,"  spawning ring size: %d\n",spawn_size);
-      
-
-      OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+      spawn_size = (*local_SSSR.begin())->Size(); 
+      expected_rings = local_SSSR.size(); 
+      locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
       for(unsigned int i=0;i<path_size;i++)
         locant_path[i] = 0; 
 
-      FillLocantArray(mol,local_SSSR,ring_shares,locant_path,path_size); 
+      FillLocantArray(mol,local_SSSR,ring_shares,nt_pairs,nt_sizes,locant_path,path_size); 
+      if(IsHeteroRing(locant_path,path_size))
+        cyclic_str += 'T';
+      else
+        cyclic_str += 'L';
 
-      
+      if(opt_debug){
+        fprintf(stderr,"  locant path:  ");
+        print_locant_array(locant_path,path_size); 
+      }
 
- 
+      if(!ReadLocantArray(locant_path,path_size,ring_shares,nt_pairs,nt_sizes,
+                          expected_rings,spawn_size,cyclic_str))
+        return 0;
 
+        
+      cyclic_str += 'J';
+
+      std::cout << cyclic_str << std::endl;;
     }
     else
       return 0; 
