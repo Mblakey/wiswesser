@@ -1758,14 +1758,10 @@ struct BabelGraph{
     for(unsigned int i=0;i<obring->Size();i++)
       path.push_back(obring->_path[i]);
     
-    // so atoms line up
-
-    unsigned int safety = 0;
-    while(path[0] != locant_path[hp_pos]->GetIdx() && safety < obring->Size()){
+    while(path[0] != locant_path[hp_pos]->GetIdx()){
       unsigned int tmp = path[0];
       path.pop_front();
       path.push_back(tmp);
-      safety++;
     }
 
     /*  
@@ -1778,8 +1774,7 @@ struct BabelGraph{
 
 
     // state 1. Clockwise addition, hp_pos and hp_pos+1 are on either side of the obring->_path
-    if( path.front() == locant_path[hp_pos]->GetIdx() 
-        && path.back() == locant_path[hp_pos+1]->GetIdx())
+    if(path.back() == locant_path[hp_pos+1]->GetIdx())
     {
       if(opt_debug)
         fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
@@ -1806,8 +1801,7 @@ struct BabelGraph{
     }
 
     // state 2. Ring is coming in anti-clockwise, reshift and place in
-    else if(path.front() == locant_path[hp_pos]->GetIdx() 
-            && path[1] == locant_path[hp_pos+1]->GetIdx())
+    else if(path[1] == locant_path[hp_pos+1]->GetIdx())
     {
 
       // shift front to back and reverse queue
@@ -1861,7 +1855,31 @@ struct BabelGraph{
       }
 
     }
-    
+
+    // not sure how to class this state, but commonly seen
+    else if(path.back() == locant_path[locant_pos-1]->GetIdx()){
+       if(opt_debug)
+          fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),path.back(),obring->Size());
+
+      nt_pairs.push_back({locant_path[hp_pos],locant_path[locant_pos-1]});
+      nt_sizes.push_back(obring->Size()); 
+      
+      unsigned int j=0;
+      for(unsigned int i=0;i<obring->Size();i++){
+        ratom = mol->GetAtom(path[i]);
+        if(!atoms_seen[ratom]){
+          // shift
+          for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
+            locant_path[k]= locant_path[k-1];
+            
+          locant_path[hp_pos+1+j] = ratom;
+          atoms_seen[ratom] = true;
+          j++;
+          locant_pos++;
+        }
+      }
+
+    }
     else{
       fprintf(stderr,"Error: uncoded locant state\n");
 
