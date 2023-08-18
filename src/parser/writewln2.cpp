@@ -1578,9 +1578,6 @@ struct BabelGraph{
                                     std::map<OBAtom*,unsigned int> &ring_shares,
                                     std::set<OBRing*> &local_SSSR){
 
-    if(opt_debug)
-      fprintf(stderr,"Building ring\n");
-
     if(!ring_root){
       fprintf(stderr,"Error: ring root is nullptr\n");
       return 0; 
@@ -1780,7 +1777,6 @@ struct BabelGraph{
         unsigned int j=0;
         for(unsigned int i=0;i<obring->Size();i++){
           ratom = mol->GetAtom(path[i]);
-          fprintf(stderr,"looking at: %d\n",path[i]);
           if(!atoms_seen[ratom]){
             // shift
             for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
@@ -1850,15 +1846,21 @@ struct BabelGraph{
   }
 
 
-  bool ReadLocantArray(OBAtom **locant_path,unsigned int path_size,
-                       std::map<OBAtom*,unsigned int> &ring_shares,
-                       std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                       std::vector<unsigned int> &nt_sizes,
-                       unsigned int expected_rings,
-                       unsigned int spawned_size,
-                       std::string &ring_str)
+  std::string ReadLocantArray(OBAtom **locant_path,unsigned int path_size,
+                              std::map<OBAtom*,unsigned int> &ring_shares,
+                              std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                              std::vector<unsigned int> &nt_sizes,
+                              unsigned int expected_rings,
+                              unsigned int spawned_size)
   {
     
+    std::string ring_str; 
+    if(IsHeteroRing(locant_path,path_size))
+      ring_str += 'T';
+    else
+      ring_str += 'L';
+
+
     // can we take an interrupted walk between the points, if so, write ring size 
     // and remove 
 
@@ -1867,9 +1869,10 @@ struct BabelGraph{
     UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
 
     if(opt_debug){
+      fprintf(stderr,"  locant path:  ");
+      print_locant_array(locant_path,path_size); 
       fprintf(stderr,"  reduced path: ");
       print_locant_array(reduced_path,path_size);
-      fprintf(stderr,"  expecting rings: %d\n",expected_rings);
     }
     
     
@@ -1930,29 +1933,28 @@ struct BabelGraph{
 
     if(!nt_pairs.empty()){
       fprintf(stderr,"Error: safety caught on reduced locant loop\n");
-
-      std::cout << ring_str << std::endl;
-
-      return false;
+      return {};
     }
 
 
     free(reduced_path);
     reduced_path=0;
-    return true;
+    return ring_str;
   }
 
 
 
   OBAtom **ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol){
-    std::string cyclic_str; 
-    
+    if(opt_debug)
+      fprintf(stderr,"Reading Cyclic\n");
+   
     OBAtom **locant_path = 0;
     std::set<OBRing*> local_SSSR; 
     std::set<OBAtom*> ring_atoms; 
     std::map<OBAtom*,unsigned int> ring_shares; 
     std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
     std::vector<unsigned int>               nt_sizes;  
+    std::vector<std::string> cyclic_strings; 
 
     bool hetero_ring = false;
     unsigned int spawn_size = 0; 
@@ -1981,22 +1983,15 @@ struct BabelGraph{
       if(!spawn_size)
         return 0;
 
-      if(IsHeteroRing(locant_path,path_size))
-        cyclic_str += 'T';
-      else
-        cyclic_str += 'L';
 
-      if(opt_debug){
-        fprintf(stderr,"  locant path:  ");
-        print_locant_array(locant_path,path_size); 
-      }
+      
+      // now we can actually generate a string for each seed atom, no need to recalculate path
+      // just shift until the next seed atom is seen
 
-      if(!ReadLocantArray(locant_path,path_size,ring_shares,nt_pairs,nt_sizes,
-                          expected_rings,spawn_size,cyclic_str))
+      std::string cyclic_str = ReadLocantArray( locant_path,path_size,ring_shares,nt_pairs,nt_sizes,
+                                                expected_rings,spawn_size);
+      if(cyclic_str.empty())
         return 0;
-
-        
-      cyclic_str += 'J';
 
       std::cout << cyclic_str << std::endl;;
     }
