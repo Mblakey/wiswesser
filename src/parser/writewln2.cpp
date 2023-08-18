@@ -1571,7 +1571,10 @@ struct BabelGraph{
     return true;
   }
 
+
+  /* constructs the local rings system, return ring type code */
   unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
+                                    std::set<OBAtom*> &ring_atoms,
                                     std::map<OBAtom*,unsigned int> &ring_shares,
                                     std::set<OBRing*> &local_SSSR){
 
@@ -1583,15 +1586,12 @@ struct BabelGraph{
       return 0; 
     }
 
-
     std::map<OBAtom*,bool> visited; 
     std::stack<OBAtom*> atom_stack; 
     
-    unsigned int size = 0; 
     unsigned int in_rings = 0; 
     OBAtom *atom = 0; 
     OBAtom *neighbour = 0; 
-
 
     unsigned int fuses = 0;
     unsigned int multicyclic = 0;
@@ -1603,7 +1603,7 @@ struct BabelGraph{
       atom = atom_stack.top();
       atom_stack.pop();
       visited[atom] = true; 
-      size++;
+      ring_atoms.insert(atom);
 
       FOR_RINGS_OF_MOL(r,mol){
         OBRing *obring = &(*r);
@@ -1626,6 +1626,7 @@ struct BabelGraph{
         branching++;
       else if(in_rings == 3)
         multicyclic++;
+      
       else if (in_rings == 2)
         fuses++;
     }
@@ -1636,63 +1637,88 @@ struct BabelGraph{
         fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
       fprintf(stderr,"\n");
 
-      fprintf(stderr,"  ring size:          %d\n",size);
+      fprintf(stderr,"  ring size:          %d\n",ring_atoms.size());
       fprintf(stderr,"  fuse points:        %d\n",fuses);
       fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
       fprintf(stderr,"  branching points:   %d\n",branching);
     }
 
-    if(!branching)
-      return size; 
-    else{
+    if(branching){
       fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
       return 0;
     }
+    else if(multicyclic)
+      return 3; 
+    else 
+      return 2; 
   }
 
-  /* works on priority, and creates locant path via array shifting */
-  bool FillLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
-                        std::map<OBAtom*,unsigned int> &ring_shares,
-                        std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                        std::vector<unsigned int> &nt_sizes,
-                        OBAtom **locant_path, unsigned int path_size)
+  // get all potential seeds for locant path start
+  void GetSeedAtoms(  std::set<OBAtom*> &ring_atoms,
+                      std::map<OBAtom*,unsigned int> &ring_shares,
+                      std::vector<OBAtom*> &seed_atoms,
+                      unsigned int target_shares)
+  { 
+    for(std::set<OBAtom*>::iterator iter = ring_atoms.begin(); iter != ring_atoms.end();iter++){
+      if(ring_shares[(*iter)] == target_shares)
+        seed_atoms.push_back((*iter));
+    }
+  }
+
+  /* works on priority, and creates locant path via array shifting, returns the spawn size */
+  unsigned int FillLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
+                                std::map<OBAtom*,unsigned int> &ring_shares,
+                                std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                                std::vector<unsigned int> &nt_sizes,
+                                OBAtom **locant_path, unsigned int path_size,
+                                OBAtom *seed_atom)
   {
-
     OBAtom *ratom = 0;
-    OBRing *obring = *(local_SSSR.begin());
+    OBRing *obring = 0;
+    unsigned int spawn_size = 0; 
 
+    // get the ring with the seed atom present
+    for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
+      for(unsigned int i=0;i<(*iter)->_path.size();i++){
+        if(mol->GetAtom((*iter)->_path[i]) == seed_atom){
+          obring = (*iter);
+          break;
+        }
+      }
+    }
+
+    if(!obring){
+      fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
+      return 0; 
+    } 
+    else
+      spawn_size = obring->Size();
+    
     unsigned int locant_pos = 0;
     std::map<OBRing*,bool> rings_seen; 
     std::map<OBAtom*,bool> atoms_seen; 
 
-    // add into the array directly for precondition, shift until highest priority is found  
-    unsigned int init_priority = 0;
+    // add into the array directly and shift so seed is guareented in position 0
     for(unsigned int i=0;i<obring->_path.size();i++){
       ratom = mol->GetAtom(obring->_path[i]);
       locant_path[locant_pos++] = ratom;
       atoms_seen[ratom] = true;
-      if(init_priority < ring_shares[ratom])
-        init_priority = ring_shares[ratom];  
     }
 
-    // shift so A is guaranteed a ring share
-    while(ring_shares[locant_path[0]] != init_priority){
+    while(locant_path[0] != seed_atom){
       locant_path[locant_pos] = locant_path[0];
       for(unsigned int i=0;i<path_size-1;i++)
         locant_path[i] = locant_path[i+1];
     }
 
+    // get next ring in locant order
     for(unsigned int rings_handled = 0; rings_handled < local_SSSR.size()-1;rings_handled++){
-      // find the first point seen with an external ring condition
       rings_seen[obring] = true;
       unsigned int hp_pos = 0; 
-
-      // this needs to be done on the array, with a external ring check
       for(unsigned int i=0;i<locant_pos;i++){
         bool found = false;
         ratom = locant_path[i];
         if(ring_shares[ratom] > 1){
-          // find out if its pointing at a ring we havent yet considered
           for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
             if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
               hp_pos = i;
@@ -1706,51 +1732,103 @@ struct BabelGraph{
         }
       }
 
+      // when you perform a shift, hp_pos and hp_pos+1 must still be bonded
+      // = non trivial bonds in the ring system
       
-      // --- shift and add procedure ---
-      // rings atoms must flow clockwise in _path to form the locant path correctly
-      // enforce by shifting until the target atom is seen at hp_pos
+
+
+      /*
+      --- shift and add procedure ---
+
+      rings atoms must flow clockwise in _path to form the locant path correctly
+      enforce by shifting until the target atom is seen at hp_pos 
+      */
 
       std::deque<int> path;
       for(unsigned int i=0;i<obring->Size();i++)
         path.push_back(obring->_path[i]);
-        
+      
       // so atoms line up
       while(path[0] != locant_path[hp_pos]->GetIdx()){
         unsigned int tmp = path[0];
         path.pop_front();
         path.push_back(tmp);
       }
-      
-      // when you perform a shift, hp_pos and hp_pos+1 must still be bonded
-      // = non trivial bonds in the ring system
-      if(opt_debug)
-        fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
 
-      // add nt pair + size
-      nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
-      nt_sizes.push_back(obring->Size()); 
-      
-      unsigned int j=0;
-      for(unsigned int i=0;i<obring->Size();i++){
-        ratom = mol->GetAtom(path[i]);
-        if(!atoms_seen[ratom]){
-          // shift
-          for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
-            locant_path[k]= locant_path[k-1];
-            
-          locant_path[hp_pos+1+j] = ratom;
-          atoms_seen[ratom] = true;
-          j++;
-          locant_pos++;
+      /*  
+      obabel ring path is read clockwise, leading to four potential states 
+        1. Adding a clockwise ring, to clockwise path
+        2. Adding a clockwise ring to anti-clockwise path
+        3. Adding multicyclic point where hamiltonian is broken, clockwise
+        4. Adding multicyclic point where hamiltonian is broken, anti-clockwise
+      */ 
+
+
+      // state 1. Clockwise addition, hp_pos and hp_pos+1 are on either side of the obring->_path
+
+      if( path.front() == locant_path[hp_pos]->GetIdx() 
+          && path.back() == locant_path[hp_pos+1]->GetIdx())
+      {
+        if(opt_debug)
+          fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
+
+        // add nt pair + size
+        nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
+        nt_sizes.push_back(obring->Size()); 
+
+        // spit the locant path between hp_pos and hp_pos + 1, add elements
+        unsigned int j=0;
+        for(unsigned int i=0;i<obring->Size();i++){
+          ratom = mol->GetAtom(path[i]);
+          fprintf(stderr,"looking at: %d\n",path[i]);
+          if(!atoms_seen[ratom]){
+            // shift
+            for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
+              locant_path[k]= locant_path[k-1];
+              
+            locant_path[hp_pos+1+j] = ratom;
+            atoms_seen[ratom] = true;
+            j++;
+            locant_pos++;
+          }
         }
       }
+
+
+      // state 2. Anti-clockwise addition, hp_pos and hp_pos+1 are not on either side,
+      // with path[1] being at the back of the locant path already
+
+      else if(path[1] == locant_path[locant_pos-1]->GetIdx()){
+
+        if(opt_debug)
+          fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),path[1],obring->Size());
+
+        // add nt pair + size
+        nt_pairs.push_back({locant_path[hp_pos],locant_path[locant_pos-1]});
+        nt_sizes.push_back(obring->Size()); 
+
+        for(unsigned int i=0;i<obring->Size();i++){
+          ratom = mol->GetAtom(path[i]);
+          if(!atoms_seen[ratom]){
+            locant_path[locant_pos++] = ratom;
+            atoms_seen[ratom] = true;
+          }
+        }
+
+      }
+      else{
+        fprintf(stderr,"Error: uncoded locant state\n");
+        return 0;
+      }
     }
+    
 
-
-    // read non-trival positions
-    return true;
+    // return the size of the implied ring for writing notation
+    return spawn_size;
   }
+
+
+
 
   bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
     for(unsigned int i=0;i<size;i++){
@@ -1788,15 +1866,19 @@ struct BabelGraph{
     OBAtom **reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
     UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
 
-    fprintf(stderr,"  reduced path: ");
-    print_locant_array(reduced_path,path_size);
-
+    if(opt_debug){
+      fprintf(stderr,"  reduced path: ");
+      print_locant_array(reduced_path,path_size);
+      fprintf(stderr,"  expecting rings: %d\n",expected_rings);
+    }
+    
+    
     unsigned int safety = 0;
     while(!nt_pairs.empty() && safety < expected_rings){
     
       for(unsigned int i=0;i<nt_pairs.size();i++){
         OBAtom *first =  nt_pairs[i].first; 
-        OBAtom *second = nt_pairs[i].second; 
+        OBAtom *second = nt_pairs[i].second;
 
         // find the position of first in the array
         unsigned int pos = 0; 
@@ -1867,6 +1949,7 @@ struct BabelGraph{
     
     OBAtom **locant_path = 0;
     std::set<OBRing*> local_SSSR; 
+    std::set<OBAtom*> ring_atoms; 
     std::map<OBAtom*,unsigned int> ring_shares; 
     std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
     std::vector<unsigned int>               nt_sizes;  
@@ -1874,16 +1957,30 @@ struct BabelGraph{
     bool hetero_ring = false;
     unsigned int spawn_size = 0; 
     unsigned int expected_rings = 0;
-    unsigned int path_size = ConstructLocalSSSR(ring_root,mol,ring_shares,local_SSSR); 
-    if(path_size){
+    unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
+    unsigned int path_size = ring_atoms.size(); 
+    
+    if(path_size && ring_type){
       
-      spawn_size = (*local_SSSR.begin())->Size(); 
+      std::vector<OBAtom*> seed_atoms; 
       expected_rings = local_SSSR.size(); 
+
       locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
       for(unsigned int i=0;i<path_size;i++)
         locant_path[i] = 0; 
 
-      FillLocantArray(mol,local_SSSR,ring_shares,nt_pairs,nt_sizes,locant_path,path_size); 
+      GetSeedAtoms(ring_atoms,ring_shares,seed_atoms,ring_type);
+      if(seed_atoms.empty()){
+        fprintf(stderr,"Error: no seeds found to build locant path\n");
+        return 0;
+      }
+      spawn_size = FillLocantArray( mol,local_SSSR,ring_shares,
+                                    nt_pairs,nt_sizes,
+                                    locant_path,path_size,
+                                    seed_atoms[0]);
+      if(!spawn_size)
+        return 0;
+
       if(IsHeteroRing(locant_path,path_size))
         cyclic_str += 'T';
       else
