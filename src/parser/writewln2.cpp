@@ -56,7 +56,6 @@ static bool opt_debug = false;
 
 struct WLNSymbol;
 struct WLNEdge; 
-struct WLNRing;
 struct WLNGraph;
 struct ObjectStack;
 
@@ -178,7 +177,6 @@ struct WLNGraph
 
   WLNSymbol *SYMBOLS[REASONABLE];
   WLNEdge   *EDGES  [REASONABLE];
-  WLNRing   *RINGS  [REASONABLE];
 
   std::map<WLNSymbol *, unsigned int> index_lookup;
   std::map<unsigned int, WLNSymbol *> symbol_lookup;
@@ -200,7 +198,6 @@ struct WLNGraph
     for (unsigned int i = 0; i < REASONABLE;i++){
       SYMBOLS[i] = 0;
       EDGES[i] = 0;
-      RINGS[i] = 0;
     }
   };
 
@@ -208,7 +205,6 @@ struct WLNGraph
     for (unsigned int i = 0; i < REASONABLE;i++){
       delete SYMBOLS[i];
       delete EDGES[i];
-      delete RINGS[i];
     }
   }
 };
@@ -1634,7 +1630,7 @@ struct BabelGraph{
         fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
       fprintf(stderr,"\n");
 
-      fprintf(stderr,"  ring size:          %d\n",ring_atoms.size());
+      fprintf(stderr,"  ring size:          %d\n",(unsigned int)ring_atoms.size());
       fprintf(stderr,"  fuse points:        %d\n",fuses);
       fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
       fprintf(stderr,"  branching points:   %d\n",branching);
@@ -1758,57 +1754,43 @@ struct BabelGraph{
                               std::vector<unsigned int> &nt_sizes)
                               
   {
-
-    OBAtom *ratom = 0; 
-    std::deque<int> path;
-    for(unsigned int i=0;i<obring->Size();i++)
-      path.push_back(obring->_path[i]);
     
-    while(path[0] != locant_path[hp_pos]->GetIdx()){
-      unsigned int tmp = path[0];
-      path.pop_front();
-      path.push_back(tmp);
+    bool seen = false;
+    OBAtom *ratom = 0; 
+    OBAtom *insert_start  =  locant_path[hp_pos];
+    OBAtom *insert_end    =  locant_path[hp_pos+1]; 
+    std::deque<int> path;
+
+    for(unsigned int i=0;i<obring->Size();i++){
+      path.push_back(obring->_path[i]);
+      if(insert_end->GetIdx() == obring->_path[i])
+        seen = true;
     }
 
-
-    // state 1. Clockwise addition, hp_pos and hp_pos+1 are on either side of the obring->_path
-    if(path.back() == locant_path[hp_pos+1]->GetIdx())
-    {
-      if(opt_debug)
-        fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
-
-      // add nt pair + size
-      nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
-      nt_sizes.push_back(obring->Size()); 
-
-      // spit the locant path between hp_pos and hp_pos + 1, add elements
-      unsigned int j=0;
-      for(unsigned int i=0;i<obring->Size();i++){
-        ratom = mol->GetAtom(path[i]);
-        if(!atoms_seen[ratom]){
-          // shift
-          for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
-            locant_path[k]= locant_path[k-1];
-            
-          locant_path[hp_pos+1+j] = ratom;
-          atoms_seen[ratom] = true;
-          j++;
-          locant_pos++;
-        }
-      }
+    if(!seen){
+      insert_start = locant_path[locant_pos-1];
+      insert_end = locant_path[0];
     }
-
-    // state 2. Ring is coming in anti-clockwise, reshift and place in
-    else if(path[1] == locant_path[hp_pos+1]->GetIdx())
-    {
-
-      // shift front to back and reverse queue
-      unsigned int tmp = path[0];
-      path.pop_front();
-      path.push_back(tmp);
-      std::reverse(path.begin(),path.end());
       
 
+    while(path[0] != insert_start->GetIdx()){
+      unsigned int tmp = path[0];
+      path.pop_front();
+      path.push_back(tmp);
+    }
+
+      
+    // standard clockwise and anti clockwise additions to the path
+    if(seen){
+    
+      // must be anti-clockwise - shift and reverse
+      if(insert_start && path[1] == insert_start->GetIdx()){
+        unsigned int tmp = path[0];
+        path.pop_front();
+        path.push_back(tmp);
+        std::reverse(path.begin(),path.end());
+      }
+
       if(opt_debug)
         fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
 
@@ -1818,7 +1800,7 @@ struct BabelGraph{
 
       // spit the locant path between hp_pos and hp_pos + 1, add elements
       unsigned int j=0;
-      for(unsigned int i=0;i<obring->Size();i++){
+      for(unsigned int i=0;i<path.size();i++){
         ratom = mol->GetAtom(path[i]);
         if(!atoms_seen[ratom]){
           // shift
@@ -1831,26 +1813,37 @@ struct BabelGraph{
           locant_pos++;
         }
       }
-
     }
- 
+
+    // must be a ring wrap on the locant path, can come in clockwise or anticlockwise
     else{
-      fprintf(stderr,"Error: uncoded locant state\n");
 
-      if(opt_debug){
-        fprintf(stderr,"locant path: ");
-        print_locant_array(locant_path,path_size);
-
-        fprintf(stderr,"input ring:  [");
-        for(unsigned int i=0;i<path.size();i++)
-          fprintf(stderr,"%d ",path[i]);
-        fprintf(stderr,"]\n");
-
-        fprintf(stderr,"locant[hp_pos]:     %d\n",locant_path[hp_pos]->GetIdx());
-        fprintf(stderr,"locant[hp_pos+1]:   %d\n",locant_path[hp_pos+1]->GetIdx());
+      // this is the reverse for the ring wrap
+      if(path[1] == insert_end->GetIdx()){ // end due to shift swap
+        unsigned int tmp = path[0];
+        path.pop_front();
+        path.push_back(tmp);
+        std::reverse(path.begin(),path.end());
       }
-      return 0;
-    }
+
+      // just add to the back, no shift required
+      for(unsigned int i=0;i<path.size();i++){
+        ratom = mol->GetAtom(path[i]);
+        if(!atoms_seen[ratom]){
+          locant_path[locant_pos++] = ratom;
+          atoms_seen[ratom] = true;
+        }
+      }
+
+      if(opt_debug)
+        fprintf(stderr,"  non-trivial ring wrap:  %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
+
+
+      // ending wrap condition 
+      nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
+      nt_sizes.push_back(obring->Size()); 
+
+    } 
 
     return locant_pos;
   }
@@ -1932,7 +1925,6 @@ struct BabelGraph{
           }
           else if(reduced_path[j] && reduced_path[j] == second){
             // write the ring, and pop nt_pair and nt_ring at position 
-
             if(pos){
               ring_str+= ' ';
               ring_str+= int_to_locant(pos+1);
@@ -1993,13 +1985,11 @@ struct BabelGraph{
     std::vector<std::string> cyclic_strings; 
 
     bool hetero_ring = false;
-    unsigned int spawn_size = 0; 
     unsigned int expected_rings = 0;
     unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
     unsigned int path_size = ring_atoms.size(); 
     
     if(path_size && ring_type){
-
       // generate seeds
       std::vector<OBAtom*> seed_atoms; 
       expected_rings = local_SSSR.size(); 
@@ -2030,7 +2020,6 @@ struct BabelGraph{
           return 0;
 
         std::cout << cyclic_str << std::endl;
-
       }
     }
     else
@@ -2101,7 +2090,7 @@ static void DisplayUsage()
   fprintf(stderr, "  -d                    print debug messages to stderr\n");
   fprintf(stderr, "  -h                    show the help for executable usage\n");
   fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
-  fprintf(stderr, "  -w                    dump wln trees to dot file in [build]\n");
+  fprintf(stderr, "  -w                    dump wln trees & babel graphs to dot files in [build]\n");
   exit(1);
 }
 
@@ -2109,10 +2098,8 @@ static void DisplayHelp()
 {
   fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
   fprintf(stderr, " This parser writes to wiswesser\n"
-                  " line notation (wln) from smiles/inchi, the parser is native\n"
-                  " and will can return either a reformatted string*\n"
-                  " *if rules do not parse exactly, and the connection\n"
-                  " table which can be used in other libraries\n");
+                  " line notation (wln) from smiles/inchi, the parser is built on OpenBabels\n"
+                  " toolkit and will return the minimal WLN string\n");
   DisplayUsage();
 }
 
