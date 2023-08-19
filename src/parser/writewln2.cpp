@@ -1663,7 +1663,7 @@ struct BabelGraph{
   }
 
   /* works on priority, and creates locant path via array shifting, returns the spawn size */
-  unsigned int FillLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
+  bool FillLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
                                 std::map<OBAtom*,unsigned int> &ring_shares,
                                 std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
                                 std::vector<unsigned int> &nt_sizes,
@@ -1672,7 +1672,6 @@ struct BabelGraph{
   {
     OBAtom *ratom = 0;
     OBRing *obring = 0;
-    unsigned int spawn_size = 0; 
 
     // get the ring with the seed atom present
     for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
@@ -1688,8 +1687,7 @@ struct BabelGraph{
       fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
       return 0; 
     } 
-    else
-      spawn_size = obring->Size();
+
     
     unsigned int locant_pos = 0;
     std::map<OBRing*,bool> rings_seen; 
@@ -1707,6 +1705,14 @@ struct BabelGraph{
       for(unsigned int i=0;i<path_size-1;i++)
         locant_path[i] = locant_path[i+1];
     }
+
+    if(opt_debug)
+      fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
+    
+
+    nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
+    nt_sizes.push_back(obring->Size());
+
 
     // get next ring in locant order
     for(unsigned int rings_handled = 0; rings_handled < local_SSSR.size()-1;rings_handled++){
@@ -1730,15 +1736,15 @@ struct BabelGraph{
       }
 
       locant_pos =  ShiftandAddLocantPath(  mol,locant_path,
-                                  locant_pos,path_size,hp_pos,obring,
-                                  atoms_seen,nt_pairs,nt_sizes);
+                                            locant_pos,path_size,hp_pos,obring,
+                                            atoms_seen,nt_pairs,nt_sizes);
       if(!locant_pos)
-        return 0;
+        return false;
     }
     
 
     // return the size of the implied ring for writing notation
-    return spawn_size;
+    return true;
   }
 
 
@@ -1763,14 +1769,6 @@ struct BabelGraph{
       path.pop_front();
       path.push_back(tmp);
     }
-
-    /*  
-    obabel ring path is read clockwise, leading to potential states 
-      1. Adding a clockwise ring, to clockwise path
-      2. Adding a clockwise ring to anti-clockwise path
-      3. Adding multicyclic point where hamiltonian is broken, clockwise
-      4. Adding multicyclic point where hamiltonian is broken, anti-clockwise
-    */ 
 
 
     // state 1. Clockwise addition, hp_pos and hp_pos+1 are on either side of the obring->_path
@@ -1835,51 +1833,7 @@ struct BabelGraph{
       }
 
     }
-    // state 2. Anti-clockwise addition, hp_pos and hp_pos+1 are not on either side,
-    // with path[1] being at the back of the locant path already
-    else if(path[1] == locant_path[locant_pos-1]->GetIdx()){
-
-      if(opt_debug)
-        fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),path[1],obring->Size());
-
-      // add nt pair + size
-      nt_pairs.push_back({locant_path[hp_pos],locant_path[locant_pos-1]});
-      nt_sizes.push_back(obring->Size()); 
-
-      for(unsigned int i=0;i<obring->Size();i++){
-        ratom = mol->GetAtom(path[i]);
-        if(!atoms_seen[ratom]){
-          locant_path[locant_pos++] = ratom;
-          atoms_seen[ratom] = true;
-        }
-      }
-
-    }
-
-    // not sure how to class this state, but commonly seen
-    else if(path.back() == locant_path[locant_pos-1]->GetIdx()){
-       if(opt_debug)
-          fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),path.back(),obring->Size());
-
-      nt_pairs.push_back({locant_path[hp_pos],locant_path[locant_pos-1]});
-      nt_sizes.push_back(obring->Size()); 
-      
-      unsigned int j=0;
-      for(unsigned int i=0;i<obring->Size();i++){
-        ratom = mol->GetAtom(path[i]);
-        if(!atoms_seen[ratom]){
-          // shift
-          for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
-            locant_path[k]= locant_path[k-1];
-            
-          locant_path[hp_pos+1+j] = ratom;
-          atoms_seen[ratom] = true;
-          j++;
-          locant_pos++;
-        }
-      }
-
-    }
+ 
     else{
       fprintf(stderr,"Error: uncoded locant state\n");
 
@@ -1929,8 +1883,7 @@ struct BabelGraph{
                               std::map<OBAtom*,unsigned int> ring_shares, // copy unavoidable 
                               std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
                               std::vector<unsigned int> &nt_sizes,
-                              unsigned int expected_rings,
-                              unsigned int spawned_size)
+                              unsigned int expected_rings)
   {
     
     std::string ring_str; 
@@ -2007,14 +1960,18 @@ struct BabelGraph{
       safety++;
     }
 
-    // write the spawned ring size at A
-    ring_str += std::to_string(spawned_size);
-
-    if(!nt_pairs.empty()){
+    if( nt_pairs[0].first == locant_path[0] 
+        && nt_pairs[0].second == locant_path[path_size-1])
+    {
+      // last implied ring wrap
+      ring_str += std::to_string(nt_sizes[0]);
+      nt_pairs.clear();
+      nt_sizes.clear();
+    }
+    else{
       fprintf(stderr,"Error: safety caught on reduced locant loop\n");
       return {};
     }
-
 
     free(reduced_path);
     reduced_path=0;
@@ -2060,15 +2017,15 @@ struct BabelGraph{
         for(unsigned int i=0;i<path_size;i++)
           locant_path[i] = 0;
     
-        spawn_size = FillLocantArray( mol,local_SSSR,ring_shares,
-                                      nt_pairs,nt_sizes,
-                                      locant_path,path_size,
-                                      seed_atoms[i]);
-        if(!spawn_size)
+        if(!FillLocantArray( mol,local_SSSR,ring_shares,
+                         nt_pairs,nt_sizes,
+                         locant_path,path_size,
+                         seed_atoms[i]))
           return 0;
+  
 
         std::string cyclic_str = ReadLocantArray( locant_path,path_size,ring_shares,nt_pairs,nt_sizes,
-                                                  expected_rings,spawn_size);
+                                                  expected_rings);
         if(cyclic_str.empty())
           return 0;
 
