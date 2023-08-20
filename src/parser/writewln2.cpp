@@ -1659,13 +1659,19 @@ struct BabelGraph{
   }
 
   /* works on priority, and creates locant path via array shifting, returns the spawn size */
-  bool FillLocantArray( OBMol *mol, std::set<OBRing*> &local_SSSR, 
+  OBAtom ** CreateLocantPath( OBMol *mol, std::set<OBRing*> &local_SSSR, 
                                 std::map<OBAtom*,unsigned int> &ring_shares,
                                 std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
                                 std::vector<unsigned int> &nt_sizes,
-                                OBAtom **locant_path, unsigned int path_size,
+                                unsigned int path_size,
                                 OBAtom *seed_atom)
   {
+
+    OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+    for(unsigned int i=0;i<path_size;i++)
+      locant_path[i] = 0;
+
+
     OBAtom *ratom = 0;
     OBRing *obring = 0;
 
@@ -1735,12 +1741,12 @@ struct BabelGraph{
                                             locant_pos,path_size,hp_pos,obring,
                                             atoms_seen,nt_pairs,nt_sizes);
       if(!locant_pos)
-        return false;
+        return 0;
     }
     
 
-    // return the size of the implied ring for writing notation
-    return true;
+    
+    return locant_path;
   }
 
 
@@ -1872,7 +1878,7 @@ struct BabelGraph{
   }
 
 
-  std::string ReadLocantArray(OBAtom **locant_path,unsigned int path_size,
+  std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
                               std::map<OBAtom*,unsigned int> ring_shares, // copy unavoidable 
                               std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
                               std::vector<unsigned int> &nt_sizes,
@@ -1982,7 +1988,9 @@ struct BabelGraph{
     std::map<OBAtom*,unsigned int> ring_shares; 
     std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
     std::vector<unsigned int>               nt_sizes;  
-    std::vector<std::string> cyclic_strings; 
+    
+    std::vector<std::string> cyclic_strings;
+    std::vector<OBAtom**> locant_paths;  
 
     bool hetero_ring = false;
     unsigned int expected_rings = 0;
@@ -1999,31 +2007,32 @@ struct BabelGraph{
         return 0;
       }
 
-      locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-
-      // for each seed, generate the WLN string
       for(unsigned int i=0;i<seed_atoms.size();i++){
-        // path init and reset here
-        for(unsigned int i=0;i<path_size;i++)
-          locant_path[i] = 0;
-    
-        if(!FillLocantArray( mol,local_SSSR,ring_shares,
-                         nt_pairs,nt_sizes,
-                         locant_path,path_size,
-                         seed_atoms[i]))
-          return 0;
+        
+        // create a new path per string
+        locant_path = CreateLocantPath(   mol,local_SSSR,ring_shares,
+                                          nt_pairs,nt_sizes,path_size,
+                                          seed_atoms[i]);
+        if(!locant_path)
+          return 0; 
   
 
-        std::string cyclic_str = ReadLocantArray( locant_path,path_size,ring_shares,nt_pairs,nt_sizes,
+        std::string cyclic_str = ReadLocantPath( locant_path,path_size,ring_shares,
+                                                  nt_pairs,nt_sizes,
                                                   expected_rings);
         if(cyclic_str.empty())
           return 0;
+
+        cyclic_strings.push_back(cyclic_str);
+        locant_paths.push_back(locant_path);
 
         std::cout << cyclic_str << std::endl;
       }
     }
     else
       return 0; 
+
+      
 
     return locant_path;
   }
