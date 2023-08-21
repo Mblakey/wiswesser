@@ -1455,6 +1455,7 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 }
 
 
+/* create the hetero atoms where neccesary */
 void ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &buffer,WLNGraph &graph){
 
   unsigned int last_hetero_index = 0; 
@@ -1462,13 +1463,13 @@ void ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &b
 
     if(locant_path[i]->GetAtomicNum() != 6){
 
-
-      if(last_hetero_index != i-1){
+      // handles 'A' starting and consecutive locants
+      if(i > 0 && last_hetero_index != i-1){
         buffer += ' ';
         buffer += int_to_locant(i+1);
       }
 
-      WLNSymbol *sym = CreateWLNNode(locant_path[i],graph); 
+      WLNSymbol *sym = CreateWLNNode(locant_path[i],graph); // graph can handle memory
       if(sym->ch == '*'){
         buffer += '-';
         buffer += sym->special; 
@@ -1678,6 +1679,7 @@ struct BabelGraph{
 
   std::map<OBAtom*, WLNSymbol*>  atom_symbol_map; 
   std::map<WLNSymbol*,OBAtom*>   symbol_atom_map; 
+  std::map<OBAtom*,bool> ring_handled; 
   
   BabelGraph(){};
   ~BabelGraph(){};
@@ -1706,7 +1708,7 @@ struct BabelGraph{
       if(atom->GetFormalCharge() == -1 && atom->GetAtomicNum() == 8){
         FOR_NBORS_OF_ATOM(iterator, atom){
           OBAtom *neighbour = &(*iterator);
-          if(!visited[neighbour])
+          if(!visited[neighbour] && !neighbour->IsInRing())
             atom_stack.push(neighbour); 
         }
         continue;
@@ -1733,7 +1735,7 @@ struct BabelGraph{
       // this will look back, so order is important to maintain
       FOR_NBORS_OF_ATOM(iterator, atom){
         OBAtom *neighbour = &(*iterator);
-        if(!atom_symbol_map[neighbour]){
+        if(!atom_symbol_map[neighbour] && !neighbour->IsInRing()){
           child = CreateWLNNode(neighbour,graph); 
           if(!child){
             fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
@@ -1755,7 +1757,7 @@ struct BabelGraph{
             edge = unsaturate_edge(edge,order-1);
         }
           
-        if(!visited[neighbour])
+        if(!visited[neighbour] && !neighbour->IsInRing())
           atom_stack.push(neighbour); 
       } 
 
@@ -1769,39 +1771,14 @@ struct BabelGraph{
       either return roots for ionic species to build tree,
       or if cyclic, return ring objects to parse  */
 
-
-  std::vector<WLNSymbol*> ReadBabelNonCyclic(OBMol *mol,WLNGraph &graph){
-    // no cycles, build from root node and output
-    
-    std::vector<WLNSymbol*> roots; 
-    OBAtomAtomIter iter; 
-    FOR_ATOMS_OF_MOL(iter,mol){
-      OBAtom *atom = &(*iter);
-      if(!atom_symbol_map[atom]){
-        WLNSymbol *root_node = BuildWLNTree (atom,mol,graph); 
-        if(!root_node){
-          fprintf(stderr,"Error: failure in building tree from source atom\n");
-          return {}; 
-        }
-        else
-          roots.push_back(root_node); 
-      }
-    }
-  
-    return roots; 
-  }
-
-
-  /* handles non cyclic and ionic species from roots vector */
-  bool ParseNonCyclicWLN(std::vector<WLNSymbol*> &roots, WLNGraph &graph, std::string &buffer){    
-    for (unsigned int i=0;i<roots.size();i++){
-      if(!WriteWLNFromNode(roots[i],graph,buffer))
-        return false;
-
-      if(i<roots.size()-1)
-        buffer += " &"; // add for ionic
-    }
-    return true; 
+  bool ParseNonCyclic(OBAtom *start_atom,OBMol *mol,WLNGraph &graph,std::string &buffer){
+    WLNSymbol *root_node = BuildWLNTree (start_atom,mol,graph); 
+    if(root_node && WriteWLNFromNode(root_node,graph,buffer))
+      return true;
+    else{
+      fprintf(stderr,"Error: failure in parsing non-cyclic WLN graph\n");
+      return 0;
+    } 
   }
 
   // will also add to handled
@@ -1864,7 +1841,7 @@ struct BabelGraph{
   }
 
 
-
+  /* parse the created WLN graph */
   bool WriteWLNFromNode(WLNSymbol *root,WLNGraph &graph,std::string &buffer){
 
     // dfs style notational build from a given root, use to build the notation 
@@ -2069,8 +2046,8 @@ struct BabelGraph{
     return true;
   }
 
-
-  OBAtom **ReadBabelCyclic(OBAtom *ring_root,OBMol *mol, WLNGraph &graph, std::string &buffer){
+  /* constructs and parses a cyclic structre, locant path is returned with its path_size */
+  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, WLNGraph &graph, std::string &buffer){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
    
@@ -2096,7 +2073,7 @@ struct BabelGraph{
       GetSeedAtoms(ring_atoms,ring_shares,seed_atoms,ring_type);
       if(seed_atoms.empty()){
         fprintf(stderr,"Error: no seeds found to build locant path\n");
-        return 0;
+        return {0,0};
       }
 
       for(unsigned int i=0;i<seed_atoms.size();i++){
@@ -2106,14 +2083,14 @@ struct BabelGraph{
                                           nt_pairs,nt_sizes,path_size,
                                           seed_atoms[i]);
         if(!locant_path)
-          return 0; 
+          return {0,0}; 
   
 
         std::string cyclic_str = ReadLocantPath(  locant_path,path_size,ring_shares,
                                                   nt_pairs,nt_sizes,
                                                   expected_rings);
         if(cyclic_str.empty())
-          return 0;
+          return {0,0};
 
         cyclic_strings.push_back(cyclic_str);
         locant_paths.push_back(locant_path);  
@@ -2142,10 +2119,60 @@ struct BabelGraph{
       buffer += 'J';
     }
     else
-      return 0; 
+      return {0,0}; 
 
 
-    return locant_paths[minimal_index];
+    return {locant_paths[minimal_index],path_size};
+  }
+
+
+  bool ParseAllCyclic(OBMol *mol, WLNGraph &graph,std::string &buffer){
+    // get the start ring, and then use that as the jump point
+    std::pair<OBAtom**,unsigned int> path_pair;  
+    std::stack <std::pair<OBAtom**,unsigned int>> locant_stack; 
+    path_pair = ParseCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,graph,buffer);
+    locant_stack.push(path_pair); 
+    while(!locant_stack.empty()){
+
+      path_pair = locant_stack.top(); 
+      OBAtom** loc_path = path_pair.first;
+      unsigned int path_size = path_pair.second;
+
+      if(!loc_path){
+        fprintf(stderr,"Error: could not create locant path for local SSSR\n");
+        return false;
+      } 
+
+      for(unsigned int i=0;i<path_size;i++){
+        if(!ring_handled[loc_path[i]]){
+          ring_handled[loc_path[i]] = true; // stops duplicates when returned from stack 
+
+          // check its neighbours
+          FOR_BONDS_OF_ATOM(b,loc_path[i]){
+            OBAtom *ext_atom = b->GetEndAtom(); 
+            if(!ext_atom->IsInRing()){
+              buffer += ' ';
+              buffer += int_to_locant(i+1); 
+
+              if(b->GetBondOrder() > 1)
+                buffer += 'U';
+              if(b->GetBondOrder() > 2)
+                buffer += 'U';
+            
+              if(!ParseNonCyclic(ext_atom,mol,graph,buffer))
+                return false;
+            }
+          }
+        }
+      }
+
+      // if you get to the end, pop and return down 
+      
+
+      free(loc_path); // make this a stack release when handling locants
+    }
+
+    return true; 
   }
 
 };
@@ -2164,10 +2191,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
   BabelGraph obabel; 
 
   unsigned int cyclic = 0;
-  bool state = true;
-  std::vector<WLNSymbol*> roots; 
-  OBAtom** start_ring = 0; 
-
   FOR_RINGS_OF_MOL(r,mol)
     cyclic++;
 
@@ -2175,29 +2198,35 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     WriteBabelDotGraph(mol);
 
   if(!cyclic){
-    roots = obabel.ReadBabelNonCyclic(mol,wln_graph);
-    if(roots.empty())
-      return false; 
+    bool started = false; 
+    FOR_ATOMS_OF_MOL(a,mol){
+      if(!obabel.atom_symbol_map[&(*a)]){
+        if(started)
+          buffer += " &"; // ionic species
+        
+        if(!obabel.ParseNonCyclic(&(*a),mol,wln_graph,buffer))
+          return false;
 
-    // create an optional dotfiles
-    if (opt_wln2dot){
-      WriteWLNDotGraph(wln_graph);
+        started = true; 
+      }
     }
-      
-    if(state)
-      state = obabel.ParseNonCyclicWLN(roots,wln_graph,buffer);
+    
+    // create an optional dotfiles
+    if (opt_wln2dot)
+      WriteWLNDotGraph(wln_graph);
+    
+    return true; 
   }
   else{
 
-    // get the start ring, and then use that as the jump point
-    start_ring = obabel.ReadBabelCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,wln_graph,buffer);
+    if(!obabel.ParseAllCyclic(mol,wln_graph,buffer))
+      return false; 
     
+    // handles ionics here
+    
+    return true; 
   }
 
-
-  free(start_ring); // make this a stack release when handling locants
-
-  return state;
 }
 
 
