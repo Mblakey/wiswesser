@@ -54,19 +54,6 @@ static bool opt_wln2dot = false;
 static bool opt_debug = false;
 
 
-struct WLNSymbol;
-struct WLNEdge; 
-struct WLNGraph;
-struct ObjectStack;
-
-
-enum WLNTYPE
-{
-  STANDARD = 0,
-  RING = 1,     
-  SPECIAL = 2  // for now this is only going to be the pi bond
-};
-
 unsigned char static int_to_locant(unsigned int i){
   return i + 64;
 }
@@ -100,948 +87,6 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
   fprintf(stderr,"]\n");
 }
 
-
-
-/**********************************************************************
-                          STRUCT DEFINTIONS
-**********************************************************************/
- 
-
-struct WLNEdge{
-  WLNSymbol *parent;
-  WLNSymbol *child;
-  WLNEdge *nxt;
-
-  bool aromatic;
-  unsigned int order;
-
-  WLNEdge(){
-    parent = 0;
-    child = 0;
-    aromatic = 0;
-    order = 0;
-    nxt = 0;
-  }
-  ~WLNEdge(){};
-};
-
-
-struct WLNSymbol
-{
-  unsigned char ch;
-  std::string special; // string for element, or ring, if value = '*'
-  
-  unsigned int type;
-  unsigned int allowed_edges;
-  unsigned int num_edges;
-
-  unsigned int num_children;  // specifically for forward edges
-  unsigned int on_child;      // which branch are we on for stack tracking
-
-  WLNSymbol *previous;
-  WLNEdge   *bonds; // array of bonds
-
-  // if default needed
-  WLNSymbol()
-  {
-    ch = '\0';
-    allowed_edges = 0;
-    num_edges = 0;
-    type = 0;
-    previous = 0;
-    bonds = 0;
-
-
-    num_children = 0; 
-    on_child = 0; 
-  }
-  ~WLNSymbol(){};
-
-  void set_edge_and_type(unsigned int e, unsigned int t=STANDARD){
-    allowed_edges = e;
-    type = t;
-  }
-
-};
-
-
-// handles all memory and 'global' vars
-struct WLNGraph
-{
-  
-  WLNSymbol *root;
-
-  unsigned int edge_count;
-  unsigned int symbol_count;
-  unsigned int ring_count;
-
-  WLNSymbol *SYMBOLS[REASONABLE];
-  WLNEdge   *EDGES  [REASONABLE];
-
-  std::map<WLNSymbol *, unsigned int> index_lookup;
-  std::map<unsigned int, WLNSymbol *> symbol_lookup;
-
-  unsigned int glob_index; // babel starts from 1, keep consistent  
-
-    // ionic parsing
-  std::map<unsigned int,WLNSymbol*> string_positions; 
-  std::map<WLNSymbol*,int> charge_additions;
-
-  WLNGraph(){
-    edge_count   = 0;
-    symbol_count = 0;
-    ring_count   = 0;
-    glob_index   = 1; // babel atoms are +1 indexed
-
-    // pointer safety
-    root = 0;
-    for (unsigned int i = 0; i < REASONABLE;i++){
-      SYMBOLS[i] = 0;
-      EDGES[i] = 0;
-    }
-  };
-
-  ~WLNGraph(){
-    for (unsigned int i = 0; i < REASONABLE;i++){
-      delete SYMBOLS[i];
-      delete EDGES[i];
-    }
-  }
-};
-
-/**********************************************************************
-                         WLNSYMBOL Functions
-**********************************************************************/
-
-
-WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
-{
-
-  graph.symbol_count++;
-  if(graph.symbol_count > REASONABLE){
-    fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
-    return 0;
-  }
-
-  if(!ch){
-    fprintf(stderr,"Error: null char used to symbol creation\n");
-    return 0;
-  }
-
-  WLNSymbol *wln = new WLNSymbol;
-  graph.SYMBOLS[graph.symbol_count] = wln;
-  
-  wln->ch = ch;
-  graph.index_lookup[wln] = graph.glob_index;
-  graph.symbol_lookup[graph.glob_index] = wln;
-  graph.glob_index++;
-  return wln;
-}
-
-WLNSymbol* CreateWLNNode(OBAtom* atom, WLNGraph &graph){
-
-  if(!atom){
-    fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
-    return 0; 
-  }
-
-  unsigned int neighbours = 0; 
-  unsigned int orders = 0; 
-  OBAtom *neighbour = 0; 
-  OBBond *bond = 0; 
-
-  WLNSymbol *node = 0;
-  switch(atom->GetAtomicNum()){
-    case 1:
-      node = AllocateWLNSymbol('H',graph);
-      node->set_edge_and_type(1);
-      break; 
-
-    case 5:
-      node = AllocateWLNSymbol('B',graph);
-      node->set_edge_and_type(3);
-      break;
-
-    case 6:
-      FOR_NBORS_OF_ATOM(iterator, atom){
-        neighbour = &(*iterator);
-        bond = atom->GetBond(neighbour);
-        orders += bond->GetBondOrder(); 
-        neighbours++;
-      }
-      if(neighbours <= 2){
-        node = AllocateWLNSymbol('1',graph);
-        node->set_edge_and_type(4);
-      }
-      else if(neighbours > 2){
-        if(orders == 3){
-          node = AllocateWLNSymbol('Y',graph);
-          node->set_edge_and_type(3);
-        }
-        else{
-          node = AllocateWLNSymbol('X',graph);
-          node->set_edge_and_type(4);
-        }
-      }
-      else{
-        node = AllocateWLNSymbol('C',graph);
-        node->set_edge_and_type(4);
-      }
-      break;
-    
-    case 7:
-      node = AllocateWLNSymbol('N',graph);
-      node->set_edge_and_type(atom->GetExplicitValence());
-      break;
-    
-    case 8:
-      if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1){
-        node = AllocateWLNSymbol('Q',graph);
-        node->set_edge_and_type(1);
-      }
-      else{
-        node = AllocateWLNSymbol('O',graph);
-        node->set_edge_and_type(2);
-      }
-      break;
-    
-    case 9:
-      node = AllocateWLNSymbol('F',graph);
-      node->set_edge_and_type(atom->GetExplicitValence());
-      break;
-
-    case 15:
-      node = AllocateWLNSymbol('P',graph);
-      node->set_edge_and_type(6);
-      break;
-
-    case 16:
-      node = AllocateWLNSymbol('S',graph);
-      node->set_edge_and_type(6);
-      break;
-
-    case 17:
-      node = AllocateWLNSymbol('G',graph);
-      node->set_edge_and_type(atom->GetExplicitValence());
-      break;
-
-    case 35:
-      node = AllocateWLNSymbol('E',graph);
-      node->set_edge_and_type(atom->GetExplicitValence());
-      break;
-
-    case 53:
-      node = AllocateWLNSymbol('I',graph);
-      node->set_edge_and_type(atom->GetExplicitValence());
-      break;
-
-
-
-// all special elemental cases
-
-    case 89:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AC";
-      break;
-
-    case 47:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AG";
-      break;
-  
-    case 13:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AL";
-      break;
-
-    case 95:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AM";
-      break;
-
-    case 18:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AR";
-      break;
-
-    case 33:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AS";
-      break;
-
-    case 85:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AT";
-      break;
-
-    case 79:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "AU";
-      break;
-
-
-    case 56:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "BA";
-      break;
-
-    case 4:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "BE";
-      break;
-
-    case 107:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "BH";
-      break;
-
-    case 83:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "BI";
-      break;
-
-    case 97:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "BK";
-      break;
-
-    case 20:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CA";
-      break;
-    
-    case 48:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CD";
-      break;
-
-    case 58:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CE";
-      break;
-
-    case 98:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CF";
-      break;
-
-    case 96:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CN";
-      break;
-
-    case 112:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CN";
-      break;
-
-    case 27:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CO";
-      break;
-
-    case 24:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CR";
-      break;
-
-    case 55:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CS";
-      break;
-
-    case 29:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "CU";
-      break;
-
-    case 105:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "DB";
-      break;
-
-    case 110:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "DS";
-      break;
-
-    case 66:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "DY";
-      break;
-
-    case 68:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "ER";
-      break;
-
-    case 99:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "ES";
-      break;
-
-    case 63:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "EU";
-      break;
-
-    case 26:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "FE";
-      break;
-
-    case 114:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "FL";
-      break;
-
-    case 100:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "FM";
-      break;
-
-    case 87:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "FR";
-      break;
-
-    case 31:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "GA";
-      break;
-
-    case 64:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "GD";
-      break;
-
-    case 32:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "GE";
-      break;
-
-    case 2:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "HE";
-      break;
-
-    case 72:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "HF";
-      break;
-
-    case 80:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "HG";
-      break;
-
-    case 67:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "HO";
-      break;
-
-    case 108:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "HS";
-      break;
-
-    case 49:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "IN";
-      break;
-
-    case 77:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "IR";
-      break;
-
-    case 36:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "KR";
-      break;
-
-    case 19:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "KA";
-      break;
-
-    case 57:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "LA";
-      break;
-
-    case 3:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "LI";
-      break;
-
-    case 103:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "LR";
-      break;
-
-    case 71:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "LU";
-      break;
-
-    case 116:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "LV";
-      break;
-
-    case 115:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "MC";
-      break;
-
-    case 101:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "MD";
-      break;
-
-    case 12:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "MG";
-      break;
-
-    case 25:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "MN";
-      break;
-
-    case 42:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "MO";
-      break;
-
-    case 109:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "MT";
-      break;
-
-    case 11:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NA";
-      break;
-
-    case 41:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NB";
-      break;
-
-    case 60:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "ND";
-      break;
-
-    case 10:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NE";
-      break;
-
-    case 113:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NH";
-      break;
-
-    case 28:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NI";
-      break;
-
-    case 102:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NO";
-      break;
-
-    case 93:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "NP";
-      break;
-
-
-    case 118:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "OG";
-      break;
-
-    case 76:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "OS";
-      break;
-
-
-    case 91:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PA";
-      break;
-
-    case 82:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PB";
-      break;
-
-    case 46:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PD";
-      break;
-
-    case 61:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PM";
-      break;
-
-    case 84:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PO";
-      break;
-
-    case 59:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PR";
-      break;
-
-    case 78:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PT";
-      break;
-
-    case 94:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "PU";
-      break;
-
-    case 88:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RA";
-      break;
-
-    case 37:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RB";
-      break;
-
-    case 75:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RE";
-      break;
-
-    case 104:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RF";
-      break;
-
-    case 111:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RG";
-      break;
-
-    case 45:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RH";
-      break;
-
-    case 86:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RN";
-      break;
-
-    case 44:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "RU";
-      break;
-
-    case 51:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SB";
-      break;
-
-    case 21:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SC";
-      break;
-
-    case 34:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SE";
-      break;
-
-    case 106:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SG";
-      break;
-
-    case 14:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SI";
-      break;
-
-    case 62:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SM";
-      break;
-
-    case 50:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SN";
-      break;
-
-    case 38:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "SR";
-      break;
-
-
-    case 73:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TA";
-      break;
-
-    case 65:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TB";
-      break;
-
-    case 43:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TC";
-      break;
-
-    case 52:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TE";
-      break;
-
-    case 90:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TH";
-      break;
-
-    case 22:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TI";
-      break;
-
-    case 81:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TL";
-      break;
-
-    case 69:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TM";
-      break;
-
-    case 117:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "TS";
-      break;
-
-    case 92:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "UR";
-      break;
-
-    case 23:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "VA";
-      break;
-
-    case 54:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "XE";
-      break;
-
-    case 39:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "YT";
-      break;
-
-    case 70:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "YB";
-      break;
-
-    case 30:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "ZN";
-      break;
-
-    case 40:
-      node = AllocateWLNSymbol('*',graph);
-      node->special += "ZR";
-      break;
-    
-
-    default:
-      fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
-      return 0;
-  }
-  
-  if(!graph.root)
-    graph.root = node; 
-
-  if(!node->allowed_edges)
-    node->set_edge_and_type(8);
-
-  return node; 
-}
-
-
-
-/**********************************************************************
-                          WLNEdge Functions
-**********************************************************************/
-
-
-WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
-
-  if(!child || !parent){
-    fprintf(stderr,"Error: attempting bond of non-existent symbols - %s|%s is dead\n",child ? "":"child",parent ? "":"parent");
-    return 0;
-  }
-
-  graph.edge_count++;
-  if(graph.edge_count > REASONABLE){
-    fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
-    return 0;
-  }
-  
-  if ((child->num_edges + 1) > child->allowed_edges){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
-    return 0;
-  }
-  
-  if ((parent->num_edges + 1) > parent->allowed_edges){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
-    return 0;
-  }
-
-  WLNEdge *edge = new WLNEdge;
-  graph.EDGES[graph.edge_count] = edge;
-
-  // use a linked list to store the bond, can also check if it already exists
-
-  WLNEdge *curr = parent->bonds;
-  if(curr){
-    
-    while(curr->nxt){
-      if(curr->child == child){
-        fprintf(stderr,"Error: trying to bond already bonded symbols\n");
-        return 0;
-      }
-      curr = curr->nxt;
-    }
-      
-    curr->nxt = edge;
-  }
-  else
-    parent->bonds = edge; 
-
-  // set the previous for look back
-  child->previous = parent; 
-
-  child->num_edges++;
-  parent->num_edges++;
-
-  edge->parent = parent; 
-  edge->child = child;
-  edge->order = 1;
-
-  parent->num_children++;
-  return edge;
-}
-
-
-void debug_edge(WLNEdge *edge){
-  if(!edge)
-    fprintf(stderr,"Error: debugging nullptr edge\n");  
-  else
-    fprintf(stderr,"%c -- %d --> %c\n",edge->parent->ch, edge->order ,edge->child->ch);
-}
-
-
-WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent, bool verbose=true){
-  if(!child || !parent){
-    fprintf(stderr,"Error: searching edge on nullptrs\n");
-    return 0;
-  }
-  
-  WLNEdge *edge = 0;
-  for (edge=parent->bonds;edge;edge = edge->nxt){
-    if(edge->child == child)
-      return edge;
-  }
-  if(verbose)
-    fprintf(stderr,"Error: could not find edge in search\n");
-  return 0;
-}
-
-WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n){
-  if(!edge){
-    fprintf(stderr,"Error: unsaturating non-existent edge\n");
-    return 0;
-  }
-
-  edge->order += n; 
-  edge->parent->num_edges += n;
-  edge->child->num_edges+= n;
-
-  if(edge->parent->num_edges > edge->parent->allowed_edges){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
-    return 0;
-  }
-
-  if(edge->child->num_edges > edge->child->allowed_edges){
-    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
-    return 0;
-  }
-
-  return edge;
-}
-
-
-
-bool remove_edge(WLNSymbol *head,WLNEdge *edge){
-  if(!head || !edge){
-    fprintf(stderr,"Error: removing bond of non-existent symbols\n");
-    return false;
-  }
-  
-  head->num_edges--;
-  edge->child->num_edges--;
-
-  if(head->bonds == edge){
-    head->bonds = 0;
-    return true;
-  }
-
-  bool found = false;
-  WLNEdge *search = head->bonds;
-
-  WLNEdge *prev = 0;
-  while(search){
-    if(search == edge){ 
-      found = true;
-      break;
-    }
-    prev = search; 
-    search = search->nxt;
-  }
-
-  if(!found){
-    fprintf(stderr,"Error: trying to remove bond from wln character[%c] - bond not found\n",head->ch);
-    return false;
-  }
-  else{
-    WLNEdge *tmp = edge->nxt;
-    prev->nxt = tmp;
-    // dont null the edges as we use the mempool to release them
-  }
-
-  return true;
-}
 
 
 /**********************************************************************
@@ -1394,7 +439,7 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 
       // find the position of first in the array
       unsigned int pos = 0; 
-      for(pos;pos < path_size;pos++){
+      for(pos=0;pos < path_size;pos++){
         if(locant_path[pos] == first)
           break;
       }
@@ -1455,36 +500,6 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 }
 
 
-/* create the hetero atoms where neccesary */
-void ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &buffer,WLNGraph &graph){
-
-  unsigned int last_hetero_index = 0; 
-  for(unsigned int i=0;i<path_size;i++){
-
-    if(locant_path[i]->GetAtomicNum() != 6){
-
-      // handles 'A' starting and consecutive locants
-      if(i > 0 && last_hetero_index != i-1){
-        buffer += ' ';
-        buffer += int_to_locant(i+1);
-      }
-
-      WLNSymbol *sym = CreateWLNNode(locant_path[i],graph); // graph can handle memory
-      if(sym->ch == '*'){
-        buffer += '-';
-        buffer += sym->special; 
-        buffer += '-';
-      }
-      else
-        buffer += sym->ch; 
-      
-      last_hetero_index = i; 
-    }
-
-
-  }
- 
-}
 
 
 /**********************************************************************
@@ -1547,83 +562,34 @@ unsigned int MinimalWLNRingNotation(std::vector<std::string> &ring_strings){
 }
 
 
+std::string CondenseCarbonylChains(std::string &buffer){
+  
+  unsigned int counter = 0; 
+  std::string condensed = {}; 
+  for(unsigned int i=0;i<buffer.size();i++){
+    if(buffer[i] == '1')
+      counter++; 
+    else{
+      if(counter){
+        condensed += std::to_string(counter);
+        counter = 0; 
+      }
+      condensed += buffer[i];
+    }
+  }
+  if(counter)
+    condensed += std::to_string(counter);
+  return condensed;
+}
+
+
+
+
 
 /**********************************************************************
                          Debugging Functions
 **********************************************************************/
 
-
-/* dump wln tree to a dotvis file */
-void WLNDumpToDot(FILE *fp, WLNGraph &graph)
-{  
-  fprintf(fp, "digraph WLNdigraph {\n");
-  fprintf(fp, "  rankdir = LR;\n");
-  for (unsigned int i=0; i<=graph.symbol_count;i++)
-  {
-    WLNSymbol *node = graph.SYMBOLS[i];
-    if(!node)
-      continue;
-
-    fprintf(fp, "  %d", graph.index_lookup[node]);
-    if (node->ch == '*')
-      fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-    else if (node->type == RING)
-      fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
-    else{
-      if(std::isdigit(node->ch)){
-        if (!node->special.empty())
-          fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-        else
-          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-      } 
-      else
-        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-    }
-  
-      
-    WLNEdge *edge = 0;
-    for (edge = node->bonds;edge;edge = edge->nxt){
-
-      WLNSymbol *child = edge->child;
-      unsigned int bond_order = edge->order;
-
-      // aromatic
-      if (bond_order > 1){
-        for (unsigned int k=0;k<bond_order;k++){
-          fprintf(fp, "  %d", graph.index_lookup[node]);
-          fprintf(fp, " -> ");
-          fprintf(fp, "%d\n", graph.index_lookup[child]);
-        }
-      }
-      else{
-        fprintf(fp, "  %d", graph.index_lookup[node]);
-        fprintf(fp, " -> ");
-        fprintf(fp, "%d\n", graph.index_lookup[child]);
-      }
-    }
-  }
-
-  fprintf(fp, "}\n");
-}
-
-bool WriteWLNDotGraph(WLNGraph &graph){
-  fprintf(stderr,"Dumping wln graph to wln-graph.dot:\n");
-  FILE *fp = 0;
-  fp = fopen("wln-graph.dot", "w");
-  if (!fp)
-  {
-    fprintf(stderr, "Error: could not create dump .dot file\n");
-    fclose(fp);
-    return false;
-  }
-  else
-    WLNDumpToDot(fp,graph);
-  
-  fclose(fp);
-  fp = 0;
-  fprintf(stderr,"  dumped\n");
-  return true;
-}
 
 
 void BabelDumptoDot(FILE *fp, OBMol *mol){
@@ -1677,244 +643,696 @@ bool WriteBabelDotGraph(OBMol *mol){
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
 
-  std::map<OBAtom*, WLNSymbol*>  atom_symbol_map; 
-  std::map<WLNSymbol*,OBAtom*>   symbol_atom_map; 
-  std::map<OBAtom*,bool> ring_handled; 
+  std::map<OBAtom*,bool> atoms_seen;
+  std::map<OBRing*, bool> rings_seen; 
   
   BabelGraph(){};
   ~BabelGraph(){};
 
+  bool WriteBabelAtom(OBAtom* atom, std::string &buffer){
 
-  /* add the starting atom to build a tree for a locant position */
-  WLNSymbol* BuildWLNTree(OBAtom* start_atom, OBMol *mol,WLNGraph &graph){
+    if(!atom){
+      fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
+      return false; 
+    }
 
-    // has to be done as DFS in order to keep bond direction on the tree
-    WLNSymbol *root = 0; 
-    WLNSymbol *node   = 0; 
-    WLNSymbol *child  = 0; 
-    WLNEdge   *edge   = 0; 
+    unsigned int neighbours = atom->GetExplicitDegree(); 
+    unsigned int orders = atom->GetExplicitValence(); 
+
+    switch(atom->GetAtomicNum()){
+      case 1:
+        buffer += 'H';
+        break; 
+
+      case 5:
+        buffer += 'B';
+        break;
+
+      case 6:
+        if(neighbours <= 2)
+          buffer += '1';
+        else if(neighbours > 2){
+          if(orders == 3)
+            buffer += 'Y';
+          else
+            buffer += 'X';
+        }
+        else
+          buffer += 'C';
+        break;
+      
+      case 7:
+        switch(orders){
+          case 0:
+          case 1:
+            buffer += 'Z'; 
+            break;
+          case 2:
+            buffer += 'M';
+            break;
+          case 3:
+            buffer += 'N';
+            break;
+          case 4:
+            buffer += 'K';
+            break;
+          default: 
+            fprintf(stderr,"Error: Unrecognised nitrogen bonding enviroment, orders - %d\n",orders);
+            return 0;
+
+        }   
+        break;
+      
+      case 8:
+        if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1)
+          buffer += 'Q';
+        else
+          buffer += 'O';
+        break;
+      
+      case 9:
+        if(atom->GetExplicitValence() > 1)
+          buffer += "-F-";
+        else
+          buffer += 'F';
+        break;
+
+      case 15:
+        buffer += 'P';
+        break;
+
+      case 16:
+        buffer += 'S';
+        break;
+
+      case 17:
+        if(atom->GetExplicitValence() > 1)
+          buffer += "-G-";
+        else
+          buffer += 'G';
+        break;
+
+      case 35:
+        if(atom->GetExplicitValence() > 1)
+          buffer += "-E-";
+        else
+          buffer += 'E';
+        break;
+
+      case 53:
+        if(atom->GetExplicitValence() > 1)
+          buffer += "-I-";
+        else
+          buffer += 'I';
+        break;
+
+
+
+  // all special elemental cases
+
+      case 89:
+        buffer += "-AC-";
+        break;
+
+      case 47:
+        buffer += "-AG-";
+        break;
+    
+      case 13:
+        buffer += "-AL-";
+        break;
+
+      case 95:
+        buffer += "-AM-";
+        break;
+
+      case 18:
+        buffer += "-AR-";
+        break;
+
+      case 33:
+        buffer += "-AS-";
+        break;
+
+      case 85:
+        buffer += "-AT-";
+        break;
+
+      case 79:
+        buffer += "-AU-";
+        break;
+
+
+      case 56:
+        buffer += "-BA-";
+        break;
+
+      case 4:
+        buffer += "-BE-";
+        break;
+
+      case 107:
+        buffer += "-BH-";
+        break;
+
+      case 83:
+        buffer += "-BI-";
+        break;
+
+      case 97:
+        buffer += "-BK-";
+        break;
+
+      case 20:
+        buffer += "-CA-";
+        break;
+      
+      case 48:
+        buffer += "-CD-";
+        break;
+
+      case 58:
+        buffer += "-CE-";
+        break;
+
+      case 98:
+        buffer += "-CF-";
+        break;
+
+      case 96:
+        buffer += "-CN-";
+        break;
+
+      case 112:
+        buffer += "-CN-";
+        break;
+
+      case 27:
+        buffer += "-CO-";
+        break;
+
+      case 24:
+        buffer += "-CR-";
+        break;
+
+      case 55:
+        buffer += "-CS-";
+        break;
+
+      case 29:
+        buffer += "-CU-";
+        break;
+
+      case 105:
+        buffer += "-DB-";
+        break;
+
+      case 110:
+        buffer += "-DS-";
+        break;
+
+      case 66:
+        buffer += "-DY-";
+        break;
+
+      case 68:
+        buffer += "-ER-";
+        break;
+
+      case 99:
+        buffer += "-ES-";
+        break;
+
+      case 63:
+        buffer += "-EU-";
+        break;
+
+      case 26:
+        buffer += "-FE-";
+        break;
+
+      case 114:
+        buffer += "-FL-";
+        break;
+
+      case 100:
+        buffer += "-FM-";
+        break;
+
+      case 87:
+        buffer += "-FR-";
+        break;
+
+      case 31:
+        buffer += "-GA-";
+        break;
+
+      case 64:
+        buffer += "-GD-";
+        break;
+
+      case 32:
+        buffer += "-GE-";
+        break;
+
+      case 2:
+        buffer += "-HE-";
+        break;
+
+      case 72:
+        buffer += "-HF-";
+        break;
+
+      case 80:
+        buffer += "-HG-";
+        break;
+
+      case 67:
+        buffer += "-HO-";
+        break;
+
+      case 108:
+        buffer += "-HS-";
+        break;
+
+      case 49:
+        buffer += "-IN-";
+        break;
+
+      case 77:
+        buffer += "-IR-";
+        break;
+
+      case 36:
+        buffer += "-KR-";
+        break;
+
+      case 19:
+        buffer += "-KA-";
+        break;
+
+      case 57:
+        buffer += "-LA-";
+        break;
+
+      case 3:
+        buffer += "-LI-";
+        break;
+
+      case 103:
+        buffer += "-LR-";
+        break;
+
+      case 71:
+        buffer += "-LU-";
+        break;
+
+      case 116:
+        buffer += "-LV-";
+        break;
+
+      case 115:
+        buffer += "-MC-";
+        break;
+
+      case 101:
+        buffer += "-MD-";
+        break;
+
+      case 12:
+        buffer += "-MG-";
+        break;
+
+      case 25:
+        buffer += "-MN-";
+        break;
+
+      case 42:
+        buffer += "-MO-";
+        break;
+
+      case 109:
+        buffer += "-MT-";
+        break;
+
+      case 11:
+        buffer += "-NA-";
+        break;
+
+      case 41:
+        buffer += "-NB-";
+        break;
+
+      case 60:
+        buffer += "-ND-";
+        break;
+
+      case 10:
+        buffer += "-NE-";
+        break;
+
+      case 113:
+        buffer += "-NH-";
+        break;
+
+      case 28:
+        buffer += "-NI-";
+        break;
+
+      case 102:
+        buffer += "-NO-";
+        break;
+
+      case 93:
+        buffer += "-NP-";
+        break;
+
+
+      case 118:
+        buffer += "-OG-";
+        break;
+
+      case 76:
+        buffer += "-OS-";
+        break;
+
+
+      case 91:
+        buffer += "-PA-";
+        break;
+
+      case 82:
+        buffer += "-PB-";
+        break;
+
+      case 46:
+        buffer += "-PD-";
+        break;
+
+      case 61:
+        buffer += "-PM-";
+        break;
+
+      case 84:
+        buffer += "-PO-";
+        break;
+
+      case 59:
+        buffer += "-PR-";
+        break;
+
+      case 78:
+        buffer += "-PT-";
+        break;
+
+      case 94:
+        buffer += "-PU-";
+        break;
+
+      case 88:
+        buffer += "-RA-";
+        break;
+
+      case 37:
+        buffer += "-RB-";
+        break;
+
+      case 75:
+        buffer += "-RE-";
+        break;
+
+      case 104:
+        buffer += "-RF-";
+        break;
+
+      case 111:
+        buffer += "-RG-";
+        break;
+
+      case 45:
+        buffer += "-RH-";
+        break;
+
+      case 86:
+        buffer += "-RN-";
+        break;
+
+      case 44:
+        buffer += "-RU-";
+        break;
+
+      case 51:
+        buffer += "-SB-";
+        break;
+
+      case 21:
+        buffer += "-SC-";
+        break;
+
+      case 34:
+        buffer += "-SE-";
+        break;
+
+      case 106:
+        buffer += "-SG-";
+        break;
+
+      case 14:
+        buffer += "-SI-";
+        break;
+
+      case 62:
+        buffer += "-SM-";
+        break;
+
+      case 50:
+        buffer += "-SN-";
+        break;
+
+      case 38:
+        buffer += "-SR-";
+        break;
+
+
+      case 73:
+        buffer += "-TA-";
+        break;
+
+      case 65:
+        buffer += "-TB-";
+        break;
+
+      case 43:
+        buffer += "-TC-";
+        break;
+
+      case 52:
+        buffer += "-TE-";
+        break;
+
+      case 90:
+        buffer += "-TH-";
+        break;
+
+      case 22:
+        buffer += "-TI-";
+        break;
+
+      case 81:
+        buffer += "-TL-";
+        break;
+
+      case 69:
+        buffer += "-TM-";
+        break;
+
+      case 117:
+        buffer += "-TS-";
+        break;
+
+      case 92:
+        buffer += "-UR-";
+        break;
+
+      case 23:
+        buffer += "-VA-";
+        break;
+
+      case 54:
+        buffer += "-XE-";
+        break;
+
+      case 39:
+        buffer += "-YT-";
+        break;
+
+      case 70:
+        buffer += "-YB-";
+        break;
+
+      case 30:
+        buffer += "-ZN-";
+        break;
+
+      case 40:
+        buffer += "-ZR-";
+        break;
+      
+
+      default:
+        fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
+        return false;
+    }
+
+    return true; 
+  }
+
+  unsigned int CountDioxo(OBAtom *atom){
+    unsigned int Ws = 0; 
+    unsigned int carbonyls = 0;
+    unsigned int oxo_ions = 0; 
+    std::vector<OBAtom*> seen; 
+    FOR_NBORS_OF_ATOM(a,atom){
+      OBAtom *nbor = &(*a);
+      if(!atoms_seen[nbor] && !nbor->IsInRing() && nbor->GetAtomicNum() == 8){
+ 
+        if(atom->GetBond(nbor)->GetBondOrder() == 2){
+          carbonyls++;
+          seen.push_back(nbor);
+        }
+        else if(nbor->GetFormalCharge() == -1){
+          oxo_ions++;
+          seen.push_back(nbor);
+        }
+          
+        if(carbonyls == 2 || oxo_ions == 2 || (oxo_ions == 1 && carbonyls == 1)){
+          Ws++;
+          atoms_seen[seen[0]] = true;
+          atoms_seen[seen[1]] = true;
+          carbonyls = 0;
+          oxo_ions = 0;
+          seen.clear();
+        }
+      }  
+    }
+    return Ws;
+  }
+
+  bool CheckCarbonyl(OBAtom *atom){
+    FOR_NBORS_OF_ATOM(a,atom){
+      OBAtom *nbor = &(*a);
+      if(!atoms_seen[nbor] && !nbor->IsInRing() && nbor->GetAtomicNum() == 8){
+        if(atom->GetBond(nbor)->GetBondOrder() == 2){
+          atoms_seen[nbor] = true;
+          return true;
+        }
+      }  
+    }
+    return false;
+  }
+
+  OBAtom* ParseNonCyclic(OBAtom* start_atom, OBMol *mol, std::string &buffer){
+    
+    unsigned int Wgroups = 0;
+    bool following_terminator = false;
 
     OBAtom* atom = start_atom;
-    std::map<OBAtom*,bool> visited; 
+    OBAtom* prev = 0; 
+    OBBond *bond = 0; 
+
     std::stack<OBAtom*> atom_stack; 
+    std::stack<OBAtom*> branch_stack; 
     atom_stack.push(atom); 
 
     while(!atom_stack.empty()){
       atom = atom_stack.top(); 
       atom_stack.pop();
-      visited[atom] = true;
+      atoms_seen[atom] = true;
 
-      // negative oxygen should be given a W character, therefore pointing in
-      if(atom->GetFormalCharge() == -1 && atom->GetAtomicNum() == 8){
-        FOR_NBORS_OF_ATOM(iterator, atom){
-          OBAtom *neighbour = &(*iterator);
-          if(!visited[neighbour] && !neighbour->IsInRing())
-            atom_stack.push(neighbour); 
+      if(prev){
+        bond = mol->GetBond(prev,atom); 
+
+        if(bond){
+          for(unsigned int i=1;i<bond->GetBondOrder();i++)
+            buffer += 'U';
         }
-        continue;
-      }
-
-      // create the first atom if needed
-      if(!atom_symbol_map[atom]){
-        node = CreateWLNNode(atom,graph); 
-
-        if(!root)
-          root = node;
-
-        if(!node){
-          fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
-          return 0;
-        }
-        
-        atom_symbol_map[atom] = node; 
-        symbol_atom_map[node] = atom;
-      }
-      else
-        node = atom_symbol_map[atom]; 
-
-      // this will look back, so order is important to maintain
-      FOR_NBORS_OF_ATOM(iterator, atom){
-        OBAtom *neighbour = &(*iterator);
-        if(!atom_symbol_map[neighbour] && !neighbour->IsInRing()){
-          child = CreateWLNNode(neighbour,graph); 
-          if(!child){
-            fprintf(stderr,"Error: could not create node in BuildWLNTree\n");
-            return 0;
-          }
-
-          atom_symbol_map[neighbour] = child; 
-          symbol_atom_map[child] = neighbour; 
-
-          // bond here, and don't consider the symbol if the atom is already made 
-          OBBond *bond = atom->GetBond(neighbour); 
-          if(!bond){
-            fprintf(stderr,"Error: accessing non-existent bond in BuildWLNTree\n");
-            return 0;
-          }
-          unsigned int order = bond->GetBondOrder(); 
-          edge = AllocateWLNEdge(child,node,graph); 
-          if(order > 1)
-            edge = unsaturate_edge(edge,order-1);
-        }
-          
-        if(!visited[neighbour] && !neighbour->IsInRing())
-          atom_stack.push(neighbour); 
-      } 
-
-    }
-    
-    return root;
-  }
-
-
-  /* reads the babel graph into the appropriate wln graph
-      either return roots for ionic species to build tree,
-      or if cyclic, return ring objects to parse  */
-
-  bool ParseNonCyclic(OBAtom *start_atom,OBMol *mol,WLNGraph &graph,std::string &buffer){
-    WLNSymbol *root_node = BuildWLNTree (start_atom,mol,graph); 
-    if(root_node && WriteWLNFromNode(root_node,graph,buffer))
-      return true;
-    else{
-      fprintf(stderr,"Error: failure in parsing non-cyclic WLN graph\n");
-      return 0;
-    } 
-  }
-
-  // will also add to handled
-  bool CheckCarbonyl(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited){
-    WLNEdge *edge = 0; 
-    WLNEdge *oxygen = 0; 
-  
-    for(edge=sym->bonds;edge;edge=edge->nxt){
-      if((edge->child->ch == 'O') && (edge->order == 2 || symbol_atom_map[edge->child]->GetFormalCharge() == -1)){
-        oxygen = edge; 
-        break;
-      }
-    }
-    if(!oxygen)
-      return false;
-    else{
-      visited[oxygen->child] = true;
-      return true;
-    } 
-  }
-
-
-  // will also add to handled
-  bool CheckDIOXO(WLNSymbol *sym, std::map<WLNSymbol*,bool> &visited){
-
-    WLNEdge *edge = 0; 
-    // needs to a be a priority, so taking a double bond =O over a =O + -O-
-    std::deque<WLNSymbol*> oxygens;
-    for(edge=sym->bonds;edge;edge=edge->nxt){
-      // highest priority double bond =O
-      if(edge->child->ch == 'O' && edge->order == 2)
-        oxygens.push_front(edge->child); 
-      // lower priority  =O + -O-
-      else if(edge->child->ch == 'O' && symbol_atom_map[edge->child]->GetFormalCharge() == -1)
-        oxygens.push_back(edge->child); 
-    }
-
-    if(oxygens.size() < 2)
-      return false;
-    else{
-      visited[oxygens[0]] = true;
-      visited[oxygens[1]] = true;
-      return true;
-    } 
-  }
-
-  // writes to the buffer
-  WLNSymbol* WriteCarbonChain(WLNSymbol *sym, std::string &buffer){
-    
-    unsigned int carbons = 1; 
-    WLNSymbol *carbon_sym = sym;
-
-    while(carbon_sym->bonds && carbon_sym->bonds->child->ch == '1' && carbon_sym->bonds->order == 1){
-      carbons++;
-      carbon_sym = carbon_sym->bonds->child;
-    }
-
-    buffer += std::to_string(carbons);
-    return carbon_sym;
-  }
-
-
-  /* parse the created WLN graph */
-  bool WriteWLNFromNode(WLNSymbol *root,WLNGraph &graph,std::string &buffer){
-
-    // dfs style notational build from a given root, use to build the notation 
-    WLNSymbol *top = 0; 
-    WLNSymbol *prev = 0; 
-    WLNEdge   *edge = 0; // for iterating
-    
-    std::stack<std::pair<WLNSymbol*,unsigned int>> stack; 
-    std::stack <WLNSymbol*> branch_stack; 
-    std::map<WLNSymbol*,bool> visited;
-    
-    bool following_terminator = false;
-    unsigned int order = 0;  
-
-    stack.push({root,0});
-
-    while(!stack.empty()){
-      top = stack.top().first;
-      order = stack.top().second; 
-      
-// branching returns
-      if( (top->previous && prev) && top->previous != prev && 
-          !branch_stack.empty()){
-
-        prev = top->previous;
-        
-        if(opt_debug)
-          fprintf(stderr,"%c is on branch: %d\n",prev->ch,prev->on_child);
-
-        // distinction between a closure and a pop
-        if(!following_terminator)
-          buffer += '&';
-
-        WLNSymbol *branch_top = 0; 
-        while(!branch_stack.empty() && prev != branch_stack.top()){
-          branch_top = branch_stack.top();
-          if(opt_debug)
-            fprintf(stderr,"stack_top: %c - %d\n",branch_top->ch,branch_top->on_child);
-          
-          if( (branch_top->num_children != branch_top->on_child) 
-              || branch_top->num_edges < branch_top->allowed_edges)
+        // branch stack conditions 
+        else{
+          // distinction between a closure and a pop
+          if(!following_terminator)
             buffer += '&';
 
-          branch_stack.pop();
+          while(!branch_stack.empty() && !mol->GetBond(prev,atom)){
+            prev = branch_stack.top();
+            branch_stack.pop();
+            buffer += '&';
+          }
+
+          bond = mol->GetBond(prev,atom); 
+          if(bond){
+            for(unsigned int i=1;i<bond->GetBondOrder();i++)
+              buffer += 'U';
+          }
         }
-
-        prev->on_child++;
       }
-      else if(prev)
-        prev->on_child++;
 
-      following_terminator = false;
-      
-      stack.pop();
-      visited[top] = true;
-      prev = top;      
+      if(!WriteBabelAtom(atom,buffer))
+        return 0;
 
-// bond unsaturations
-      if(order == 2)
-        buffer+='U';
-      if(order == 3)
-        buffer+="UU";        
-
-      switch (top->ch){
-
+      // last added char, not interested in the ring types of '-'
+      switch(buffer.back()){
+        
 // oxygens
         case 'O':
-          buffer += 'O';
+        case 'V':
+        case 'M':
+        case 'W': // W is not actually seen as a prev,
+          prev = atom; 
           break;
 
+
+// carbons 
+        // alkyl chain 
+        case '1':
+          prev = atom; 
+          break;
+
+
+        case 'Y':
+        case 'X':
+          prev = atom;
+          Wgroups = CountDioxo(atom);
+          for(unsigned int i=0;i<Wgroups;i++)
+            buffer+='W';
+          if(!Wgroups && CheckCarbonyl(atom))
+            buffer.back() = 'V';
+          else
+            branch_stack.push(atom);
+          break;
+
+        case 'N':
+        case 'K':
+        case 'B':
+        case 'S':
+        case 'P':
+        case '-':
+          Wgroups = CountDioxo(atom);
+          for(unsigned int i=0;i<Wgroups;i++)
+            buffer+='W';
+
+          prev = atom;
+          branch_stack.push(atom);
+          break;
+          
+      
+// halogens
         case 'Q':
-          buffer += 'Q';
-          if(!top->num_edges)
+        case 'Z':
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'I':
+          if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
 
           if(!branch_stack.empty()){
@@ -1923,131 +1341,51 @@ struct BabelGraph{
           }
           break;
 
-// carbons 
-        // alkyl chain 
-        case '1':
-          top = WriteCarbonChain(top,buffer);
-          prev = top;
-          break;
-
-        case 'Y':
-        case 'X':
-          if(CheckDIOXO(top, visited)){
-            buffer += top->ch;
-            buffer += 'W'; 
-          }
-          else if(CheckCarbonyl(top,visited))
-            buffer += 'V'; 
-          else{
-            buffer += top->ch;
-            branch_stack.push(top);
-          }
-          break;
-
-
-// nitrogen
-        case 'N':
-          if(top->num_edges < 2){
-            buffer += 'Z';
-            if(!top->num_edges)
-              buffer += 'H';
-
-            if(!branch_stack.empty()){
-              prev = branch_stack.top();
-              following_terminator = true;
-            }
-          }
-          else if(top->num_children < 2 && top->num_edges < 3)
-            buffer += 'M';
-          else if (top->num_children < 3 && top->num_edges < 4){
-            buffer += 'N';
-            if(CheckDIOXO(top, visited))
-              buffer += 'W'; 
-
-            branch_stack.push(top);
-          }
-          else{
-            if(CheckDIOXO(top, visited)){
-              buffer += 'N';
-              buffer += 'W';
-            }
-            else{
-              buffer += 'K';
-              branch_stack.push(top); // implied methyl, must add to branch
-            }
-          }
-          break;
-
-
-// halogens
-        case 'E':
-        case 'F':
-        case 'G':
-        case 'I':
-          if(top->num_edges > 1){
-            buffer += '-';
-            buffer += top->ch;
-            buffer += '-';
-            if(CheckDIOXO(top, visited))
-              buffer += 'W'; 
-
-            branch_stack.push(top);
-          }
-          else{
-            buffer += top->ch;
-            if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
-              buffer += 'H';
-
-            if(!branch_stack.empty()){
-              prev = branch_stack.top();
-              following_terminator = true;
-            }
-          }
-          break;
-
-// branching heteroatoms 
-        case 'B':
-        case 'S':
-        case 'P':
-          buffer += top->ch;
-          if(CheckDIOXO(top, visited))
-            buffer += 'W'; 
-
-          if(top->num_children > 0)
-            branch_stack.push(top);
-          
-          break;
-
-
-// specials 
-        case '*':
-          buffer += '-';
-          buffer += top->special;
-          buffer += '-';
-          if(!top->num_edges && symbol_atom_map[top]->GetFormalCharge() == 0)
-            buffer += 'H';
-          else if(top->num_children > 0)
-            branch_stack.push(top);
-          
-          break;
 
         default:
-          fprintf(stderr,"Error: unhandled WLN char %c\n",top->ch); 
-          return false; 
+          fprintf(stderr,"Error: unhandled char %c\n",buffer.back()); 
+          return 0; 
       }
-    
 
-      for(edge=top->bonds;edge;edge=edge->nxt){
-        if(!visited[edge->child])
-          stack.push({edge->child,edge->order}); 
+      FOR_NBORS_OF_ATOM(a,atom){
+        if(!atoms_seen[&(*a)] && !(*a).IsInRing()){
+
+          atom_stack.push(&(*a));
+          fprintf(stderr,"pushing atom: %d\n",(*a).GetAtomicNum());
+        }
+          
       }
 
     }
-    return true;
+
+    return atom; 
   }
 
+  /* create the hetero atoms where neccesary */
+  bool ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &buffer){
+
+    unsigned int last_hetero_index = 0; 
+    for(unsigned int i=0;i<path_size;i++){
+
+      if(locant_path[i]->GetAtomicNum() != 6){
+
+        // handles 'A' starting and consecutive locants
+        if(i > 0 && last_hetero_index != i-1){
+          buffer += ' ';
+          buffer += int_to_locant(i+1);
+        }
+
+        if(!WriteBabelAtom(locant_path[i],buffer))
+          return false; 
+        last_hetero_index = i; 
+      }
+    }
+    
+    return true;
+  }
+  
   /* constructs and parses a cyclic structre, locant path is returned with its path_size */
-  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, WLNGraph &graph, std::string &buffer){
+  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, std::string &buffer){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
    
@@ -2113,7 +1451,7 @@ struct BabelGraph{
       }
 
       // add any hetero atoms at locant positions
-      ReadHeteroAtoms(locant_paths[minimal_index],path_size,buffer,graph);
+      ReadHeteroAtoms(locant_paths[minimal_index],path_size,buffer);
 
       // close ring
       buffer += 'J';
@@ -2126,12 +1464,15 @@ struct BabelGraph{
   }
 
 
-  bool ParseAllCyclic(OBMol *mol, WLNGraph &graph,std::string &buffer){
+  bool ParseAllCyclic(OBMol *mol, std::string &buffer){
     // get the start ring, and then use that as the jump point
     std::pair<OBAtom**,unsigned int> path_pair;  
     std::stack <std::pair<OBAtom**,unsigned int>> locant_stack; 
-    path_pair = ParseCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,graph,buffer);
+    path_pair = ParseCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,buffer);
     locant_stack.push(path_pair); 
+
+
+    return true;
     while(!locant_stack.empty()){
 
       path_pair = locant_stack.top(); 
@@ -2144,8 +1485,8 @@ struct BabelGraph{
       } 
 
       for(unsigned int i=0;i<path_size;i++){
-        if(!ring_handled[loc_path[i]]){
-          ring_handled[loc_path[i]] = true; // stops duplicates when returned from stack 
+        if(!atoms_seen[loc_path[i]]){
+          atoms_seen[loc_path[i]] = true; // stops duplicates when returned from stack 
 
           // check its neighbours
           FOR_BONDS_OF_ATOM(b,loc_path[i]){
@@ -2159,7 +1500,7 @@ struct BabelGraph{
               if(b->GetBondOrder() > 2)
                 buffer += 'U';
             
-              if(!ParseNonCyclic(ext_atom,mol,graph,buffer))
+              if(!ParseNonCyclic(ext_atom,mol,buffer))
                 return false;
             }
           }
@@ -2187,9 +1528,7 @@ struct BabelGraph{
 bool WriteWLN(std::string &buffer, OBMol* mol)
 {   
  
-  WLNGraph wln_graph;
   BabelGraph obabel; 
-
   unsigned int cyclic = 0;
   FOR_RINGS_OF_MOL(r,mol)
     cyclic++;
@@ -2200,30 +1539,28 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
   if(!cyclic){
     bool started = false; 
     FOR_ATOMS_OF_MOL(a,mol){
-      if(!obabel.atom_symbol_map[&(*a)]){
+      if(!obabel.atoms_seen[&(*a)]){
         if(started)
           buffer += " &"; // ionic species
         
-        if(!obabel.ParseNonCyclic(&(*a),mol,wln_graph,buffer))
+        if(!obabel.ParseNonCyclic(&(*a),mol,buffer))
           return false;
 
         started = true; 
       }
     }
-    
-    // create an optional dotfiles
-    if (opt_wln2dot)
-      WriteWLNDotGraph(wln_graph);
-    
+
+    buffer = CondenseCarbonylChains(buffer); 
     return true; 
   }
   else{
 
-    if(!obabel.ParseAllCyclic(mol,wln_graph,buffer))
+    if(!obabel.ParseAllCyclic(mol,buffer))
       return false; 
     
     // handles ionics here
     
+    buffer = CondenseCarbonylChains(buffer); 
     return true; 
   }
 

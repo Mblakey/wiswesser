@@ -1374,6 +1374,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     }
   }
 
+
   // lets define the convention, if we can double bond without
   // a charge, we do, if not, we add a single bond negative oxygen
   
@@ -1403,7 +1404,6 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
     sedge = unsaturate_edge(sedge,1);
   }
-
   else if(remaining_edges == 1){
     // require we always double bond 1
     binded_symbol->allowed_edges += 1;
