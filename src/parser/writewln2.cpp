@@ -1992,7 +1992,6 @@ struct BabelGraph{
     std::vector<std::string> cyclic_strings;
     std::vector<OBAtom**> locant_paths;  
 
-    bool hetero_ring = false;
     unsigned int expected_rings = 0;
     unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
     unsigned int path_size = ring_atoms.size(); 
@@ -2017,22 +2016,23 @@ struct BabelGraph{
           return 0; 
   
 
-        std::string cyclic_str = ReadLocantPath( locant_path,path_size,ring_shares,
+        std::string cyclic_str = ReadLocantPath(  locant_path,path_size,ring_shares,
                                                   nt_pairs,nt_sizes,
                                                   expected_rings);
         if(cyclic_str.empty())
           return 0;
 
         cyclic_strings.push_back(cyclic_str);
-        locant_paths.push_back(locant_path);
+        locant_paths.push_back(locant_path);   // memory leak here, needs a sorting function to return 1 and free
 
-        std::cout << cyclic_str << std::endl;
+        if(opt_debug)
+          std::cout << "  produced: " << cyclic_str << "\n\n";
       }
     }
     else
       return 0; 
 
-      
+
 
     return locant_path;
   }
