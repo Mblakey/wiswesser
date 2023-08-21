@@ -238,6 +238,657 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
   return wln;
 }
 
+WLNSymbol* CreateWLNNode(OBAtom* atom, WLNGraph &graph){
+
+  if(!atom){
+    fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
+    return 0; 
+  }
+
+  unsigned int neighbours = 0; 
+  unsigned int orders = 0; 
+  OBAtom *neighbour = 0; 
+  OBBond *bond = 0; 
+
+  WLNSymbol *node = 0;
+  switch(atom->GetAtomicNum()){
+    case 1:
+      node = AllocateWLNSymbol('H',graph);
+      node->set_edge_and_type(1);
+      break; 
+
+    case 5:
+      node = AllocateWLNSymbol('B',graph);
+      node->set_edge_and_type(3);
+      break;
+
+    case 6:
+      FOR_NBORS_OF_ATOM(iterator, atom){
+        neighbour = &(*iterator);
+        bond = atom->GetBond(neighbour);
+        orders += bond->GetBondOrder(); 
+        neighbours++;
+      }
+      if(neighbours <= 2){
+        node = AllocateWLNSymbol('1',graph);
+        node->set_edge_and_type(4);
+      }
+      else if(neighbours > 2){
+        if(orders == 3){
+          node = AllocateWLNSymbol('Y',graph);
+          node->set_edge_and_type(3);
+        }
+        else{
+          node = AllocateWLNSymbol('X',graph);
+          node->set_edge_and_type(4);
+        }
+      }
+      else{
+        node = AllocateWLNSymbol('C',graph);
+        node->set_edge_and_type(4);
+      }
+      break;
+    
+    case 7:
+      node = AllocateWLNSymbol('N',graph);
+      node->set_edge_and_type(atom->GetExplicitValence());
+      break;
+    
+    case 8:
+      if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1){
+        node = AllocateWLNSymbol('Q',graph);
+        node->set_edge_and_type(1);
+      }
+      else{
+        node = AllocateWLNSymbol('O',graph);
+        node->set_edge_and_type(2);
+      }
+      break;
+    
+    case 9:
+      node = AllocateWLNSymbol('F',graph);
+      node->set_edge_and_type(atom->GetExplicitValence());
+      break;
+
+    case 15:
+      node = AllocateWLNSymbol('P',graph);
+      node->set_edge_and_type(6);
+      break;
+
+    case 16:
+      node = AllocateWLNSymbol('S',graph);
+      node->set_edge_and_type(6);
+      break;
+
+    case 17:
+      node = AllocateWLNSymbol('G',graph);
+      node->set_edge_and_type(atom->GetExplicitValence());
+      break;
+
+    case 35:
+      node = AllocateWLNSymbol('E',graph);
+      node->set_edge_and_type(atom->GetExplicitValence());
+      break;
+
+    case 53:
+      node = AllocateWLNSymbol('I',graph);
+      node->set_edge_and_type(atom->GetExplicitValence());
+      break;
+
+
+
+// all special elemental cases
+
+    case 89:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AC";
+      break;
+
+    case 47:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AG";
+      break;
+  
+    case 13:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AL";
+      break;
+
+    case 95:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AM";
+      break;
+
+    case 18:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AR";
+      break;
+
+    case 33:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AS";
+      break;
+
+    case 85:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AT";
+      break;
+
+    case 79:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "AU";
+      break;
+
+
+    case 56:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "BA";
+      break;
+
+    case 4:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "BE";
+      break;
+
+    case 107:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "BH";
+      break;
+
+    case 83:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "BI";
+      break;
+
+    case 97:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "BK";
+      break;
+
+    case 20:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CA";
+      break;
+    
+    case 48:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CD";
+      break;
+
+    case 58:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CE";
+      break;
+
+    case 98:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CF";
+      break;
+
+    case 96:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CN";
+      break;
+
+    case 112:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CN";
+      break;
+
+    case 27:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CO";
+      break;
+
+    case 24:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CR";
+      break;
+
+    case 55:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CS";
+      break;
+
+    case 29:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "CU";
+      break;
+
+    case 105:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "DB";
+      break;
+
+    case 110:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "DS";
+      break;
+
+    case 66:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "DY";
+      break;
+
+    case 68:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "ER";
+      break;
+
+    case 99:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "ES";
+      break;
+
+    case 63:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "EU";
+      break;
+
+    case 26:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "FE";
+      break;
+
+    case 114:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "FL";
+      break;
+
+    case 100:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "FM";
+      break;
+
+    case 87:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "FR";
+      break;
+
+    case 31:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "GA";
+      break;
+
+    case 64:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "GD";
+      break;
+
+    case 32:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "GE";
+      break;
+
+    case 2:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "HE";
+      break;
+
+    case 72:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "HF";
+      break;
+
+    case 80:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "HG";
+      break;
+
+    case 67:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "HO";
+      break;
+
+    case 108:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "HS";
+      break;
+
+    case 49:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "IN";
+      break;
+
+    case 77:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "IR";
+      break;
+
+    case 36:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "KR";
+      break;
+
+    case 19:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "KA";
+      break;
+
+    case 57:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "LA";
+      break;
+
+    case 3:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "LI";
+      break;
+
+    case 103:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "LR";
+      break;
+
+    case 71:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "LU";
+      break;
+
+    case 116:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "LV";
+      break;
+
+    case 115:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "MC";
+      break;
+
+    case 101:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "MD";
+      break;
+
+    case 12:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "MG";
+      break;
+
+    case 25:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "MN";
+      break;
+
+    case 42:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "MO";
+      break;
+
+    case 109:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "MT";
+      break;
+
+    case 11:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NA";
+      break;
+
+    case 41:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NB";
+      break;
+
+    case 60:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "ND";
+      break;
+
+    case 10:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NE";
+      break;
+
+    case 113:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NH";
+      break;
+
+    case 28:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NI";
+      break;
+
+    case 102:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NO";
+      break;
+
+    case 93:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "NP";
+      break;
+
+
+    case 118:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "OG";
+      break;
+
+    case 76:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "OS";
+      break;
+
+
+    case 91:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PA";
+      break;
+
+    case 82:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PB";
+      break;
+
+    case 46:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PD";
+      break;
+
+    case 61:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PM";
+      break;
+
+    case 84:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PO";
+      break;
+
+    case 59:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PR";
+      break;
+
+    case 78:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PT";
+      break;
+
+    case 94:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "PU";
+      break;
+
+    case 88:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RA";
+      break;
+
+    case 37:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RB";
+      break;
+
+    case 75:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RE";
+      break;
+
+    case 104:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RF";
+      break;
+
+    case 111:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RG";
+      break;
+
+    case 45:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RH";
+      break;
+
+    case 86:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RN";
+      break;
+
+    case 44:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "RU";
+      break;
+
+    case 51:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SB";
+      break;
+
+    case 21:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SC";
+      break;
+
+    case 34:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SE";
+      break;
+
+    case 106:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SG";
+      break;
+
+    case 14:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SI";
+      break;
+
+    case 62:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SM";
+      break;
+
+    case 50:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SN";
+      break;
+
+    case 38:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "SR";
+      break;
+
+
+    case 73:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TA";
+      break;
+
+    case 65:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TB";
+      break;
+
+    case 43:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TC";
+      break;
+
+    case 52:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TE";
+      break;
+
+    case 90:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TH";
+      break;
+
+    case 22:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TI";
+      break;
+
+    case 81:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TL";
+      break;
+
+    case 69:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TM";
+      break;
+
+    case 117:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "TS";
+      break;
+
+    case 92:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "UR";
+      break;
+
+    case 23:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "VA";
+      break;
+
+    case 54:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "XE";
+      break;
+
+    case 39:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "YT";
+      break;
+
+    case 70:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "YB";
+      break;
+
+    case 30:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "ZN";
+      break;
+
+    case 40:
+      node = AllocateWLNSymbol('*',graph);
+      node->special += "ZR";
+      break;
+    
+
+    default:
+      fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
+      return 0;
+  }
+  
+  if(!graph.root)
+    graph.root = node; 
+
+  if(!node->allowed_edges)
+    node->set_edge_and_type(8);
+
+  return node; 
+}
+
+
 
 /**********************************************************************
                           WLNEdge Functions
@@ -393,9 +1044,421 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
 }
 
 
+/**********************************************************************
+                          Ring Construction Functions
+**********************************************************************/
+
+/* constructs the local rings system, return ring type code */
+unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
+                                  std::set<OBAtom*> &ring_atoms,
+                                  std::map<OBAtom*,unsigned int> &ring_shares,
+                                  std::set<OBRing*> &local_SSSR){
+
+  if(!ring_root){
+    fprintf(stderr,"Error: ring root is nullptr\n");
+    return 0; 
+  }
+
+  std::map<OBAtom*,bool> visited; 
+  std::stack<OBAtom*> atom_stack; 
+  
+  unsigned int in_rings = 0; 
+  OBAtom *atom = 0; 
+  OBAtom *neighbour = 0; 
+
+  unsigned int fuses = 0;
+  unsigned int multicyclic = 0;
+  unsigned int branching = 0;   
+
+  atom_stack.push(ring_root); 
+  while(!atom_stack.empty()){
+    in_rings = 0;
+    atom = atom_stack.top();
+    atom_stack.pop();
+    visited[atom] = true; 
+    ring_atoms.insert(atom);
+
+    FOR_RINGS_OF_MOL(r,mol){
+      OBRing *obring = &(*r);
+      if(obring->IsMember(atom)){
+        in_rings++;
+        local_SSSR.insert(obring); // use to get the SSSR size into WLNRing 
+      }
+    }
+    ring_shares[atom] = in_rings; 
+
+    FOR_NBORS_OF_ATOM(aiter,atom){
+      neighbour = &(*aiter); 
+      if(neighbour->IsInRing() && !visited[neighbour]){
+        atom_stack.push(neighbour); 
+        visited[neighbour] = true;
+      }
+    }
+
+    if(in_rings > 3)
+      branching++;
+    else if(in_rings == 3)
+      multicyclic++;
+    
+    else if (in_rings == 2)
+      fuses++;
+  }
+
+  if(opt_debug){
+    fprintf(stderr,"  SSSR for system:    ");
+    for(std::set<OBRing*>::iterator set_iter = local_SSSR.begin();set_iter != local_SSSR.end();set_iter++)
+      fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
+    fprintf(stderr,"\n");
+
+    fprintf(stderr,"  ring size:          %d\n",(unsigned int)ring_atoms.size());
+    fprintf(stderr,"  fuse points:        %d\n",fuses);
+    fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
+    fprintf(stderr,"  branching points:   %d\n",branching);
+  }
+
+  if(branching){
+    fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
+    return 0;
+  }
+  else if(multicyclic)
+    return 3; 
+  else 
+    return 2; 
+}
+
+// get all potential seeds for locant path start
+void GetSeedAtoms(  std::set<OBAtom*> &ring_atoms,
+                    std::map<OBAtom*,unsigned int> &ring_shares,
+                    std::vector<OBAtom*> &seed_atoms,
+                    unsigned int target_shares)
+{ 
+  for(std::set<OBAtom*>::iterator iter = ring_atoms.begin(); iter != ring_atoms.end();iter++){
+    if(ring_shares[(*iter)] == target_shares)
+      seed_atoms.push_back((*iter));
+  }
+}
+
+
+/* construct locant paths without hamiltonians - return the new locant pos */
+unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
+                            unsigned int locant_pos,unsigned int path_size,
+                            unsigned int hp_pos, OBRing *obring,
+                            std::map<OBAtom*,bool> &atoms_seen,
+                            std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                            std::vector<unsigned int> &nt_sizes)
+                            
+{
+  
+  bool seen = false;
+  OBAtom *ratom = 0; 
+  OBAtom *insert_start  =  locant_path[hp_pos];
+  OBAtom *insert_end    =  locant_path[hp_pos+1]; 
+  std::deque<int> path;
+
+  for(unsigned int i=0;i<obring->Size();i++){
+    path.push_back(obring->_path[i]);
+    if(insert_end->GetIdx() == obring->_path[i])
+      seen = true;
+  }
+
+  if(!seen){
+    insert_start = locant_path[locant_pos-1];
+    insert_end = locant_path[0];
+  }
+    
+
+  while(path[0] != insert_start->GetIdx()){
+    unsigned int tmp = path[0];
+    path.pop_front();
+    path.push_back(tmp);
+  }
+
+    
+  // standard clockwise and anti clockwise additions to the path
+  if(seen){
+  
+    // must be anti-clockwise - shift and reverse
+    if(insert_start && path[1] == insert_start->GetIdx()){
+      unsigned int tmp = path[0];
+      path.pop_front();
+      path.push_back(tmp);
+      std::reverse(path.begin(),path.end());
+    }
+
+    if(opt_debug)
+      fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
+
+    // add nt pair + size
+    nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
+    nt_sizes.push_back(obring->Size()); 
+
+    // spit the locant path between hp_pos and hp_pos + 1, add elements
+    unsigned int j=0;
+    for(unsigned int i=0;i<path.size();i++){
+      ratom = mol->GetAtom(path[i]);
+      if(!atoms_seen[ratom]){
+        // shift
+        for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
+          locant_path[k]= locant_path[k-1];
+          
+        locant_path[hp_pos+1+j] = ratom;
+        atoms_seen[ratom] = true;
+        j++;
+        locant_pos++;
+      }
+    }
+  }
+
+  // must be a ring wrap on the locant path, can come in clockwise or anticlockwise
+  else{
+
+    // this is the reverse for the ring wrap
+    if(path[1] == insert_end->GetIdx()){ // end due to shift swap
+      unsigned int tmp = path[0];
+      path.pop_front();
+      path.push_back(tmp);
+      std::reverse(path.begin(),path.end());
+    }
+
+    // just add to the back, no shift required
+    for(unsigned int i=0;i<path.size();i++){
+      ratom = mol->GetAtom(path[i]);
+      if(!atoms_seen[ratom]){
+        locant_path[locant_pos++] = ratom;
+        atoms_seen[ratom] = true;
+      }
+    }
+
+    if(opt_debug)
+      fprintf(stderr,"  non-trivial ring wrap:  %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
+
+
+    // ending wrap condition 
+    nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
+    nt_sizes.push_back(obring->Size()); 
+
+  } 
+
+  return locant_pos;
+}
+
+/* works on priority, and creates locant path via array shifting, returns the spawn size */
+OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR, 
+                              std::map<OBAtom*,unsigned int> &ring_shares,
+                              std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                              std::vector<unsigned int> &nt_sizes,
+                              unsigned int path_size,
+                              OBAtom *seed_atom)
+{
+
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++)
+    locant_path[i] = 0;
+
+
+  OBAtom *ratom = 0;
+  OBRing *obring = 0;
+
+  // get the ring with the seed atom present
+  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
+    for(unsigned int i=0;i<(*iter)->_path.size();i++){
+      if(mol->GetAtom((*iter)->_path[i]) == seed_atom){
+        obring = (*iter);
+        break;
+      }
+    }
+  }
+
+  if(!obring){
+    fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
+    return 0; 
+  } 
+
+  
+  unsigned int locant_pos = 0;
+  std::map<OBRing*,bool> rings_seen; 
+  std::map<OBAtom*,bool> atoms_seen; 
+
+  // add into the array directly and shift so seed is guareented in position 0
+  for(unsigned int i=0;i<obring->_path.size();i++){
+    ratom = mol->GetAtom(obring->_path[i]);
+    locant_path[locant_pos++] = ratom;
+    atoms_seen[ratom] = true;
+  }
+
+  while(locant_path[0] != seed_atom){
+    locant_path[locant_pos] = locant_path[0];
+    for(unsigned int i=0;i<path_size-1;i++)
+      locant_path[i] = locant_path[i+1];
+  }
+
+  if(opt_debug)
+    fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
+  
+
+  nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
+  nt_sizes.push_back(obring->Size());
+
+
+  // get next ring in locant order
+  for(unsigned int rings_handled = 0; rings_handled < local_SSSR.size()-1;rings_handled++){
+    rings_seen[obring] = true;
+    unsigned int hp_pos = 0; 
+    for(unsigned int i=0;i<locant_pos;i++){
+      bool found = false;
+      ratom = locant_path[i];
+      if(ring_shares[ratom] > 1){
+        for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
+          if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
+            hp_pos = i;
+            obring = (*iter);
+            found = true;
+            break;
+          }
+        }
+        if(found)
+          break;
+      }
+    }
+
+    locant_pos =  ShiftandAddLocantPath(  mol,locant_path,
+                                          locant_pos,path_size,hp_pos,obring,
+                                          atoms_seen,nt_pairs,nt_sizes);
+    if(!locant_pos)
+      return 0;
+  }
+  
+
+  
+  return locant_path;
+}
+
+
+
+
+bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
+  for(unsigned int i=0;i<size;i++){
+    if(locant_array[i]->GetAtomicNum() != 6)
+      return true;
+  }
+  return false; 
+}
+
+
+void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned int size,
+                        std::map<OBAtom*,unsigned int> &ring_shares){
+  for(unsigned int i=0;i<size;i++){
+    if(ring_shares[locant_path[i]] > 1)
+      reduced_path[i] = locant_path[i];
+    else
+      reduced_path[i] = 0; 
+  }
+}
+
+
+std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
+                            std::map<OBAtom*,unsigned int> ring_shares, // copy unavoidable 
+                            std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                            std::vector<unsigned int> &nt_sizes,
+                            unsigned int expected_rings)
+{
+  
+  std::string ring_str; 
+  if(IsHeteroRing(locant_path,path_size))
+    ring_str += 'T';
+  else
+    ring_str += 'L';
+
+
+  // can we take an interrupted walk between the points, if so, write ring size 
+  // and remove 
+
+  // create a reduced array 
+  OBAtom **reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
+  UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
+
+  if(opt_debug){
+    fprintf(stderr,"  locant path:  ");
+    print_locant_array(locant_path,path_size); 
+    fprintf(stderr,"  reduced path: ");
+    print_locant_array(reduced_path,path_size);
+  }
+  
+  
+  unsigned int safety = 0;
+  while(!nt_pairs.empty() && safety < expected_rings){
+  
+    for(unsigned int i=0;i<nt_pairs.size();i++){
+      OBAtom *first =  nt_pairs[i].first; 
+      OBAtom *second = nt_pairs[i].second;
+
+      // find the position of first in the array
+      unsigned int pos = 0; 
+      for(pos;pos < path_size;pos++){
+        if(locant_path[pos] == first)
+          break;
+      }
+
+      // can we go to the second without interuption
+      bool popped = false;
+      for(unsigned int j=pos+1;j < path_size;j++){
+        if(reduced_path[j] && reduced_path[j] != second){
+          // interuption - pair cannot be handled in this iteration
+          // break out of search, search next pair
+          break;
+        }
+        else if(reduced_path[j] && reduced_path[j] == second){
+          // write the ring, and pop nt_pair and nt_ring at position 
+          if(pos){
+            ring_str+= ' ';
+            ring_str+= int_to_locant(pos+1);
+          }
+          ring_str += std::to_string(nt_sizes[i]);
+
+          nt_pairs.erase(nt_pairs.begin() + i);
+          nt_sizes.erase(nt_sizes.begin() + i);
+
+          // update the reduced locant path based on ring_shares
+          ring_shares[first]--;
+          ring_shares[second]--;
+          UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
+
+          // requires reset to while loop 
+          popped = true; 
+          break;
+        }
+      }
+
+      if(popped) // resets to while
+        break;
+    }
+    
+    safety++;
+  }
+
+  if( nt_pairs[0].first == locant_path[0] 
+      && nt_pairs[0].second == locant_path[path_size-1])
+  {
+    // last implied ring wrap
+    ring_str += std::to_string(nt_sizes[0]);
+    nt_pairs.clear();
+    nt_sizes.clear();
+  }
+  else{
+    fprintf(stderr,"Error: safety caught on reduced locant loop\n");
+    return {};
+  }
+
+  free(reduced_path);
+  reduced_path=0;
+  return ring_str;
+}
+
+
+
 
 /**********************************************************************
-                         High Level Parser Functions
+                         Debugging Functions
 **********************************************************************/
 
 
@@ -528,657 +1591,6 @@ struct BabelGraph{
   
   BabelGraph(){};
   ~BabelGraph(){};
-
-
-  WLNSymbol* CreateWLNNode(OBAtom* atom, WLNGraph &graph){
-
-    if(!atom){
-      fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
-      return 0; 
-    }
-
-    unsigned int neighbours = 0; 
-    unsigned int orders = 0; 
-    OBAtom *neighbour = 0; 
-    OBBond *bond = 0; 
-
-    WLNSymbol *node = 0;
-    switch(atom->GetAtomicNum()){
-      case 1:
-        node = AllocateWLNSymbol('H',graph);
-        node->set_edge_and_type(1);
-        break; 
-
-      case 5:
-        node = AllocateWLNSymbol('B',graph);
-        node->set_edge_and_type(3);
-        break;
-
-      case 6:
-        FOR_NBORS_OF_ATOM(iterator, atom){
-          neighbour = &(*iterator);
-          bond = atom->GetBond(neighbour);
-          orders += bond->GetBondOrder(); 
-          neighbours++;
-        }
-        if(neighbours <= 2){
-          node = AllocateWLNSymbol('1',graph);
-          node->set_edge_and_type(4);
-        }
-        else if(neighbours > 2){
-          if(orders == 3){
-            node = AllocateWLNSymbol('Y',graph);
-            node->set_edge_and_type(3);
-          }
-          else{
-            node = AllocateWLNSymbol('X',graph);
-            node->set_edge_and_type(4);
-          }
-        }
-        else{
-          node = AllocateWLNSymbol('C',graph);
-          node->set_edge_and_type(4);
-        }
-        break;
-      
-      case 7:
-        node = AllocateWLNSymbol('N',graph);
-        node->set_edge_and_type(atom->GetExplicitValence());
-        break;
-      
-      case 8:
-        if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1){
-          node = AllocateWLNSymbol('Q',graph);
-          node->set_edge_and_type(1);
-        }
-        else{
-          node = AllocateWLNSymbol('O',graph);
-          node->set_edge_and_type(2);
-        }
-        break;
-      
-      case 9:
-        node = AllocateWLNSymbol('F',graph);
-        node->set_edge_and_type(atom->GetExplicitValence());
-        break;
-
-      case 15:
-        node = AllocateWLNSymbol('P',graph);
-        node->set_edge_and_type(6);
-        break;
-
-      case 16:
-        node = AllocateWLNSymbol('S',graph);
-        node->set_edge_and_type(6);
-        break;
-
-      case 17:
-        node = AllocateWLNSymbol('G',graph);
-        node->set_edge_and_type(atom->GetExplicitValence());
-        break;
-
-      case 35:
-        node = AllocateWLNSymbol('E',graph);
-        node->set_edge_and_type(atom->GetExplicitValence());
-        break;
-
-      case 53:
-        node = AllocateWLNSymbol('I',graph);
-        node->set_edge_and_type(atom->GetExplicitValence());
-        break;
-
-
-
-// all special elemental cases
-
-      case 89:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AC";
-        break;
-
-      case 47:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AG";
-        break;
-    
-      case 13:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AL";
-        break;
-
-      case 95:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AM";
-        break;
-
-      case 18:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AR";
-        break;
-
-      case 33:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AS";
-        break;
-
-      case 85:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AT";
-        break;
-
-      case 79:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "AU";
-        break;
-
-
-      case 56:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "BA";
-        break;
-
-      case 4:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "BE";
-        break;
-
-      case 107:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "BH";
-        break;
-
-      case 83:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "BI";
-        break;
-
-      case 97:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "BK";
-        break;
-
-      case 20:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CA";
-        break;
-      
-      case 48:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CD";
-        break;
-
-      case 58:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CE";
-        break;
-
-      case 98:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CF";
-        break;
-
-      case 96:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CN";
-        break;
-
-      case 112:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CN";
-        break;
-
-      case 27:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CO";
-        break;
-
-      case 24:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CR";
-        break;
-
-      case 55:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CS";
-        break;
-
-      case 29:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "CU";
-        break;
-
-      case 105:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "DB";
-        break;
-
-      case 110:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "DS";
-        break;
-
-      case 66:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "DY";
-        break;
-
-      case 68:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "ER";
-        break;
-
-      case 99:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "ES";
-        break;
-
-      case 63:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "EU";
-        break;
-
-      case 26:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "FE";
-        break;
-
-      case 114:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "FL";
-        break;
-
-      case 100:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "FM";
-        break;
-
-      case 87:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "FR";
-        break;
-
-      case 31:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "GA";
-        break;
-
-      case 64:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "GD";
-        break;
-
-      case 32:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "GE";
-        break;
-
-      case 2:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "HE";
-        break;
-
-      case 72:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "HF";
-        break;
-
-      case 80:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "HG";
-        break;
-
-      case 67:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "HO";
-        break;
-
-      case 108:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "HS";
-        break;
-
-      case 49:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "IN";
-        break;
-
-      case 77:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "IR";
-        break;
-
-      case 36:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "KR";
-        break;
-
-      case 19:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "KA";
-        break;
-
-      case 57:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "LA";
-        break;
-
-      case 3:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "LI";
-        break;
-
-      case 103:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "LR";
-        break;
-
-      case 71:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "LU";
-        break;
-
-      case 116:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "LV";
-        break;
-
-      case 115:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "MC";
-        break;
-
-      case 101:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "MD";
-        break;
-
-      case 12:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "MG";
-        break;
-
-      case 25:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "MN";
-        break;
-
-      case 42:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "MO";
-        break;
-
-      case 109:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "MT";
-        break;
-
-      case 11:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NA";
-        break;
-
-      case 41:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NB";
-        break;
-
-      case 60:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "ND";
-        break;
-
-      case 10:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NE";
-        break;
-
-      case 113:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NH";
-        break;
-
-      case 28:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NI";
-        break;
-
-      case 102:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NO";
-        break;
-
-      case 93:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "NP";
-        break;
-
-
-      case 118:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "OG";
-        break;
-
-      case 76:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "OS";
-        break;
-
-
-      case 91:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PA";
-        break;
-
-      case 82:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PB";
-        break;
-
-      case 46:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PD";
-        break;
-
-      case 61:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PM";
-        break;
-
-      case 84:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PO";
-        break;
-
-      case 59:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PR";
-        break;
-
-      case 78:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PT";
-        break;
-
-      case 94:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "PU";
-        break;
-
-      case 88:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RA";
-        break;
-
-      case 37:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RB";
-        break;
-
-      case 75:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RE";
-        break;
-
-      case 104:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RF";
-        break;
-
-      case 111:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RG";
-        break;
-
-      case 45:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RH";
-        break;
-
-      case 86:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RN";
-        break;
-
-      case 44:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "RU";
-        break;
-
-      case 51:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SB";
-        break;
-
-      case 21:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SC";
-        break;
-
-      case 34:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SE";
-        break;
-
-      case 106:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SG";
-        break;
-
-      case 14:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SI";
-        break;
-
-      case 62:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SM";
-        break;
-
-      case 50:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SN";
-        break;
-
-      case 38:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "SR";
-        break;
-
-
-      case 73:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TA";
-        break;
-
-      case 65:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TB";
-        break;
-
-      case 43:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TC";
-        break;
-
-      case 52:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TE";
-        break;
-
-      case 90:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TH";
-        break;
-
-      case 22:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TI";
-        break;
-
-      case 81:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TL";
-        break;
-
-      case 69:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TM";
-        break;
-
-      case 117:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "TS";
-        break;
-
-      case 92:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "UR";
-        break;
-
-      case 23:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "VA";
-        break;
-
-      case 54:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "XE";
-        break;
-
-      case 39:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "YT";
-        break;
-
-      case 70:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "YB";
-        break;
-
-      case 30:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "ZN";
-        break;
-
-      case 40:
-        node = AllocateWLNSymbol('*',graph);
-        node->special += "ZR";
-        break;
-      
-
-      default:
-        fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
-        return 0;
-    }
-    
-    if(!graph.root)
-      graph.root = node; 
-
-    if(!node->allowed_edges)
-      node->set_edge_and_type(8);
-
-    return node; 
-  }
 
 
   /* add the starting atom to build a tree for a locant position */
@@ -1568,416 +1980,6 @@ struct BabelGraph{
   }
 
 
-  /* constructs the local rings system, return ring type code */
-  unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
-                                    std::set<OBAtom*> &ring_atoms,
-                                    std::map<OBAtom*,unsigned int> &ring_shares,
-                                    std::set<OBRing*> &local_SSSR){
-
-    if(!ring_root){
-      fprintf(stderr,"Error: ring root is nullptr\n");
-      return 0; 
-    }
-
-    std::map<OBAtom*,bool> visited; 
-    std::stack<OBAtom*> atom_stack; 
-    
-    unsigned int in_rings = 0; 
-    OBAtom *atom = 0; 
-    OBAtom *neighbour = 0; 
-
-    unsigned int fuses = 0;
-    unsigned int multicyclic = 0;
-    unsigned int branching = 0;   
-
-    atom_stack.push(ring_root); 
-    while(!atom_stack.empty()){
-      in_rings = 0;
-      atom = atom_stack.top();
-      atom_stack.pop();
-      visited[atom] = true; 
-      ring_atoms.insert(atom);
-
-      FOR_RINGS_OF_MOL(r,mol){
-        OBRing *obring = &(*r);
-        if(obring->IsMember(atom)){
-          in_rings++;
-          local_SSSR.insert(obring); // use to get the SSSR size into WLNRing 
-        }
-      }
-      ring_shares[atom] = in_rings; 
-
-      FOR_NBORS_OF_ATOM(aiter,atom){
-        neighbour = &(*aiter); 
-        if(neighbour->IsInRing() && !visited[neighbour]){
-          atom_stack.push(neighbour); 
-          visited[neighbour] = true;
-        }
-      }
-
-      if(in_rings > 3)
-        branching++;
-      else if(in_rings == 3)
-        multicyclic++;
-      
-      else if (in_rings == 2)
-        fuses++;
-    }
-
-    if(opt_debug){
-      fprintf(stderr,"  SSSR for system:    ");
-      for(std::set<OBRing*>::iterator set_iter = local_SSSR.begin();set_iter != local_SSSR.end();set_iter++)
-        fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
-      fprintf(stderr,"\n");
-
-      fprintf(stderr,"  ring size:          %d\n",(unsigned int)ring_atoms.size());
-      fprintf(stderr,"  fuse points:        %d\n",fuses);
-      fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
-      fprintf(stderr,"  branching points:   %d\n",branching);
-    }
-
-    if(branching){
-      fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
-      return 0;
-    }
-    else if(multicyclic)
-      return 3; 
-    else 
-      return 2; 
-  }
-
-  // get all potential seeds for locant path start
-  void GetSeedAtoms(  std::set<OBAtom*> &ring_atoms,
-                      std::map<OBAtom*,unsigned int> &ring_shares,
-                      std::vector<OBAtom*> &seed_atoms,
-                      unsigned int target_shares)
-  { 
-    for(std::set<OBAtom*>::iterator iter = ring_atoms.begin(); iter != ring_atoms.end();iter++){
-      if(ring_shares[(*iter)] == target_shares)
-        seed_atoms.push_back((*iter));
-    }
-  }
-
-  /* works on priority, and creates locant path via array shifting, returns the spawn size */
-  OBAtom ** CreateLocantPath( OBMol *mol, std::set<OBRing*> &local_SSSR, 
-                                std::map<OBAtom*,unsigned int> &ring_shares,
-                                std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                                std::vector<unsigned int> &nt_sizes,
-                                unsigned int path_size,
-                                OBAtom *seed_atom)
-  {
-
-    OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-    for(unsigned int i=0;i<path_size;i++)
-      locant_path[i] = 0;
-
-
-    OBAtom *ratom = 0;
-    OBRing *obring = 0;
-
-    // get the ring with the seed atom present
-    for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-      for(unsigned int i=0;i<(*iter)->_path.size();i++){
-        if(mol->GetAtom((*iter)->_path[i]) == seed_atom){
-          obring = (*iter);
-          break;
-        }
-      }
-    }
-
-    if(!obring){
-      fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
-      return 0; 
-    } 
-
-    
-    unsigned int locant_pos = 0;
-    std::map<OBRing*,bool> rings_seen; 
-    std::map<OBAtom*,bool> atoms_seen; 
-
-    // add into the array directly and shift so seed is guareented in position 0
-    for(unsigned int i=0;i<obring->_path.size();i++){
-      ratom = mol->GetAtom(obring->_path[i]);
-      locant_path[locant_pos++] = ratom;
-      atoms_seen[ratom] = true;
-    }
-
-    while(locant_path[0] != seed_atom){
-      locant_path[locant_pos] = locant_path[0];
-      for(unsigned int i=0;i<path_size-1;i++)
-        locant_path[i] = locant_path[i+1];
-    }
-
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
-    
-
-    nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
-    nt_sizes.push_back(obring->Size());
-
-
-    // get next ring in locant order
-    for(unsigned int rings_handled = 0; rings_handled < local_SSSR.size()-1;rings_handled++){
-      rings_seen[obring] = true;
-      unsigned int hp_pos = 0; 
-      for(unsigned int i=0;i<locant_pos;i++){
-        bool found = false;
-        ratom = locant_path[i];
-        if(ring_shares[ratom] > 1){
-          for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-            if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
-              hp_pos = i;
-              obring = (*iter);
-              found = true;
-              break;
-            }
-          }
-          if(found)
-            break;
-        }
-      }
-
-      locant_pos =  ShiftandAddLocantPath(  mol,locant_path,
-                                            locant_pos,path_size,hp_pos,obring,
-                                            atoms_seen,nt_pairs,nt_sizes);
-      if(!locant_pos)
-        return 0;
-    }
-    
-
-    
-    return locant_path;
-  }
-
-
-
-  /* construct locant paths without hamiltonians - return the new locant pos */
-  unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
-                              unsigned int locant_pos,unsigned int path_size,
-                              unsigned int hp_pos, OBRing *obring,
-                              std::map<OBAtom*,bool> &atoms_seen,
-                              std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                              std::vector<unsigned int> &nt_sizes)
-                              
-  {
-    
-    bool seen = false;
-    OBAtom *ratom = 0; 
-    OBAtom *insert_start  =  locant_path[hp_pos];
-    OBAtom *insert_end    =  locant_path[hp_pos+1]; 
-    std::deque<int> path;
-
-    for(unsigned int i=0;i<obring->Size();i++){
-      path.push_back(obring->_path[i]);
-      if(insert_end->GetIdx() == obring->_path[i])
-        seen = true;
-    }
-
-    if(!seen){
-      insert_start = locant_path[locant_pos-1];
-      insert_end = locant_path[0];
-    }
-      
-
-    while(path[0] != insert_start->GetIdx()){
-      unsigned int tmp = path[0];
-      path.pop_front();
-      path.push_back(tmp);
-    }
-
-      
-    // standard clockwise and anti clockwise additions to the path
-    if(seen){
-    
-      // must be anti-clockwise - shift and reverse
-      if(insert_start && path[1] == insert_start->GetIdx()){
-        unsigned int tmp = path[0];
-        path.pop_front();
-        path.push_back(tmp);
-        std::reverse(path.begin(),path.end());
-      }
-
-      if(opt_debug)
-        fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
-
-      // add nt pair + size
-      nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
-      nt_sizes.push_back(obring->Size()); 
-
-      // spit the locant path between hp_pos and hp_pos + 1, add elements
-      unsigned int j=0;
-      for(unsigned int i=0;i<path.size();i++){
-        ratom = mol->GetAtom(path[i]);
-        if(!atoms_seen[ratom]){
-          // shift
-          for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
-            locant_path[k]= locant_path[k-1];
-            
-          locant_path[hp_pos+1+j] = ratom;
-          atoms_seen[ratom] = true;
-          j++;
-          locant_pos++;
-        }
-      }
-    }
-
-    // must be a ring wrap on the locant path, can come in clockwise or anticlockwise
-    else{
-
-      // this is the reverse for the ring wrap
-      if(path[1] == insert_end->GetIdx()){ // end due to shift swap
-        unsigned int tmp = path[0];
-        path.pop_front();
-        path.push_back(tmp);
-        std::reverse(path.begin(),path.end());
-      }
-
-      // just add to the back, no shift required
-      for(unsigned int i=0;i<path.size();i++){
-        ratom = mol->GetAtom(path[i]);
-        if(!atoms_seen[ratom]){
-          locant_path[locant_pos++] = ratom;
-          atoms_seen[ratom] = true;
-        }
-      }
-
-      if(opt_debug)
-        fprintf(stderr,"  non-trivial ring wrap:  %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
-
-
-      // ending wrap condition 
-      nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
-      nt_sizes.push_back(obring->Size()); 
-
-    } 
-
-    return locant_pos;
-  }
-
-
-
-
-
-  bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
-    for(unsigned int i=0;i<size;i++){
-      if(locant_array[i]->GetAtomicNum() != 6)
-        return true;
-    }
-    return false; 
-  }
-
-
-  void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned int size,
-                          std::map<OBAtom*,unsigned int> &ring_shares){
-    for(unsigned int i=0;i<size;i++){
-      if(ring_shares[locant_path[i]] > 1)
-        reduced_path[i] = locant_path[i];
-      else
-        reduced_path[i] = 0; 
-    }
-  }
-
-
-  std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
-                              std::map<OBAtom*,unsigned int> ring_shares, // copy unavoidable 
-                              std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                              std::vector<unsigned int> &nt_sizes,
-                              unsigned int expected_rings)
-  {
-    
-    std::string ring_str; 
-    if(IsHeteroRing(locant_path,path_size))
-      ring_str += 'T';
-    else
-      ring_str += 'L';
-
-
-    // can we take an interrupted walk between the points, if so, write ring size 
-    // and remove 
-
-    // create a reduced array 
-    OBAtom **reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
-    UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
-
-    if(opt_debug){
-      fprintf(stderr,"  locant path:  ");
-      print_locant_array(locant_path,path_size); 
-      fprintf(stderr,"  reduced path: ");
-      print_locant_array(reduced_path,path_size);
-    }
-    
-    
-    unsigned int safety = 0;
-    while(!nt_pairs.empty() && safety < expected_rings){
-    
-      for(unsigned int i=0;i<nt_pairs.size();i++){
-        OBAtom *first =  nt_pairs[i].first; 
-        OBAtom *second = nt_pairs[i].second;
-
-        // find the position of first in the array
-        unsigned int pos = 0; 
-        for(pos;pos < path_size;pos++){
-          if(locant_path[pos] == first)
-            break;
-        }
-
-        // can we go to the second without interuption
-        bool popped = false;
-        for(unsigned int j=pos+1;j < path_size;j++){
-          if(reduced_path[j] && reduced_path[j] != second){
-            // interuption - pair cannot be handled in this iteration
-            // break out of search, search next pair
-            break;
-          }
-          else if(reduced_path[j] && reduced_path[j] == second){
-            // write the ring, and pop nt_pair and nt_ring at position 
-            if(pos){
-              ring_str+= ' ';
-              ring_str+= int_to_locant(pos+1);
-            }
-            ring_str += std::to_string(nt_sizes[i]);
-
-            nt_pairs.erase(nt_pairs.begin() + i);
-            nt_sizes.erase(nt_sizes.begin() + i);
-
-            // update the reduced locant path based on ring_shares
-            ring_shares[first]--;
-            ring_shares[second]--;
-            UpdateReducedPath(reduced_path,locant_path,path_size,ring_shares);
-
-            // requires reset to while loop 
-            popped = true; 
-            break;
-          }
-        }
-
-        if(popped) // resets to while
-          break;
-      }
-      
-      safety++;
-    }
-
-    if( nt_pairs[0].first == locant_path[0] 
-        && nt_pairs[0].second == locant_path[path_size-1])
-    {
-      // last implied ring wrap
-      ring_str += std::to_string(nt_sizes[0]);
-      nt_pairs.clear();
-      nt_sizes.clear();
-    }
-    else{
-      fprintf(stderr,"Error: safety caught on reduced locant loop\n");
-      return {};
-    }
-
-    free(reduced_path);
-    reduced_path=0;
-    return ring_str;
-  }
-
-
-
   OBAtom **ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
@@ -2036,8 +2038,6 @@ struct BabelGraph{
 
     return locant_path;
   }
-
-
 
 };
 
