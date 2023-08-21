@@ -1455,6 +1455,96 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 }
 
 
+void ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &buffer,WLNGraph &graph){
+
+  unsigned int last_hetero_index = 0; 
+  for(unsigned int i=0;i<path_size;i++){
+
+    if(locant_path[i]->GetAtomicNum() != 6){
+
+
+      if(last_hetero_index != i-1){
+        buffer += ' ';
+        buffer += int_to_locant(i+1);
+      }
+
+      WLNSymbol *sym = CreateWLNNode(locant_path[i],graph); 
+      if(sym->ch == '*'){
+        buffer += '-';
+        buffer += sym->special; 
+        buffer += '-';
+      }
+      else
+        buffer += sym->ch; 
+      
+      last_hetero_index = i; 
+    }
+
+
+  }
+ 
+}
+
+
+/**********************************************************************
+                          Canonicalisation Function
+**********************************************************************/
+
+unsigned int highest_unbroken_numerical_chain(std::string &str){
+  unsigned int highest_chain = 0; 
+  unsigned int current_chain = 0; 
+  for(unsigned int i=0;i<str.size();i++){
+    if(str[i] <= '9' && str[i] >= '0')
+      current_chain++;
+    else{
+      if(current_chain > highest_chain)
+        highest_chain = current_chain;
+      
+      current_chain = 0; 
+    }
+  }
+
+  if(current_chain > highest_chain)
+    highest_chain = current_chain;
+
+  return highest_chain; 
+}
+
+unsigned char first_locant_seen(std::string &str){
+  // ignore the L|T
+  for(unsigned int i=1;i<str.size();i++){
+    if(str[i] != ' ' && !(str[i] <= '9' && str[i] >= '0'))
+      return str[i];
+  }
+  return 0;
+}
+
+
+/* returns the index of the minimal ring ring
+- unbroken numerical chain count and lowest locant sum? */
+unsigned int MinimalWLNRingNotation(std::vector<std::string> &ring_strings){
+
+  unsigned int highest_chain = 0; 
+  unsigned char lowest_loc  =  0;
+  unsigned int return_index = 0;  
+  for(unsigned int i=0;i<ring_strings.size();i++){
+    unsigned int chain =  highest_unbroken_numerical_chain(ring_strings[i]); 
+    unsigned char loc =  first_locant_seen(ring_strings[i]); 
+
+    if(chain > highest_chain){
+      highest_chain = chain;
+      lowest_loc = loc; 
+      return_index = i; 
+    }
+    else if (chain == highest_chain && lowest_loc > loc){
+      lowest_loc = loc; 
+      return_index = i;
+    }
+  }
+
+  return return_index;
+}
+
 
 
 /**********************************************************************
@@ -1980,7 +2070,7 @@ struct BabelGraph{
   }
 
 
-  OBAtom **ReadBabelCyclic(OBAtom *ring_root, std::string &buffer,OBMol *mol){
+  OBAtom **ReadBabelCyclic(OBAtom *ring_root,OBMol *mol, WLNGraph &graph, std::string &buffer){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
    
@@ -1993,6 +2083,7 @@ struct BabelGraph{
     
     std::vector<std::string> cyclic_strings;
     std::vector<OBAtom**> locant_paths;  
+    unsigned int minimal_index = 0; 
 
     unsigned int expected_rings = 0;
     unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
@@ -2025,18 +2116,36 @@ struct BabelGraph{
           return 0;
 
         cyclic_strings.push_back(cyclic_str);
-        locant_paths.push_back(locant_path);   // memory leak here, needs a sorting function to return 1 and free
+        locant_paths.push_back(locant_path);  
 
         if(opt_debug)
           std::cout << "  produced: " << cyclic_str << "\n\n";
       }
+
+
+      // get the minal WLN cyclic system from the notations generated
+      minimal_index = MinimalWLNRingNotation(cyclic_strings); 
+      buffer+= cyclic_strings[minimal_index]; // add to the buffer
+
+      // free all other locant paths 
+      for(unsigned int i=0;i<locant_paths.size();i++){
+        if(i != minimal_index){
+          free(locant_paths[i]);
+          locant_paths[i] = 0; 
+        }
+      }
+
+      // add any hetero atoms at locant positions
+      ReadHeteroAtoms(locant_paths[minimal_index],path_size,buffer,graph);
+
+      // close ring
+      buffer += 'J';
     }
     else
       return 0; 
 
 
-
-    return locant_path;
+    return locant_paths[minimal_index];
   }
 
 };
@@ -2081,7 +2190,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
   else{
 
     // get the start ring, and then use that as the jump point
-    start_ring = obabel.ReadBabelCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),buffer,mol);
+    start_ring = obabel.ReadBabelCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,wln_graph,buffer);
     
   }
 
