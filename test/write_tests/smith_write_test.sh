@@ -13,7 +13,7 @@ TOTAL=$(wc -l < $SMITH)
 LINE=0
 while read p; do
   ((LINE++));
-
+  echo -ne "$LINE: "
   WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
@@ -21,21 +21,22 @@ while read p; do
   NEW_WLN=$($WRITER -ismi -s "${CAN_SMILES}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z "$NEW_WLN" ]; then
-    echo "$LINE: $SMILES != anything"
+    echo "$SMILES != anything"
     continue
   fi;
 
   NEW_SMILES=$($READER -ocan -s "${NEW_WLN}" 2> /dev/null) 
   
   if [ -z "$NEW_SMILES" ]; then
-    echo "$LINE: $NEW_WLN != anything $CAN_SMILES"
+    echo "$NEW_WLN != anything $CAN_SMILES"
     continue
   fi;
 
   if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
+    echo -ne "\r"
   else
-    echo "$LINE: $WLN != $NEW_WLN   $CAN_SMILES"
+    echo "$WLN != $NEW_WLN   $CAN_SMILES"
   fi;
 
 done <$SMITH
