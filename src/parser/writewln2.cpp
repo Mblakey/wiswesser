@@ -263,6 +263,7 @@ unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol,
 
       // intersection 1 is a spiro ring, ignore, 
       if(intersection.size() > 1){
+        local_SSSR.insert(obring);
         for(unsigned int i=0;i<obring->Size();i++){
           OBAtom *ratom = mol->GetAtom(obring->_path[i]);
           ring_atoms.insert(ratom);
