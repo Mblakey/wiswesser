@@ -1709,7 +1709,7 @@ struct BabelGraph{
   bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
     if(opt_debug)
-      fprintf(stderr,"Cyclic level: %d, last seen - %d\n", cycle_num, last_cycle_seen);
+      fprintf(stderr,"cyclic level: %d, last seen - %d\n", cycle_num, last_cycle_seen);
     
     last_cycle_seen = cycle_num;
 
@@ -1739,11 +1739,12 @@ struct BabelGraph{
           buffer+= int_to_locant(i+1);
           buffer+='-';
           buffer+=' ';
-          if(!RecursiveParse(latom,mol,true,buffer,++cycle_num)){
+          if(!RecursiveParse(latom,mol,true,buffer,++cycle_count)){
             fprintf(stderr,"Error: failed on cyclic parse\n");
             return false;
           }
         }
+        
       }
     }
       
