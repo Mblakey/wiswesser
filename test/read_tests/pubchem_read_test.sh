@@ -12,16 +12,15 @@ TOTAL=$(wc -l < $PUB)
 LINE=0
 while read p; do
   ((LINE++));
-
+  echo -ne "$LINE: "
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   
-
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
   NEW_SMILES=$($PARSE -ocan -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z $NEW_SMILES ]; then
-    echo "$LINE: $WLN != anything"
+    echo "$WLN != anything"
     continue
   fi;
 
@@ -30,8 +29,9 @@ while read p; do
 
   if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
+    echo -ne "\r"
   else
-    echo "$LINE: $WLN != $CAN_SMILES    $NEW_SMILES"
+    echo "$WLN != $CAN_SMILES    $NEW_SMILES"
   fi;
 
 done <$PUB
