@@ -215,7 +215,7 @@ struct BabelStack{
                           Ring Construction Functions
 **********************************************************************/
 
-/* constructs the local rings system, return ring type code */
+/* constructs the local rings system, return highest ring share value */
 unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
                                   std::set<OBAtom*> &ring_atoms,
                                   std::map<OBAtom*,unsigned int> &ring_shares,
@@ -226,49 +226,62 @@ unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol,
     return 0; 
   }
 
-  std::map<OBAtom*,bool> visited; 
-  std::stack<OBAtom*> atom_stack; 
-  
-  unsigned int in_rings = 0; 
-  OBAtom *atom = 0; 
-  OBAtom *neighbour = 0; 
+  OBRing *seed_ring = 0;
+  OBRing *obring = 0; 
 
   unsigned int fuses = 0;
   unsigned int multicyclic = 0;
   unsigned int branching = 0;   
 
-  atom_stack.push(ring_root); 
-  while(!atom_stack.empty()){
-    in_rings = 0;
-    atom = atom_stack.top();
-    atom_stack.pop();
-    visited[atom] = true; 
-    ring_atoms.insert(atom);
-
-    FOR_RINGS_OF_MOL(r,mol){
-      OBRing *obring = &(*r);
-      if(obring->IsMember(atom)){
-        in_rings++;
-        local_SSSR.insert(obring); // use to get the SSSR size into WLNRing 
+  // get the seed ring and add path to ring_atoms
+  FOR_RINGS_OF_MOL(r,mol){
+    obring = &(*r);
+    if(obring->IsMember(ring_root)){
+      seed_ring = obring; // so we do not consider again
+      local_SSSR.insert(obring);
+      for(unsigned int i=0;i<obring->Size();i++){
+        OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+        ring_atoms.insert(ratom);
+        ring_shares[ratom]++;
       }
+      break;
     }
-    ring_shares[atom] = in_rings; 
-
-    FOR_NBORS_OF_ATOM(aiter,atom){
-      neighbour = &(*aiter); 
-      if(neighbour->IsInRing() && !visited[neighbour]){
-        atom_stack.push(neighbour); 
-        visited[neighbour] = true;
-      }
-    }
-
-    if(in_rings > 3)
-      branching++;
-    else if(in_rings == 3)
-      multicyclic++;
-    else if (in_rings == 2)
-      fuses++;
   }
+
+  FOR_RINGS_OF_MOL(r,mol){
+    obring = &(*r);
+    if(obring != seed_ring){
+      std::set<OBAtom*> ring_set; 
+      std::set<OBAtom*> intersection; 
+      for(unsigned int i=0;i<obring->Size();i++){
+        OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+        ring_set.insert(ratom);
+      }
+
+      std::set_intersection(ring_set.begin(), ring_set.end(), ring_atoms.begin(), ring_atoms.end(),
+                            std::inserter(intersection, intersection.begin()));
+
+      // intersection 1 is a spiro ring, ignore, 
+      if(intersection.size() > 1){
+        for(unsigned int i=0;i<obring->Size();i++){
+          OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+          ring_atoms.insert(ratom);
+          ring_shares[ratom]++;
+        }
+      }
+    }
+  }
+
+  for(std::set<OBAtom*>::iterator iter=ring_atoms.begin(); iter != ring_atoms.end(); iter++){
+    OBAtom *atom = *iter; 
+    if(ring_shares[atom] == 2)
+      fuses++; 
+    else if(ring_shares[atom] == 3)
+      multicyclic++;
+    else if(ring_shares[atom] == 4)
+      branching++;
+  }
+
 
   if(opt_debug){
     fprintf(stderr,"  SSSR for system:    ");
@@ -291,6 +304,7 @@ unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol,
   else 
     return 2; 
 }
+
 
 // get all potential seeds for locant path start
 void GetSeedAtoms(  std::set<OBAtom*> &ring_atoms,
@@ -1715,6 +1729,17 @@ struct BabelGraph{
         if(!latom->IsInRing() && !atoms_seen[latom]){
           if(!ParseNonCyclic(latom,mol,buffer,cycle_num,int_to_locant(i+1))){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
+            return false;
+          }
+        }
+        // direct ring bind
+        else if(latom->IsInRing() && !atoms_seen[latom]){
+          buffer+= ' ';
+          buffer+= int_to_locant(i+1);
+          buffer+='-';
+          buffer+=' ';
+          if(!RecursiveParse(latom,mol,true,buffer,++cycle_num)){
+            fprintf(stderr,"Error: failed on cyclic parse\n");
             return false;
           }
         }
