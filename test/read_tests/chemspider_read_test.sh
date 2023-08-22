@@ -11,6 +11,7 @@ TOTAL=$(wc -l < $SPIDER)
 LINE=0
 while read p; do
   ((LINE++));
+  echo -ne "$LINE: "
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   
@@ -18,7 +19,7 @@ while read p; do
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
 
   if [ -z $NEW_SMILES ]; then
-    echo "$LINE: $WLN != $CAN_SMILES"
+    echo "$WLN != $CAN_SMILES"
     continue
   fi;
 
@@ -28,8 +29,9 @@ while read p; do
 
   if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
+    echo -ne "\r"
   else
-  	echo "$LINE: $WLN != $CAN_SMILES    $NEW_SMILES"
+  	echo "$WLN != $CAN_SMILES    $NEW_SMILES"
   fi;
 
 done <$SPIDER

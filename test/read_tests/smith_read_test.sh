@@ -7,8 +7,10 @@ PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
 
 COUNT=0
 TOTAL=$(wc -l < $SMITH)
-
+LINE=0
 while read p; do
+  ((LINE++));
+  echo -ne "$LINE: "
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   
@@ -24,6 +26,7 @@ while read p; do
 
   if [[ "$SMILES" == "$NEW_SMILES" ]]; then
   	((COUNT++));
+    echo -ne "\r"
   else
   	echo "$WLN != $SMILES   $NEW_SMILES"
   fi;
