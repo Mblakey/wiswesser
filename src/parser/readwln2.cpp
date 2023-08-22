@@ -1350,7 +1350,8 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
 }
 
 
-/* W is going to need to be post resolved */
+/* W is going to need to be post resolved, triple bond W will be unsaturated 
+with an maximal group dioxo added */
 bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   WLNEdge *edge = 0;
@@ -1374,11 +1375,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     }
   }
 
-
-  // lets define the convention, if we can double bond without
-  // a charge, we do, if not, we add a single bond negative oxygen
-  
-  if(!binded_symbol){
+  if(!binded_symbol || edge->order != 3){
     fprintf(stderr,"Error: dioxo seems to be unbound\n");
     return false; 
   }
@@ -1387,39 +1384,22 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->set_edge_and_type(2,head->type);
+  edge = saturate_edge(edge,1);
 
-  // we add the pure dioxo
-  if(remaining_edges >= 3){
-    edge = unsaturate_edge(edge,1);
-    oxygen = AllocateWLNSymbol('O',graph);
-    oxygen->set_edge_and_type(2,head->type);
-    sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
-    sedge = unsaturate_edge(sedge,1);
-  }
-
-  // this adds a tautomeric charged species with a double oxygen
-  else if (remaining_edges == 2){
-    oxygen = AllocateWLNSymbol('O',graph);
-    oxygen->set_edge_and_type(2,head->type);
-    sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
-    sedge = unsaturate_edge(sedge,1);
-  }
-  else if(remaining_edges == 1){
-    // require we always double bond 1
-    binded_symbol->allowed_edges += 1;
-    graph.charge_additions[binded_symbol] = +1;
-    oxygen = AllocateWLNSymbol('O',graph);
-    oxygen->set_edge_and_type(2,head->type);
-    sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+  oxygen = AllocateWLNSymbol('O',graph);
+  oxygen->set_edge_and_type(2,head->type);
+  sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+  if(remaining_edges)
     sedge = unsaturate_edge(sedge,1); 
-  }
-  else{
-    fprintf(stderr,"Error: character %c can not bind a dioxo group, check valence\n",binded_symbol->ch);
-    return false;
-  }
   
-  if(!edge || !sedge)
+  if(binded_symbol->ch == 'N')
+    graph.charge_additions[binded_symbol]++;
+
+  if(!edge || !sedge){
+    fprintf(stderr,"Error: failure on W post handling\n");
     return false;
+  }
+    
 
   return true;
 }
@@ -2463,11 +2443,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               }
               else
                 new_locant = ring->locants[positional_locant];
-                
+              
+              if(new_locant->ch == 'N')
+                new_locant->allowed_edges++;
 
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
-              dioxo->set_edge_and_type(1,RING);
+              dioxo->set_edge_and_type(3,RING);
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
+              e = unsaturate_edge(e,2);
               if(!e)
                 Fatal(start+i);
               
@@ -2632,10 +2615,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               }
               else
                 new_locant = ring->locants[positional_locant];
-                
+
+              if(new_locant->ch == 'N')
+                new_locant->allowed_edges++;
+
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
-              dioxo->set_edge_and_type(1,RING);
+              dioxo->set_edge_and_type(3,RING);
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
+              e = unsaturate_edge(e,2);
               if(!e)
                 Fatal(start+i);
               
@@ -3612,10 +3599,16 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         // create this 'W' symbol for post processing
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(1);
+        curr->set_edge_and_type(3);
+        graph.string_positions[i] = curr;
 
         if(prev){
+
+          if(prev->ch == 'N')
+            prev->allowed_edges++;
+
           edge = AllocateWLNEdge(curr,prev,graph);
+          edge = unsaturate_edge(edge,2); // at minimum dioxo must take 3 bonds
           if(pending_unsaturate){
             fprintf(stderr,"Error: a bond unsaturation followed by dioxo is undefined notation\n");
             Fatal(i);
@@ -3623,13 +3616,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!edge)
             Fatal(i);
         }
-
-        graph.string_positions[i] = curr;
-        pending_unsaturate = 0;
+        else
+          pending_unsaturate = 2;
 
         // if there is no prev, this is then a character we go from, 
         // else do not update.
-
         if(!prev)
           prev = curr;
       }
@@ -3667,6 +3658,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->set_edge_and_type(3);
 
         if(prev){
+          if(prev->ch == 'W')
+            curr->allowed_edges++;
+          
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4612,8 +4606,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             else
               edge = AllocateWLNEdge(curr,prev,graph);
 
+            if(pending_unsaturate){
+              edge = unsaturate_edge(edge,pending_unsaturate);
+              pending_unsaturate = 0;
+            }
             if(!edge)
-              Fatal(i);
+              Fatal(i);            
             
           }
 
