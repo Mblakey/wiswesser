@@ -1348,12 +1348,8 @@ struct BabelGraph{
       }
 
       FOR_NBORS_OF_ATOM(a,atom){
-        if(!atoms_seen[&(*a)] && !(*a).IsInRing()){
-
+        if(!atoms_seen[&(*a)] && !(*a).IsInRing())
           atom_stack.push(&(*a));
-          fprintf(stderr,"pushing atom: %d\n",(*a).GetAtomicNum());
-        }
-          
       }
 
     }
