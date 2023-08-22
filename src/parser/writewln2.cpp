@@ -88,6 +88,128 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
 }
 
 
+/**********************************************************************
+                          Ring and Atom Stack
+**********************************************************************/
+
+#ifdef MAYBE
+struct BabelObject{
+  OBAtom**locant_path; 
+  unsigned int path_size; 
+  OBAtom *atom;  
+ 
+  BabelObject(){
+    locant_path=0;
+    path_size=0;
+    atom=0;
+  }
+};
+
+
+struct BabelStack{  
+  std::vector<BabelObject> stack; // vector so i can iterate down and instant access
+  OBAtom**peek_path; 
+  OBAtom *peek_atom; 
+
+  unsigned int peek_size; 
+  unsigned int stack_size; 
+
+  BabelStack(){
+    peek_path = 0; 
+    peek_size = 0; 
+    peek_atom = 0; 
+    stack_size = 0; 
+  }
+
+  void reserve(unsigned int n){
+    stack.reserve(n);
+  }
+
+  bool peek(){
+    if(!stack_size){
+      fprintf(stderr,"Error: peeking empty object stack\n");
+      return false;
+    }
+    else{
+      fprintf(stderr,"top: locant_path: %p size(%d)   atom: %p\n",peek_path,peek_size,peek_atom);
+      return true;
+    }
+     
+  }
+
+  bool pop(){
+    stack.pop_back();
+    stack_size--;
+
+    peek_path = 0;
+    peek_atom = 0;
+
+    if(stack.empty())
+      return false;
+    
+    for (int i=stack_size-1;i>-1;i--){
+      
+      if(!peek_path && stack[i].locant_path){
+        peek_path = stack[i].locant_path;
+        peek_size = stack[i].path_size; 
+      }
+      
+      if(!peek_atom && stack[i].atom)
+        peek_atom = stack[i].atom;        
+    }
+
+    return true; 
+  }
+
+  void push(BabelObject babelObj){
+    stack.push_back(babelObj);
+    if(babelObj.locant_path){
+      peek_path = babelObj.locant_path;
+      peek_size = babelObj.path_size; 
+    }
+      
+    if(babelObj.locant_path)
+      peek_atom = babelObj.atom; 
+
+    stack_size++;
+  }
+
+
+  bool empty(){
+    if (stack.empty())
+      return true;
+    else 
+      return false;
+  }
+
+  void clear_all(){
+    peek_atom = 0;
+    peek_path = 0;
+    peek_size = 0; 
+    stack.clear();
+  }
+
+  BabelObject &top(){
+    return stack.back();
+  }
+
+
+  BabelObject &top_ring(){
+    while (!top().locant_path && !stack.empty())
+      pop(); 
+    return top();
+  }
+
+  BabelObject &top_branch(){
+    while (!top().atom && !stack.empty())
+      pop(); 
+    return top();
+  }
+
+};
+
+#endif
+
 
 /**********************************************************************
                           Ring Construction Functions
@@ -144,7 +266,6 @@ unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol,
       branching++;
     else if(in_rings == 3)
       multicyclic++;
-    
     else if (in_rings == 2)
       fuses++;
   }
@@ -458,7 +579,14 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
             ring_str+= ' ';
             ring_str+= int_to_locant(pos+1);
           }
-          ring_str += std::to_string(nt_sizes[i]);
+
+          if(nt_sizes[i] > 9){
+            ring_str += '-';
+            ring_str += std::to_string(path_size); 
+            ring_str += '-';
+          } 
+          else
+            ring_str += std::to_string(nt_sizes[i]);
 
           nt_pairs.erase(nt_pairs.begin() + i);
           nt_sizes.erase(nt_sizes.begin() + i);
@@ -649,9 +777,22 @@ struct BabelGraph{
   std::map<OBAtom*,unsigned char> given_char; // post lookup
   std::map<OBAtom*,unsigned int>  evaluated_branches; // tracking for branch pop
 
+  std::vector<OBAtom**> stored_paths; // mem pool
+
+  // recursion tracking
+  unsigned int cycle_count; 
+  unsigned int last_cycle_seen;
   
-  BabelGraph(){};
-  ~BabelGraph(){};
+  BabelGraph(){
+    cycle_count = 0; 
+    last_cycle_seen = 0; 
+  };
+  ~BabelGraph(){
+    for(unsigned int i=0;i<stored_paths.size();i++){
+      free(stored_paths[i]);
+      stored_paths[i] = 0; 
+    }
+  };
 
   bool WriteBabelAtom(OBAtom* atom, std::string &buffer){
 
@@ -1238,8 +1379,22 @@ struct BabelGraph{
   }
 
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
-  OBAtom* ParseNonCyclic(OBAtom* start_atom, OBMol *mol, std::string &buffer){
+  bool ParseNonCyclic(OBAtom* start_atom, OBMol *mol, std::string &buffer, unsigned int cycle_num, unsigned char locant){
     
+    //################################
+    if(last_cycle_seen > cycle_num){
+      for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++)
+        buffer+='&';
+    }
+    last_cycle_seen = cycle_num;
+
+    if(locant){
+      buffer+=' ';
+      buffer+= locant;
+    }
+    //################################
+
+
     unsigned int Wgroups = 0;
   
     OBAtom* atom = start_atom;
@@ -1254,6 +1409,20 @@ struct BabelGraph{
       atom = atom_stack.top(); 
       atom_stack.pop();
       atoms_seen[atom] = true;
+
+      if(atom->IsInRing()){
+        buffer+= '-';
+        buffer+= ' '; 
+
+        cycle_count++;
+        if(!RecursiveParse(atom,mol,true,buffer,cycle_count)){
+          fprintf(stderr,"Error: failed to make inline ring\n");
+          return false;
+        }
+        if(!atom_stack.empty())
+          buffer+='&';
+        continue;
+      }
 
       if(prev){
         bond = mol->GetBond(prev,atom); 
@@ -1383,7 +1552,7 @@ struct BabelGraph{
       }
 
       FOR_NBORS_OF_ATOM(a,atom){
-        if(!atoms_seen[&(*a)] && !(*a).IsInRing())
+        if(!atoms_seen[&(*a)])
           atom_stack.push(&(*a));
       }
 
@@ -1395,20 +1564,22 @@ struct BabelGraph{
   /* create the hetero atoms where neccesary */
   bool ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &buffer){
 
-    unsigned int last_hetero_index = 0; 
+    unsigned char last_locant = 0; 
+    unsigned char locant = 0; 
     for(unsigned int i=0;i<path_size;i++){
 
       if(locant_path[i]->GetAtomicNum() != 6){
-
+        locant = int_to_locant(i+1); 
         // handles 'A' starting and consecutive locants
-        if(i > 0 && last_hetero_index != i-1){
+        if(i > 0 && locant-1 != last_locant){
           buffer += ' ';
-          buffer += int_to_locant(i+1);
+          buffer += locant;
         }
 
         if(!WriteBabelAtom(locant_path[i],buffer))
           return false; 
-        last_hetero_index = i; 
+        
+        last_locant = locant; 
       }
     }
     
@@ -1416,7 +1587,7 @@ struct BabelGraph{
   }
   
   /* constructs and parses a cyclic structre, locant path is returned with its path_size */
-  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, std::string &buffer){
+  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, bool inline_ring,std::string &buffer){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
    
@@ -1435,7 +1606,41 @@ struct BabelGraph{
     unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
     unsigned int path_size = ring_atoms.size(); 
     
-    if(path_size && ring_type){
+    // monocyclic
+    if(local_SSSR.size() == 1){
+      locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+      for(unsigned int i=0;i<path_size;i++)
+        locant_path[i] = 0;
+      stored_paths.push_back(locant_path);
+
+      OBRing* monoring = *(local_SSSR.begin());
+      for(unsigned int i=0;i<monoring->Size();i++){
+        locant_path[i] = mol->GetAtom(monoring->_path[i]);
+        if(inline_ring && locant_path[i] == ring_root)
+          buffer += int_to_locant(i+1);
+      }
+        
+      if(IsHeteroRing(locant_path,path_size))
+        buffer += 'T';
+      else
+        buffer += 'L';
+
+      if(path_size > 9){
+        buffer += '-';
+        buffer += std::to_string(path_size); 
+        buffer += '-';
+      }
+      else
+        buffer += std::to_string(path_size); 
+      
+      ReadHeteroAtoms(locant_path,path_size,buffer);
+      if(!monoring->IsAromatic())
+        buffer += 'T';
+      buffer += 'J';
+      return {locant_path,path_size};
+    }
+    
+    else if(path_size && ring_type){
       // generate seeds
       std::vector<OBAtom*> seed_atoms; 
       expected_rings = local_SSSR.size(); 
@@ -1453,7 +1658,8 @@ struct BabelGraph{
                                           seed_atoms[i]);
         if(!locant_path)
           return {0,0}; 
-  
+        else
+          stored_paths.push_back(locant_path);
 
         std::string cyclic_str = ReadLocantPath(  locant_path,path_size,ring_shares,
                                                   nt_pairs,nt_sizes,
@@ -1473,79 +1679,51 @@ struct BabelGraph{
       minimal_index = MinimalWLNRingNotation(cyclic_strings); 
       buffer+= cyclic_strings[minimal_index]; // add to the buffer
 
-      // free all other locant paths 
-      for(unsigned int i=0;i<locant_paths.size();i++){
-        if(i != minimal_index){
-          free(locant_paths[i]);
-          locant_paths[i] = 0; 
-        }
-      }
-
+ 
       // add any hetero atoms at locant positions
       ReadHeteroAtoms(locant_paths[minimal_index],path_size,buffer);
 
       // close ring
       buffer += 'J';
+      return {locant_paths[minimal_index],path_size};
     }
-    else
-      return {0,0}; 
-
-
-    return {locant_paths[minimal_index],path_size};
+    
+    return {0,0}; 
   }
 
+  bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
+    // assumes atom is a ring atom 
+    if(opt_debug)
+      fprintf(stderr,"Cyclic level: %d, last seen - %d\n", cycle_num, last_cycle_seen);
+    
+    last_cycle_seen = cycle_num;
 
-  bool ParseAllCyclic(OBMol *mol, std::string &buffer){
-    // get the start ring, and then use that as the jump point
     std::pair<OBAtom**,unsigned int> path_pair;  
-    std::stack <std::pair<OBAtom**,unsigned int>> locant_stack; 
-    path_pair = ParseCyclic(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,buffer);
-    locant_stack.push(path_pair); 
+    path_pair = ParseCyclic(atom,mol,inline_ring,buffer);
 
+    if(!path_pair.first){
+      fprintf(stderr,"Error: failed on cyclic parse\n");
+      return false;
+    }
 
-    return true;
-    while(!locant_stack.empty()){
-
-      path_pair = locant_stack.top(); 
-      OBAtom** loc_path = path_pair.first;
-      unsigned int path_size = path_pair.second;
-
-      if(!loc_path){
-        fprintf(stderr,"Error: could not create locant path for local SSSR\n");
-        return false;
-      } 
-
-      for(unsigned int i=0;i<path_size;i++){
-        if(!atoms_seen[loc_path[i]]){
-          atoms_seen[loc_path[i]] = true; // stops duplicates when returned from stack 
-
-          // check its neighbours
-          FOR_BONDS_OF_ATOM(b,loc_path[i]){
-            OBAtom *ext_atom = b->GetEndAtom(); 
-            if(!ext_atom->IsInRing()){
-              buffer += ' ';
-              buffer += int_to_locant(i+1); 
-
-              if(b->GetBondOrder() > 1)
-                buffer += 'U';
-              if(b->GetBondOrder() > 2)
-                buffer += 'U';
-            
-              if(!ParseNonCyclic(ext_atom,mol,buffer))
-                return false;
-            }
+    for(unsigned int i=0;i<path_pair.second;i++)
+      atoms_seen[path_pair.first[i]] = true;
+      
+    for(unsigned int i=0;i<path_pair.second;i++){
+      FOR_NBORS_OF_ATOM(iter,path_pair.first[i]){
+        OBAtom *latom = &(*iter);
+        if(!latom->IsInRing() && !atoms_seen[latom]){
+          if(!ParseNonCyclic(latom,mol,buffer,cycle_num,int_to_locant(i+1))){
+            fprintf(stderr,"Error: failed on non-cyclic parse\n");
+            return false;
           }
         }
       }
-
-      // if you get to the end, pop and return down 
-      
-
-      free(loc_path); // make this a stack release when handling locants
     }
-
-    return true; 
+      
+    return true;
   }
+
 
 };
 
@@ -1574,7 +1752,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
         if(started)
           buffer += " &"; // ionic species
         
-        if(!obabel.ParseNonCyclic(&(*a),mol,buffer))
+        if(!obabel.ParseNonCyclic(&(*a),mol,buffer,0,0))
           return false;
 
         started = true; 
@@ -1585,8 +1763,8 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     return true; 
   }
   else{
-
-    if(!obabel.ParseAllCyclic(mol,buffer))
+    // start recursion from first cycle atom
+    if(!obabel.RecursiveParse(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,false,buffer,0))
       return false; 
     
     // handles ionics here
