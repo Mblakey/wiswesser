@@ -645,6 +645,10 @@ struct BabelGraph{
 
   std::map<OBAtom*,bool> atoms_seen;
   std::map<OBRing*, bool> rings_seen; 
+
+  std::map<OBAtom*,unsigned char> given_char; // post lookup
+  std::map<OBAtom*,unsigned int>  evaluated_branches; // tracking for branch pop
+
   
   BabelGraph(){};
   ~BabelGraph(){};
@@ -1184,6 +1188,8 @@ struct BabelGraph{
         return false;
     }
 
+    given_char[atom] = buffer.back(); // assign the last char, - will mean hypervalent
+
     return true; 
   }
 
@@ -1231,11 +1237,11 @@ struct BabelGraph{
     return false;
   }
 
+  /* parse non-cyclic atoms DFS style - return last atom seen in chain */
   OBAtom* ParseNonCyclic(OBAtom* start_atom, OBMol *mol, std::string &buffer){
     
     unsigned int Wgroups = 0;
-    bool following_terminator = false;
-
+  
     OBAtom* atom = start_atom;
     OBAtom* prev = 0; 
     OBBond *bond = 0; 
@@ -1252,17 +1258,44 @@ struct BabelGraph{
       if(prev){
         bond = mol->GetBond(prev,atom); 
         if(!bond){
-          // distinction between a closure and a pop
-          if(!following_terminator)
-            buffer += '&';
 
-          prev = branch_stack.top();
+          if(prev != branch_stack.top()){
+            prev = branch_stack.top();
+            buffer += '&';
+          }
+
+          // need to have a method where the branches are tracked 
           while(!branch_stack.empty() && !mol->GetBond(prev,atom)){
             branch_stack.pop();
-            fprintf(stderr,"popping: %d\n",prev->GetAtomicNum());
 
-            buffer += '&';
+            switch(given_char[prev]){ // sorts out last closures
+              case 'Y':
+              case 'B':
+              case 'N':
+                if(evaluated_branches[prev] != 2 )
+                  buffer += '&';
+                break;
+
+              case 'X':
+              case 'K':
+                if(evaluated_branches[prev] != 3 )
+                  buffer += '&';
+                break;
+
+              case 'P':
+              case 'S':
+              case '-':
+                if(evaluated_branches[prev] != 5 )
+                  buffer += '&';
+                break;
+
+              default:
+                fprintf(stderr,"Error: unrecognised branching assignment - %c\n",given_char[prev]);
+                return 0;
+            }
+      
             prev = branch_stack.top();
+              
           }
 
           bond = mol->GetBond(prev,atom); 
@@ -1275,6 +1308,8 @@ struct BabelGraph{
 
         for(unsigned int i=1;i<bond->GetBondOrder();i++)
           buffer += 'U';
+
+        evaluated_branches[prev]++;
       }
 
       if(!WriteBabelAtom(atom,buffer))
@@ -1336,10 +1371,9 @@ struct BabelGraph{
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
 
-          if(!branch_stack.empty()){
+          if(!branch_stack.empty())
             prev = branch_stack.top();
-            following_terminator = true;
-          }
+
           break;
 
 
