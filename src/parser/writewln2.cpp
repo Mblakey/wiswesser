@@ -1251,29 +1251,30 @@ struct BabelGraph{
 
       if(prev){
         bond = mol->GetBond(prev,atom); 
-
-        if(bond){
-          for(unsigned int i=1;i<bond->GetBondOrder();i++)
-            buffer += 'U';
-        }
-        // branch stack conditions 
-        else{
+        if(!bond){
           // distinction between a closure and a pop
           if(!following_terminator)
             buffer += '&';
 
+          prev = branch_stack.top();
           while(!branch_stack.empty() && !mol->GetBond(prev,atom)){
-            prev = branch_stack.top();
             branch_stack.pop();
+            fprintf(stderr,"popping: %d\n",prev->GetAtomicNum());
+
             buffer += '&';
+            prev = branch_stack.top();
           }
 
           bond = mol->GetBond(prev,atom); 
-          if(bond){
-            for(unsigned int i=1;i<bond->GetBondOrder();i++)
-              buffer += 'U';
-          }
         }
+
+        if(!bond){
+          fprintf(stderr,"Error: failure to read branched bond segment\n");
+          return 0;
+        }
+
+        for(unsigned int i=1;i<bond->GetBondOrder();i++)
+          buffer += 'U';
       }
 
       if(!WriteBabelAtom(atom,buffer))

@@ -3466,13 +3466,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(!edge)
-            Fatal(i);
-
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
             pending_unsaturate = 0;
           }
+          if(!edge)
+            Fatal(i);
           
         }
 
