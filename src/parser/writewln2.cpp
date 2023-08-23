@@ -89,100 +89,9 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
 
 
 /**********************************************************************
-                          Ring Construction Functions
+                          Locant Path Functions
 **********************************************************************/
 
-/* constructs the local rings system, return highest ring share value */
-unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
-                                  std::set<OBAtom*> &ring_atoms,
-                                  std::map<OBAtom*,unsigned int> &ring_shares,
-                                  std::set<OBRing*> &local_SSSR){
-
-  if(!ring_root){
-    fprintf(stderr,"Error: ring root is nullptr\n");
-    return 0; 
-  }
-
-  OBRing *seed_ring = 0;
-  OBRing *obring = 0; 
-
-  unsigned int fuses = 0;
-  unsigned int multicyclic = 0;
-  unsigned int branching = 0;   
-
-  // get the seed ring and add path to ring_atoms
-  FOR_RINGS_OF_MOL(r,mol){
-    obring = &(*r);
-    if(obring->IsMember(ring_root)){
-      seed_ring = obring; // so we do not consider again
-      local_SSSR.insert(obring);
-      for(unsigned int i=0;i<obring->Size();i++){
-        OBAtom *ratom = mol->GetAtom(obring->_path[i]);
-        ring_atoms.insert(ratom);
-        ring_shares[ratom]++;
-      }
-      break;
-    }
-  }
-  
-
-  FOR_RINGS_OF_MOL(r,mol){
-    obring = &(*r);
-    if(obring != seed_ring){
-      std::set<OBAtom*> ring_set; 
-      std::set<OBAtom*> intersection; 
-      for(unsigned int i=0;i<obring->Size();i++){
-        OBAtom *ratom = mol->GetAtom(obring->_path[i]);
-        ring_set.insert(ratom);
-      }
-
-      std::set_intersection(ring_set.begin(), ring_set.end(), ring_atoms.begin(), ring_atoms.end(),
-                            std::inserter(intersection, intersection.begin()));
-
-      // intersection 1 is a spiro ring, ignore, 
-      if(intersection.size() > 1){
-        local_SSSR.insert(obring);
-        for(unsigned int i=0;i<obring->Size();i++){
-          OBAtom *ratom = mol->GetAtom(obring->_path[i]);
-          ring_atoms.insert(ratom);
-          ring_shares[ratom]++;
-        }
-      }
-    }
-  }
-
-  for(std::set<OBAtom*>::iterator iter=ring_atoms.begin(); iter != ring_atoms.end(); iter++){
-    OBAtom *atom = *iter; 
-    if(ring_shares[atom] == 2)
-      fuses++; 
-    else if(ring_shares[atom] == 3)
-      multicyclic++;
-    else if(ring_shares[atom] == 4)
-      branching++;
-  }
-
-
-  if(opt_debug){
-    fprintf(stderr,"  SSSR for system:    ");
-    for(std::set<OBRing*>::iterator set_iter = local_SSSR.begin();set_iter != local_SSSR.end();set_iter++)
-      fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
-    fprintf(stderr,"\n");
-
-    fprintf(stderr,"  ring size:          %d\n",(unsigned int)ring_atoms.size());
-    fprintf(stderr,"  fuse points:        %d\n",fuses);
-    fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
-    fprintf(stderr,"  branching points:   %d\n",branching);
-  }
-
-  if(branching){
-    fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
-    return 0;
-  }
-  else if(multicyclic)
-    return 3; 
-  else 
-    return 2; 
-}
 
 
 // get all potential seeds for locant path start
@@ -338,14 +247,14 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
   }
 
   unsigned int locant_pos = 0;
-  std::map<OBRing*,bool> rings_seen; 
-  std::map<OBAtom*,bool> atoms_seen; 
+  std::map<OBRing*,bool> local_rings_seen; 
+  std::map<OBAtom*,bool> local_atoms_seen; 
 
   // add into the array directly and shift so seed is guareented in position 0
   for(unsigned int i=0;i<obring->_path.size();i++){
     ratom = mol->GetAtom(obring->_path[i]);
     locant_path[locant_pos++] = ratom;
-    atoms_seen[ratom] = true;
+    local_atoms_seen[ratom] = true;
   }
 
   while(locant_path[0] != seed_atom){
@@ -361,17 +270,16 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
   nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
   nt_rings.push_back(obring);
 
-
   // get next ring in locant order
   for(unsigned int rings_handled = 0; rings_handled < local_SSSR.size()-1;rings_handled++){
-    rings_seen[obring] = true;
+    local_rings_seen[obring] = true;
     unsigned int hp_pos = 0; 
     for(unsigned int i=0;i<locant_pos;i++){
       bool found = false;
       ratom = locant_path[i];
       if(ring_shares[ratom] > 1){
         for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-          if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
+          if(!local_rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
             hp_pos = i;
             obring = (*iter);
             found = true;
@@ -385,7 +293,7 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
 
     locant_pos =  ShiftandAddLocantPath(  mol,locant_path,
                                           locant_pos,path_size,hp_pos,obring,
-                                          atoms_seen,nt_pairs,nt_rings);
+                                          local_atoms_seen,nt_pairs,nt_rings);
     if(!locant_pos)
       return 0;
   }
@@ -1477,6 +1385,102 @@ struct BabelGraph{
     return atom; 
   }
 
+  /* constructs the local rings system, return highest ring share value */
+  unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
+                                    std::set<OBAtom*> &ring_atoms,
+                                    std::map<OBAtom*,unsigned int> &ring_shares,
+                                    std::set<OBRing*> &local_SSSR){
+
+    if(!ring_root){
+      fprintf(stderr,"Error: ring root is nullptr\n");
+      return 0; 
+    }
+
+    OBRing *obring = 0; 
+    unsigned int fuses = 0;
+    unsigned int multicyclic = 0;
+    unsigned int branching = 0;   
+
+    // get the seed ring and add path to ring_atoms
+    FOR_RINGS_OF_MOL(r,mol){
+      obring = &(*r);
+      if(obring->IsMember(ring_root)){
+        rings_seen[obring] = true;
+        local_SSSR.insert(obring);
+        for(unsigned int i=0;i<obring->Size();i++){
+          OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+          ring_atoms.insert(ratom);
+          ring_shares[ratom]++;
+        }
+        break;
+      }
+    }
+    
+    bool running = true; 
+    while(running){
+      running = false;
+      FOR_RINGS_OF_MOL(r,mol){
+        obring = &(*r);
+        if(!rings_seen[obring]){
+          std::set<OBAtom*> ring_set; 
+          std::set<OBAtom*> intersection; 
+          for(unsigned int i=0;i<obring->Size();i++){
+            OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+            ring_set.insert(ratom);
+          }
+
+          std::set_intersection(ring_set.begin(), ring_set.end(), ring_atoms.begin(), ring_atoms.end(),
+                                std::inserter(intersection, intersection.begin()));
+
+          // intersection 1 is a spiro ring, ignore, 
+          if(intersection.size() > 1){
+            local_SSSR.insert(obring);
+            for(unsigned int i=0;i<obring->Size();i++){
+              OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+              ring_atoms.insert(ratom);
+              ring_shares[ratom]++;
+              
+            }
+            rings_seen[obring] = true;
+            running = true;
+          }
+        }
+      }
+    }
+
+    for(std::set<OBAtom*>::iterator iter=ring_atoms.begin(); iter != ring_atoms.end(); iter++){
+      OBAtom *atom = *iter; 
+      if(ring_shares[atom] == 2)
+        fuses++; 
+      else if(ring_shares[atom] == 3)
+        multicyclic++;
+      else if(ring_shares[atom] == 4)
+        branching++;
+    }
+
+
+    if(opt_debug){
+      fprintf(stderr,"  SSSR for system:    ");
+      for(std::set<OBRing*>::iterator set_iter = local_SSSR.begin();set_iter != local_SSSR.end();set_iter++)
+        fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
+      fprintf(stderr,"\n");
+
+      fprintf(stderr,"  ring size:          %d\n",(unsigned int)ring_atoms.size());
+      fprintf(stderr,"  fuse points:        %d\n",fuses);
+      fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
+      fprintf(stderr,"  branching points:   %d\n",branching);
+    }
+
+    if(branching){
+      fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
+      return 0;
+    }
+    else if(multicyclic)
+      return 3; 
+    else 
+      return 2; 
+  }
+
   /* create the hetero atoms where neccesary */
   bool ReadLocantBondsxAtoms( OBAtom** locant_path,unsigned int path_size,
                               std::vector<OBRing*> &ring_order,
@@ -1570,9 +1574,6 @@ struct BabelGraph{
 
     std::string append = ""; 
     for(unsigned int i=0;i<ring_order.size();i++){
-      // mark all the rings as seen
-      rings_seen[ring_order[i]] = true;
-
       // check aromaticity
       if(ring_order[i]->IsAromatic())
         append += '&';
@@ -1695,7 +1696,7 @@ struct BabelGraph{
       if(ring_type > 2){
         ReadMultiCyclicPoints(locant_path,path_size,ring_shares,buffer);
         buffer += ' ';
-        buffer += int_to_locant(path_size);
+        buffer += int_to_locant(path_size+1);
       }
         
  
