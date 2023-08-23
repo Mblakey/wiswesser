@@ -305,7 +305,7 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
 currently working for MONO,POLY, unsupported: PERI,BRANCH */
 OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR, 
                               std::map<OBAtom*,unsigned int> &ring_shares,
-                              std::vector<OBRing*> &ring_order,
+                              std::deque<OBRing*> &ring_order,
                               std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
                               std::vector<unsigned int> &nt_sizes,
                               unsigned int path_size,
@@ -1478,7 +1478,7 @@ struct BabelGraph{
 
   /* create the hetero atoms where neccesary */
   bool ReadLocantBondsxAtoms( OBAtom** locant_path,unsigned int path_size,
-                              std::vector<OBRing*> &ring_order,
+                              std::deque<OBRing*> &ring_order,
                               std::string &buffer){
 
     unsigned char last_locant = 0; 
@@ -1551,7 +1551,12 @@ struct BabelGraph{
   }
 
 
-  void ReadAromaticity(std::vector<OBRing*> &ring_order,std::string &buffer){
+  void ReadAromaticity(std::deque<OBRing*> &ring_order,std::string &buffer){
+
+
+    // shift order round by 1, as the last loop is the closing start
+    ring_order.push_front(ring_order.back());
+    ring_order.pop_back();
 
     std::string append = ""; 
     for(unsigned int i=0;i<ring_order.size();i++){
@@ -1590,7 +1595,7 @@ struct BabelGraph{
     // needed for minimising the locant path
     std::vector<std::string>                cyclic_strings;
     std::vector<OBAtom**>                   locant_paths;  
-    std::vector<std::vector<OBRing*>>       cycle_orders;
+    std::vector<std::deque<OBRing*>>        cycle_orders; // shifting requred .. deque
     unsigned int                            minimal_index = 0; 
 
     unsigned int expected_rings = 0;
@@ -1646,7 +1651,7 @@ struct BabelGraph{
       for(unsigned int i=0;i<seed_atoms.size();i++){
         
         // create a new path per string
-        std::vector<OBRing*> ring_order;
+        std::deque<OBRing*> ring_order;
         locant_path = CreateLocantPath(   mol,
                                           local_SSSR,ring_shares,ring_order,
                                           nt_pairs,nt_sizes,
