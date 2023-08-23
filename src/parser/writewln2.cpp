@@ -520,7 +520,7 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
     } 
     else
       ring_str += std::to_string(rsize);
-      
+
     ring_order.push_back(nt_rings[0]);
     nt_pairs.clear();
     nt_rings.clear();
@@ -1531,7 +1531,7 @@ struct BabelGraph{
         second = locant_path[0];
 
       OBBond *locant_bond = first->GetBond(second);
-      if(locant_bond->GetBondOrder() > 1){
+      if(locant_bond && locant_bond->GetBondOrder() > 1){
         bool arom_skip = false; 
         for(unsigned int j=0;j<ring_order.size();j++){
           OBRing *ring = ring_order[j];
