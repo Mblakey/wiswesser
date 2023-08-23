@@ -1696,7 +1696,7 @@ struct BabelGraph{
       if(ring_type > 2){
         ReadMultiCyclicPoints(locant_path,path_size,ring_shares,buffer);
         buffer += ' ';
-        buffer += int_to_locant(path_size+1);
+        buffer += int_to_locant(path_size);
       }
         
  
