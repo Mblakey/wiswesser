@@ -232,24 +232,35 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
     path.push_back(tmp);
   }
 
+  // must be anti-clockwise - shift and reverse
+  if(path[1] == insert_end->GetIdx()){
+    unsigned int tmp = path[0];
+    path.pop_front();
+    path.push_back(tmp);
+    std::reverse(path.begin(),path.end());
+    if(opt_debug)
+      fprintf(stderr,"  reversing ring\n");
+  }
+
     
   // standard clockwise and anti clockwise additions to the path
   if(seen){
-  
-    // must be anti-clockwise - shift and reverse
-    if(insert_start && path[1] == insert_start->GetIdx()){
-      unsigned int tmp = path[0];
-      path.pop_front();
-      path.push_back(tmp);
-      std::reverse(path.begin(),path.end());
-    }
-
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
 
     // add nt pair + size
     nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
     nt_rings.push_back(obring); 
+  
+    
+    if(opt_debug){
+      fprintf(stderr,"  non-trivial bonds:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
+      fprintf(stderr,"  adding ( ");
+      for(unsigned int i=0;i<path.size();i++)
+        fprintf(stderr,"%d ",path[i]);
+      fprintf(stderr,")\n  ");
+      print_locant_array(locant_path,path_size);
+      fprintf(stderr,"\n");
+    }
+      
 
     // spit the locant path between hp_pos and hp_pos + 1, add elements
     unsigned int j=0;
@@ -270,14 +281,6 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
 
   // must be a ring wrap on the locant path, can come in clockwise or anticlockwise
   else{
-
-    // this is the reverse for the ring wrap
-    if(path[1] == insert_end->GetIdx()){ // end due to shift swap
-      unsigned int tmp = path[0];
-      path.pop_front();
-      path.push_back(tmp);
-      std::reverse(path.begin(),path.end());
-    }
 
     // just add to the back, no shift required
     for(unsigned int i=0;i<path.size();i++){
