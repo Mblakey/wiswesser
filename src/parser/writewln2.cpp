@@ -423,9 +423,11 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
   return locant_pos;
 }
 
-/* works on priority, and creates locant path via array shifting, returns the spawn size */
+/* works on priority, and creates locant path via array shifting, the locant path
+currently working for MONO,POLY, unsupported: PERI,BRANCH */
 OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR, 
                               std::map<OBAtom*,unsigned int> &ring_shares,
+                              std::vector<OBRing*> &ring_order,
                               std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
                               std::vector<unsigned int> &nt_sizes,
                               unsigned int path_size,
@@ -453,7 +455,9 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
   if(!obring){
     fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
     return 0; 
-  } 
+  }
+  else
+    ring_order.push_back(obring);
 
   
   unsigned int locant_pos = 0;
@@ -493,6 +497,7 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
           if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
             hp_pos = i;
             obring = (*iter);
+            ring_order.push_back(obring);
             found = true;
             break;
           }
@@ -1394,12 +1399,18 @@ struct BabelGraph{
   }
 
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
-  bool ParseNonCyclic(OBAtom* start_atom, OBMol *mol, std::string &buffer, unsigned int cycle_num, unsigned char locant){
+  bool ParseNonCyclic(OBAtom* start_atom, unsigned int b_order,
+                      OBMol *mol, std::string &buffer, 
+                      unsigned int cycle_num, unsigned char locant){
     
-    //################################
+    //##################################
+    //      INDIRECT RECURSION TRACK
     if(last_cycle_seen > cycle_num){
-      for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++)
+      for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
         buffer+='&';
+        cycle_count+= -1; // once a ring is closed can you ever get back? - GOOD
+      }
+        
     }
     last_cycle_seen = cycle_num;
 
@@ -1407,7 +1418,11 @@ struct BabelGraph{
       buffer+=' ';
       buffer+= locant;
     }
-    //################################
+
+    for(unsigned int b=1;b<b_order;b++)
+      buffer+='U';
+    //##################################
+
 
 
     unsigned int Wgroups = 0;
@@ -1578,14 +1593,18 @@ struct BabelGraph{
   }
 
   /* create the hetero atoms where neccesary */
-  bool ReadHeteroAtoms(OBAtom** locant_path,unsigned int path_size, std::string &buffer){
+  bool ReadLocantBondsxAtoms( OBAtom** locant_path,unsigned int path_size,
+                              std::vector<OBRing*> &ring_order,
+                              std::string &buffer){
 
     unsigned char last_locant = 0; 
     unsigned char locant = 0; 
-    for(unsigned int i=0;i<path_size;i++){
 
+    OBAtom *first = 0;
+    OBAtom *second = 0; 
+    for(unsigned int i=0;i<path_size;i++){
+      locant = int_to_locant(i+1); 
       if(locant_path[i]->GetAtomicNum() != 6){
-        locant = int_to_locant(i+1); 
         // handles 'A' starting and consecutive locants
         if(i > 0 && locant-1 != last_locant){
           buffer += ' ';
@@ -1597,6 +1616,39 @@ struct BabelGraph{
         
         last_locant = locant; 
       }
+
+      // handles sequential locant unsaturations, when not aromatic
+      first = locant_path[i];
+      if(i < path_size-1)
+        second = locant_path[i+1];
+      else
+        second = locant_path[0];
+
+      OBBond *locant_bond = first->GetBond(second);
+      if(locant_bond->GetBondOrder() > 1){
+        bool arom_skip = false; 
+        for(unsigned int j=0;j<ring_order.size();j++){
+          OBRing *ring = ring_order[j];
+          if( (ring->IsMember(first) || ring->IsMember(second)) 
+              && ring->IsAromatic()){
+            arom_skip = true;
+            break;
+          }
+        }
+        if(!arom_skip){
+          if(i > 0 && locant != last_locant){
+            buffer += ' ';
+            buffer += locant;
+          }
+
+          for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
+            buffer += 'U';
+        }
+      }
+
+      
+
+      
     }
     
     return true;
@@ -1607,16 +1659,18 @@ struct BabelGraph{
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
    
-    OBAtom **locant_path = 0;
-    std::set<OBRing*> local_SSSR; 
-    std::set<OBAtom*> ring_atoms; 
-    std::map<OBAtom*,unsigned int> ring_shares; 
+    OBAtom **                               locant_path = 0;
+    std::set<OBRing*>                       local_SSSR; 
+    std::set<OBAtom*>                       ring_atoms; 
+    std::map<OBAtom*,unsigned int>          ring_shares; 
     std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
     std::vector<unsigned int>               nt_sizes;  
     
-    std::vector<std::string> cyclic_strings;
-    std::vector<OBAtom**> locant_paths;  
-    unsigned int minimal_index = 0; 
+    // needed for minimising the locant path
+    std::vector<std::string>                cyclic_strings;
+    std::vector<OBAtom**>                   locant_paths;  
+    std::vector<std::vector<OBRing*>>       cycle_orders;
+    unsigned int                            minimal_index = 0; 
 
     unsigned int expected_rings = 0;
     unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
@@ -1635,6 +1689,7 @@ struct BabelGraph{
         if(inline_ring && locant_path[i] == ring_root)
           buffer += int_to_locant(i+1);
       }
+      cycle_orders.push_back({monoring});
         
       if(IsHeteroRing(locant_path,path_size))
         buffer += 'T';
@@ -1649,7 +1704,7 @@ struct BabelGraph{
       else
         buffer += std::to_string(path_size); 
       
-      ReadHeteroAtoms(locant_path,path_size,buffer);
+      ReadLocantBondsxAtoms(locant_path,path_size,cycle_orders[0],buffer);
       if(!monoring->IsAromatic())
         buffer += 'T';
       buffer += 'J';
@@ -1669,8 +1724,11 @@ struct BabelGraph{
       for(unsigned int i=0;i<seed_atoms.size();i++){
         
         // create a new path per string
-        locant_path = CreateLocantPath(   mol,local_SSSR,ring_shares,
-                                          nt_pairs,nt_sizes,path_size,
+        std::vector<OBRing*> ring_order;
+        locant_path = CreateLocantPath(   mol,
+                                          local_SSSR,ring_shares,ring_order,
+                                          nt_pairs,nt_sizes,
+                                          path_size,
                                           seed_atoms[i]);
         if(!locant_path)
           return {0,0}; 
@@ -1685,6 +1743,7 @@ struct BabelGraph{
 
         cyclic_strings.push_back(cyclic_str);
         locant_paths.push_back(locant_path);  
+        cycle_orders.push_back(ring_order);
 
         if(opt_debug)
           std::cout << "  produced: " << cyclic_str << "\n\n";
@@ -1697,7 +1756,7 @@ struct BabelGraph{
 
  
       // add any hetero atoms at locant positions
-      ReadHeteroAtoms(locant_paths[minimal_index],path_size,buffer);
+      ReadLocantBondsxAtoms(locant_paths[minimal_index],path_size,cycle_orders[minimal_index],buffer);
 
       // close ring
       buffer += 'J';
@@ -1728,8 +1787,11 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_pair.second;i++){
       FOR_NBORS_OF_ATOM(iter,path_pair.first[i]){
         OBAtom *latom = &(*iter);
+        OBBond* lbond = path_pair.first[i]->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic(latom,mol,buffer,cycle_num,int_to_locant(i+1))){
+          if(!ParseNonCyclic( latom,lbond->GetBondOrder(),
+                              mol,buffer,
+                              cycle_num,int_to_locant(i+1))){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
@@ -1768,7 +1830,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
         if(started)
           buffer += " &"; // ionic species
         
-        if(!obabel.ParseNonCyclic(&(*a),mol,buffer,0,0))
+        if(!obabel.ParseNonCyclic(&(*a),0,mol,buffer,0,0))
           return false;
 
         started = true; 
