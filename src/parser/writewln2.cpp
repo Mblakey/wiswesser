@@ -479,7 +479,7 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 
           if(rsize > 9){
             ring_str += '-';
-            ring_str += std::to_string(path_size); 
+            ring_str += std::to_string(rsize); 
             ring_str += '-';
           } 
           else
@@ -510,9 +510,17 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 
   if( nt_pairs[0].first == locant_path[0] 
       && nt_pairs[0].second == locant_path[path_size-1])
-  {
+  { 
+    unsigned int rsize = nt_rings[0]->Size(); 
     // last implied ring wrap
-    ring_str += std::to_string(nt_rings[0]->Size());
+    if(rsize > 9){
+      ring_str += '-';
+      ring_str += std::to_string(rsize); 
+      ring_str += '-';
+    } 
+    else
+      ring_str += std::to_string(rsize);
+      
     ring_order.push_back(nt_rings[0]);
     nt_pairs.clear();
     nt_rings.clear();
@@ -1551,7 +1559,7 @@ struct BabelGraph{
 
 
   void ReadAromaticity(std::vector<OBRing*> &ring_order,std::string &buffer){
-    
+
     std::string append = ""; 
     for(unsigned int i=0;i<ring_order.size();i++){
       // mark all the rings as seen
