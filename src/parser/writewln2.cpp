@@ -530,7 +530,7 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
 
 
 /**********************************************************************
-                          Canonicalisation Function
+                          Reduction Functions
 **********************************************************************/
 
 unsigned int highest_unbroken_numerical_chain(std::string &str){
@@ -1548,6 +1548,23 @@ struct BabelGraph{
     return true;
   }
 
+  void ReadMultiCyclicPoints( OBAtom**locant_path,unsigned int path_size, 
+                              std::map<OBAtom*,unsigned int> &ring_shares,std::string &buffer)
+  { 
+    unsigned int count = 0;
+    std::string append = ""; 
+    for(unsigned int i=0;i<path_size;i++){
+      if(ring_shares[locant_path[i]] > 2){
+        count++; 
+        append+= int_to_locant(i+1);
+      }
+    }
+
+    buffer += ' ';
+    buffer+= std::to_string(count);
+    buffer+= append; 
+  }
+
 
   void ReadAromaticity(std::vector<OBRing*> &ring_order,std::string &buffer){
 
@@ -1675,13 +1692,18 @@ struct BabelGraph{
       minimal_index = MinimalWLNRingNotation(cyclic_strings); 
       buffer+= cyclic_strings[minimal_index]; // add to the buffer
 
+      if(ring_type > 2){
+        ReadMultiCyclicPoints(locant_path,path_size,ring_shares,buffer);
+        buffer += ' ';
+        buffer += int_to_locant(path_size);
+      }
+        
  
       // add any hetero atoms at locant positions
       ReadLocantBondsxAtoms(locant_paths[minimal_index],path_size,cycle_orders[minimal_index],buffer);
-      
+
       // aromatics
       ReadAromaticity(cycle_orders[minimal_index],buffer);
-
 
       // close ring
       buffer += 'J';
