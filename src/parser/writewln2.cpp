@@ -1549,6 +1549,31 @@ struct BabelGraph{
     
     return true;
   }
+
+
+  void ReadAromaticity(std::vector<OBRing*> &ring_order,std::string &buffer){
+
+    std::string append = ""; 
+    for(unsigned int i=0;i<ring_order.size();i++){
+      // mark all the rings as seen
+      rings_seen[ring_order[i]] = true;
+
+      // check aromaticity
+      if(ring_order[i]->IsAromatic())
+        append += '&';
+      else
+        append += 'T';
+    }
+
+    // check if all aromatic or not
+    if(append.find_first_not_of(append[0]) == std::string::npos){
+
+      if(append[0] != '&')
+        buffer+='T';
+    }
+    else
+      buffer+= append; 
+  }
   
   /* constructs and parses a cyclic structre, locant path is returned with its path_size */
   std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, bool inline_ring,std::string &buffer){
@@ -1655,9 +1680,9 @@ struct BabelGraph{
       // add any hetero atoms at locant positions
       ReadLocantBondsxAtoms(locant_paths[minimal_index],path_size,cycle_orders[minimal_index],buffer);
       
-      // mark all the rings as seen
-      for(unsigned int i=0;i<cycle_orders[minimal_index].size();i++)
-        rings_seen[cycle_orders[minimal_index][0]] = true;
+      // aromatics
+      ReadAromaticity(cycle_orders[minimal_index],buffer);
+
 
       // close ring
       buffer += 'J';
