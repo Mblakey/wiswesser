@@ -1425,20 +1425,7 @@ struct BabelGraph{
       atom_stack.pop();
       atoms_seen[atom] = true;
 
-      if(atom->IsInRing()){
-        buffer+= '-';
-        buffer+= ' '; 
-
-        cycle_count++;
-        if(!RecursiveParse(atom,mol,true,buffer,cycle_count)){
-          fprintf(stderr,"Error: failed to make inline ring\n");
-          return false;
-        }
-        if(!atom_stack.empty())
-          buffer+='&';
-        continue;
-      }
-
+      
       if(prev){
         bond = mol->GetBond(prev,atom); 
         if(!bond){
@@ -1494,6 +1481,20 @@ struct BabelGraph{
           buffer += 'U';
 
         evaluated_branches[prev]++;
+      }
+
+      if(atom->IsInRing()){
+        buffer+= '-';
+        buffer+= ' '; 
+
+        cycle_count++;
+        if(!RecursiveParse(atom,mol,true,buffer,cycle_count)){
+          fprintf(stderr,"Error: failed to make inline ring\n");
+          return false;
+        }
+        if(!atom_stack.empty())
+          buffer+='&';
+        continue;
       }
 
       if(!WriteBabelAtom(atom,buffer))
@@ -1727,24 +1728,12 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_pair.second;i++){
       FOR_NBORS_OF_ATOM(iter,path_pair.first[i]){
         OBAtom *latom = &(*iter);
-        if(!latom->IsInRing() && !atoms_seen[latom]){
+        if(!atoms_seen[latom]){
           if(!ParseNonCyclic(latom,mol,buffer,cycle_num,int_to_locant(i+1))){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
         }
-        // direct ring bind
-        else if(latom->IsInRing() && !atoms_seen[latom]){
-          buffer+= ' ';
-          buffer+= int_to_locant(i+1);
-          buffer+='-';
-          buffer+=' ';
-          if(!RecursiveParse(latom,mol,true,buffer,++cycle_count)){
-            fprintf(stderr,"Error: failed on cyclic parse\n");
-            return false;
-          }
-        }
-        
       }
     }
       
