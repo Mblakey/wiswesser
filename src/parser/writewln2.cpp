@@ -89,129 +89,6 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
 
 
 /**********************************************************************
-                          Ring and Atom Stack
-**********************************************************************/
-
-#ifdef MAYBE
-struct BabelObject{
-  OBAtom**locant_path; 
-  unsigned int path_size; 
-  OBAtom *atom;  
- 
-  BabelObject(){
-    locant_path=0;
-    path_size=0;
-    atom=0;
-  }
-};
-
-
-struct BabelStack{  
-  std::vector<BabelObject> stack; // vector so i can iterate down and instant access
-  OBAtom**peek_path; 
-  OBAtom *peek_atom; 
-
-  unsigned int peek_size; 
-  unsigned int stack_size; 
-
-  BabelStack(){
-    peek_path = 0; 
-    peek_size = 0; 
-    peek_atom = 0; 
-    stack_size = 0; 
-  }
-
-  void reserve(unsigned int n){
-    stack.reserve(n);
-  }
-
-  bool peek(){
-    if(!stack_size){
-      fprintf(stderr,"Error: peeking empty object stack\n");
-      return false;
-    }
-    else{
-      fprintf(stderr,"top: locant_path: %p size(%d)   atom: %p\n",peek_path,peek_size,peek_atom);
-      return true;
-    }
-     
-  }
-
-  bool pop(){
-    stack.pop_back();
-    stack_size--;
-
-    peek_path = 0;
-    peek_atom = 0;
-
-    if(stack.empty())
-      return false;
-    
-    for (int i=stack_size-1;i>-1;i--){
-      
-      if(!peek_path && stack[i].locant_path){
-        peek_path = stack[i].locant_path;
-        peek_size = stack[i].path_size; 
-      }
-      
-      if(!peek_atom && stack[i].atom)
-        peek_atom = stack[i].atom;        
-    }
-
-    return true; 
-  }
-
-  void push(BabelObject babelObj){
-    stack.push_back(babelObj);
-    if(babelObj.locant_path){
-      peek_path = babelObj.locant_path;
-      peek_size = babelObj.path_size; 
-    }
-      
-    if(babelObj.locant_path)
-      peek_atom = babelObj.atom; 
-
-    stack_size++;
-  }
-
-
-  bool empty(){
-    if (stack.empty())
-      return true;
-    else 
-      return false;
-  }
-
-  void clear_all(){
-    peek_atom = 0;
-    peek_path = 0;
-    peek_size = 0; 
-    stack.clear();
-  }
-
-  BabelObject &top(){
-    return stack.back();
-  }
-
-
-  BabelObject &top_ring(){
-    while (!top().locant_path && !stack.empty())
-      pop(); 
-    return top();
-  }
-
-  BabelObject &top_branch(){
-    while (!top().atom && !stack.empty())
-      pop(); 
-    return top();
-  }
-
-};
-
-#endif
-
-
-/**********************************************************************
                           Ring Construction Functions
 **********************************************************************/
 
@@ -247,6 +124,7 @@ unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol,
       break;
     }
   }
+  
 
   FOR_RINGS_OF_MOL(r,mol){
     obring = &(*r);
@@ -1405,6 +1283,10 @@ struct BabelGraph{
     
     //##################################
     //      INDIRECT RECURSION TRACK
+
+    if(opt_debug)
+      fprintf(stderr,"non-cyclic level: %d, last seen - %d\n", cycle_num, last_cycle_seen);
+
     if(last_cycle_seen > cycle_num){
       for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
         buffer+='&';
@@ -1507,8 +1389,10 @@ struct BabelGraph{
           fprintf(stderr,"Error: failed to make inline ring\n");
           return false;
         }
-        if(!atom_stack.empty())
+        if(!atom_stack.empty()){
           buffer+='&';
+          cycle_count--;
+        }
         continue;
       }
 
@@ -1684,6 +1568,7 @@ struct BabelGraph{
       stored_paths.push_back(locant_path);
 
       OBRing* monoring = *(local_SSSR.begin());
+      rings_seen[monoring] = true;
       for(unsigned int i=0;i<monoring->Size();i++){
         locant_path[i] = mol->GetAtom(monoring->_path[i]);
         if(inline_ring && locant_path[i] == ring_root)
@@ -1757,6 +1642,10 @@ struct BabelGraph{
  
       // add any hetero atoms at locant positions
       ReadLocantBondsxAtoms(locant_paths[minimal_index],path_size,cycle_orders[minimal_index],buffer);
+      
+      // mark all the rings as seen
+      for(unsigned int i=0;i<cycle_orders[minimal_index].size();i++)
+        rings_seen[cycle_orders[minimal_index][0]] = true;
 
       // close ring
       buffer += 'J';
@@ -1768,9 +1657,6 @@ struct BabelGraph{
 
   bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
-    if(opt_debug)
-      fprintf(stderr,"cyclic level: %d, last seen - %d\n", cycle_num, last_cycle_seen);
-    
     last_cycle_seen = cycle_num;
 
     std::pair<OBAtom**,unsigned int> path_pair;  
@@ -1817,6 +1703,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
  
   BabelGraph obabel; 
   unsigned int cyclic = 0;
+  bool started = false; 
   FOR_RINGS_OF_MOL(r,mol)
     cyclic++;
 
@@ -1824,7 +1711,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     WriteBabelDotGraph(mol);
 
   if(!cyclic){
-    bool started = false; 
+    
     FOR_ATOMS_OF_MOL(a,mol){
       if(!obabel.atoms_seen[&(*a)]){
         if(started)
@@ -1836,21 +1723,36 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
         started = true; 
       }
     }
-
-    buffer = CondenseCarbonylChains(buffer); 
-    return true; 
   }
   else{
+    FOR_RINGS_OF_MOL(r,mol){
     // start recursion from first cycle atom
-    if(!obabel.RecursiveParse(mol->GetAtom(mol->GetSSSR()[0]->_path[0]),mol,false,buffer,0))
-      return false; 
+      if(!obabel.rings_seen[&(*r)]){
+        if(started)
+          buffer += " &"; // ionic species
+
+        if(!obabel.RecursiveParse(mol->GetAtom( (&(*r))->_path[0]),mol,false,buffer,0))
+          return false; 
+
+        started = true;
+      }
+    }
     
-    // handles ionics here
+    // handles additional ionic atoms here
+    obabel.cycle_count = 0;
+    obabel.last_cycle_seen = 0;
+    FOR_ATOMS_OF_MOL(a,mol){
+      if(!obabel.atoms_seen[&(*a)]){
+        buffer += " &"; // ionic species
+        if(!obabel.ParseNonCyclic(&(*a),0,mol,buffer,0,0))
+          return false;
+      }
+    }
     
-    buffer = CondenseCarbonylChains(buffer); 
-    return true; 
   }
 
+  buffer = CondenseCarbonylChains(buffer); 
+  return true; 
 }
 
 
