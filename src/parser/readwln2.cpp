@@ -1470,6 +1470,9 @@ bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring){
     if(!edge)
       edge = search_edge(par,chi);
 
+    if(!edge)
+      return false;
+
     ring->aromatic_edges.push_back(edge);
   }
 
@@ -1479,6 +1482,9 @@ bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring){
   WLNEdge * edge = search_edge(chi,par,false);
   if(!edge)
     edge = search_edge(par,chi);
+
+  if(!edge)
+    return false;
 
   ring->aromatic_edges.push_back(edge);
   return true;
