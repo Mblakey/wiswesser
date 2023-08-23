@@ -204,7 +204,7 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
                             unsigned int hp_pos, OBRing *obring,
                             std::map<OBAtom*,bool> &atoms_seen,
                             std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                            std::vector<unsigned int> &nt_sizes)
+                            std::vector<OBRing*> &nt_rings)
                             
 {
   
@@ -249,7 +249,7 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
 
     // add nt pair + size
     nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
-    nt_sizes.push_back(obring->Size()); 
+    nt_rings.push_back(obring); 
 
     // spit the locant path between hp_pos and hp_pos + 1, add elements
     unsigned int j=0;
@@ -294,7 +294,7 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
 
     // ending wrap condition 
     nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
-    nt_sizes.push_back(obring->Size()); 
+    nt_rings.push_back(obring); 
 
   } 
 
@@ -305,9 +305,8 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
 currently working for MONO,POLY, unsupported: PERI,BRANCH */
 OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR, 
                               std::map<OBAtom*,unsigned int> &ring_shares,
-                              std::deque<OBRing*> &ring_order,
                               std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                              std::vector<unsigned int> &nt_sizes,
+                              std::vector<OBRing*>                    &nt_rings,
                               unsigned int path_size,
                               OBAtom *seed_atom)
 {
@@ -334,10 +333,7 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
     fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
     return 0; 
   }
-  else
-    ring_order.push_back(obring);
 
-  
   unsigned int locant_pos = 0;
   std::map<OBRing*,bool> rings_seen; 
   std::map<OBAtom*,bool> atoms_seen; 
@@ -360,7 +356,7 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
   
 
   nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
-  nt_sizes.push_back(obring->Size());
+  nt_rings.push_back(obring);
 
 
   // get next ring in locant order
@@ -375,7 +371,6 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
           if(!rings_seen[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
             hp_pos = i;
             obring = (*iter);
-            ring_order.push_back(obring);
             found = true;
             break;
           }
@@ -387,7 +382,7 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
 
     locant_pos =  ShiftandAddLocantPath(  mol,locant_path,
                                           locant_pos,path_size,hp_pos,obring,
-                                          atoms_seen,nt_pairs,nt_sizes);
+                                          atoms_seen,nt_pairs,nt_rings);
     if(!locant_pos)
       return 0;
   }
@@ -420,10 +415,12 @@ void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned in
 }
 
 
+/* this also has to create the ring order, therefore, nt_sizes must be OBRing */
 std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
                             std::map<OBAtom*,unsigned int> ring_shares, // copy unavoidable 
                             std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                            std::vector<unsigned int> &nt_sizes,
+                            std::vector<OBRing*> &nt_rings,
+                            std::vector<OBRing*> &ring_order,
                             unsigned int expected_rings)
 {
   
@@ -455,6 +452,8 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
     for(unsigned int i=0;i<nt_pairs.size();i++){
       OBAtom *first =  nt_pairs[i].first; 
       OBAtom *second = nt_pairs[i].second;
+      OBRing* obring = nt_rings[i];
+      unsigned int rsize = obring->Size(); 
 
       // find the position of first in the array
       unsigned int pos = 0; 
@@ -478,16 +477,18 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
             ring_str+= int_to_locant(pos+1);
           }
 
-          if(nt_sizes[i] > 9){
+          if(rsize > 9){
             ring_str += '-';
             ring_str += std::to_string(path_size); 
             ring_str += '-';
           } 
           else
-            ring_str += std::to_string(nt_sizes[i]);
+            ring_str += std::to_string(rsize);
+
+          ring_order.push_back(obring); 
 
           nt_pairs.erase(nt_pairs.begin() + i);
-          nt_sizes.erase(nt_sizes.begin() + i);
+          nt_rings.erase(nt_rings.begin() + i);
 
           // update the reduced locant path based on ring_shares
           ring_shares[first]--;
@@ -511,9 +512,10 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
       && nt_pairs[0].second == locant_path[path_size-1])
   {
     // last implied ring wrap
-    ring_str += std::to_string(nt_sizes[0]);
+    ring_str += std::to_string(nt_rings[0]->Size());
+    ring_order.push_back(nt_rings[0]);
     nt_pairs.clear();
-    nt_sizes.clear();
+    nt_rings.clear();
   }
   else{
     fprintf(stderr,"Error: safety caught on reduced locant loop\n");
@@ -1478,7 +1480,7 @@ struct BabelGraph{
 
   /* create the hetero atoms where neccesary */
   bool ReadLocantBondsxAtoms( OBAtom** locant_path,unsigned int path_size,
-                              std::deque<OBRing*> &ring_order,
+                              std::vector<OBRing*> &ring_order,
                               std::string &buffer){
 
     unsigned char last_locant = 0; 
@@ -1542,22 +1544,14 @@ struct BabelGraph{
         }
       }
 
-      
-
-      
     }
     
     return true;
   }
 
 
-  void ReadAromaticity(std::deque<OBRing*> &ring_order,std::string &buffer){
-
-
-    // shift order round by 1, as the last loop is the closing start
-    ring_order.push_front(ring_order.back());
-    ring_order.pop_back();
-
+  void ReadAromaticity(std::vector<OBRing*> &ring_order,std::string &buffer){
+    
     std::string append = ""; 
     for(unsigned int i=0;i<ring_order.size();i++){
       // mark all the rings as seen
@@ -1590,12 +1584,12 @@ struct BabelGraph{
     std::set<OBAtom*>                       ring_atoms; 
     std::map<OBAtom*,unsigned int>          ring_shares; 
     std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
-    std::vector<unsigned int>               nt_sizes;  
+    std::vector<OBRing*>                    nt_rings;  
     
     // needed for minimising the locant path
     std::vector<std::string>                cyclic_strings;
     std::vector<OBAtom**>                   locant_paths;  
-    std::vector<std::deque<OBRing*>>        cycle_orders; // shifting requred .. deque
+    std::vector<std::vector<OBRing*>>       cycle_orders; 
     unsigned int                            minimal_index = 0; 
 
     unsigned int expected_rings = 0;
@@ -1651,10 +1645,10 @@ struct BabelGraph{
       for(unsigned int i=0;i<seed_atoms.size();i++){
         
         // create a new path per string
-        std::deque<OBRing*> ring_order;
+        std::vector<OBRing*> ring_order;
         locant_path = CreateLocantPath(   mol,
-                                          local_SSSR,ring_shares,ring_order,
-                                          nt_pairs,nt_sizes,
+                                          local_SSSR,ring_shares,
+                                          nt_pairs,nt_rings,
                                           path_size,
                                           seed_atoms[i]);
         if(!locant_path)
@@ -1663,7 +1657,8 @@ struct BabelGraph{
           stored_paths.push_back(locant_path);
 
         std::string cyclic_str = ReadLocantPath(  locant_path,path_size,ring_shares,
-                                                  nt_pairs,nt_sizes,
+                                                  nt_pairs,nt_rings,
+                                                  ring_order,
                                                   expected_rings);
         if(cyclic_str.empty())
           return {0,0};
