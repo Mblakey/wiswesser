@@ -21,7 +21,7 @@ while read p; do
   NEW_WLN=$($WRITER -ismi -s "${CAN_SMILES}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z "$NEW_WLN" ]; then
-    echo "$SMILES != anything"
+    echo "$SMILES  $CAN_SMILES != anything"
     continue
   fi;
 
