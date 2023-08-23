@@ -1482,11 +1482,13 @@ struct BabelGraph{
                               std::string &buffer){
 
     unsigned char last_locant = 0; 
-    unsigned char locant = 0; 
+    unsigned char locant = 0;
+    
 
     OBAtom *first = 0;
     OBAtom *second = 0; 
     for(unsigned int i=0;i<path_size;i++){
+      unsigned int Wgroups = 0; 
       locant = int_to_locant(i+1); 
       if(locant_path[i]->GetAtomicNum() != 6){
         // handles 'A' starting and consecutive locants
@@ -1495,7 +1497,17 @@ struct BabelGraph{
           buffer += locant;
         }
 
-        if(!WriteBabelAtom(locant_path[i],buffer))
+        Wgroups = CountDioxo(locant_path[i]);
+        if(Wgroups){
+          if(!WriteBabelAtom(locant_path[i],buffer))
+            return false; 
+
+          for(unsigned int w=0;w<Wgroups;w++)
+            buffer+='W';
+        }
+        else if(CheckCarbonyl(locant_path[i]))
+          buffer += 'V';
+        else if(!WriteBabelAtom(locant_path[i],buffer))
           return false; 
         
         last_locant = locant; 
