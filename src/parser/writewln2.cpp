@@ -131,7 +131,7 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
   }
 
   // addition of a multicyclic point will always shift the path by 1
-  if(atoms_shared == 3)
+  if(atoms_shared > 2)
     hp_pos++;
 
   OBAtom *insert_start  =  locant_path[hp_pos];
