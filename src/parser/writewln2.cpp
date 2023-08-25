@@ -88,6 +88,14 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
 }
 
 
+static void print_deque (std::deque<unsigned int> &vec){
+  fprintf(stderr, "( ");
+  for(unsigned int i=0;i<vec.size();i++){
+    fprintf(stderr,"%d ",vec[i]);
+  }
+  fprintf(stderr,")\n");
+}
+
 /**********************************************************************
                           Locant Path Functions
 **********************************************************************/
@@ -120,7 +128,7 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
   unsigned int atoms_shared = 0; 
   bool seen = false;
   OBAtom *ratom = 0; 
-  std::deque<int> path;
+  std::deque<unsigned int> path;
 
   for(unsigned int i=0;i<obring->Size();i++){
     ratom = mol->GetAtom(obring->_path[i]);
@@ -130,9 +138,6 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
     }
   }
 
-  // addition of a multicyclic point will always shift the path by 1
-  if(atoms_shared > 2)
-    hp_pos++;
 
   OBAtom *insert_start  =  locant_path[hp_pos];
   OBAtom *insert_end    =  locant_path[hp_pos+1]; 
@@ -161,6 +166,14 @@ unsigned int ShiftandAddLocantPath( OBMol *mol, OBAtom **locant_path,
     path.pop_front();
     path.push_back(tmp);
     std::reverse(path.begin(),path.end());
+  }
+
+  if(opt_debug){
+    fprintf(stderr,"\n    ");
+    print_locant_array(locant_path,path_size);
+    fprintf(stderr,"    ");
+    print_deque(path);
+    fprintf(stderr,"    start: %d, end: %d\n\n",insert_start->GetIdx(),insert_end->GetIdx());
   }
 
 
