@@ -168,12 +168,6 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
     
     ring_path_stack.push(init_path);
     rings_in_lp[obring_hf] = true;
-
-    nt_pairs.push_back({init_path.front(),init_path.back()});
-    nt_rings.push_back(obring_hf);
-
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",init_path.front()->GetIdx(),init_path.back()->GetIdx(),obring_hf->Size());
   }
     
   // sequential stack traversal to create locant path
@@ -193,6 +187,8 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
         top_path.push_back(top_path.front());
         top_path.pop_front();
       } 
+
+      // yep some clockwise shenanagins to get done
     }
 
     if(opt_debug)
@@ -201,6 +197,7 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
     unsigned int i=0; // skips the last ring at init time
     if(!locant_path[0]){
       locant_path[locant_pos++] = top_path[0]; 
+      atoms_in_lp[top_path[0]] = true;
       i = 1;
     }
     for(i;i<top_path.size();i++){
@@ -234,6 +231,21 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
 
     ring_path_stack.pop();
   }
+
+  nt_pairs.push_back({locant_path[0],locant_path[path_size-1]});
+  
+  if(obring_hf){
+    nt_rings.insert(nt_rings.begin() +1 ,obring_hf);
+    if(opt_debug)
+      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[path_size-1]->GetIdx(),obring_hf->Size());
+  }
+    
+  else{
+    nt_rings.insert(nt_rings.begin() +1,obring_hm);
+    if(opt_debug)
+      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[path_size-1]->GetIdx(),obring_hm->Size());
+  }
+  
   
   return locant_path;
 }
