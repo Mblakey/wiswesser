@@ -165,7 +165,7 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
       init_path.push_back(init_path.front());
       init_path.pop_front();
     }
-    
+
     ring_path_stack.push(init_path);
     rings_in_lp[obring_hf] = true;
   }
@@ -224,6 +224,9 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
           ring_path_stack.push(new_path);
           last_atom = ratom; 
           last_ring = obring; 
+
+          if(opt_debug)
+            fprintf(stderr,"  adding ring from %d\n",last_atom->GetIdx());
           goto nextring; 
         } 
       }
@@ -250,235 +253,7 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
   return locant_path;
 }
 
-#ifdef OLD
 
-
-// get all potential seeds for locant path start
-void GetSeedAtoms(  std::set<OBAtom*> &ring_atoms,
-                    std::map<OBAtom*,unsigned int> &ring_shares,
-                    std::vector<OBAtom*> &seed_atoms,
-                    unsigned int target_shares)
-{ 
-  for(std::set<OBAtom*>::iterator iter = ring_atoms.begin(); iter != ring_atoms.end();iter++){
-    if(ring_shares[(*iter)] == target_shares)
-      seed_atoms.push_back((*iter));
-  }
-}
-
-
-/* construct locant paths without hamiltonians - return the new locant pos */
-unsigned int ShiftandAddInsertLocants(  OBMol *mol, OBRing *obring,
-                                        OBAtom **locant_path, unsigned int locant_pos,
-                                        unsigned int path_size, unsigned int hp_pos, 
-                                        std::map<OBAtom*,bool> &atom_in_lp, 
-                                        std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                                        std::vector<OBRing*> &nt_rings)
-                            
-{
-  
-  bool terminating_seen = false;
-  unsigned int atoms_shared = 0; 
-
-  OBAtom *ratom = 0; 
-  OBAtom *insert_start  =  locant_path[hp_pos];
-  OBAtom *insert_end    =  locant_path[hp_pos+1]; // the clockwise direction of the locant path
-  std::deque<unsigned int> path;
-
-  for(unsigned int i=0;i<obring->Size();i++){
-    ratom = mol->GetAtom(obring->_path[i]);
-    path.push_back(ratom->GetIdx());
-    if(atom_in_lp[ratom])
-      atoms_shared++;
-
-    if(locant_path[locant_pos-1]->GetIdx() == obring->_path[i])
-      terminating_seen = true;
-  }
-
-
-  if(terminating_seen && hp_pos == 0){
-    insert_start = locant_path[locant_pos-1];
-    insert_end = locant_path[0];
-  }
-  else
-    terminating_seen = false;
-
-
-  while(path[0] != insert_start->GetIdx()){
-    unsigned int tmp = path[0];
-    path.pop_front();
-    path.push_back(tmp);
-  }
-
-  // must be anti-clockwise - shift and reverse
-  if(path[1] == insert_end->GetIdx()){
-    unsigned int tmp = path[0];
-    path.pop_front();
-    path.push_back(tmp);
-    std::reverse(path.begin(),path.end());
-  }
-
-  if(opt_debug){
-    fprintf(stderr,"\n    ");
-    print_locant_array(locant_path,path_size);
-    fprintf(stderr,"    ");
-    print_deque(path);
-    fprintf(stderr,"    start: %d, end: %d\n\n",insert_start->GetIdx(),insert_end->GetIdx());
-  }
-
-
-// standard poly cyclic clockwise and anti clockwise additions to the path
-  if(!terminating_seen){
-
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[hp_pos+1]->GetIdx(),obring->Size());
-    
-    // add nt pair + size
-    nt_pairs.push_back({locant_path[hp_pos],locant_path[hp_pos+1]});
-    nt_rings.push_back(obring);     
-    
-    // spit the locant path between hp_pos and hp_pos + 1, add elements
-    unsigned int j=0;
-    for(unsigned int i=0;i<path.size();i++){
-      ratom = mol->GetAtom(path[i]);
-      if(!atom_in_lp[ratom]){
-        // shift
-        for(int k=path_size-1;k>hp_pos+j;k--) // potential off by 1 here. 
-          locant_path[k]= locant_path[k-1];
-        
-        locant_path[hp_pos+1+j] = ratom;
-        atom_in_lp[ratom] = true;
-        j++;
-        locant_pos++;
-      }
-    }
-  }
-
-  // must be a ring wrap on the locant path, can come in clockwise or anticlockwise
-  else{
-    // just add to the back, no shift required
-    for(unsigned int i=0;i<path.size();i++){
-      ratom = mol->GetAtom(path[i]);
-      if(!atom_in_lp[ratom]){
-        locant_path[locant_pos++] = ratom;
-        atom_in_lp[ratom] = true;
-      }
-    }
-
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial ring wrap:  %-2d <--> %-2d from size: %ld\n",locant_path[hp_pos]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
-
-    // ending wrap condition 
-    nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
-    nt_rings.push_back(obring); 
-  }
-
-  return locant_pos;
-}
-
-/* works on priority, and creates locant path via array shifting, the locant path
-currently working for MONO,POLY, unsupported: PERI,BRANCH */
-OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR, 
-                              std::map<OBAtom*,unsigned int> &ring_shares,
-                              std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                              std::vector<OBRing*>                    &nt_rings,
-                              unsigned int path_size,
-                              OBAtom *seed_atom)
-{
-
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
-    locant_path[i] = 0;
-
-
-  OBAtom *ratom = 0;
-  OBRing *obring = 0;
-
-  // get the ring with the seed atom present
-  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-    for(unsigned int i=0;i<(*iter)->_path.size();i++){
-      if(mol->GetAtom((*iter)->_path[i]) == seed_atom){
-        obring = (*iter);
-        break;
-      }
-    }
-  }
-
-  if(!obring){
-    fprintf(stderr,"Error: seed atom could not be found in local SSSR\n");
-    return 0; 
-  }
-
-  bool multicyclic = false;
-  unsigned int locant_pos = 0;
-  std::map<OBRing*,bool> rings_in_lp; 
-  std::map<OBAtom*,bool> atoms_in_lp; 
-
-  // add into the array directly and shift so seed is guareented in position 0
-  for(unsigned int i=0;i<obring->_path.size();i++){
-    ratom = mol->GetAtom(obring->_path[i]);
-    if(ring_shares[ratom] > 2)
-      multicyclic = true;
-    locant_path[locant_pos++] = ratom;
-    atoms_in_lp[ratom] = true;
-  }
-
-  while(locant_path[0] != seed_atom){
-    locant_path[locant_pos] = locant_path[0];
-    for(unsigned int i=0;i<path_size-1;i++)
-      locant_path[i] = locant_path[i+1];
-  }
-
-  // lay the points in such a way that lowest sequential atoms 
-  if(multicyclic){
-
-
-  }
-
-
-
-  if(opt_debug)
-    fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[locant_pos-1]->GetIdx(),obring->Size());
-  
-
-  nt_pairs.push_back({locant_path[0],locant_path[locant_pos-1]});
-  nt_rings.push_back(obring);
-
-  // get next ring in locant order
-  for(unsigned int rings_handled = 0; rings_handled < local_SSSR.size()-1;rings_handled++){
-    rings_in_lp[obring] = true;
-    unsigned int hp_pos = 0; 
-    for(unsigned int i=0;i<locant_pos;i++){
-      bool found = false;
-      ratom = locant_path[i];
-      if(ring_shares[ratom] > 1){
-        for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-          if(!rings_in_lp[(*iter)] && (*iter)->IsInRing(ratom->GetIdx())){
-            hp_pos = i;
-            obring = (*iter);
-            found = true;
-            break;
-          }
-        }
-        if(found)
-          break;
-      }
-    }
-
-    locant_pos =  ShiftandAddInsertLocants( mol,obring,
-                                            locant_path,
-                                            locant_pos,path_size,hp_pos,
-                                            atoms_in_lp,
-                                            nt_pairs,nt_rings);
-    if(!locant_pos)
-      return 0;
-  }
-  
-
-  
-  return locant_path;
-}
-
-#endif
 
 bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
   for(unsigned int i=0;i<size;i++){
