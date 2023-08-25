@@ -168,6 +168,12 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
     
     ring_path_stack.push(init_path);
     rings_in_lp[obring_hf] = true;
+
+    nt_pairs.push_back({init_path.front(),init_path.back()});
+    nt_rings.push_back(obring_hf);
+
+    if(opt_debug)
+      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",init_path.front()->GetIdx(),init_path.back()->GetIdx(),obring_hf->Size());
   }
     
   // sequential stack traversal to create locant path
@@ -181,9 +187,6 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
     
     std::deque<OBAtom*> &top_path = ring_path_stack.top();
 
-    if(opt_debug)
-      print_atom_deque(top_path);
-
     if(last_atom){
       // get the last atom at the front
       while(top_path[0] != last_atom){
@@ -191,6 +194,9 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
         top_path.pop_front();
       } 
     }
+
+    if(opt_debug)
+      print_atom_deque(top_path);
     
     unsigned int i=0; // skips the last ring at init time
     if(!locant_path[0]){
@@ -211,6 +217,12 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
           for(unsigned int i=0;i<obring->Size();i++)
             new_path.push_back(mol->GetAtom(obring->_path[i]));
           
+          if(opt_debug)
+            fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",top_path[i]->GetIdx(),top_path[i+1]->GetIdx(),obring->Size());
+
+          nt_pairs.push_back({top_path[i],top_path[i+1]});
+          nt_rings.push_back(obring);
+
           rings_in_lp[obring] = true;
           ring_path_stack.push(new_path);
           last_atom = ratom; 
@@ -223,9 +235,6 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
     ring_path_stack.pop();
   }
   
-
-  print_locant_array(locant_path,path_size);
-  exit(1);
   return locant_path;
 }
 
@@ -1804,18 +1813,19 @@ struct BabelGraph{
     
     else if(path_size && ring_type){
       // generate seeds
-      std::vector<OBAtom*> seed_atoms; 
+      std::vector<OBRing*> ring_order; 
       expected_rings = local_SSSR.size(); 
       
-
 
       locant_path = CreateLocantPath2(  mol,path_size,
                                         local_SSSR,ring_shares,
                                         nt_pairs,nt_rings);
       if(!locant_path)
         return {0,0}; 
+      else
+        stored_paths.push_back(locant_path);
 
-#ifdef OLD
+
       std::string cyclic_str = ReadLocantPath(  locant_path,path_size,
                                                 nt_pairs,nt_rings,
                                                 ring_order,
@@ -1824,10 +1834,9 @@ struct BabelGraph{
       if(opt_debug)
         std::cout << "  produced: " << cyclic_str << "\n\n";
 
-#endif
-
+      exit(1);
       
-
+#ifdef OLD
       // get the minal WLN cyclic system from the notations generated
       minimal_index = MinimalWLNRingNotation(cyclic_strings); 
       buffer+= cyclic_strings[minimal_index]; // add to the buffer
@@ -1848,6 +1857,8 @@ struct BabelGraph{
       // close ring
       buffer += 'J';
       return {locant_paths[minimal_index],path_size};
+
+#endif
     }
     
     return {0,0}; 
