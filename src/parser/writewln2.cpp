@@ -100,6 +100,108 @@ static void print_deque (std::deque<unsigned int> &vec){
                           Locant Path Functions
 **********************************************************************/
 
+/* uses stack traversal of rings from a given seed ring */
+OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
+                            std::set<OBRing*> &local_SSSR, 
+                            std::map<OBAtom*,unsigned int> &ring_shares,
+                            std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                            std::vector<OBRing*>                    &nt_rings)
+{ 
+  unsigned int locant_pos = 0; 
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++)
+    locant_path[i] = 0;
+
+  OBAtom*                ratom  = 0;
+  OBRing*                obring = 0; 
+  std::map<OBRing*,bool> rings_in_lp; 
+  std::map<OBAtom*,bool> atoms_in_lp; 
+  std::map<OBAtom*,std::set<OBRing*>> atom_in_rings;
+
+  // we need to get a seed ring out to start the traversal from
+  unsigned int highest_fuse = 0;
+  unsigned int highest_cyclic = 0; 
+  OBRing*                obring_hf = 0;
+  OBRing*                obring_hm = 0;
+  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
+    unsigned int multicyclic_points = 0;  
+    unsigned int fuse_points = 0;  
+    obring = (*iter);
+    for(unsigned int i=0;i<obring->_path.size();i++){
+      ratom = mol->GetAtom(obring->_path[i]);
+      atom_in_rings[ratom].insert(obring); // pre-inits set map 
+
+      if (ring_shares[ratom] == 3)
+        multicyclic_points++;
+      else if(ring_shares[ratom] == 2)
+        fuse_points++;
+
+      if(multicyclic_points && multicyclic_points > highest_cyclic){
+        obring_hm = obring;
+        highest_cyclic = multicyclic_points; 
+      }
+      
+      if(fuse_points && fuse_points > highest_fuse){
+        obring_hf = obring;
+        highest_fuse = fuse_points; 
+      } 
+    }
+  }
+
+
+  OBRing *prev_ring = 0; 
+  OBRing *top_ring  = 0; 
+  std::stack<OBRing*> ring_stack;
+  if(obring_hm){
+    // manipulate _path to line up as many multicyclic points as possible
+    
+    fprintf(stderr,"multicyclic - UNSUPPORTED\n");
+
+  }
+  else{
+    // manipulate _path to guarantee start at a fuse point
+    while (ring_shares[mol->GetAtom(obring_hf->_path[0])] != 2){
+      int tmp = obring_hf->_path.back(); 
+      obring_hf->_path.pop_back(); 
+      obring_hf->_path.insert(obring_hf->_path.begin(), tmp); // would prefer deque but left with what i have
+    }
+    
+    ring_stack.push(obring_hf);
+  }
+    
+
+  // sequential stack traversal to create locant path
+  // not a fan of the 'goto' statements here but it means i avoid a recursing on the path formation
+  // recursion here and for normal function likely to blow stack
+  while(!ring_stack.empty()){
+    nextring:
+    
+    top_ring = ring_stack.top();
+    rings_in_lp[top_ring] = true; // effectively a visit
+    for(unsigned int i=0;i<top_ring->_path.size();i++){
+      ratom = mol->GetAtom(top_ring->_path[i]); 
+      if(!atoms_in_lp[ratom])
+        locant_path[locant_pos++] = ratom; 
+
+      for(unsigned int j=0;j<atom_in_rings[ratom].size();j++){
+        //obring = atom_in_rings[ratom][i];
+        //if(!rings_in_lp[obring]){
+          //ring_stack.push(obring);
+          //goto nextring; 
+        //} 
+      }
+    }
+
+    ring_stack.pop();
+  }
+  
+
+  print_locant_array(locant_path,path_size);
+  exit(1);
+  return locant_path;
+}
+
+#ifdef OLD
 
 
 // get all potential seeds for locant path start
@@ -224,102 +326,6 @@ unsigned int ShiftandAddInsertLocants(  OBMol *mol, OBRing *obring,
   return locant_pos;
 }
 
-
-/* uses stack traversal of rings from a given seed ring */
-OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
-                            std::set<OBRing*> &local_SSSR, 
-                            std::map<OBAtom*,unsigned int> &ring_shares,
-                            std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
-                            std::vector<OBRing*>                    &nt_rings)
-{ 
-  unsigned int locant_pos = 0; 
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
-    locant_path[i] = 0;
-
-  OBAtom*                ratom  = 0;
-  OBRing*                obring = 0; 
-  std::map<OBRing*,bool> rings_in_lp; 
-  std::map<OBAtom*,bool> atoms_in_lp; 
-
-  // we need to get a seed ring out to start the traversal from
-  unsigned int highest_fuse = 0;
-  unsigned int highest_cyclic = 0; 
-
-  OBRing*                obring_hf = 0;
-  OBRing*                obring_hm = 0;
-  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-    unsigned int multicyclic_points = 0;  
-    unsigned int fuse_points = 0;  
-    obring = (*iter);
-    for(unsigned int i=0;i<obring->_path.size();i++){
-      ratom = mol->GetAtom(obring->_path[i]);
-      if (ring_shares[ratom] == 3)
-        multicyclic_points++;
-      else if(ring_shares[ratom] == 2)
-        fuse_points++;
-
-      if(multicyclic_points && multicyclic_points > highest_cyclic){
-        obring_hm = obring;
-        highest_cyclic = multicyclic_points; 
-      }
-      
-      if(fuse_points && fuse_points > highest_fuse){
-        obring_hf = obring;
-        highest_fuse = fuse_points; 
-      } 
-    }
-  }
-
-
-  OBRing *prev_ring = 0; 
-  OBRing *top_ring  = 0; 
-  std::stack<OBRing*> ring_stack;
-  if(obring_hm){
-    // manipulate _path to line up as many multicyclic points as possible
-    
-    fprintf(stderr,"multicyclic - UNSUPPORTED\n");
-
-  }
-  else{
-    // manipulate _path to guarantee start at a fuse point
-    while (ring_shares[mol->GetAtom(obring_hf->_path[0])] != 2){
-      unsigned int tmp = obring_hf->_path.back(); 
-      obring_hf->_path.pop_back(); 
-      obring_hf->_path.insert(obring_hf->_path.begin(), tmp); // would prefer deque but left with what i have
-    }
-    
-    ring_stack.push(obring_hf);
-  }
-    
-
-  // sequential stack traversal to create locant path
-  // not a fan of the goto statements here but it means i avoid a recursing on the path formation
-  // could explode very quickly
-  while(!ring_stack.empty()){
-    next_ring:
-    
-    top_ring = ring_stack.top();
-    for(unsigned int i=0;i<top_ring->_path[i];i++){
-
-      ratom = mol->GetAtom(top_ring->_path[i]); 
-      if(!atoms_in_lp[ratom])
-        locant_path[locant_pos++] = ratom; 
-      
-      if
-    }
-
-
-
-
-  }
-  
-
-
-  return locant_path;
-}
-
-
 /* works on priority, and creates locant path via array shifting, the locant path
 currently working for MONO,POLY, unsupported: PERI,BRANCH */
 OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR, 
@@ -423,8 +429,7 @@ OBAtom ** CreateLocantPath(   OBMol *mol, std::set<OBRing*> &local_SSSR,
   return locant_path;
 }
 
-
-
+#endif
 
 bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
   for(unsigned int i=0;i<size;i++){
@@ -1773,41 +1778,27 @@ struct BabelGraph{
       // generate seeds
       std::vector<OBAtom*> seed_atoms; 
       expected_rings = local_SSSR.size(); 
-      GetSeedAtoms(ring_atoms,ring_shares,seed_atoms,ring_type);
-      if(seed_atoms.empty()){
-        fprintf(stderr,"Error: no seeds found to build locant path\n");
-        return {0,0};
-      }
+      
 
-      for(unsigned int i=0;i<seed_atoms.size();i++){
-        
-        // create a new path per string
-        std::vector<OBRing*> ring_order;
-        locant_path = CreateLocantPath(   mol,
-                                          local_SSSR,ring_shares,
-                                          nt_pairs,nt_rings,
-                                          path_size,
-                                          seed_atoms[i]);
-        if(!locant_path)
-          return {0,0}; 
-        else
-          stored_paths.push_back(locant_path);
 
-        std::string cyclic_str = ReadLocantPath(  locant_path,path_size,
-                                                  nt_pairs,nt_rings,
-                                                  ring_order,
-                                                  expected_rings);
-        if(cyclic_str.empty())
-          return {0,0};
+      locant_path = CreateLocantPath2(  mol,path_size,
+                                        local_SSSR,ring_shares,
+                                        nt_pairs,nt_rings);
+      if(!locant_path)
+        return {0,0}; 
 
-        cyclic_strings.push_back(cyclic_str);
-        locant_paths.push_back(locant_path);  
-        cycle_orders.push_back(ring_order);
+#ifdef OLD
+      std::string cyclic_str = ReadLocantPath(  locant_path,path_size,
+                                                nt_pairs,nt_rings,
+                                                ring_order,
+                                                expected_rings);
 
-        if(opt_debug)
-          std::cout << "  produced: " << cyclic_str << "\n\n";
-      }
+      if(opt_debug)
+        std::cout << "  produced: " << cyclic_str << "\n\n";
 
+#endif
+
+      
 
       // get the minal WLN cyclic system from the notations generated
       minimal_index = MinimalWLNRingNotation(cyclic_strings); 
@@ -1833,6 +1824,11 @@ struct BabelGraph{
     
     return {0,0}; 
   }
+
+
+
+
+
 
   bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
