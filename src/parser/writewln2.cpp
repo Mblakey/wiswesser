@@ -88,10 +88,10 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
 }
 
 
-static void print_deque (std::deque<unsigned int> &vec){
+static void print_atom_deque (std::deque<OBAtom*> &vec){
   fprintf(stderr, "( ");
   for(unsigned int i=0;i<vec.size();i++){
-    fprintf(stderr,"%d ",vec[i]);
+    fprintf(stderr,"%d ",vec[i]->GetIdx());
   }
   fprintf(stderr,")\n");
 }
@@ -121,8 +121,8 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
   // we need to get a seed ring out to start the traversal from
   unsigned int highest_fuse = 0;
   unsigned int highest_cyclic = 0; 
-  OBRing*                obring_hf = 0;
-  OBRing*                obring_hm = 0;
+  OBRing*      obring_hf = 0;
+  OBRing*      obring_hm = 0;
   for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
     unsigned int multicyclic_points = 0;  
     unsigned int fuse_points = 0;  
@@ -148,10 +148,7 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
     }
   }
 
-
-  OBRing *prev_ring = 0; 
-  OBRing *top_ring  = 0; 
-  std::stack<OBRing*> ring_stack;
+  std::stack<std::deque<OBAtom*>> ring_path_stack;
   if(obring_hm){
     // manipulate _path to line up as many multicyclic points as possible
     
@@ -160,39 +157,70 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
   }
   else{
     // manipulate _path to guarantee start at a fuse point
-    while (ring_shares[mol->GetAtom(obring_hf->_path[0])] != 2){
-      int tmp = obring_hf->_path.back(); 
-      obring_hf->_path.pop_back(); 
-      obring_hf->_path.insert(obring_hf->_path.begin(), tmp); // would prefer deque but left with what i have
+    std::deque<OBAtom*> init_path; 
+    for(unsigned int i=0;i<obring_hf->Size();i++)
+      init_path.push_back(mol->GetAtom(obring_hf->_path[i]));
+
+    while (ring_shares[init_path.front()] != 2){
+      init_path.push_back(init_path.front());
+      init_path.pop_front();
     }
     
-    ring_stack.push(obring_hf);
+    ring_path_stack.push(init_path);
+    rings_in_lp[obring_hf] = true;
   }
     
-
   // sequential stack traversal to create locant path
   // not a fan of the 'goto' statements here but it means i avoid a recursing on the path formation
   // recursion here and for normal function likely to blow stack
-  while(!ring_stack.empty()){
+
+  OBAtom *last_atom = 0;
+  OBRing *last_ring = 0;  
+  while(!ring_path_stack.empty()){
     nextring:
     
-    top_ring = ring_stack.top();
-    rings_in_lp[top_ring] = true; // effectively a visit
-    for(unsigned int i=0;i<top_ring->_path.size();i++){
-      ratom = mol->GetAtom(top_ring->_path[i]); 
-      if(!atoms_in_lp[ratom])
-        locant_path[locant_pos++] = ratom; 
+    std::deque<OBAtom*> &top_path = ring_path_stack.top();
 
-      for(unsigned int j=0;j<atom_in_rings[ratom].size();j++){
-        //obring = atom_in_rings[ratom][i];
-        //if(!rings_in_lp[obring]){
-          //ring_stack.push(obring);
-          //goto nextring; 
-        //} 
+    if(opt_debug)
+      print_atom_deque(top_path);
+
+    if(last_atom){
+      // get the last atom at the front
+      while(top_path[0] != last_atom){
+        top_path.push_back(top_path.front());
+        top_path.pop_front();
+      } 
+    }
+    
+    unsigned int i=0; // skips the last ring at init time
+    if(!locant_path[0]){
+      locant_path[locant_pos++] = top_path[0]; 
+      i = 1;
+    }
+    for(i;i<top_path.size();i++){
+      ratom = top_path[i]; 
+      if(!atoms_in_lp[ratom]){
+        locant_path[locant_pos++] = ratom; 
+        atoms_in_lp[ratom] = true;
+      }
+        
+      for(std::set<OBRing*>::iterator riter = atom_in_rings[ratom].begin(); riter != atom_in_rings[ratom].end();riter++){
+        obring = (*riter);
+        if(!rings_in_lp[obring]){
+          std::deque<OBAtom*> new_path; 
+          for(unsigned int i=0;i<obring->Size();i++)
+            new_path.push_back(mol->GetAtom(obring->_path[i]));
+          
+          rings_in_lp[obring] = true;
+          ring_path_stack.push(new_path);
+          last_atom = ratom; 
+          last_ring = obring; 
+          goto nextring; 
+        } 
       }
     }
 
-    ring_stack.pop();
+    ring_path_stack.pop();
   }
   
 
