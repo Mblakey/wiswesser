@@ -104,7 +104,7 @@ static void print_atom_deque (std::deque<OBAtom*> &vec){
 OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
                             std::set<OBRing*> &local_SSSR, 
                             std::map<OBAtom*,unsigned int> &ring_shares,
-                            std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                            std::vector<std::set<OBAtom*>>          &nt_pairs, // order independent
                             std::vector<OBRing*>                    &nt_rings)
 { 
   unsigned int locant_pos = 0; 
@@ -238,13 +238,15 @@ OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
   nt_pairs.push_back({locant_path[0],locant_path[path_size-1]});
   
   if(obring_hf){
-    nt_rings.insert(nt_rings.begin() +1 ,obring_hf);
+    //nt_rings.insert(nt_rings.begin() +1 ,obring_hf);
+    nt_rings.push_back(obring_hf);
     if(opt_debug)
       fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[path_size-1]->GetIdx(),obring_hf->Size());
   }
     
   else{
-    nt_rings.insert(nt_rings.begin() +1,obring_hm);
+    //nt_rings.insert(nt_rings.begin() +1,obring_hm);
+    nt_rings.push_back(obring_hm);
     if(opt_debug)
       fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[path_size-1]->GetIdx(),obring_hm->Size());
   }
@@ -277,7 +279,7 @@ void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned in
 
 /* this also has to create the ring order, therefore, nt_sizes must be OBRing */
 std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
-                            std::vector<std::pair<OBAtom*,OBAtom*>> &nt_pairs,
+                            std::vector<std::set<OBAtom*>> &nt_pairs,
                             std::vector<OBRing*> &nt_rings,
                             std::vector<OBRing*> &ring_order,
                             unsigned int expected_rings)
@@ -289,11 +291,11 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
   else
     ring_str += 'L';
 
-  
   std::map<OBAtom*,unsigned int> active_atoms; 
   for(unsigned int i=0;i<nt_pairs.size();i++){
-    active_atoms[nt_pairs[i].first]++;
-    active_atoms[nt_pairs[i].second]++;
+    for(std::set<OBAtom*>::iterator iter = nt_pairs[0].begin();
+        iter != nt_pairs[0].end();iter++)
+      active_atoms[(*iter)]++;
   }
 
   // can we take an interrupted walk between the points, if so, write ring size 
@@ -315,8 +317,10 @@ std::string ReadLocantPath(OBAtom **locant_path,unsigned int path_size,
   while(!nt_pairs.empty() && safety < expected_rings){
   
     for(unsigned int i=0;i<nt_pairs.size();i++){
-      OBAtom *first =  nt_pairs[i].first; 
-      OBAtom *second = nt_pairs[i].second;
+      std::set<OBAtom*> &nt_set = nt_pairs[i];
+
+      OBAtom *first =  0;
+      OBAtom *second = 0;
       OBRing* obring = nt_rings[i];
       unsigned int rsize = obring->Size(); 
 
@@ -1336,7 +1340,7 @@ struct BabelGraph{
 
   /* constructs the local rings system, return highest ring share value */
   unsigned int ConstructLocalSSSR(  OBAtom *ring_root, OBMol *mol, 
-                                    std::set<OBAtom*> &ring_atoms,
+                                    std::vector<OBBond*> &nt_bonds,
                                     std::map<OBAtom*,unsigned int> &ring_shares,
                                     std::set<OBRing*> &local_SSSR){
 
@@ -1345,10 +1349,13 @@ struct BabelGraph{
       return 0; 
     }
 
+    OBAtom *ratom = 0; 
+    OBAtom *prev = 0; 
+    OBBond *bond = 0; 
     OBRing *obring = 0; 
-    unsigned int fuses = 0;
-    unsigned int multicyclic = 0;
-    unsigned int branching = 0;   
+    std::set<OBAtom*> ring_atoms; 
+    std::set<OBBond*> ring_bonds; 
+    std::map<OBBond*,unsigned int> bond_shares; 
 
     // get the seed ring and add path to ring_atoms
     FOR_RINGS_OF_MOL(r,mol){
@@ -1356,11 +1363,32 @@ struct BabelGraph{
       if(obring->IsMember(ring_root)){
         rings_seen[obring] = true;
         local_SSSR.insert(obring);
+
+        prev = 0; 
         for(unsigned int i=0;i<obring->Size();i++){
-          OBAtom *ratom = mol->GetAtom(obring->_path[i]);
-          ring_atoms.insert(ratom);
+          ratom = mol->GetAtom(obring->_path[i]);
           ring_shares[ratom]++;
+          ring_atoms.insert(ratom); 
+
+          if(!prev)
+            prev = ratom; 
+          else{
+            bond = mol->GetBond(prev,ratom);
+            if(bond){
+              bond_shares[bond]++;
+              ring_bonds.insert(bond); 
+            }
+              
+            prev = ratom; 
+          }
         }
+        // get the last bond
+        bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
+        if(bond){
+          bond_shares[bond]++;
+          ring_bonds.insert(bond); 
+        }
+        
         break;
       }
     }
@@ -1373,6 +1401,7 @@ struct BabelGraph{
         if(!rings_seen[obring]){
           std::set<OBAtom*> ring_set; 
           std::set<OBAtom*> intersection; 
+
           for(unsigned int i=0;i<obring->Size();i++){
             OBAtom *ratom = mol->GetAtom(obring->_path[i]);
             ring_set.insert(ratom);
@@ -1384,12 +1413,32 @@ struct BabelGraph{
           // intersection 1 is a spiro ring, ignore, 
           if(intersection.size() > 1){
             local_SSSR.insert(obring);
+
+            prev = 0;
             for(unsigned int i=0;i<obring->Size();i++){
               OBAtom *ratom = mol->GetAtom(obring->_path[i]);
               ring_atoms.insert(ratom);
               ring_shares[ratom]++;
-              
+
+              if(!prev)
+                prev = ratom;
+              else{
+                bond = mol->GetBond(prev,ratom);
+                if(bond){
+                  bond_shares[bond]++;
+                  ring_bonds.insert(bond); 
+                }
+                prev = ratom; 
+              }
             }
+            // get the last bond
+            bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
+            if(bond){
+              bond_shares[bond]++;
+              ring_bonds.insert(bond); 
+            }
+              
+
             rings_seen[obring] = true;
             running = true;
           }
@@ -1397,37 +1446,25 @@ struct BabelGraph{
       }
     }
 
-    for(std::set<OBAtom*>::iterator iter=ring_atoms.begin(); iter != ring_atoms.end(); iter++){
-      OBAtom *atom = *iter; 
-      if(ring_shares[atom] == 2)
-        fuses++; 
-      else if(ring_shares[atom] == 3)
-        multicyclic++;
-      else if(ring_shares[atom] == 4)
-        branching++;
+
+
+    for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
+      bond = (*biter);
+      if(bond_shares[bond] > 1){
+        nt_bonds.push_back(bond);
+        if(opt_debug)
+          fprintf(stderr,"  nt bond: %d --> %d\n",bond->GetBeginAtomIdx(),bond->GetEndAtomIdx());
+      }
     }
 
 
     if(opt_debug){
-      fprintf(stderr,"  SSSR for system:    ");
-      for(std::set<OBRing*>::iterator set_iter = local_SSSR.begin();set_iter != local_SSSR.end();set_iter++)
-        fprintf(stderr,"%ld(%c) ",(*set_iter)->Size(), (*set_iter)->IsAromatic()?'a':'s');
-      fprintf(stderr,"\n");
-
-      fprintf(stderr,"  ring size:          %d\n",(unsigned int)ring_atoms.size());
-      fprintf(stderr,"  fuse points:        %d\n",fuses);
-      fprintf(stderr,"  multicyclic points: %d\n",multicyclic);
-      fprintf(stderr,"  branching points:   %d\n",branching);
+      fprintf(stderr,"  ring atoms: %d\n",ring_atoms.size());
+      fprintf(stderr,"  ring bonds: %d\n",ring_bonds.size());
     }
+      
 
-    if(branching){
-      fprintf(stderr,"NON-SUPPORTED: branching cyclics\n");
-      return 0;
-    }
-    else if(multicyclic)
-      return 3; 
-    else 
-      return 2; 
+    return ring_atoms.size(); 
   }
 
   /* create the hetero atoms where neccesary */
@@ -1547,10 +1584,8 @@ struct BabelGraph{
    
     OBAtom **                               locant_path = 0;
     std::set<OBRing*>                       local_SSSR; 
-    std::set<OBAtom*>                       ring_atoms; 
     std::map<OBAtom*,unsigned int>          ring_shares; 
-    std::vector<std::pair<OBAtom*,OBAtom*>> nt_pairs;
-    std::vector<OBRing*>                    nt_rings;  
+    std::vector<OBBond*>                    nt_bonds;
     
     // needed for minimising the locant path
     std::vector<std::string>                cyclic_strings;
@@ -1559,9 +1594,17 @@ struct BabelGraph{
     unsigned int                            minimal_index = 0; 
 
     unsigned int expected_rings = 0;
-    unsigned int ring_type = ConstructLocalSSSR(ring_root,mol,ring_atoms,ring_shares,local_SSSR); 
-    unsigned int path_size = ring_atoms.size(); 
+    unsigned int path_size = ConstructLocalSSSR(ring_root,mol,
+                                                nt_bonds,
+                                                ring_shares,local_SSSR); 
     
+
+    exit(1);
+
+    return {0,0};
+  }
+
+#ifdef WIP
     // monocyclic
     if(local_SSSR.size() == 1){
       locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
@@ -1620,10 +1663,7 @@ struct BabelGraph{
 
       if(opt_debug)
         std::cout << "  produced: " << cyclic_str << "\n\n";
-
-      exit(1);
       
-#ifdef OLD
       // get the minal WLN cyclic system from the notations generated
       minimal_index = MinimalWLNRingNotation(cyclic_strings); 
       buffer+= cyclic_strings[minimal_index]; // add to the buffer
@@ -1645,12 +1685,11 @@ struct BabelGraph{
       buffer += 'J';
       return {locant_paths[minimal_index],path_size};
 
-#endif
     }
     
     return {0,0}; 
   }
-
+#endif
 
 
 
