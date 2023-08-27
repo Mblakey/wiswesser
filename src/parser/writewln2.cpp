@@ -196,6 +196,30 @@ bool IsMultiCyclic(OBAtom **locant_array,unsigned int size, std::map<OBAtom*,uns
   return false; 
 }
 
+/* 0 = not, 1 = true, 2 = partial */
+unsigned int IsAromatic(std::set<OBRing*> &local_SSSR){
+  unsigned int arom = 3; // just an init value  
+  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
+    if((*iter)->IsAromatic()){
+      if(arom == 3)
+        arom = 1; 
+      else if(arom == 0){
+        arom = 2;
+        return arom;
+      }
+    }
+    else{
+      if(arom == 3)
+        arom = 0; 
+      else if(arom == 1){
+        arom = 2;
+        return arom;
+      }
+    }
+  }
+  return arom; 
+}
+
 
 void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned int size,
                         std::map<OBAtom*,unsigned int> &active_atoms){
@@ -1105,10 +1129,7 @@ struct BabelGraph{
                       unsigned int cycle_num, unsigned char locant){
     
     //##################################
-    //      INDIRECT RECURSION TRACK
-
-    if(opt_debug)
-      fprintf(stderr,"non-cyclic level: %d, last seen - %d\n", cycle_num, last_cycle_seen);
+    //      INDIRECT RECURSION TRACKING
 
     if(last_cycle_seen > cycle_num){
       for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
@@ -1426,7 +1447,7 @@ struct BabelGraph{
 
 
   /* create the hetero atoms where neccesary */
-  bool ReadLocantBondsxAtoms( OBAtom** locant_path,unsigned int path_size,std::string &buffer)
+  bool ReadLocantAtomsBonds( OBAtom** locant_path,unsigned int path_size,std::string &buffer)
   {
     unsigned char locant = 0;
     unsigned char last_locant = 0; 
@@ -1459,6 +1480,7 @@ struct BabelGraph{
         last_locant = locant; 
       }
 
+#ifdef WIP
       // handles sequential locant unsaturations, when not aromatic
       first = locant_path[i];
       if(i < path_size-1)
@@ -1475,6 +1497,7 @@ struct BabelGraph{
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
+#endif
     }
     
     return true;
@@ -1557,7 +1580,7 @@ struct BabelGraph{
       else
         buffer += std::to_string(path_size); 
       
-      ReadLocantBondsxAtoms(locant_path,path_size,buffer);
+      ReadLocantAtomsBonds(locant_path,path_size,buffer);
       if(!monoring->IsAromatic())
         buffer += 'T';
       buffer += 'J';
@@ -1567,10 +1590,20 @@ struct BabelGraph{
     else if(!IsMultiCyclic(locant_path,path_size,atom_shares)){
 
       std::string cyclic_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
-
-      ReadLocantBondsxAtoms(locant_path,path_size,buffer);
       buffer += cyclic_str;
-      buffer += 'J';
+
+      ReadLocantAtomsBonds(locant_path,path_size,buffer);
+      
+      unsigned int aromatic = IsAromatic(local_SSSR);
+      if(!aromatic)
+        buffer += "TJ";
+      else if (aromatic == 1)
+        buffer += 'J';
+      else{
+        fprintf(stderr,"Warning: mixed aromaticity not implemented yet\n");
+        buffer += 'J';
+      }
+
       return {locant_path,path_size};
     }
     else{
@@ -1579,57 +1612,6 @@ struct BabelGraph{
     }
   }
     
-#ifdef WIP
-    else if(path_size && ring_type){
-      // generate seeds
-      std::vector<OBRing*> ring_order; 
-      expected_rings = local_SSSR.size(); 
-      
-
-      locant_path = CreateLocantPath2(  mol,path_size,
-                                        local_SSSR,ring_shares,
-                                        nt_pairs,nt_rings);
-      if(!locant_path)
-        return {0,0}; 
-      else
-        stored_paths.push_back(locant_path);
-
-
-      std::string cyclic_str = ReadLocantPath(  locant_path,path_size,
-                                                nt_pairs,nt_rings,
-                                                ring_order,
-                                                expected_rings);
-
-      if(opt_debug)
-        std::cout << "  produced: " << cyclic_str << "\n\n";
-      
-      // get the minal WLN cyclic system from the notations generated
-      minimal_index = MinimalWLNRingNotation(cyclic_strings); 
-      buffer+= cyclic_strings[minimal_index]; // add to the buffer
-
-      if(ring_type > 2){
-        ReadMultiCyclicPoints(locant_path,path_size,ring_shares,buffer);
-        buffer += ' ';
-        buffer += int_to_locant(path_size);
-      }
-        
- 
-      // add any hetero atoms at locant positions
-      ReadLocantBondsxAtoms(locant_paths[minimal_index],path_size,cycle_orders[minimal_index],buffer);
-
-      // aromatics
-      ReadAromaticity(cycle_orders[minimal_index],buffer);
-
-      // close ring
-      buffer += 'J';
-      return {locant_paths[minimal_index],path_size};
-
-    }
-    
-    return {0,0}; 
-  }
-#endif
-
 
   bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
