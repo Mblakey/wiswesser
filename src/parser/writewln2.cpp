@@ -260,6 +260,7 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   unsigned int loops = 0; 
   while(loops < expected_rings){
 
+    // ahh there needs to be an ordering here, whats the first nt_bond seen etc?
     for(unsigned int i=0;i<nt_bonds.size();i++){
       OBBond *bond = nt_bonds[i]; 
       OBAtom *first = 0;
