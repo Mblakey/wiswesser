@@ -179,10 +179,18 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
 }
 
 
-
 bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
   for(unsigned int i=0;i<size;i++){
     if(locant_array[i]->GetAtomicNum() != 6)
+      return true;
+  }
+  return false; 
+}
+
+
+bool IsMultiCyclic(OBAtom **locant_array,unsigned int size, std::map<OBAtom*,unsigned int> &atom_shares){
+  for(unsigned int i=0;i<size;i++){
+    if(atom_shares[locant_array[i]] == 3)
       return true;
   }
   return false; 
@@ -389,29 +397,21 @@ unsigned char first_locant_seen(std::string &str){
 }
 
 
-/* returns the index of the minimal ring ring
-- unbroken numerical chain count and lowest locant sum? */
-unsigned int MinimalWLNRingNotation(std::vector<std::string> &ring_strings){
+/* compare ring notation to find the minimal ring direction */
+bool MinimalWLNRingNotation(std::string &first_str, std::string &second_str){
 
-  unsigned int highest_chain = 0; 
-  unsigned char lowest_loc  =  0;
-  unsigned int return_index = 0;  
-  for(unsigned int i=0;i<ring_strings.size();i++){
-    unsigned int chain =  highest_unbroken_numerical_chain(ring_strings[i]); 
-    unsigned char loc =  first_locant_seen(ring_strings[i]); 
+  unsigned int  chain_f  =  highest_unbroken_numerical_chain(first_str); 
+  unsigned char loc_f   =   first_locant_seen(first_str); 
 
-    if(chain > highest_chain){
-      highest_chain = chain;
-      lowest_loc = loc; 
-      return_index = i; 
-    }
-    else if (chain == highest_chain && lowest_loc > loc){
-      lowest_loc = loc; 
-      return_index = i;
-    }
-  }
+  unsigned int  chain_s  =  highest_unbroken_numerical_chain(second_str); 
+  unsigned char loc_s   =   first_locant_seen(second_str); 
 
-  return return_index;
+  if(chain_s > chain_f)
+    return true; 
+  else if ((chain_s == chain_f) && loc_s < loc_f)
+    return true;
+  else
+    return false;
 }
 
 
@@ -436,13 +436,9 @@ std::string CondenseCarbonylChains(std::string &buffer){
 }
 
 
-
-
-
 /**********************************************************************
                          Debugging Functions
 **********************************************************************/
-
 
 
 void BabelDumptoDot(FILE *fp, OBMol *mol){
@@ -1429,7 +1425,6 @@ struct BabelGraph{
   }
 
 
-
   /* create the hetero atoms where neccesary */
   bool ReadLocantBondsxAtoms( OBAtom** locant_path,unsigned int path_size,std::string &buffer)
   {
@@ -1484,6 +1479,7 @@ struct BabelGraph{
     
     return true;
   }
+
 
   void ReadMultiCyclicPoints( OBAtom**locant_path,unsigned int path_size, 
                               std::map<OBAtom*,unsigned int> &ring_shares,std::string &buffer)
@@ -1567,14 +1563,18 @@ struct BabelGraph{
       buffer += 'J';
       return {locant_path,path_size};
     }
-    else if (path_size){
+    // theres a slightly different procedure for minimising Multicyclic compounds
+    else if(!IsMultiCyclic(locant_path,path_size,atom_shares)){
 
       std::string cyclic_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
 
+      ReadLocantBondsxAtoms(locant_path,path_size,buffer);
+      buffer += cyclic_str;
+      buffer += 'J';
       return {locant_path,path_size};
     }
     else{
-      fprintf(stderr,"Error: could not form locant park\n");
+      fprintf(stderr,"Error: could not form locant path\n");
       return {0,0};
     }
   }
