@@ -103,163 +103,6 @@ void SweepReducedPath(OBAtom** reduced_path,unsigned int path_size){
     reduced_path[i] = 0; 
 }
 
-#ifdef OLD
-/* uses stack traversal of rings from a given seed ring */
-OBAtom **CreateLocantPath2( OBMol *mol, unsigned int path_size,
-                            std::set<OBRing*> &local_SSSR, 
-                            std::map<OBAtom*,unsigned int> &ring_shares,
-                            std::vector<std::set<OBAtom*>>          &nt_pairs, // order independent
-                            std::vector<OBRing*>                    &nt_rings)
-{ 
-  unsigned int locant_pos = 0; 
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
-    locant_path[i] = 0;
-
-  OBAtom*                ratom  = 0;
-  OBRing*                obring = 0; 
-  std::map<OBRing*,bool> rings_in_lp; 
-  std::map<OBAtom*,bool> atoms_in_lp; 
-  std::map<OBAtom*,std::set<OBRing*>> atom_in_rings;
-
-  // we need to get a seed ring out to start the traversal from
-  unsigned int highest_fuse = 0;
-  unsigned int highest_cyclic = 0; 
-  OBRing*      obring_hf = 0;
-  OBRing*      obring_hm = 0;
-  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-    unsigned int multicyclic_points = 0;  
-    unsigned int fuse_points = 0;  
-    obring = (*iter);
-    for(unsigned int i=0;i<obring->_path.size();i++){
-      ratom = mol->GetAtom(obring->_path[i]);
-      atom_in_rings[ratom].insert(obring); // pre-inits set map 
-
-      if (ring_shares[ratom] == 3)
-        multicyclic_points++;
-      else if(ring_shares[ratom] == 2)
-        fuse_points++;
-
-      if(multicyclic_points && multicyclic_points > highest_cyclic){
-        obring_hm = obring;
-        highest_cyclic = multicyclic_points; 
-      }
-      
-      if(fuse_points && fuse_points > highest_fuse){
-        obring_hf = obring;
-        highest_fuse = fuse_points; 
-      } 
-    }
-  }
-
-  std::stack<std::deque<OBAtom*>> ring_path_stack;
-  if(obring_hm){
-    // manipulate _path to line up as many multicyclic points as possible
-    
-    fprintf(stderr,"multicyclic - UNSUPPORTED\n");
-
-  }
-  else{
-    // manipulate _path to guarantee start at a fuse point
-    std::deque<OBAtom*> init_path; 
-    for(unsigned int i=0;i<obring_hf->Size();i++)
-      init_path.push_back(mol->GetAtom(obring_hf->_path[i]));
-
-    while (ring_shares[init_path.front()] != 2){
-      init_path.push_back(init_path.front());
-      init_path.pop_front();
-    }
-
-    ring_path_stack.push(init_path);
-    rings_in_lp[obring_hf] = true;
-  }
-    
-  // sequential stack traversal to create locant path
-  // not a fan of the 'goto' statements here but it means i avoid a recursing on the path formation
-  // recursion here and for normal function likely to blow stack
-
-  OBAtom *last_atom = 0;
-  OBRing *last_ring = 0;  
-  while(!ring_path_stack.empty()){
-    nextring:
-    
-    std::deque<OBAtom*> &top_path = ring_path_stack.top();
-
-    if(last_atom){
-      // get the last atom at the front
-      while(top_path[0] != last_atom){
-        top_path.push_back(top_path.front());
-        top_path.pop_front();
-      } 
-
-      // yep some clockwise shenanagins to get done
-    }
-
-    if(opt_debug)
-      print_atom_deque(top_path);
-    
-    unsigned int i=0; // skips the last ring at init time
-    if(!locant_path[0]){
-      locant_path[locant_pos++] = top_path[0]; 
-      atoms_in_lp[top_path[0]] = true;
-      i = 1;
-    }
-    for(i;i<top_path.size();i++){
-      ratom = top_path[i]; 
-      if(!atoms_in_lp[ratom]){
-        locant_path[locant_pos++] = ratom; 
-        atoms_in_lp[ratom] = true;
-      }
-        
-      for(std::set<OBRing*>::iterator riter = atom_in_rings[ratom].begin(); riter != atom_in_rings[ratom].end();riter++){
-        obring = (*riter);
-        if(!rings_in_lp[obring]){
-          std::deque<OBAtom*> new_path; 
-          for(unsigned int i=0;i<obring->Size();i++)
-            new_path.push_back(mol->GetAtom(obring->_path[i]));
-          
-          if(opt_debug)
-            fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",top_path[i]->GetIdx(),top_path[i+1]->GetIdx(),obring->Size());
-
-          nt_pairs.push_back({top_path[i],top_path[i+1]});
-          nt_rings.push_back(obring);
-
-          rings_in_lp[obring] = true;
-          ring_path_stack.push(new_path);
-          last_atom = ratom; 
-          last_ring = obring; 
-
-          if(opt_debug)
-            fprintf(stderr,"  adding ring from %d\n",last_atom->GetIdx());
-          goto nextring; 
-        } 
-      }
-    }
-
-    ring_path_stack.pop();
-  }
-
-  nt_pairs.push_back({locant_path[0],locant_path[path_size-1]});
-  
-  if(obring_hf){
-    //nt_rings.insert(nt_rings.begin() +1 ,obring_hf);
-    nt_rings.push_back(obring_hf);
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[path_size-1]->GetIdx(),obring_hf->Size());
-  }
-    
-  else{
-    //nt_rings.insert(nt_rings.begin() +1,obring_hm);
-    nt_rings.push_back(obring_hm);
-    if(opt_debug)
-      fprintf(stderr,"  non-trivial bonds:      %-2d <--> %-2d from size: %ld\n",locant_path[0]->GetIdx(),locant_path[path_size-1]->GetIdx(),obring_hm->Size());
-  }
-  
-  
-  return locant_path;
-}
-#endif
-
 
 
 /* standard ring walk, since nt_bonds are pre-calculated*/
@@ -357,7 +200,8 @@ void UpdateReducedPath( OBAtom **reduced_path, OBAtom** locant_path, unsigned in
 }
 
 
-/* take the created locant path and writes WLN ring assignments */
+/* take the created locant path and writes WLN ring assignments,
+probably O(n^4) but should be limited to below 100 rings */
 std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                               std::vector<OBBond*> &nt_bonds, unsigned int expected_rings)
 {  
@@ -380,8 +224,78 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     active_atoms[nt_bonds[i]->GetEndAtom()]++;
   }
 
+
+  unsigned int loops = 0; 
+  while(loops < expected_rings){
+
+    for(unsigned int i=0;i<nt_bonds.size();i++){
+      OBBond *bond = nt_bonds[i]; 
+      OBAtom *first = 0;
+      OBAtom *second = 0; 
+      unsigned int rsize = 0; 
+      unsigned char first_locant; 
+      for(unsigned int j=0;j<path_size;j++){
+        
+        // find the starting point in nt_bond
+        if(!first || !second){
+          if(reduced_path[j] == bond->GetBeginAtom()){
+            first = bond->GetBeginAtom();
+            second = bond->GetEndAtom();
+            first_locant = int_to_locant(j+1);
+            rsize++;
+          }
+          else if (reduced_path[j] == bond->GetEndAtom()){
+            first   = bond->GetEndAtom();
+            second  = bond->GetBeginAtom();
+            first_locant = int_to_locant(j+1);
+            rsize++;
+          }
+          
+        }
+        else if (first && second){
+
+          if(reduced_path[j] != second && active_atoms[reduced_path[j]])
+            break; // interupted
+          else if(reduced_path[j] == second){
+            rsize++;
+
+            if(first_locant != 'A'){
+              ring_str+= ' ';
+              ring_str+= first_locant;
+            }
+
+            if(rsize > 9){
+              ring_str += '-';
+              ring_str += std::to_string(rsize); 
+              ring_str += '-';
+            } 
+            else
+              ring_str += std::to_string(rsize);
+
+            nt_bonds.erase(nt_bonds.begin() + i);
+            // go back rsize+1 spaces and reduce the array
+
+            for(unsigned int k = j-rsize+1;k<=j;k++){
+              if(active_atoms[reduced_path[k]])
+                active_atoms[reduced_path[k]]--;
+              else
+                reduced_path[k] = 0; 
+            }
+
+            SweepReducedPath(reduced_path,path_size);
+          }
+          else
+            rsize++;
+        }
+      }
+
+    }
+    loops++;
+  }
+
+  if(opt_debug)
+    fprintf(stderr,"  produced %s\n",ring_str.c_str());
   
-  // free the working copy
   free(reduced_path);
   reduced_path = 0; 
   return ring_str;  
