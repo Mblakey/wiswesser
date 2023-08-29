@@ -170,22 +170,27 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
     OBAtom *push_atom = 0; 
     OBAtom *first_seen = 0;
     OBBond *first_bond = 0;
-    FOR_NBORS_OF_ATOM(a,ratom){
-      catom = &(*a);
-      bond = mol->GetBond(ratom,catom); 
-      if(!first_seen && !atoms_in_lp[catom]){
-        first_seen = catom; // for singular symmetric multicyclic starts where an ignore must be taken
-        first_bond = bond; 
-      }
-      if(!ignore_bond[bond] && !atoms_in_lp[catom]){ // prioritise multicyclic paths when possible
-        if(!push_atom)
-          push_atom = catom; 
-        else if(atom_shares[push_atom] < atom_shares[catom])
-          push_atom = catom; 
+    FOR_NBORS_OF_ATOM(a,ratom){ 
+      catom = &(*a);   
+
+      if(atom_shares[catom]){ // bans walking outside the SSSR
+
+        bond = mol->GetBond(ratom,catom); 
+        if(!first_seen && !atoms_in_lp[catom]){
+          first_seen = catom; // for singular symmetric multicyclic starts where an ignore must be taken
+          first_bond = bond; 
+        }
+        if(!ignore_bond[bond] && !atoms_in_lp[catom]){ // prioritise multicyclic paths when possible
+          if(!push_atom)
+            push_atom = catom; 
+          else if(atom_shares[push_atom] < atom_shares[catom])
+            push_atom = catom; 
+        }
       }
     }
+
     if(push_atom)
-      stack.push(catom); 
+      stack.push(push_atom); 
     else if(first_seen){
       stack.push(first_seen);
       ignore_bond[first_bond] = false; // so we can remove
@@ -258,22 +263,19 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     print_locant_array(locant_path,path_size);
   }
 
-  // before reading the path, the last bond from the end must be calculated
-
-#define LAST 0
-#if LAST
-  OBAtom *ratom = locant_path[path_size-1];
+  unsigned int off_shift = 0; 
+  OBAtom *path_end = locant_path[path_size-1];
   for(unsigned int i=0;i<path_size;i++){
     OBAtom *catom = locant_path[i];
-    OBBond *bond = mol->GetBond(ratom,catom); 
+    OBBond *bond = mol->GetBond(path_end,catom); 
     if(bond){
-      nt_bonds.push_back(bond);
+      off_shift = i;
       if(opt_debug)
-        fprintf(stderr,"  ending path bond: %d --> %d\n",bond->GetBeginAtomIdx(),bond->GetEndAtomIdx());
+        fprintf(stderr,"  shift needed: %d\n",off_shift);
       break;
     }
   }
-#endif
+
 
   // working copy
   OBAtom ** reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
@@ -283,9 +285,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   // and decremenent the active state
   std::map<OBAtom*,unsigned int> active_atoms; 
   for(unsigned int i=0;i<nt_bonds.size();i++){
-    if(opt_debug)
-      fprintf(stderr,"  bond %d: %d --> %d\n",i,nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
-    
     active_atoms[nt_bonds[i]->GetBeginAtom()]++;
     active_atoms[nt_bonds[i]->GetEndAtom()]++;
   }
@@ -315,12 +314,8 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           }
         }
         else if (first && second){
-          if(active_atoms[reduced_path[j]] && reduced_path[j] != second){
-            
-            fprintf(stderr,"first: %d, on: %d\n",first->GetIdx(), reduced_path[j]->GetIdx());
+          if(active_atoms[reduced_path[j]] && reduced_path[j] != second)
             break; // path interupted
-          }
-            
           else if(reduced_path[j] == second){
             rsize++;
 
@@ -340,12 +335,20 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
             nt_bonds.erase(nt_bonds.begin() + i);
             // go back rsize+1 spaces and reduce the array
 
+            if(opt_debug)
+              fprintf(stderr,"  ring path: [ ");
             for(unsigned int k = j-rsize+1;k<=j;k++){
+              
+              if(opt_debug)
+                fprintf(stderr,"%d ",reduced_path[k]->GetIdx());
+
               if(active_atoms[reduced_path[k]])
                 active_atoms[reduced_path[k]]--;
               else
                 reduced_path[k] = 0; 
             }
+            if(opt_debug)
+              fprintf(stderr,"]\n");
 
             SweepReducedPath(reduced_path,path_size);
           }
@@ -356,6 +359,24 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
     }
     loops++;
+  }
+
+  // we see whats left
+  unsigned int final_cycle = off_shift; 
+  for(unsigned int i=0;i<path_size;i++){
+    if(!reduced_path[i]){
+      if(final_cycle > 9){
+        ring_str += '-';
+        ring_str += std::to_string(final_cycle); 
+        ring_str += '-';
+      } 
+      else
+        ring_str += std::to_string(final_cycle);
+      
+      break;
+    }
+    else
+      final_cycle++;
   }
 
   if(opt_debug)
@@ -1539,6 +1560,11 @@ struct BabelGraph{
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds); 
     OBAtom **    locant_path =  CreateLocantPath3(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds);
     
+    if(opt_debug){
+      fprintf(stderr,"  initial path: ");
+      print_locant_array(locant_path,path_size);
+    }
+
     // monocyclic
     if(local_SSSR.size() == 1){
       OBRing* monoring = *(local_SSSR.begin());
@@ -1607,10 +1633,27 @@ struct BabelGraph{
     }
     else if (IsMultiCyclic(locant_path,path_size,atom_shares)){
 
-      print_locant_array(locant_path,path_size);
       std::string init_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
+      buffer += init_str;
 
-      return {0,0};
+
+      ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
+
+      buffer += ' ';
+      buffer += int_to_locant(path_size);
+
+      ReadLocantAtomsBonds(locant_path,path_size,buffer);
+
+      unsigned int aromatic = IsAromatic(local_SSSR);
+      if(!aromatic)
+        buffer += "TJ";
+      else if (aromatic == 1)
+        buffer += 'J';
+      else{
+        fprintf(stderr,"Warning: mixed aromaticity not implemented yet\n");
+        buffer += 'J';
+      }
+      return {locant_path,path_size};
     }
     else{
       fprintf(stderr,"Error: could not form locant path\n");
