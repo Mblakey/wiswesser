@@ -259,6 +259,9 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   }
 
   // before reading the path, the last bond from the end must be calculated
+
+#define LAST 0
+#if LAST
   OBAtom *ratom = locant_path[path_size-1];
   for(unsigned int i=0;i<path_size;i++){
     OBAtom *catom = locant_path[i];
@@ -270,6 +273,7 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
       break;
     }
   }
+#endif
 
   // working copy
   OBAtom ** reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
