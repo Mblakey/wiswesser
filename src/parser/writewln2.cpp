@@ -251,40 +251,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   for(unsigned int i=0;i<path_size;i++)
     reduced_path[i] = locant_path[i]; 
 
-  // sort on the lowest atom value in nt_bond, resolve ties with the other aotm
-  for(unsigned int i=1;i<nt_bonds.size();i++){
-    // insertion sort with tie breaks using end atom
-    OBBond *key = nt_bonds[i]; 
-    unsigned int first_beg  =  position_in_path(nt_bonds[i]->GetBeginAtom(),locant_path,path_size);
-    int j = i - 1; 
-    while(j>=0){
-      unsigned int second_beg  =  position_in_path(nt_bonds[j]->GetBeginAtom(),locant_path,path_size);
-      if(first_beg < second_beg)
-        nt_bonds[j+1] = nt_bonds[j];
-      else if (first_beg == second_beg){
-        unsigned int first_end  =  position_in_path(nt_bonds[i]->GetEndAtom(),locant_path,path_size);
-        unsigned int second_end  =  position_in_path(nt_bonds[j]->GetEndAtom(),locant_path,path_size);
-        if(first_end < second_end)
-          nt_bonds[j+1] = nt_bonds[j];
-        else
-          break;
-      }
-      else
-        break;
-      j--;
-    }
-    nt_bonds[j+1] = key;
-  }
-
-#define PATH_SHIFT 1
-#ifdef PATH_SHIFT
-  // move the first nt_bond to the back as WLN uses L66TJ as an init structure. 
-  OBBond*tmp = nt_bonds[0];
-  for(unsigned int i=0;i<nt_bonds.size()-1;i++)
-    nt_bonds[i] = nt_bonds[i+1];
-  nt_bonds[nt_bonds.size()-1] = tmp;
-#endif
-
   // can we take an interrupted walk between the points, if so, write ring size 
   // and decremenent the active state
   std::map<OBAtom*,unsigned int> active_atoms; 
