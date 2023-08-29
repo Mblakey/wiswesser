@@ -276,7 +276,7 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     nt_bonds[j+1] = key;
   }
 
-#define PATH_SHIFT 0
+#define PATH_SHIFT 1
 #ifdef PATH_SHIFT
   // move the first nt_bond to the back as WLN uses L66TJ as an init structure. 
   OBBond*tmp = nt_bonds[0];
