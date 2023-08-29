@@ -259,7 +259,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
 #define SORT 1
 #ifdef SORT
-  fprintf(stderr,"sorting...\n");
   // sort on the lowest atom value in nt_bond, resolve ties with the other aotm
   for(unsigned int i=1;i<nt_bonds.size();i++){
 
@@ -289,10 +288,8 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     active_atoms[nt_bonds[i]->GetEndAtom()]++;
   }
 
-
   unsigned int loops = 0; 
   while(loops < expected_rings){
-
     for(unsigned int i=0;i<nt_bonds.size();i++){
       OBBond *bond = nt_bonds[i]; 
       OBAtom *first = 0;
@@ -300,7 +297,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
       unsigned int rsize = 0; 
       unsigned char first_locant; 
       for(unsigned int j=0;j<path_size;j++){
-        
         // find the starting point in nt_bond
         if(!first || !second){
           if(reduced_path[j] == bond->GetBeginAtom()){
@@ -315,18 +311,16 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
             first_locant = int_to_locant( position_in_path(first,locant_path,path_size) +1);
             rsize++;
           }
-          
         }
         else if (first && second){
 
           if(reduced_path[j] != second && active_atoms[reduced_path[j]])
-            break; // interupted
+            break; // path interupted
           else if(reduced_path[j] == second){
             rsize++;
 
-            fprintf(stderr,"writing from %d --> %d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
+            fprintf(stderr,"  writing %d from %d --> %d\n",rsize,nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
     
-
             if(first_locant != 'A'){
               ring_str+= ' ';
               ring_str+= first_locant;
@@ -349,7 +343,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
               else
                 reduced_path[k] = 0; 
             }
-
             SweepReducedPath(reduced_path,path_size);
           }
           else
@@ -368,59 +361,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   reduced_path = 0; 
   return ring_str;  
 }
-#ifdef IMP
-      // can we go to the second without interuption
-      bool popped = false;
-      for(unsigned int j=pos+1;j < path_size;j++){
-        if(reduced_path[j] && reduced_path[j] != second){
-          // interuption - pair cannot be handled in this iteration
-          // break out of search, search next pair
-          break;
-        }
-        else if(reduced_path[j] && reduced_path[j] == second){
-          // write the ring, and pop nt_pair and nt_ring at position 
-          if(pos){
-            ring_str+= ' ';
-            ring_str+= int_to_locant(pos+1);
-          }
-
-          if(rsize > 9){
-            ring_str += '-';
-            ring_str += std::to_string(rsize); 
-            ring_str += '-';
-          } 
-          else
-            ring_str += std::to_string(rsize);
-
-          ring_order.push_back(obring); 
-
-          nt_pairs.erase(nt_pairs.begin() + i);
-          nt_rings.erase(nt_rings.begin() + i);
-
-          // update the reduced locant path based on ring_shares
-          active_atoms[first]--;
-          active_atoms[second]--;
-          UpdateReducedPath(reduced_path,locant_path,path_size,active_atoms);
-
-          // requires reset to while loop 
-          popped = true; 
-          break;
-        }
-      }
-
-      if(popped) // resets to while
-        break;
-    }
-    
-    safety++;
-  }
-
-
-
-  return ring_str;
-}
-
-#endif
 
 
 /**********************************************************************
