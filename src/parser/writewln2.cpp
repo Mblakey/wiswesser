@@ -1397,7 +1397,7 @@ struct BabelGraph{
   }
 
 
-  /* create the hetero atoms where neccesary */
+  /* create the heteroatoms and locant path unsaturations where neccesary */
   bool ReadLocantAtomsBonds( OBAtom** locant_path,unsigned int path_size,std::string &buffer)
   {
     unsigned char locant = 0;
@@ -1431,7 +1431,8 @@ struct BabelGraph{
         last_locant = locant; 
       }
 
-#ifdef WIP
+#define WIP 1
+#if WIP
       // handles sequential locant unsaturations, when not aromatic
       first = locant_path[i];
       if(i < path_size-1)
@@ -1558,7 +1559,7 @@ struct BabelGraph{
       }while(locant_path[0] != start);
 
       buffer += init_str;
-      ReadLocantAtomsBonds(locant_path,path_size,buffer);
+      ReadLocantAtomsBonds(minimal_path,path_size,buffer);
       
       unsigned int aromatic = IsAromatic(local_SSSR);
       if(!aromatic)
