@@ -169,18 +169,23 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
 
     OBAtom *push_atom = 0; 
     OBAtom *first_seen = 0;
-    OBBond *first_bond = 0;
+    OBBond *remove_bond = 0; 
     FOR_NBORS_OF_ATOM(a,ratom){ 
       catom = &(*a);   
-
-      if(atom_shares[catom]){ // bans walking outside the SSSR
-
-        bond = mol->GetBond(ratom,catom); 
-        if(!first_seen && !atoms_in_lp[catom]){
-          first_seen = catom; // for singular symmetric multicyclic starts where an ignore must be taken
-          first_bond = bond; 
+      bond = mol->GetBond(ratom,catom); 
+      if(atom_shares[catom] && !atoms_in_lp[catom]){ 
+        
+        if(!first_seen){
+          first_seen = catom;
+          remove_bond = bond;
         }
-        if(!ignore_bond[bond] && !atoms_in_lp[catom]){ // prioritise multicyclic paths when possible
+        
+        if(atom_shares[catom] > 2){ // if a multicyclic atom is avaliable, must take it
+          push_atom = catom;
+          ignore_bond[bond] = false; // do not consider in path read now
+          break;
+        }
+        else if(!ignore_bond[bond]){
           if(!push_atom)
             push_atom = catom; 
           else if(atom_shares[push_atom] < atom_shares[catom])
@@ -188,13 +193,13 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
         }
       }
     }
-
     if(push_atom)
       stack.push(push_atom); 
     else if(first_seen){
       stack.push(first_seen);
-      ignore_bond[first_bond] = false; // so we can remove
+      ignore_bond[remove_bond] = false;
     }
+    
       
   }
 
@@ -257,11 +262,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     ring_str += 'T';
   else
     ring_str += 'L';
-
-  if(opt_debug){
-    fprintf(stderr,"  ");
-    print_locant_array(locant_path,path_size);
-  }
 
   unsigned int off_shift = 0; 
   OBAtom *path_end = locant_path[path_size-1];
@@ -1403,6 +1403,9 @@ struct BabelGraph{
               OBAtom *ratom = mol->GetAtom(obring->_path[i]);
               ring_atoms.insert(ratom);
               atom_shares[ratom]++;
+
+              if(opt_debug && atom_shares[ratom] > 2)
+                fprintf(stderr,"  multicyclic atom %d\n",ratom->GetIdx());
 
               if(!prev)
                 prev = ratom;
