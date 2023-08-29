@@ -167,14 +167,35 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
     locant_path[locant_pos++] = ratom; 
     atoms_in_lp[ratom] = true; 
 
+    OBAtom *push_atom = 0; 
+    OBAtom *first_seen = 0;
+    OBBond *first_bond = 0;
     FOR_NBORS_OF_ATOM(a,ratom){
       catom = &(*a);
       bond = mol->GetBond(ratom,catom); 
-      if(!ignore_bond[bond] && !atoms_in_lp[catom]){
-        stack.push(catom); 
-        break;
+      if(!first_seen && !atoms_in_lp[catom]){
+        first_seen = catom; // for singular symmetric multicyclic starts where an ignore must be taken
+        first_bond = bond; 
+      }
+      if(!ignore_bond[bond] && !atoms_in_lp[catom]){ // prioritise multicyclic paths when possible
+        if(!push_atom)
+          push_atom = catom; 
+        else if(atom_shares[push_atom] < atom_shares[catom])
+          push_atom = catom; 
       }
     }
+    if(push_atom)
+      stack.push(catom); 
+    else if(first_seen){
+      stack.push(first_seen);
+      ignore_bond[first_bond] = false; // so we can remove
+    }
+      
+  }
+
+  for(unsigned int i=0;i<nt_bonds.size();i++){
+    if(!ignore_bond[nt_bonds[i]])
+      nt_bonds.erase(nt_bonds.begin()+i);
   }
   return locant_path; 
 }
@@ -290,9 +311,12 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           }
         }
         else if (first && second){
-
-          if(reduced_path[j] != second && active_atoms[reduced_path[j]])
+          if(active_atoms[reduced_path[j]] && reduced_path[j] != second){
+            
+            fprintf(stderr,"first: %d, on: %d\n",first->GetIdx(), reduced_path[j]->GetIdx());
             break; // path interupted
+          }
+            
           else if(reduced_path[j] == second){
             rsize++;
 
@@ -318,6 +342,7 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
               else
                 reduced_path[k] = 0; 
             }
+
             SweepReducedPath(reduced_path,path_size);
           }
           else
@@ -1541,7 +1566,6 @@ struct BabelGraph{
     // theres a slightly different procedure for minimising Multicyclic compounds
     else if(!IsMultiCyclic(locant_path,path_size,atom_shares)){
       
-
       OBAtom *start = locant_path[0];
       std::string init_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
       OBAtom ** minimal_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
@@ -1576,6 +1600,13 @@ struct BabelGraph{
       minimal_path = 0;
 
       return {locant_path,path_size};
+    }
+    else if (IsMultiCyclic(locant_path,path_size,atom_shares)){
+
+      print_locant_array(locant_path,path_size);
+      std::string init_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
+
+      return {0,0};
     }
     else{
       fprintf(stderr,"Error: could not form locant path\n");
