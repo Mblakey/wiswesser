@@ -92,11 +92,16 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
                           Locant Path Functions
 **********************************************************************/
 
-void shift_locant_left(OBAtom **locant_path,unsigned int path_size){
+void shift_locants_left(OBAtom **locant_path,unsigned int path_size){
   OBAtom *tmp = locant_path[0];
   for(unsigned int i=0;i<path_size-1;i++)
     locant_path[i] = locant_path[i+1]; 
   locant_path[path_size-1] = tmp; 
+}
+
+void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++)
+    new_path[i] = locant_path[i]; 
 }
 
 void SweepReducedPath(OBAtom** reduced_path,unsigned int path_size){
@@ -171,12 +176,6 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
       }
     }
   }
-
-  if(opt_debug){
-    fprintf(stderr,"  ");
-    print_locant_array(locant_path,path_size);
-  }
-
   return locant_path; 
 }
 
@@ -233,6 +232,11 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   else
     ring_str += 'L';
 
+  if(opt_debug){
+    fprintf(stderr,"  ");
+    print_locant_array(locant_path,path_size);
+  }
+
   // before reading the path, the last bond from the end must be calculated
   OBAtom *ratom = locant_path[path_size-1];
   for(unsigned int i=0;i<path_size;i++){
@@ -248,8 +252,7 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
   // working copy
   OBAtom ** reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
-  for(unsigned int i=0;i<path_size;i++)
-    reduced_path[i] = locant_path[i]; 
+  copy_locant_path(reduced_path,locant_path,path_size); 
 
   // can we take an interrupted walk between the points, if so, write ring size 
   // and decremenent the active state
@@ -327,7 +330,7 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   }
 
   if(opt_debug)
-    fprintf(stderr,"  produced %s\n",ring_str.c_str());
+    fprintf(stderr,"  produced %s\n\n",ring_str.c_str());
   
   free(reduced_path);
   reduced_path = 0; 
@@ -1537,19 +1540,24 @@ struct BabelGraph{
     // theres a slightly different procedure for minimising Multicyclic compounds
     else if(!IsMultiCyclic(locant_path,path_size,atom_shares)){
       
+
       OBAtom *start = locant_path[0];
-      std::string cyclic_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
-      
+      std::string init_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
+      OBAtom ** minimal_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+      copy_locant_path(minimal_path,locant_path,path_size); 
+
       do{
-        shift_locant_left(locant_path,path_size);
-        
-      }while(atom_shares[locant_path[0]] != 2);
-      print_locant_array(locant_path,path_size);
+        do{
+          shift_locants_left(locant_path,path_size);
+        }while(atom_shares[locant_path[0]] != 2);
+        std::string alt_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
+        if(MinimalWLNRingNotation(init_str,alt_str)){
+          init_str = alt_str;
+          copy_locant_path(minimal_path,locant_path,path_size);
+        } 
+      }while(locant_path[0] != start);
 
-      cyclic_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
-      
-      buffer += cyclic_str;
-
+      buffer += init_str;
       ReadLocantAtomsBonds(locant_path,path_size,buffer);
       
       unsigned int aromatic = IsAromatic(local_SSSR);
@@ -1561,6 +1569,10 @@ struct BabelGraph{
         fprintf(stderr,"Warning: mixed aromaticity not implemented yet\n");
         buffer += 'J';
       }
+
+      copy_locant_path(locant_path,minimal_path,path_size);
+      free(minimal_path);
+      minimal_path = 0;
 
       return {locant_path,path_size};
     }
