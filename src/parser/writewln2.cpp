@@ -257,33 +257,41 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   for(unsigned int i=0;i<path_size;i++)
     reduced_path[i] = locant_path[i]; 
 
-#define SORT 1
-#ifdef SORT
   // sort on the lowest atom value in nt_bond, resolve ties with the other aotm
   for(unsigned int i=1;i<nt_bonds.size();i++){
 
     OBBond *key = nt_bonds[i]; 
-    unsigned int min_first  =  position_in_path(nt_bonds[i]->GetBeginAtom(),locant_path,path_size);
+    unsigned int first_beg  =  position_in_path(nt_bonds[i]->GetBeginAtom(),locant_path,path_size);
 
-    // insertion sort with tie breaks using max second
+    // insertion sort with tie breaks using end atom
     int j = i - 1; 
     while(j>=0){
-      unsigned int min_second  =  position_in_path(nt_bonds[j]->GetBeginAtom(),locant_path,path_size);
-      if(min_first < min_second)
+      unsigned int second_beg  =  position_in_path(nt_bonds[j]->GetBeginAtom(),locant_path,path_size);
+      if(first_beg < second_beg)
         nt_bonds[j+1] = nt_bonds[j];
+      else if (first_beg == second_beg){
+        // if theres a tie, we check the second value
+        unsigned int first_end  =  position_in_path(nt_bonds[i]->GetEndAtom(),locant_path,path_size);
+        unsigned int second_end  =  position_in_path(nt_bonds[j]->GetEndAtom(),locant_path,path_size);
+        if(first_end < second_end)
+          nt_bonds[j+1] = nt_bonds[j];
+        else
+          break;
+      }
       else
         break;
-
       j--;
     }
     nt_bonds[j+1] = key;
   }
-#endif
   
   // can we take an interrupted walk between the points, if so, write ring size 
   // and decremenent the active state
   std::map<OBAtom*,unsigned int> active_atoms; 
   for(unsigned int i=0;i<nt_bonds.size();i++){
+    if(opt_debug)
+      fprintf(stderr,"  bond %d: %d --> %d\n",i,nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
+    
     active_atoms[nt_bonds[i]->GetBeginAtom()]++;
     active_atoms[nt_bonds[i]->GetEndAtom()]++;
   }
@@ -319,8 +327,6 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           else if(reduced_path[j] == second){
             rsize++;
 
-            fprintf(stderr,"  writing %d from %d --> %d\n",rsize,nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
-    
             if(first_locant != 'A'){
               ring_str+= ' ';
               ring_str+= first_locant;
