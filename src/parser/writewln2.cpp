@@ -203,10 +203,29 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
       
   }
 
+  // mark
   for(unsigned int i=0;i<nt_bonds.size();i++){
     if(!ignore_bond[nt_bonds[i]])
-      nt_bonds.erase(nt_bonds.begin()+i);
+      nt_bonds[i] = 0;
   }
+  // sweep
+  unsigned int idx = 0; 
+  for(unsigned int i=0;i<nt_bonds.size();i++){
+    if(nt_bonds[i])
+      nt_bonds[idx++] = nt_bonds[i];
+  }
+
+  // remove 
+  while(nt_bonds.size() != idx)
+    nt_bonds.pop_back();
+
+  if(opt_debug){
+    for(unsigned int i=0;i<nt_bonds.size();i++){
+      if(opt_debug)
+        fprintf(stderr,"  locant path bond: %d --> %d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
+    }
+  }
+
   return locant_path; 
 }
 
@@ -1434,11 +1453,8 @@ struct BabelGraph{
 
     for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
       bond = (*biter);
-      if(bond_shares[bond] > 1){
+      if(bond_shares[bond] > 1)
         nt_bonds.push_back(bond);
-        if(opt_debug)
-          fprintf(stderr,"  locant path bond: %d --> %d\n",bond->GetBeginAtomIdx(),bond->GetEndAtomIdx());
-      }
     }
 
     if(opt_debug){
