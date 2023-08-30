@@ -148,6 +148,9 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
       rseed = (*aiter);
     else if(atom_shares[(*aiter)] > atom_shares[rseed])
       rseed = (*aiter);
+
+    if(opt_debug && atom_shares[(*aiter)] > 2)
+      fprintf(stderr,"  multicyclic point: %d\n",(*aiter)->GetIdx());
   }
 
   OBAtom*                ratom  = 0;
@@ -157,9 +160,12 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
   std::map<OBBond*,bool> ignore_bond; 
   std::stack<OBAtom*> stack; 
 
-  for(unsigned int i=0;i<nt_bonds.size();i++)
+  for(unsigned int i=0;i<nt_bonds.size();i++){
+    if(opt_debug)
+      fprintf(stderr,"  locant path bond: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
     ignore_bond[nt_bonds[i]] = true; 
-
+  } 
+  
   stack.push(rseed);
   while(!stack.empty()){
     ratom = stack.top();
@@ -169,18 +175,15 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
 
     OBAtom *push_atom = 0; 
     OBAtom *first_seen = 0;
-    OBBond *remove_bond = 0; 
     FOR_NBORS_OF_ATOM(a,ratom){ 
       catom = &(*a);   
       bond = mol->GetBond(ratom,catom); 
       if(atom_shares[catom] && !atoms_in_lp[catom]){ 
         
-        if(!first_seen){
+        if(!first_seen)
           first_seen = catom;
-          remove_bond = bond;
-        }
         
-        if(atom_shares[catom] > 2){ // if a multicyclic atom is avaliable, must take it
+        if(atom_shares[ratom] > 2 && atom_shares[catom] > 2){ // linked multicyclics, take immediately
           push_atom = catom;
           break;
         }
@@ -196,16 +199,8 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
       stack.push(push_atom); 
     else if(first_seen)
       stack.push(first_seen);
-    
   }
 
-
-  if(opt_debug){
-    for(unsigned int i=0;i<nt_bonds.size();i++){
-      if(opt_debug)
-        fprintf(stderr,"  locant path bond: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
-    }
-  } 
   
   return locant_path; 
 }
