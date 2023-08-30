@@ -1707,11 +1707,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     }
 
     // --- MULTI ALGORITHM --- 
+    std::map<unsigned char, bool> in_ring_path; // safety needed for infinite loops on incorrect notation
     ring_path.push_back(ring->locants_ch[path]);
+    in_ring_path[ring->locants_ch[path]] = true;
 
     unsigned char highest_loc = '\0'; 
     for (unsigned int i=0;i<comp_size - predefined; i++){  // 2 points are already defined
-      
       highest_loc = '\0'; // highest of each child iteration 
 
       WLNEdge *lc = 0;
@@ -1737,7 +1738,14 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       }
 
       path = ring->locants[highest_loc];
-      ring_path.push_back(ring->locants_ch[path]);
+      if(!in_ring_path[ring->locants_ch[path]]){
+        ring_path.push_back(ring->locants_ch[path]);
+        in_ring_path[ring->locants_ch[path]] = true;
+      }
+      else{
+        fprintf(stderr,"Error: notation causes infinite path cycles, check ring definition\n");
+        return false;
+      }
     }
 
     bind_2 = highest_loc; 
