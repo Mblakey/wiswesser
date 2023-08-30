@@ -131,8 +131,8 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
                             std::set<OBBond*>              &ring_bonds,
                             std::map<OBAtom*,unsigned int> &atom_shares,
                             std::map<OBBond*,unsigned int> &bond_shares,
-                            std::set<OBRing*>    &local_SSSR, 
-                            std::vector<OBBond*> &nt_bonds)
+                            std::vector<OBBond*> &nt_bonds,
+                            std::map<OBAtom*,OBRing*> &trivial_atoms)
 {
 
   // create the path
@@ -156,13 +156,15 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
   OBAtom*                ratom  = 0;
   OBAtom*                catom  = 0;
   OBBond*                bond   = 0; 
+  OBRing*                obring = 0;
+  unsigned int           track_pos = 0;
   std::map<OBAtom*,bool> atoms_in_lp; 
   std::map<OBBond*,bool> ignore_bond; 
-  std::stack<OBAtom*> stack; 
+  std::stack<OBAtom*>    stack; 
 
   for(unsigned int i=0;i<nt_bonds.size();i++){
     if(opt_debug)
-      fprintf(stderr,"  locant path bond: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
+      fprintf(stderr,"  fused ring junction: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
     ignore_bond[nt_bonds[i]] = true; 
   } 
   
@@ -172,6 +174,10 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
     stack.pop();
     locant_path[locant_pos++] = ratom; 
     atoms_in_lp[ratom] = true; 
+
+    if(trivial_atoms[ratom]){
+      fprintf(stderr,"in ring %p\n",trivial_atoms[ratom]);
+    }
 
     OBAtom *push_atom = 0; 
     OBAtom *first_seen = 0;
@@ -1492,7 +1498,7 @@ struct BabelGraph{
     std::map<OBBond*,unsigned int>  bond_shares;
     
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds,trivial_atoms); 
-    OBAtom **    locant_path =  CreateLocantPath3(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds);
+    OBAtom **    locant_path =  CreateLocantPath3(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares,nt_bonds,trivial_atoms);
     
     if(opt_debug){
       fprintf(stderr,"  initial path: ");
