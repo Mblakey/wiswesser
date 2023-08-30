@@ -132,7 +132,7 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
                             std::map<OBAtom*,unsigned int> &atom_shares,
                             std::map<OBBond*,unsigned int> &bond_shares,
                             std::set<OBRing*>    &local_SSSR, 
-                            std::vector<std::pair<OBBond*,unsigned int>> &nt_bonds)
+                            std::vector<OBBond*> &nt_bonds)
 {
 
   // create the path
@@ -158,7 +158,7 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
   std::stack<OBAtom*> stack; 
 
   for(unsigned int i=0;i<nt_bonds.size();i++)
-    ignore_bond[nt_bonds[i].first] = true; 
+    ignore_bond[nt_bonds[i]] = true; 
 
   stack.push(rseed);
   while(!stack.empty()){
@@ -182,7 +182,6 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
         
         if(atom_shares[catom] > 2){ // if a multicyclic atom is avaliable, must take it
           push_atom = catom;
-          ignore_bond[bond] = false; // do not consider in path read now
           break;
         }
         else if(!ignore_bond[bond]){
@@ -195,37 +194,19 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
     }
     if(push_atom)
       stack.push(push_atom); 
-    else if(first_seen){
+    else if(first_seen)
       stack.push(first_seen);
-      ignore_bond[remove_bond] = false;
-    }
     
-      
   }
 
-  // mark
-  for(unsigned int i=0;i<nt_bonds.size();i++){
-    if(!ignore_bond[nt_bonds[i].first])
-      nt_bonds[i].first = 0;
-  }
-  // sweep
-  unsigned int idx = 0; 
-  for(unsigned int i=0;i<nt_bonds.size();i++){
-    if(nt_bonds[i].first)
-      nt_bonds[idx++] = nt_bonds[i];
-  }
-
-  // remove 
-  while(nt_bonds.size() != idx)
-    nt_bonds.pop_back();
 
   if(opt_debug){
     for(unsigned int i=0;i<nt_bonds.size();i++){
       if(opt_debug)
-        fprintf(stderr,"  locant path bond: %d --> %-3d (%d)\n",nt_bonds[i].first->GetBeginAtomIdx(),nt_bonds[i].first->GetEndAtomIdx(),nt_bonds[i].second);
+        fprintf(stderr,"  locant path bond: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
     }
-  }
-
+  } 
+  
   return locant_path; 
 }
 
@@ -271,10 +252,10 @@ unsigned int IsAromatic(std::set<OBRing*> &local_SSSR){
   return arom; 
 }
 
-/* take the created locant path and writes WLN ring assignments,
-probably O(n^4) but should be limited to below 100 rings */
-std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
-                              std::vector<std::pair<OBBond*,unsigned int>> nt_bonds, unsigned int expected_rings)
+
+/* Super simple locant path read based on the rules stated in 30,31,32 */
+std::string ReadLocantPath3(  OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
+                              std::map<OBAtom*,OBRing*> &trivial_atoms)
 {  
   std::string ring_str; 
   if(IsHeteroRing(locant_path,path_size))
@@ -282,127 +263,50 @@ std::string ReadLocantPath2(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   else
     ring_str += 'L';
 
-  unsigned int off_shift = 0; 
-  OBAtom *path_end = locant_path[path_size-1];
+  // walk the locant path, rings are written in the order seen from the lowest locant in the ring
+  std::map<OBRing*,bool> ring_added; 
   for(unsigned int i=0;i<path_size;i++){
-    OBAtom *catom = locant_path[i];
-    OBBond *bond = mol->GetBond(path_end,catom); 
-    if(bond){
-      off_shift = i;
-      if(opt_debug)
-        fprintf(stderr,"  shift needed: %d\n",off_shift);
-      break;
-    }
-  }
+    OBAtom *locant_atom = locant_path[i];
+    OBRing *obring = trivial_atoms[locant_atom];
 
+    if(obring && !ring_added[obring]){
+      
+      OBAtom *ratom = 0; 
+      unsigned int min_pos = path_size; 
+      ring_added[obring] = true;
 
-  // working copy
-  OBAtom ** reduced_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size);
-  copy_locant_path(reduced_path,locant_path,path_size); 
-
-  // can we take an interrupted walk between the points, if so, write ring size 
-  // and decremenent the active state
-  std::map<OBAtom*,unsigned int> active_atoms; 
-  for(unsigned int i=0;i<nt_bonds.size();i++){
-    active_atoms[nt_bonds[i].first->GetBeginAtom()]++;
-    active_atoms[nt_bonds[i].first->GetEndAtom()]++;
-  }
-
-  unsigned int loops = 0; 
-  while(loops < expected_rings){
-    for(unsigned int i=0;i<nt_bonds.size();i++){
-      OBBond *bond = nt_bonds[i].first; 
-      OBAtom *first = 0;
-      OBAtom *second = 0; 
-      unsigned int rsize = 0; 
-      unsigned char first_locant; 
-      for(unsigned int j=0;j<path_size;j++){
-        // find the starting point in nt_bond
-        if(!first || !second){
-          if(reduced_path[j] == bond->GetBeginAtom()){
-            first = bond->GetBeginAtom();
-            second = bond->GetEndAtom();
-            first_locant = int_to_locant( position_in_path(first,locant_path,path_size) +1);
-            rsize++;
-          }
-          else if (reduced_path[j] == bond->GetEndAtom()){
-            first   = bond->GetEndAtom();
-            second  = bond->GetBeginAtom();
-            first_locant = int_to_locant( position_in_path(first,locant_path,path_size) +1);
-            rsize++;
-          }
-        }
-        else if (first && second){
-          if(active_atoms[reduced_path[j]] && reduced_path[j] != second)
-            break; // path interupted
-          else if(reduced_path[j] == second){
-            rsize++;
-
-            if(first_locant != 'A'){
-              ring_str+= ' ';
-              ring_str+= first_locant;
-            }
-
-            if(rsize > 9){
-              ring_str += '-';
-              ring_str += std::to_string(rsize); 
-              ring_str += '-';
-            } 
-            else
-              ring_str += std::to_string(rsize);
-
-            nt_bonds.erase(nt_bonds.begin() + i);
-            // go back rsize+1 spaces and reduce the array
-
-            if(opt_debug)
-              fprintf(stderr,"  ring path: [ ");
-            for(unsigned int k = j-rsize+1;k<=j;k++){
-              
-              if(opt_debug)
-                fprintf(stderr,"%d ",reduced_path[k]->GetIdx());
-
-              if(active_atoms[reduced_path[k]])
-                active_atoms[reduced_path[k]]--;
-              else
-                reduced_path[k] = 0; 
-            }
-            if(opt_debug)
-              fprintf(stderr,"]\n");
-
-            SweepReducedPath(reduced_path,path_size);
-          }
-          else
-            rsize++;
-        }
+      for(unsigned int i=0;i<obring->Size();i++){
+        ratom = mol->GetAtom(obring->_path[i]);
+        unsigned int locant_pos = position_in_path(ratom,locant_path,path_size); 
+        if(locant_pos < min_pos)
+          min_pos = locant_pos;
       }
 
-    }
-    loops++;
-  }
+      if(min_pos == path_size){
+        fprintf(stderr,"Error: locant position not updated from max\n");
+        return "";
+      }
 
-  // we see whats left
-  unsigned int final_cycle = off_shift; 
-  for(unsigned int i=0;i<path_size;i++){
-    if(!reduced_path[i]){
-      if(final_cycle > 9){
-        ring_str += '-';
-        ring_str += std::to_string(final_cycle); 
-        ring_str += '-';
-      } 
-      else
-        ring_str += std::to_string(final_cycle);
+      if(min_pos){
+        ring_str += ' ';
+        ring_str += int_to_locant(min_pos+1);
+      }
       
-      break;
+      if(obring->Size() > 9){
+        ring_str+='-';
+        ring_str+= std::to_string(obring->Size());
+        ring_str+='-';
+      }
+      else
+        ring_str+= std::to_string(obring->Size());
     }
-    else
-      final_cycle++;
+
+
   }
 
   if(opt_debug)
-    fprintf(stderr,"  produced %s\n\n",ring_str.c_str());
-  
-  free(reduced_path);
-  reduced_path = 0; 
+    fprintf(stderr,"  produced: %s\n",ring_str.c_str());
+
   return ring_str;  
 }
 
@@ -1348,7 +1252,8 @@ struct BabelGraph{
                                     std::map<OBAtom*,unsigned int> &atom_shares,
                                     std::map<OBBond*,unsigned int> &bond_shares,
                                     std::set<OBRing*> &local_SSSR,
-                                    std::vector<std::pair<OBBond*,unsigned int>> &nt_bonds)
+                                    std::vector<OBBond*> &nt_bonds,
+                                    std::map<OBAtom*,OBRing*> &trivial_atoms)
   {
 
     if(!ring_root){
@@ -1375,6 +1280,9 @@ struct BabelGraph{
           atom_shares[ratom]++;
           ring_atoms.insert(ratom); 
 
+          if(!trivial_atoms[ratom])
+            trivial_atoms[ratom] = obring;
+
           if(!prev)
             prev = ratom; 
           else{
@@ -1394,6 +1302,7 @@ struct BabelGraph{
           forward_ring_addition[bond] = obring->Size();
           ring_bonds.insert(bond); 
         }
+
         break;
       }
     }
@@ -1419,12 +1328,15 @@ struct BabelGraph{
           if(intersection.size() > 1){
             rings_seen[obring] = true; 
             local_SSSR.insert(obring);
-
             prev = 0;
+
             for(unsigned int i=0;i<obring->Size();i++){
               OBAtom *ratom = mol->GetAtom(obring->_path[i]);
               ring_atoms.insert(ratom);
               atom_shares[ratom]++;
+
+              if(!trivial_atoms[ratom])
+                trivial_atoms[ratom] = obring;
 
               if(!prev)
                 prev = ratom;
@@ -1445,8 +1357,6 @@ struct BabelGraph{
               forward_ring_addition[bond] = obring->Size();
               ring_bonds.insert(bond); 
             }
-              
-            rings_seen[obring] = true;
             running = true;
           }
         }
@@ -1456,8 +1366,15 @@ struct BabelGraph{
     for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
       bond = (*biter);
       if(bond_shares[bond] > 1)
-        nt_bonds.push_back({bond,forward_ring_addition[bond]});
+        nt_bonds.push_back(bond);   
     }
+
+    // make sure we are only left with non trivials in this map, null shares
+    for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
+      if(atom_shares[(*aiter)] > 1)
+        trivial_atoms[(*aiter)] = 0;
+    }
+
 
     if(opt_debug){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
@@ -1571,14 +1488,15 @@ struct BabelGraph{
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
    
-    std::set<OBRing*>                             local_SSSR; 
-    std::set<OBAtom*>                             ring_atoms;
-    std::set<OBBond*>                             ring_bonds;
-    std::vector<std::pair<OBBond*,unsigned int>>  nt_bonds;
-    std::map<OBAtom*,unsigned int>                atom_shares;
-    std::map<OBBond*,unsigned int>                bond_shares;
+    std::set<OBRing*>               local_SSSR; 
+    std::set<OBAtom*>               ring_atoms;
+    std::set<OBBond*>               ring_bonds;
+    std::vector<OBBond*>            nt_bonds;
+    std::map<OBAtom*,OBRing*>       trivial_atoms; // trivial atoms should only have one ring location
+    std::map<OBAtom*,unsigned int>  atom_shares;
+    std::map<OBBond*,unsigned int>  bond_shares;
     
-    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds); 
+    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds,trivial_atoms); 
     OBAtom **    locant_path =  CreateLocantPath3(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR,nt_bonds);
     
     if(opt_debug){
@@ -1614,55 +1532,18 @@ struct BabelGraph{
       buffer += 'J';
       return {locant_path,path_size};
     }
-    // theres a slightly different procedure for minimising Multicyclic compounds
-    else if(!IsMultiCyclic(locant_path,path_size,atom_shares)){
-      
-      OBAtom *start = locant_path[0];
-      std::string init_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
-      OBAtom ** minimal_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-      copy_locant_path(minimal_path,locant_path,path_size); 
+    else {
 
-      do{
-        do{
-          shift_locants_left(locant_path,path_size);
-        }while(atom_shares[locant_path[0]] != 2);
-        std::string alt_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
-        if(MinimalWLNRingNotation(init_str,alt_str)){
-          init_str = alt_str;
-          copy_locant_path(minimal_path,locant_path,path_size);
-        } 
-      }while(locant_path[0] != start);
-
+      // locant path fuse algorithms
+      std::string init_str = ReadLocantPath3(mol,locant_path,path_size,trivial_atoms); 
       buffer += init_str;
-      ReadLocantAtomsBonds(minimal_path,path_size,buffer);
-      
-      unsigned int aromatic = IsAromatic(local_SSSR);
-      if(!aromatic)
-        buffer += "TJ";
-      else if (aromatic == 1)
-        buffer += 'J';
-      else{
-        fprintf(stderr,"Warning: mixed aromaticity not implemented yet\n");
-        buffer += 'J';
+
+      if(IsMultiCyclic(locant_path,path_size,atom_shares)){
+        ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
+        buffer += ' ';
+        buffer += int_to_locant(path_size);
       }
-
-      copy_locant_path(locant_path,minimal_path,path_size);
-      free(minimal_path);
-      minimal_path = 0;
-
-      return {locant_path,path_size};
-    }
-    else if (IsMultiCyclic(locant_path,path_size,atom_shares)){
-
-      std::string init_str = ReadLocantPath2(mol,locant_path,path_size,nt_bonds,local_SSSR.size()); 
-      buffer += init_str;
-
-
-      ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
-
-      buffer += ' ';
-      buffer += int_to_locant(path_size);
-
+      
       ReadLocantAtomsBonds(locant_path,path_size,buffer);
 
       unsigned int aromatic = IsAromatic(local_SSSR);
@@ -1675,10 +1556,6 @@ struct BabelGraph{
         buffer += 'J';
       }
       return {locant_path,path_size};
-    }
-    else{
-      fprintf(stderr,"Error: could not form locant path\n");
-      return {0,0};
     }
   }
     
