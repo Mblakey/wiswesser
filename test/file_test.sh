@@ -2,12 +2,13 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-ENG="${SCRIPT_DIR}/../../data/english_words.txt"
+FILE=$1
 PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
 
-echo "Checking whole english language for WLN notation ..."
-echo "Performing large seg fault unit test, this will take multiple minutes ..."
-
+if [ -z ${FILE} ]; then
+  echo "Error: no input file detected! should be first arg!"
+  exit 1
+fi;
 
 LINE=0
 while read ENTRY; do
@@ -19,7 +20,7 @@ while read ENTRY; do
 	else
     echo -ne "\r"
   fi
-done <$ENG
+done <$FILE
 
-echo "unit test complete - english_wln.tsv is now in the data directory"
+echo "unit test complete"
 exit 0
