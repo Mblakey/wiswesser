@@ -3924,7 +3924,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
 
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(6);
+        curr->set_edge_and_type(5); // 3 or 5 valence
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -4897,7 +4897,7 @@ struct BabelGraph{
         
         case 'P':
           atomic_num = 15;
-          while(sym->num_edges < 3){
+          while(sym->num_edges % 2 == 0){ // 3 and 5 valence
             hcount++;
             sym->num_edges++;
           }
@@ -4905,7 +4905,7 @@ struct BabelGraph{
         
         case 'S':
           atomic_num = 16;
-          while(sym->num_edges < 2){
+          while(sym->num_edges % 2 != 0){ // 2 and 6 valence
             hcount++;
             sym->num_edges++;
           }
