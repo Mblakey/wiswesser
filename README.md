@@ -4,7 +4,7 @@ Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files etc
 This is the development for the WLN parser that will be added directly to OpenBabel, 
 on the release of this project, please see my local branch of babel for pre-release versions. 
 
-[release](./notes/release.md)
+[READER RELEASE](./notes/release.md)
 
 ## Requirements
 
@@ -14,19 +14,20 @@ on the release of this project, please see my local branch of babel for pre-rele
 ## Build
 
 run `./build.sh` from the project directory, this will clone and build openbabel as well as linking
-the library to the parser in cmake. 
+the library to the parser in cmake. Babel files will be installed to `external`.
 
-A prompt will then ask you to run `source ./link.sh` which sets the babel build directory in shell, this tends to be needed for linux, but if openbabel is already installed via brew on macos, you can safely ignore. 
 
 ## Usage
+
+### Reader - WLN to SMILES/etc
 
 Command line utility `readwln` should be created in the build directory of Parser. This can either take a sequence (single quote escaped) from the command line. e.g 'L6TJ'
 
 ```
-readwln <options> -s 'string'
+readwln <options> -o<format> -s 'string'
 ```
 
-### flags
+#### Flags
 
 `-c` - enable run-time string correction, this allows correction of branching symbols and spaces where a valid WLN string can be seen <br>
 `-d` - enable all debugging logs to stderr<br>
@@ -38,10 +39,19 @@ readwln <options> -s 'string'
 dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
 ```
 
-### Output
+### Writer - SMILES/etc to WLN
 
-By default conversion will be piped to stdout, if converting files, its recommended piping the output to a file with '>'. All logging and debug information including fatal messages on unsuccesful conversion are sent to stderr. Babel Library information is also sent to stderr. 
+Command line utility `writewln` should be created in the build directory of Parser. This can either take a sequence (single quote escaped) from the command line. e.g 'c1ccccc1'
 
+```
+writewln <options> -i<format> -s 'string'
+```
+
+#### Flags 
+
+`-d` - enable all debugging logs to stderr<br>
+`-h` - display the help menu <br>
+`-i` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
 
 ### Unit Testing
 
