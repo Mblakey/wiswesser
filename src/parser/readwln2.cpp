@@ -4897,7 +4897,7 @@ struct BabelGraph{
         
         case 'P':
           atomic_num = 15;
-          while(sym->num_edges < 5){
+          while(sym->num_edges < 3){
             hcount++;
             sym->num_edges++;
           }
@@ -4905,7 +4905,7 @@ struct BabelGraph{
         
         case 'S':
           atomic_num = 16;
-          while(sym->num_edges < 4){
+          while(sym->num_edges < 2){
             hcount++;
             sym->num_edges++;
           }
