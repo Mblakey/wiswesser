@@ -1381,6 +1381,8 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   }
 
   unsigned int remaining_edges = binded_symbol->allowed_edges - binded_symbol->num_edges; 
+  fprintf(stderr,"remaining edges: %d\n",binded_symbol->allowed_edges);
+
 
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->set_edge_and_type(2,head->type);
@@ -3926,8 +3928,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
 
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(5); // 3 or 5 valence
-
+        
+        if(ch == 'P')
+          curr->set_edge_and_type(5); // 3 or 5 valence
+        else
+          curr->set_edge_and_type(6); // 2 or 6
+          
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
