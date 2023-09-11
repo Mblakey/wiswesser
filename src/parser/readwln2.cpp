@@ -3404,6 +3404,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
+            curr->num_edges = curr->num_edges - pending_unsaturate;
+            // 3 branch rather than 3 edge
             pending_unsaturate = 0;
           }
           
@@ -4815,6 +4817,7 @@ struct BabelGraph{
       WLNSymbol *sym = graph.SYMBOLS[i];
       OBAtom *atom = 0;
 
+
       int charge = 0; 
       unsigned int atomic_num = 0;
       unsigned int hcount = 0;
@@ -4843,11 +4846,22 @@ struct BabelGraph{
           atomic_num = 6;
           break;
 
-        case 'Y':
+        case 'Y':{
           atomic_num = 6;
-          if(sym->type != RING)
-            hcount = 1;
+          WLNEdge *e = 0;
+          unsigned int orders = 0; 
+          if(sym->type != RING){
+            for(e = sym->bonds;e;e=e->nxt)
+              orders += e->order;
+            
+            e = search_edge(sym,sym->previous);
+            orders += e->order;
+
+            if(orders < 4)
+              hcount = 1;
+          }
           break;
+        }
 
         case 'N':
           atomic_num = 7;
