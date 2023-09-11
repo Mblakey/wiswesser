@@ -3458,9 +3458,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-        
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3501,9 +3498,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3548,9 +3542,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3592,9 +3583,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3649,9 +3637,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3698,9 +3683,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!pending_inline_ring){
           
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-          
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3743,9 +3725,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!pending_inline_ring){
 
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3789,9 +3768,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3841,9 +3817,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3891,9 +3864,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3938,9 +3908,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -3985,9 +3952,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4035,9 +3999,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4064,9 +4025,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4115,9 +4073,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!pending_inline_ring){
 
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4172,9 +4127,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!pending_inline_ring){
 
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4278,9 +4230,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         if(!pending_inline_ring){
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4331,9 +4280,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!pending_inline_ring){
 
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4381,9 +4327,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!pending_inline_ring){
 
           ring = branch_stack.ring;
-          if(!ring)
-            Fatal(i);
-
           curr = ring->locants[ch];
           if(!curr){
             fprintf(stderr,"Error: accessing locants out of range\n");
@@ -4954,7 +4897,7 @@ struct BabelGraph{
         
         case 'P':
           atomic_num = 15;
-          while(sym->num_edges < 3){
+          while(sym->num_edges < 5){
             hcount++;
             sym->num_edges++;
           }
@@ -4962,7 +4905,7 @@ struct BabelGraph{
         
         case 'S':
           atomic_num = 16;
-          while(sym->num_edges < 2){
+          while(sym->num_edges < 4){
             hcount++;
             sym->num_edges++;
           }
