@@ -4409,9 +4409,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         break;
       }
 
-
+      if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring)
+        pending_locant = true;
+      else if (!opt_correct){
+        fprintf(stderr,"Error: space used outside ring and ionic notation\n");
+        Fatal(i);
+      }
+       
       // only burn the stacks now on ionic clearance
-      pending_locant = true;
       break;
 
 

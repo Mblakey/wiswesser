@@ -51,7 +51,7 @@ writewln <options> -i<format> -s 'string'
 
 `-d` - enable all debugging logs to stderr<br>
 `-h` - display the help menu <br>
-`-i` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
+`-i` - choose input format for string, options are `-ismi`, `-iinchi` and `-ican` following OpenBabels format conventions <br>
 
 ### Unit Testing
 
