@@ -175,9 +175,9 @@ OBAtom **CreateLocantPath3( OBMol *mol, unsigned int path_size,
     locant_path[locant_pos++] = ratom; 
     atoms_in_lp[ratom] = true; 
 
-    if(trivial_atoms[ratom]){
+    if(trivial_atoms[ratom])
       fprintf(stderr,"in ring %p\n",trivial_atoms[ratom]);
-    }
+    
 
     OBAtom *push_atom = 0; 
     OBAtom *first_seen = 0;

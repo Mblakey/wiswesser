@@ -28,15 +28,17 @@ if [ -d "$SCRIPT_DIR/external/openbabel" ]
 then
     mkdir -p "$SCRIPT_DIR/external/openbabel/build"
     cd "$SCRIPT_DIR/external/openbabel/build"
-    cmake ..
+    cmake .. -DCMAKE_INSTALL_PREFIX="$SCRIPT_DIR/external"
     make -j 10
+    make install
 else
     cd external
     git clone https://github.com/openbabel/openbabel.git
     mkdir "$SCRIPT_DIR/external/openbabel/build"
     cd "$SCRIPT_DIR/external/openbabel/build"
-    cmake ..
+    cmake .. -DCMAKE_INSTALL_PREFIX="$SCRIPT_DIR/external"
     make -j 10
+    make install 
 fi
 
 mkdir -p "$SCRIPT_DIR/src/parser/build"
@@ -45,7 +47,5 @@ cmake ..
 make 
 
 echo ""
-echo "Build successful - please run:" 
-echo "  source ./link.sh"
-echo "before using parser"
+echo "Build successful"
 exit 0
