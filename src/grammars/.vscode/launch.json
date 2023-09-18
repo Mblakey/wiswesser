@@ -7,8 +7,8 @@
           "type": "antlr-debug",
           "request": "launch",
           "input": "grammar_debug.txt",
-          "grammar": "multiplier.g4",
-          "startRule": "multiplier",
+          "grammar": "WLN.g4",
+          "startRule": "read",
           "printParseTree": true,
           "visualParseTree": true
       }

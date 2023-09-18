@@ -1,4 +1,4 @@
-// Generated from /home/mikey/Workspace/freycompchem/wisswesser/src/parser/grammars/locants.g4 by ANTLR 4.9.2
+// Generated from /Users/michaelblakey/Workspace/freycompchem/wiswesser/src/grammars/locants.g4 by ANTLR 4.9.2
 import org.antlr.v4.runtime.atn.*;
 import org.antlr.v4.runtime.dfa.DFA;
 import org.antlr.v4.runtime.*;

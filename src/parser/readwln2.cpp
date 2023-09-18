@@ -1493,7 +1493,7 @@ bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring){
 }
 
 
-/* this needs to maximise the number of double bonds */
+/* Need to use a Bloom algorithm (aug path) post ring form, one lot of O(n^3) */
 bool ResolveAromatics(WLNRing *ring){
   if(ring->aromatic_edges.empty())
     return true; 
@@ -1528,14 +1528,14 @@ bool ResolveAromatics(WLNRing *ring){
 
 /* interesting here that the multicyclic points are not explicitly used */
 unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                                std::vector<bool> &aromaticity,
-                                std::vector<unsigned char> &multicyclic_locants,
-                                std::vector<indexed_pair> &pseudo_locants,
-                                std::set<unsigned char> &broken_locants,
-                                std::map<unsigned char,bool> &bridge_locants,
-                                unsigned char size_designator,
-                                WLNRing *ring,
-                                WLNGraph &graph) 
+                          std::vector<bool> &aromaticity,
+                          std::vector<unsigned char> &multicyclic_locants,
+                          std::vector<indexed_pair> &pseudo_locants,
+                          std::set<unsigned char> &broken_locants,
+                          std::map<unsigned char,bool> &bridge_locants,
+                          unsigned char size_designator,
+                          WLNRing *ring,
+                          WLNGraph &graph) 
 {
   unsigned int local_size = 0;
   if(!size_designator){
