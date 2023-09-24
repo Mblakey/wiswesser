@@ -46,11 +46,12 @@ branch:           branch ('S'|element|hyper_valent) (branch ('&'|terminator))? (
                   ('M'|'O'|'C'|'V') branch?                                                                                                                 |                                                                                        
 
                   branch ('U'|'U''U') branch                                                                                                                | // unsaturation
-                  ('U'|'U''U') branch                                                                                                                | // unsaturation
+                  ('U'|'U''U') branch                                                                                                                       | // unsaturation
                   
-                  branch benzene (space locant branch)* closures*                                                                                           |
-                  benzene (space locant branch)* closures*                                                                                                  |
-                  (atom_char|alkyl_chain|element|hyper_valent|benzene) closures*;                                                                                           
+                  branch benzene (space locant (branch|terminator) )* closures*                                                                                           |
+                  benzene (space locant (branch|terminator) )* closures*                                                                                                  |
+                  (atom_char|alkyl_chain|element|hyper_valent|benzene) closures*;                                                                            
+                                 
 
 wln_branch:       terminator | (terminator? branch terminator?);  
 
