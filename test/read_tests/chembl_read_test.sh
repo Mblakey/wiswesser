@@ -7,6 +7,8 @@ PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
 CANONICAL="${SCRIPT_DIR}/../../src/parser/build/obabel_strip"
 
 COUNT=0
+MISSED=0
+WRONG=0
 TOTAL=$(wc -l < $CHEMBL)
 
 LINE=0
@@ -18,10 +20,10 @@ while read p; do
   
 
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
-
   NEW_SMILES=$($PARSE -ocan -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z $NEW_SMILES ]; then
+    ((MISSED++));
     echo "$WLN != anything"
     continue
   fi;
@@ -34,9 +36,12 @@ while read p; do
     echo -ne "\r"
   else
     echo "$WLN != $CAN_SMILES    $NEW_SMILES"
+    ((WRONG++));
   fi;
 
 done <$CHEMBL
 
 echo -ne "\r$COUNT/$TOTAL correct\n"
+echo -ne "$MISSED completely missed\n"
+echo -ne "$WRONG wrong output\n"
 echo "unit test complete"
