@@ -8,7 +8,7 @@ PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
 COUNT=0
 MISSED=0
 WRONG=0
-TOTAL=$(wc -l < $PUB)
+TOTAL=$(wc -l < $SMITH)
 LINE=0
 while read p; do
   ((LINE++));
