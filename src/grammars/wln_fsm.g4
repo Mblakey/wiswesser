@@ -23,15 +23,25 @@ benzene:          'R';
 
 allowed_dioxo_start:  'W' (contract_char|branch_char|element|hyper_valent); 
 
+/* OG 
 // restrict 'W' here
 branch:   (contract_char|branch_char|element|hyper_valent) 'W'? branch? |
           (linear_char|alkyl_chain) branch? |
           terminator branch?  |
-          branch '&'+ branch? | // will have two eliminate the recursion fully
+          (standard_set|alkyl_chain|terminator) '&'+ branch? | // will have two eliminate the recursion fully
           ('U'|'U''U') branch |
           benzene (benzene+|'&'|EOF)
           ;
-                              
+*/     
+
+branch:   (contract_char|branch_char|element|hyper_valent) 'W'? branch? |
+          (linear_char|alkyl_chain) branch? |
+          (standard_set|alkyl_chain|terminator) '&'+ branch? | // will have two eliminate the recursion fully
+          terminator branch?  |
+          ('U'|'U''U') branch |
+          benzene (benzene+|'&'|EOF)
+          ;
+
 substitued_benzene: benzene (space locant branch)*;
 
 wln_branch:       allowed_dioxo_start? (branch|substitued_benzene)*;  
@@ -64,7 +74,8 @@ ion:              space '&' wln_branch;
 
 post_notation:    charge|ion; 
 
-major_cycle:      cycle closures* (  (space locant wln_branch ('-' space locant major_cycle)? )|(space locant '-'? space locant major_cycle)|(space locant))*;  // handles spiro in the locant definition
+// this should be right recursive only
+major_cycle:      cycle closures* (  (space locant)|(space locant wln_branch ('-' space locant major_cycle)? )|(space locant '-'? space locant major_cycle))*;  // handles spiro in the locant definition
 
 macro_cycle:      ('L'|'T') '-' major_cycle space locant ring_size 'J'; 
 
