@@ -7,7 +7,7 @@
           "type": "antlr-debug",
           "request": "launch",
           "input": "grammar_debug.txt",
-          "grammar": "WLN.g4",
+          "grammar": "wln_fsm.g4",
           "startRule": "read",
           "printParseTree": true,
           "visualParseTree": true
