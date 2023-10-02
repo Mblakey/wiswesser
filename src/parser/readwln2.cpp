@@ -99,6 +99,12 @@ void Fatal(unsigned int pos)
   exit(1);
 }
 
+static void WARNING(const char *str){
+  fprintf(stderr,"  WARNING CALLED: %s\n",str);
+}
+
+
+
 
 /**********************************************************************
                           STRUCT DEFINTIONS
@@ -112,10 +118,10 @@ struct WLNEdge{
   unsigned int order;
 
   WLNEdge(){
-    parent = 0;
-    child = 0;
-    order = 0;
-    nxt = 0;
+    parent   = 0;
+    child    = 0;
+    order    = 0;
+    nxt      = 0;
   }
   ~WLNEdge(){};
 };
@@ -126,6 +132,7 @@ struct WLNSymbol
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
   
+  bool aromatic; 
   unsigned int type;
   unsigned int allowed_edges;
   unsigned int num_edges;
@@ -142,6 +149,7 @@ struct WLNSymbol
     type = 0;
     previous = 0;
     bonds = 0;
+    aromatic = 0;
   }
   ~WLNSymbol(){};
 
@@ -160,12 +168,10 @@ struct WLNSymbol
 
 struct WLNRing
 {
-  std::vector<unsigned int> rings;
-  std::map<unsigned char, WLNSymbol *> locants; 
-  std::map<WLNSymbol*,unsigned char> locants_ch;
+  std::map<unsigned char, WLNSymbol *>      locants; 
+  std::map<WLNSymbol*,unsigned char>        locants_ch;
   std::vector<std::pair<unsigned char,int>> post_charges; 
-  std::vector<WLNEdge*> aromatic_edges; // order must be maintained
-  
+
   WLNRing(){}
   ~WLNRing(){};
 };
@@ -1460,79 +1466,13 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 }  
 
 
-/* takes every aromatic edge and places in a map */
-bool assign_aromatics2(std::deque<unsigned char> &ring_path, WLNRing *ring){
-  WLNSymbol *par = 0;
-  WLNSymbol *chi = 0;
-  for (unsigned int i=1;i<ring_path.size();i++){
-    WLNSymbol *par = ring->locants[ring_path[i-1]];
-    WLNSymbol *chi = ring->locants[ring_path[i]];
-
-    WLNEdge * edge = search_edge(chi,par,false);
-    if(!edge)
-      edge = search_edge(par,chi);
-
-    if(!edge)
-      return false;
-
-    ring->aromatic_edges.push_back(edge);
-  }
-
-  par = ring->locants[ring_path[0]];
-  chi = ring->locants[ring_path[ring_path.size()-1]];
-
-  WLNEdge * edge = search_edge(chi,par,false);
-  if(!edge)
-    edge = search_edge(par,chi);
-
-  if(!edge)
-    return false;
-
-  ring->aromatic_edges.push_back(edge);
-  return true;
-}
-
-
-/* Need to use a Bloom algorithm (aug path) post ring form, one lot of O(n^3) */
-bool ResolveAromatics(WLNRing *ring){
-  if(ring->aromatic_edges.empty())
-    return true; 
-
-  std::vector<WLNEdge*>::iterator iter; 
-  std::map<WLNSymbol*,bool> involved; // so we dont get =P= coming in
-  // red black tree so linear time
-  for(iter = ring->aromatic_edges.begin(); iter != ring->aromatic_edges.end();iter++){
-
-    // if we can double bond, do it, maximise double bonding in each sub ring
-    // is the next step 
-    WLNEdge *edge = *iter;
-
-    if(involved[edge->child] || involved[edge->parent])
-      continue; 
-    
-    if( (edge->child->num_edges < edge->child->allowed_edges) 
-        && (edge->parent->num_edges < edge->parent->allowed_edges))
-    {
-      involved[edge->child]  = true;
-      involved[edge->parent] = true; 
-
-      WLNEdge *e = unsaturate_edge(edge,1);
-      if(!e)
-        return false;
-    }
-  }
-
-  return true; 
-}
-
-
 /* interesting here that the multicyclic points are not explicitly used */
 unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                          std::vector<bool> &aromaticity,
-                          std::vector<unsigned char> &multicyclic_locants,
-                          std::vector<indexed_pair> &pseudo_locants,
-                          std::set<unsigned char> &broken_locants,
-                          std::map<unsigned char,bool> &bridge_locants,
+                          std::vector<bool>             &aromaticity,
+                          std::vector<unsigned char>    &multicyclic_locants,
+                          std::vector<indexed_pair>     &pseudo_locants,
+                          std::set<unsigned char>       &broken_locants,
+                          std::map<unsigned char,bool>  &bridge_locants,
                           unsigned char size_designator,
                           WLNRing *ring,
                           WLNGraph &graph) 
@@ -1786,9 +1726,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       return false;
 
     if(aromatic){
-      if(!assign_aromatics2(ring_path,ring))
-        return false;
+      for(unsigned int a=0;a<ring_path.size();a++)
+        ring->locants[ring_path[a]]->aromatic = true; 
     }
+
     fuses++;
   }
 
@@ -1809,15 +1750,16 @@ unsigned char create_relative_position(unsigned char parent){
 
 
 // try to handle if errors are occuring due to path changes
-bool handle_post_orders(std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
-                        unsigned int mode,
+bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
                         unsigned int final_size,
                         WLNRing *ring){
 
   // post unsaturate bonds
   for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
+    
     unsigned char loc_1 = bond_pair.first;
     unsigned char loc_2 = bond_pair.second;
+
     if(loc_2 > int_to_locant(final_size)){
       loc_1 = 'A';
       loc_2--;
@@ -1825,21 +1767,12 @@ bool handle_post_orders(std::vector<std::pair<unsigned char, unsigned char>> &bo
 
     WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1],false);
     if(!edge)
-      edge = search_edge(ring->locants[loc_1],ring->locants[loc_2],false);
+      edge = search_edge(ring->locants[loc_1],ring->locants[loc_2],true);
     
     if(!edge)
-      edge = search_edge(ring->locants[loc_1]->bonds->child,ring->locants[loc_1],false);
-
-    if(!edge)
-      edge = search_edge(ring->locants[loc_1]->previous->bonds->child,ring->locants[loc_1],false);
-
-    if(mode)
-      edge = unsaturate_edge(edge,1);
-    else
-      edge = saturate_edge(edge,1);
-
-    if(!edge)
       return false;
+    else
+      edge = unsaturate_edge(edge,1);
   }
 
   return true;
@@ -1867,7 +1800,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
   std::vector<bool> aromaticity; 
   std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
-  std::vector<std::pair<unsigned char, unsigned char>>  saturations; 
 
   std::vector<unsigned char>    pseudo_locants;
   std::vector<unsigned int>     pseudo_positions; 
@@ -1881,13 +1813,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
   std::vector<indexed_pair>                            indexed_bindings;  
   
-
   unsigned int i = 0;    
   unsigned int len = block.size();
-
-  // somehow need to give 
-
-  const char *block_str = block.c_str(); // this should be now globally alive
+  const char *block_str = block.c_str();
   unsigned char ch = *block_str++;
 
   while(ch){
@@ -2473,10 +2401,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
             }
 
-            // has the effect of unsaturating a bond
+            // has the effect of unaromatising a bond
             case 'H':
-              // no need to put this in implied, it has to be specified
-              saturations.push_back({positional_locant,positional_locant+1});
+              WARNING("case 'H' for aromaticity is currently undefined");
               break;
 
 
@@ -2616,7 +2543,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               case 'U':
                 unsaturations.push_back({positional_locant,positional_locant+1});
-              break;
+                break;
 
               // externally bonded to the symbol as a locant symbol
             case 'W':{
@@ -2646,8 +2573,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               }
                 // has the effect of unsaturating a bond
               case 'H':
-                // no need to put this in implied, it has to be specified
-                saturations.push_back({positional_locant,positional_locant+1});
+                WARNING("case 'H' for aromaticity is currently undefined");
                 break;
 
               default:
@@ -2937,7 +2863,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
   }
   
-  unsigned int final_size = 0;
+  unsigned int final_size = 0; 
   final_size = BuildCyclic(ring_components,aromaticity,
                                 multicyclic_locants,indexed_bindings,
                                 broken_locants,
@@ -2946,15 +2872,13 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                                 ring,
                                 graph);
 
-
   for (std::pair<unsigned char,int> &post : ring->post_charges)
     graph.charge_additions[ring->locants[post.first]] += post.second;
   
   if (!final_size)
     Fatal(start+i);
 
-  if( !handle_post_orders(unsaturations,1,final_size,ring) 
-      || !handle_post_orders(saturations,0,final_size,ring))
+  if(!post_unsaturate(unsaturations,final_size,ring))
     Fatal(start+i);
 }
 
@@ -3030,14 +2954,11 @@ bool multiply_carbon(WLNSymbol *sym){
 bool ExpandWLNSymbols(WLNGraph &graph){
 
   unsigned int stop = graph.symbol_count;
-  
   // dioxo must be handled before 
   for (unsigned int i=1;i<=stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
-    if(sym->ch == 'W'){
-      if(!add_dioxo(sym,graph))
-        return false;
-    }
+    if(sym->ch == 'W' && !add_dioxo(sym,graph))
+      return false;
   }
 
   // unsaturated carbons with C
@@ -3073,6 +2994,9 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         e = unsaturate_edge(e,1);
         if(!e)
           return false;
+
+        if(sym->aromatic)
+          oxygen->aromatic = true; 
         
         break;
       }
@@ -3170,22 +3094,6 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
     }
   }
   return true;
-}
-
-
-bool ParseAromaticRings(WLNGraph &graph){
-  for (unsigned int i=0;i<graph.ring_count;i++){
-    WLNRing *ring = graph.RINGS[i]; 
-
-    if(!ring){
-      fprintf(stderr,"bad access!\n");
-      return false;
-    }
-
-    if(!ResolveAromatics(ring))
-      return false;
-  }
-  return true; 
 }
 
 
@@ -3895,7 +3803,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
           if(!edge)
             Fatal(i);
-          
         }         
         
         branch_stack.push({0,curr});
@@ -4744,7 +4651,7 @@ struct BabelGraph{
   ~BabelGraph(){};
 
 
-  OBAtom* NMOBMolNewAtom(OBMol* mol, unsigned int elem,int charge=0,unsigned int hcount=0)
+  OBAtom* NMOBMolNewAtom(OBMol* mol, unsigned int elem,int charge,unsigned int hcount)
   {
     OBAtom* result = mol->NewAtom();
     result->SetAtomicNum(elem);
@@ -4753,47 +4660,26 @@ struct BabelGraph{
     return result;
   }
 
-  void NMOBAtomSetAromatic(OBAtom* atm)
-  {
-    OBMol* mol = (OBMol*)atm->GetParent();
-    if (mol && !mol->HasAromaticPerceived())
-      mol->SetAromaticPerceived();
 
-    atm->SetAromatic();
-  }
-
-
-  bool NMOBMolNewBond(OBMol* mol,
-                      OBAtom* s,
-                      OBAtom* e,
-                      unsigned int order, bool arom)
+  OBBond* NMOBMolNewBond( OBMol* mol,
+                          OBAtom* s,
+                          OBAtom* e,
+                          unsigned int order)
   {
     
+    OBBond* bptr = 0; 
     if(!s || !e){
       fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible\n");
-      return false;
+      return bptr;
     }
 
-    if(opt_debug)
-      fprintf(stderr,"  bonding: atoms %3d --> %3d [%d]\n",s->GetIdx(),e->GetIdx(),order);
-    
     if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)){
       fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
-      return false;
+      return bptr;
     }
         
-    OBBond* bptr = mol->GetBond(mol->NumBonds() - 1);
-    if(!bptr){
-      fprintf(stderr,"Error: could not re-return bond for checking\n");
-      return false;
-    }
-
-    if (arom){
-      bptr->SetAromatic();
-      NMOBAtomSetAromatic(s);
-      NMOBAtomSetAromatic(e);
-    }
-    return true;
+    bptr = mol->GetBond(mol->NumBonds() - 1);
+    return bptr;
   }
 
 
@@ -4801,19 +4687,20 @@ struct BabelGraph{
   {
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
     mol->SetChiralityPerceived(true);
-    mol->SetAromaticPerceived(false);
+    mol->SetAromaticPerceived(true);
 
-    //if(!OBKekulize(mol))
-    //  fprintf(stderr,"Warning: failed to kekulize mol - check aromaticity\n");
-    
+    if(!OBKekulize(mol)){
+      fprintf(stderr,"Error: failed to kekulize mol\n");
+      if(!opt_debug) // if we cant kekulise lets see why
+        return false; 
+    }
+
     mol->DeleteHydrogens();
     return true;
   }
 
 
   bool ConvertFromWLN(OBMol* mol,WLNGraph &graph){
-
-    // aromaticity is handled by reducing the edges
 
     if(opt_debug)
       fprintf(stderr,"Converting wln to obabel mol object: \n");
@@ -4822,7 +4709,6 @@ struct BabelGraph{
     for (unsigned int i=1; i<=graph.symbol_count;i++){
       WLNSymbol *sym = graph.SYMBOLS[i];
       OBAtom *atom = 0;
-
 
       int charge = 0; 
       unsigned int atomic_num = 0;
@@ -4991,38 +4877,47 @@ struct BabelGraph{
       // ionic notation - overrides any given formal charge
       if(graph.charge_additions[sym])
         charge = graph.charge_additions[sym];
-      
+
+      if(sym->aromatic && hcount >0)
+        hcount--;
+  
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
       if(!atom){
         fprintf(stderr,"Error: formation of obabel atom object\n");
         return false;
       }
 
-      if(sym->type == RING)
-        atom->SetInRing();
-
       babel_atom_lookup[graph.index_lookup[sym]] = atom;
-      if(opt_debug)
-        fprintf(stderr,"  created: atom[%d] - atomic num(%d), charge(%d)\n",atom->GetIdx(),atomic_num,charge);
-    
     }
+
+    // create edges 
+    std::map<WLNEdge*, OBBond*> bond_map; 
 
     for(unsigned int i=1;i<=graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
-
       unsigned int parent_id = graph.index_lookup[parent];
-      OBAtom *par_atom = babel_atom_lookup[parent_id];
       WLNEdge *e = 0;
       if(parent->bonds){
-        
         for (e = parent->bonds;e;e = e->nxt){
           WLNSymbol *child = e->child;
           unsigned int bond_order = e->order;  
           unsigned int child_id = graph.index_lookup[child];
-          OBAtom *chi_atom = babel_atom_lookup[child_id];
-          if(!NMOBMolNewBond(mol,par_atom,chi_atom,bond_order,false))
+          OBBond *bptr = NMOBMolNewBond(mol,babel_atom_lookup[parent_id],babel_atom_lookup[child_id],bond_order);
+          if(!bptr)  
             return false;
+          bond_map[e] = bptr; 
         }
+      }
+    }
+
+    // handle aromatics
+    for(unsigned int i=1;i<=graph.edge_count;i++){
+      WLNEdge *edge = graph.EDGES[i]; 
+      if(edge->parent->aromatic && edge->child->aromatic){
+        OBBond* bptr = bond_map[edge]; 
+        bptr->GetBeginAtom()->SetAromatic(true);
+        bptr->GetEndAtom()->SetAromatic(true);
+        bptr->SetAromatic(true);
       }
     }
 
@@ -5055,9 +4950,7 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(state)
     state = ParseWLNString(ptr,wln_graph);
 
-  if(state)
-    state = ParseAromaticRings(wln_graph); 
-  
+
   // create an optional wln dotfile
   if (opt_wln2dot)
     WriteGraph(wln_graph,"wln-graph.dot");

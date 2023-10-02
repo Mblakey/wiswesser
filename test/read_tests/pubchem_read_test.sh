@@ -6,7 +6,10 @@ PUB="${SCRIPT_DIR}/../../data/pubchem.tsv"
 PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
 CANONICAL="${SCRIPT_DIR}/../../src/parser/build/obabel_strip"
 
+
 COUNT=0
+MISSED=0
+WRONG=0
 TOTAL=$(wc -l < $PUB)
 
 LINE=0
@@ -17,9 +20,10 @@ while read p; do
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
   
   CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
-  NEW_SMILES=$($PARSE -c -ocan -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
+  NEW_SMILES=$($PARSE -ocan -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
 
   if [ -z $NEW_SMILES ]; then
+    ((MISSED++));
     echo "$WLN != anything"
     continue
   fi;
@@ -32,9 +36,12 @@ while read p; do
     echo -ne "\r"
   else
     echo "$WLN != $CAN_SMILES    $NEW_SMILES"
+    ((WRONG++));
   fi;
 
 done <$PUB
 
 echo -ne "\r$COUNT/$TOTAL correct\n"
+echo -ne "$MISSED completely missed\n"
+echo -ne "$WRONG wrong output\n"
 echo "unit test complete"
