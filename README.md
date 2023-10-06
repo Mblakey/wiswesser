@@ -11,19 +11,13 @@ To extract WLN from documents, Finite State Machine (FSM) parser is built from t
 **git**, **cmake**, **make** and a **c++ compiler** are all essential. <br>
 **graphviz** is an optional install to view wln graphs (not needed for build). 
 
+**OpenBabel** [see repo](https://github.com/openbabel/openbabel), will be installed as an external dependency.  
+
 ## Build
 
-run `./build.sh` from the project directory, this will clone and build openbabel as well as linking
-the library to the parser in cmake. Babel files will be installed to `external`. Building the projects places all executables into `bin/`. 
+Run `./build.sh` from the project directory, this will clone and build openbabel as well as linking
+the library to the parser in cmake. Babel files will be installed to `external`. Building the projects places all executables into `bin/`. <br>
 
-If you are creating this project without the shell script, please follow the instructions and naming conventions:
-
-```
-mkdir bin
-cd bin
-cmake ..
-make -j10
-```
 
 ## Converting between WLN and CLN Formats
 
