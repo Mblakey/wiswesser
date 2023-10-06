@@ -77,7 +77,7 @@ wlngrep <options> <filename>
 `-d` - dump resultant machine to dot file <br>
 `-o` - print only the matched parts of line <br>
 `-m` - do not minimise DFA (debugging only) <br>
-`-s` - interpret <filename> as a string to match <br>
+`-s` - interpret `<filename>` as a string to match <br>
 `-x` - return string if whole line matches <br>
 
 
