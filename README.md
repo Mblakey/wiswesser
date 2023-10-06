@@ -1,6 +1,6 @@
 # Extraction and Conversion of Wiswesser Line Notation (WLN) 
 
-Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files and other chemical line notation (CLU) formats. This uses the OpenBabel chemical library, with the hope the code will be merged in. 
+Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files and other chemical line notation (CLN) formats. This uses the OpenBabel chemical library, with the hope the code will be merged in. 
 
 To extract WLN from documents, Finite State Machine (FSM) parser is built from the WLN rules, this machine uses greedy matching to return matched WLN sequences from documents. 
 
