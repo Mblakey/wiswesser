@@ -27,11 +27,11 @@ cmake ..
 make -j10
 ```
 
-## Usage
+## Converting between WLN
 
-### Reader - WLN to SMILES/etc
+The following command line utilities are for converting between WLN and other chemical formats 
 
-Command line utility `readwln`. This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and return the output format. 
+`readwln` - This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and returns the desired output format. 
 
 ```
 readwln <options> -o<format> -s 'string'
@@ -49,9 +49,10 @@ readwln <options> -o<format> -s 'string'
 dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
 ```
 
-### Writer - SMILES/etc to WLN
+<br>
 
-Command line utility `writewln`. This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and return WLN. 
+
+`writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string. 
 
 ```
 writewln <options> -i<format> -s 'string'
@@ -64,13 +65,14 @@ writewln <options> -i<format> -s 'string'
 `-i` - choose input format for string, options are `-ismi`, `-iinchi` and `-ican` following OpenBabels format conventions <br>
 
 
-### Extraction 
+## WLN Extraction 
 
 Command line utility `wlngrep`. This either takes a filename, or an escaped single sequence if using the `-s` flag. With some exceptions, flags are kept inline with standard grep usage.
 
 ```
 wlngrep <options> <filename>
 ```
+
 #### Flags 
 
 `-c` - return number of matches instead of string <br>
@@ -81,7 +83,7 @@ wlngrep <options> <filename>
 `-x` - return string if whole line matches <br>
 
 
-### Unit Testing
+## Unit Testing
 
 All unit tests are contained in the `/test` directory.  
 
