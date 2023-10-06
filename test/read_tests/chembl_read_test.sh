@@ -3,8 +3,8 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 CHEMBL="${SCRIPT_DIR}/../../data/chembl24.tsv"
-PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
-CANONICAL="${SCRIPT_DIR}/../../src/parser/build/obabel_strip"
+PARSE="${SCRIPT_DIR}/../../bin/readwln"
+CANONICAL="${SCRIPT_DIR}/../../bin/obabel_strip"
 
 COUNT=0
 MISSED=0

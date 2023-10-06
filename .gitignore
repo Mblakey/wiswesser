@@ -1,9 +1,5 @@
-dep/masters.tar
-reports/presentations/
-src/.vscode/
-src/parser/build/
-src/parser/.vscode/
-src/openbabel/
+dep
+bin
 src/grammars/.antlr
 .vscode
 external

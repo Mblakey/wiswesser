@@ -3,9 +3,9 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 SMITH="${SCRIPT_DIR}/../../data/smith.tsv"
-WRITER="${SCRIPT_DIR}/../../src/parser/build/writewln"
-READER="${SCRIPT_DIR}/../../src/parser/build/readwln"
-CANONICAL="${SCRIPT_DIR}/../../src/parser/build/obabel_strip"
+WRITER="${SCRIPT_DIR}/../../bin/writewln"
+READER="${SCRIPT_DIR}/../../bin/readwln"
+CANONICAL="${SCRIPT_DIR}/../../bin/obabel_strip"
 
 COUNT=0
 TOTAL=$(wc -l < $SMITH)

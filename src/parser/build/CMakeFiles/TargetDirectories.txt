@@ -1,0 +1,6 @@
+/home/mikey/Workspace/freycompchem/wiswesser/src/parser/build/CMakeFiles/readwln.dir
+/home/mikey/Workspace/freycompchem/wiswesser/src/parser/build/CMakeFiles/OLD_readwln.dir
+/home/mikey/Workspace/freycompchem/wiswesser/src/parser/build/CMakeFiles/writewln.dir
+/home/mikey/Workspace/freycompchem/wiswesser/src/parser/build/CMakeFiles/obabel_strip.dir
+/home/mikey/Workspace/freycompchem/wiswesser/src/parser/build/CMakeFiles/edit_cache.dir
+/home/mikey/Workspace/freycompchem/wiswesser/src/parser/build/CMakeFiles/rebuild_cache.dir

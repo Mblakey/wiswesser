@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -O3 -std=c++11 -g CMakeFiles/writewln.dir/writewln2.cpp.o -o writewln  -Wl,-rpath,/home/mikey/Workspace/freycompchem/wiswesser/src/parser/../../external/openbabel/build/lib ../../../external/openbabel/build/lib/libopenbabel.so.7 

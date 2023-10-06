@@ -41,8 +41,8 @@ else
     make install 
 fi
 
-mkdir -p "$SCRIPT_DIR/src/parser/build"
-cd "$SCRIPT_DIR/src/parser/build"
+mkdir -p "$SCRIPT_DIR/bin"
+cd "$SCRIPT_DIR/bin"
 cmake ..
 make 
 

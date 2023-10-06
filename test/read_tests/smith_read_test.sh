@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 SMITH="${SCRIPT_DIR}/../../data/smith.tsv"
-PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
+PARSE="${SCRIPT_DIR}/../../bin/readwln"
 
 COUNT=0
 MISSED=0

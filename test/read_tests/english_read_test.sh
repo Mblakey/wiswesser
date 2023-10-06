@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 ENG="${SCRIPT_DIR}/../../data/english_words.txt"
-PARSE="${SCRIPT_DIR}/../../src/parser/build/readwln"
+PARSE="${SCRIPT_DIR}/../../bin/readwln"
 
 echo "Checking whole english language for WLN notation ..."
 echo "Performing large seg fault unit test, this will take multiple minutes ..."

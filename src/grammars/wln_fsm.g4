@@ -74,8 +74,9 @@ ion:              space '&' wln_branch;
 
 post_notation:    charge|ion; 
 
-// this should be right recursive only
+
 major_cycle:      cycle closures* (  (space locant)|(space locant wln_branch ('-' space locant major_cycle)? )|(space locant '-'? space locant major_cycle))*;  // handles spiro in the locant definition
+
 
 macro_cycle:      ('L'|'T') '-' major_cycle space locant ring_size 'J'; 
 
