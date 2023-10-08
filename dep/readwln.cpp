@@ -2977,7 +2977,7 @@ bool ExpandWLNSymbols(WLNGraph &graph){
 
 
 /* backwards search for tentative ionic rule procedures */
-unsigned int search_ionic(const char *wln_ptr, unsigned int len,
+unsigned int SearchIonicconst char *wln_ptr, unsigned int len,
                           std::vector<std::pair<unsigned int, int>> &charges)
 {
   unsigned int first_instance = 0;
@@ -3107,7 +3107,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   unsigned int block_end = 0;
 
   unsigned int len = strlen(wln_ptr);
-  unsigned int zero_position = search_ionic(wln_ptr,len,ionic_charges);
+  unsigned int zero_position = SearchIonicwln_ptr,len,ionic_charges);
 
   unsigned int i=0;
   unsigned char ch = *wln_ptr;

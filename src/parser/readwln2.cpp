@@ -129,6 +129,7 @@ struct WLNEdge{
 
 struct WLNSymbol
 {
+  unsigned int id;
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
   
@@ -143,6 +144,7 @@ struct WLNSymbol
   // if default needed
   WLNSymbol()
   {
+    id = 0;
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
@@ -168,11 +170,15 @@ struct WLNSymbol
 
 struct WLNRing
 {
+
+  unsigned int aromatic_atoms;
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
   std::vector<std::pair<unsigned char,int>> post_charges; 
 
-  WLNRing(){}
+  WLNRing(){
+    aromatic_atoms = 0;
+  }
   ~WLNRing(){};
 };
 
@@ -191,12 +197,8 @@ struct WLNGraph
   WLNEdge   *EDGES  [REASONABLE];
   WLNRing   *RINGS  [REASONABLE];
 
-  std::map<WLNSymbol *, unsigned int> index_lookup;
-  std::map<unsigned int, WLNSymbol *> symbol_lookup;
 
-  unsigned int glob_index; // babel starts from 1, keep consistent  
-
-    // ionic parsing
+  // ionic parsing
   std::map<unsigned int,WLNSymbol*> string_positions; 
   std::map<WLNSymbol*,int> charge_additions;
 
@@ -204,7 +206,6 @@ struct WLNGraph
     edge_count   = 0;
     symbol_count = 0;
     ring_count   = 0;
-    glob_index   = 1; // babel atoms are +1 indexed
 
     // pointer safety
     root = 0;
@@ -351,8 +352,7 @@ struct ObjectStack{
 WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
 {
 
-  graph.symbol_count++;
-  if(graph.symbol_count > REASONABLE){
+  if(graph.symbol_count >= REASONABLE){
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
     return 0;
   }
@@ -363,12 +363,10 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
   }
 
   WLNSymbol *wln = new WLNSymbol;
-  graph.SYMBOLS[graph.symbol_count] = wln;
-  
+  wln->id = graph.symbol_count++;
+  graph.SYMBOLS[wln->id] = wln;
   wln->ch = ch;
-  graph.index_lookup[wln] = graph.glob_index;
-  graph.symbol_lookup[graph.glob_index] = wln;
-  graph.glob_index++;
+ 
   return wln;
 }
 
@@ -1726,8 +1724,13 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       return false;
 
     if(aromatic){
-      for(unsigned int a=0;a<ring_path.size();a++)
-        ring->locants[ring_path[a]]->aromatic = true; 
+      for(unsigned int a=0;a<ring_path.size();a++){
+        if(!ring->locants[ring_path[a]]->aromatic){
+          ring->locants[ring_path[a]]->aromatic = true;
+          ring->aromatic_atoms++;
+        }
+      }
+         
     }
 
     fuses++;
@@ -3011,7 +3014,7 @@ bool ExpandWLNSymbols(WLNGraph &graph){
 
 
 /* backwards search for tentative ionic rule procedures */
-unsigned int search_ionic(const char *wln_ptr, unsigned int len,
+unsigned int SearchIonic(const char *wln_ptr, unsigned int len,
                           std::vector<std::pair<unsigned int, int>> &charges)
 {
   unsigned int first_instance = 0;
@@ -3097,6 +3100,57 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
 }
 
 
+// try a hoffman karp algorithm
+bool find_augmenting_path(WLNSymbol *lp_start){
+  // starts from the start of the locant path 'A'
+  
+  WLNEdge *e = 0;
+  WLNSymbol *top = lp_start;
+  std::stack<WLNSymbol*> stack; 
+  std::map<WLNSymbol*,bool> visited; 
+  stack.push(top);
+  
+  while(!stack.empty()){
+    top = stack.top();
+    stack.pop();
+    visited[top] = true; 
+
+    fprintf(stderr,"on atom: %c\n",top->ch);
+
+    for(e=top->bonds;e;e=e->nxt){
+      if(!visited[e->child])
+        stack.push(e->child);
+    }
+  }
+
+
+
+
+  return true;
+}
+
+/* provides methods for `kekulising` wln ring structures, using blossums to maximise pairs */
+bool WLNKekulize(WLNGraph &graph){
+
+  for(unsigned int i=0;i<graph.ring_count;i++){
+    WLNRing *wring = graph.RINGS[i]; 
+    if(wring->aromatic_atoms){
+
+      //find_augmenting_path(wring->locants['A']);
+      
+
+
+
+
+    }
+  }
+
+
+
+
+  return true;
+}
+
 /**********************************************************************
                          High Level Parser Functions
 **********************************************************************/
@@ -3140,7 +3194,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   unsigned int block_end = 0;
 
   unsigned int len = strlen(wln_ptr);
-  unsigned int zero_position = search_ionic(wln_ptr,len,ionic_charges);
+  unsigned int zero_position = SearchIonic(wln_ptr,len,ionic_charges);
 
   unsigned int i=0;
   unsigned char ch = *wln_ptr;
@@ -4573,7 +4627,7 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
     if(!node)
       continue;
 
-    fprintf(fp, "  %d", graph.index_lookup[node]);
+    fprintf(fp, "  %d", node->id);
     if (node->ch == '*')
       fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
     else if (node->type == RING)
@@ -4596,18 +4650,17 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
       WLNSymbol *child = edge->child;
       unsigned int bond_order = edge->order;
 
-      // aromatic
       if (bond_order > 1){
         for (unsigned int k=0;k<bond_order;k++){
-          fprintf(fp, "  %d", graph.index_lookup[node]);
+          fprintf(fp, "  %d", node->id);
           fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none]\n", graph.index_lookup[child]);
+          fprintf(fp, "%d [arrowhead=none]\n", node->id);
         }
       }
       else{
-        fprintf(fp, "  %d", graph.index_lookup[node]);
+        fprintf(fp, "  %d", node->id);
         fprintf(fp, " -> ");
-        fprintf(fp, "%d [arrowhead=none]\n", graph.index_lookup[child]);
+        fprintf(fp, "%d [arrowhead=none]\n", child->id);
       }
     }
   }
@@ -4687,13 +4740,15 @@ struct BabelGraph{
   {
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
     mol->SetChiralityPerceived(true);
-    mol->SetAromaticPerceived(true);
+    mol->SetAromaticPerceived(false);
 
+#ifdef REPLACED
     if(!OBKekulize(mol)){
       fprintf(stderr,"Error: failed to kekulize mol\n");
       if(!opt_debug) // if we cant kekulise lets see why
         return false; 
     }
+#endif
 
     mol->DeleteHydrogens();
     return true;
@@ -4878,16 +4933,14 @@ struct BabelGraph{
       if(graph.charge_additions[sym])
         charge = graph.charge_additions[sym];
 
-      if(sym->aromatic && hcount >0)
-        hcount--;
-  
+
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
       if(!atom){
         fprintf(stderr,"Error: formation of obabel atom object\n");
         return false;
       }
 
-      babel_atom_lookup[graph.index_lookup[sym]] = atom;
+      babel_atom_lookup[sym->id] = atom;
     }
 
     // create edges 
@@ -4895,29 +4948,16 @@ struct BabelGraph{
 
     for(unsigned int i=1;i<=graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
-      unsigned int parent_id = graph.index_lookup[parent];
       WLNEdge *e = 0;
       if(parent->bonds){
         for (e = parent->bonds;e;e = e->nxt){
           WLNSymbol *child = e->child;
           unsigned int bond_order = e->order;  
-          unsigned int child_id = graph.index_lookup[child];
-          OBBond *bptr = NMOBMolNewBond(mol,babel_atom_lookup[parent_id],babel_atom_lookup[child_id],bond_order);
+          OBBond *bptr = NMOBMolNewBond(mol,babel_atom_lookup[parent->id],babel_atom_lookup[child->id],bond_order);
           if(!bptr)  
             return false;
           bond_map[e] = bptr; 
         }
-      }
-    }
-
-    // handle aromatics
-    for(unsigned int i=1;i<=graph.edge_count;i++){
-      WLNEdge *edge = graph.EDGES[i]; 
-      if(edge->parent->aromatic && edge->child->aromatic){
-        OBBond* bptr = bond_map[edge]; 
-        bptr->GetBeginAtom()->SetAromatic(true);
-        bptr->GetEndAtom()->SetAromatic(true);
-        bptr->SetAromatic(true);
       }
     }
 
@@ -4945,26 +4985,26 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
-  bool state = true;
-
-  if(state)
-    state = ParseWLNString(ptr,wln_graph);
-
+  if(!ParseWLNString(ptr,wln_graph))
+    return false;
 
   // create an optional wln dotfile
   if (opt_wln2dot)
     WriteGraph(wln_graph,"wln-graph.dot");
   
-  if(state)
-    state = ExpandWLNSymbols(wln_graph);
+  if(!ExpandWLNSymbols(wln_graph))
+    return false;
 
-  if(state)
-    state = obabel.ConvertFromWLN(mol,wln_graph);
+  if(!WLNKekulize(wln_graph))
+    return false; 
 
-  if(state)
-    state = obabel.NMOBSanitizeMol(mol);
+  if(!obabel.ConvertFromWLN(mol,wln_graph))
+    return false;
 
-  return state;
+  if(!obabel.NMOBSanitizeMol(mol))
+    return false;
+
+  return true;
 }
 
 static void DisplayUsage()
