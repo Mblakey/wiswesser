@@ -198,19 +198,26 @@ struct WLNRing
       }
     }
 
-    for (unsigned int i = 1; i<= rsize;i++){
-      unsigned int r = i-1;
-      unsigned char loc_a = int_to_locant(i);
+    for (unsigned int i = 0; i< rsize;i++){
+      unsigned int r = i;
+      unsigned char loc_a = int_to_locant(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
-      WLNEdge *redge = 0;
-      for(redge=rsym->bonds;redge;redge=redge->nxt){
-        WLNSymbol *csym = redge->child;
-        unsigned char loc_b = locants_ch[csym]; 
-        unsigned int c = locant_to_int(loc_b) - 1;
-        adj_matrix[r * rsize + c] = 1; 
-      } 
+
+      if(rsym->aromatic){
+        WLNEdge *redge = 0;
+        for(redge=rsym->bonds;redge;redge=redge->nxt){
+          WLNSymbol *csym = redge->child;
+          if(csym->aromatic){
+            unsigned char loc_b = locants_ch[csym];
+            unsigned int c = locant_to_int(loc_b-1);
+            adj_matrix[r * rsize + c] = 1; 
+            adj_matrix[c * rsize + r] = 1; 
+          }
+        } 
+      }
     }
 
+    print_matrix();
     return true;
   }
 
@@ -1243,7 +1250,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
 }
 
 
-WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent, bool verbose=true){
+WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
   if(!child || !parent){
     fprintf(stderr,"Error: searching edge on nullptrs\n");
     return 0;
@@ -1254,8 +1261,12 @@ WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent, bool verbose=true){
     if(edge->child == child)
       return edge;
   }
-  if(verbose)
-    fprintf(stderr,"Error: could not find edge in search\n");
+
+  for (edge=child->bonds;edge;edge = edge->nxt){
+    if(edge->child == parent)
+      return edge;
+  }
+
   return 0;
 }
 
@@ -1651,7 +1662,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
 
       // sometimes the notation lists the psd bridges that can be implied from the rings
 
-      if(!search_edge(ring->locants[bind_2],ring->locants[bind_1],false)){
+      if(!search_edge(ring->locants[bind_2],ring->locants[bind_1])){
         WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
         if(!edge)
           return false;
@@ -1768,9 +1779,21 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
 
     if(aromatic){
       for(unsigned int a=0;a<ring_path.size();a++){
-        if(!ring->locants[ring_path[a]]->aromatic){
-          ring->locants[ring_path[a]]->aromatic = true;
-          ring->aromatic_atoms++;
+        WLNSymbol *arom = ring->locants[ring_path[a]]; 
+        if(!arom->aromatic){
+          switch(arom->ch){
+            case 'O':
+            case 'V':
+            case 'M':
+            case 'Y':
+            case 'W':
+              break;
+            
+            default:
+              arom->aromatic = true;
+              ring->aromatic_atoms++;
+              break;
+          }
         }
       }
          
@@ -1811,10 +1834,7 @@ bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds
       loc_2--;
     }
 
-    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1],false);
-    if(!edge)
-      edge = search_edge(ring->locants[loc_1],ring->locants[loc_2],true);
-    
+    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
     if(!edge)
       return false;
     else
@@ -3041,9 +3061,6 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         e = unsaturate_edge(e,1);
         if(!e)
           return false;
-
-        if(sym->aromatic)
-          oxygen->aromatic = true; 
         
         break;
       }
@@ -3144,9 +3161,139 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
 }
 
 
+/**********************************************************************
+                        WLN Ring Kekulize
+**********************************************************************/
+
+bool IsBipartite(WLNRing *ring){
+
+  WLNSymbol *top = ring->locants['A'];
+  if(!top){
+    fprintf(stderr,"Error: graph is empty\n");
+    return false; 
+  }
+
+  std::map<WLNSymbol*,unsigned int> color; // 0 un assigned, 1 first color, 2 second color
+  std::deque<WLNSymbol*> queue; 
+
+  color[top] = 1;
+
+  queue.push_back(top); 
+  while(!queue.empty()){
+
+    top = queue.back();
+    queue.pop_back();
+
+    WLNEdge *e = 0 ;
+    for(e=top->bonds;e;e=e->nxt){
+
+      if(!ring->locants_ch[e->child])
+        continue;
+
+      if(!color[e->child]){
+        // find all non-coloured and assign alternative colour
+        if(color[top] == 1)
+          color[e->child] = 2;
+        else
+          color[e->child] = 1;
+        
+        queue.push_front(e->child);
+      }
+      else if(color[e->child] == color[top])
+        return false;
+      else if(e->child == top){
+        // self loops impossible
+        return false; 
+      }
+    }
+  }
+
+  return true;
+}
+
+bool AdjMatrixBFS(WLNRing *ring, unsigned int src, unsigned int sink, int *path){
+  
+  bool *visited = (bool*)malloc(sizeof(bool) * ring->rsize); // square so doesnt matter rows vs cols
+  for(unsigned int i=0;i<ring->rsize;i++)
+    visited[i] = false;
+  
+  std::deque<unsigned int> queue; 
+
+  unsigned int u = src; 
+  path[src] = -1; // stop condition 
+
+  queue.push_back(u);
+
+  while(!queue.empty()){
+    u = queue.back();
+    queue.pop_front();
+    visited[u] = true; 
+
+    for(unsigned int v=0;v<ring->rsize;v++){
+      
+      if(!visited[v] && ring->adj_matrix[u * ring->rsize + v] > 0){
+        path[v] = u;
+        if(v == sink)
+          return true;
+
+        queue.push_front(v);
+      }
+    }
+  }
+
+  free(visited);
+  return false;
+}
+
+bool BPMatching(WLNRing *ring, unsigned int u, bool *seen, int *MatchR){
+  for(unsigned int v=0;v < ring->rsize;v++){
+
+    if(ring->adj_matrix[u * ring->rsize + v] > 0 && !seen[v]){
+      seen[v] = true;
+
+      if(MatchR[v] < 0 || BPMatching(ring,MatchR[v],seen,MatchR)){
+        MatchR[v] = u;
+        return true;
+      }
+    }
+  }
+  return false; 
+}
+
+unsigned int WLNRingBPMaxMatching(WLNRing *ring){
+  
+  bool  *seen = (bool*)malloc(sizeof(bool) * ring->rsize);
+  int   *MatchR = (int*)malloc(sizeof(int) * ring->rsize);
+
+  for (unsigned int i=0;i<ring->rsize;i++){
+    seen[i] = false;
+    MatchR[i] = -1;
+  }
+    
+  unsigned int max_matches = 0; 
+
+  for(unsigned int u=0; u< ring->rsize;u++){
+    if(BPMatching(ring,u,seen,MatchR))
+      max_matches++;
+  }
+
+  for(unsigned int i = 0; i<ring->rsize;i++){
+    if(MatchR[i]){
+      WLNSymbol *f = ring->locants[int_to_locant(i+1)];
+      WLNSymbol *s = ring->locants[int_to_locant(MatchR[i]+1)];
+      if(f && s){
+        WLNEdge *edge = search_edge(f,s);
+        edge = unsaturate_edge(edge,1);
+        MatchR[MatchR[i]] = 0; // remove from matching
+      }
+    }
+  }
 
 
-
+  free(seen);
+  free(MatchR);
+  return max_matches;
+}
 
 /* provides methods for `kekulising` wln ring structures, using blossums to maximise pairs */
 bool WLNKekulize(WLNGraph &graph){
@@ -3155,10 +3302,16 @@ bool WLNKekulize(WLNGraph &graph){
     WLNRing *wring = graph.RINGS[i]; 
     if(wring->aromatic_atoms){
 
-      //find_augmenting_path(wring->locants['A']);
       wring->FillAdjMatrix();
-      wring->print_matrix();
+      if(!wring){
+        fprintf(stderr,"Error: failed to make aromatic matrix\n");
+        return false;
+      }
 
+      if(IsBipartite(wring)){
+        fprintf(stderr,"%d\n",WLNRingBPMaxMatching(wring));
+        
+      }
     }
   }
 
@@ -4671,13 +4824,13 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
         for (unsigned int k=0;k<bond_order;k++){
           fprintf(fp, "  %d", node->id);
           fprintf(fp, " -> ");
-          fprintf(fp, "%d [arrowhead=none]\n", node->id);
+          fprintf(fp, "%d\n", node->id);
         }
       }
       else{
         fprintf(fp, "  %d", node->id);
         fprintf(fp, " -> ");
-        fprintf(fp, "%d [arrowhead=none]\n", child->id);
+        fprintf(fp, "%d\n", child->id);
       }
     }
   }
