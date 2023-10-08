@@ -217,7 +217,6 @@ struct WLNRing
       }
     }
 
-    print_matrix();
     return true;
   }
 
@@ -1788,6 +1787,14 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
             case 'Y':
             case 'W':
               break;
+
+            case 'B':
+            case 'N':
+              if(arom->num_edges < 3){
+                arom->aromatic = true;
+                ring->aromatic_atoms++;
+              }
+              break;
             
             default:
               arom->aromatic = true;
@@ -3260,7 +3267,7 @@ bool BPMatching(WLNRing *ring, unsigned int u, bool *seen, int *MatchR){
   return false; 
 }
 
-unsigned int WLNRingBPMaxMatching(WLNRing *ring){
+bool WLNRingBPMaxMatching(WLNRing *ring){
   
   bool  *seen = (bool*)malloc(sizeof(bool) * ring->rsize);
   int   *MatchR = (int*)malloc(sizeof(int) * ring->rsize);
@@ -3284,15 +3291,19 @@ unsigned int WLNRingBPMaxMatching(WLNRing *ring){
       if(f && s){
         WLNEdge *edge = search_edge(f,s);
         edge = unsaturate_edge(edge,1);
+        if(!edge){
+          fprintf(stderr,"Error: failed to unsaturate bond in kekulize\n");
+          return false;
+        }
+
         MatchR[MatchR[i]] = 0; // remove from matching
       }
     }
   }
 
-
   free(seen);
   free(MatchR);
-  return max_matches;
+  return true;
 }
 
 /* provides methods for `kekulising` wln ring structures, using blossums to maximise pairs */
@@ -3308,10 +3319,9 @@ bool WLNKekulize(WLNGraph &graph){
         return false;
       }
 
-      if(IsBipartite(wring)){
-        fprintf(stderr,"%d\n",WLNRingBPMaxMatching(wring));
-        
-      }
+      if(IsBipartite(wring) && !WLNRingBPMaxMatching(wring))
+        return false;
+      
     }
   }
 
