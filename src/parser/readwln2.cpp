@@ -171,15 +171,58 @@ struct WLNSymbol
 struct WLNRing
 {
 
+  unsigned int rsize;
   unsigned int aromatic_atoms;
+
+  unsigned int *adj_matrix; 
+
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
   std::vector<std::pair<unsigned char,int>> post_charges; 
 
   WLNRing(){
+    rsize = 0;
     aromatic_atoms = 0;
+    adj_matrix = 0;
   }
-  ~WLNRing(){};
+  ~WLNRing(){
+    if(adj_matrix)
+      free(adj_matrix);
+  };
+
+  bool FillAdjMatrix(){
+    adj_matrix = (unsigned int*)malloc(sizeof(unsigned int) * (rsize*rsize)); 
+    for (unsigned int i = 0; i< rsize;i++){
+      for (unsigned int j=0; j < rsize;j++){
+        adj_matrix[i * rsize + j] = 0; 
+      }
+    }
+
+    for (unsigned int i = 1; i<= rsize;i++){
+      unsigned int r = i-1;
+      unsigned char loc_a = int_to_locant(i);
+      WLNSymbol *rsym = locants[loc_a]; 
+      WLNEdge *redge = 0;
+      for(redge=rsym->bonds;redge;redge=redge->nxt){
+        WLNSymbol *csym = redge->child;
+        unsigned char loc_b = locants_ch[csym]; 
+        unsigned int c = locant_to_int(loc_b) - 1;
+        adj_matrix[r * rsize + c] = 1; 
+      } 
+    }
+
+    return true;
+  }
+
+  void print_matrix(){
+    for (unsigned int i = 0; i< rsize;i++){
+      fprintf(stderr,"[ ");
+      for (unsigned int j=0; j < rsize;j++)
+        fprintf(stderr,"%d ",adj_matrix[i * rsize + j]);
+      fprintf(stderr,"]\n");
+    }
+  }
+
 };
 
 
@@ -2875,12 +2918,13 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                                 ring,
                                 graph);
 
+  ring->rsize = final_size; 
+  if (!final_size)
+    Fatal(start+i);
+  
   for (std::pair<unsigned char,int> &post : ring->post_charges)
     graph.charge_additions[ring->locants[post.first]] += post.second;
   
-  if (!final_size)
-    Fatal(start+i);
-
   if(!post_unsaturate(unsaturations,final_size,ring))
     Fatal(start+i);
 }
@@ -2958,14 +3002,14 @@ bool ExpandWLNSymbols(WLNGraph &graph){
 
   unsigned int stop = graph.symbol_count;
   // dioxo must be handled before 
-  for (unsigned int i=1;i<=stop;i++){
+  for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
     if(sym->ch == 'W' && !add_dioxo(sym,graph))
       return false;
   }
 
   // unsaturated carbons with C
-  for (unsigned int i=1;i<=stop;i++){
+  for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
     if(sym->ch == 'c'){
       sym->ch = 'C';
@@ -2975,7 +3019,7 @@ bool ExpandWLNSymbols(WLNGraph &graph){
   }
 
   stop = graph.symbol_count;
-  for (unsigned int i=1;i<=stop;i++){
+  for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
 
     switch(sym->ch){
@@ -3100,34 +3144,9 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
 }
 
 
-// try a hoffman karp algorithm
-bool find_augmenting_path(WLNSymbol *lp_start){
-  // starts from the start of the locant path 'A'
-  
-  WLNEdge *e = 0;
-  WLNSymbol *top = lp_start;
-  std::stack<WLNSymbol*> stack; 
-  std::map<WLNSymbol*,bool> visited; 
-  stack.push(top);
-  
-  while(!stack.empty()){
-    top = stack.top();
-    stack.pop();
-    visited[top] = true; 
-
-    fprintf(stderr,"on atom: %c\n",top->ch);
-
-    for(e=top->bonds;e;e=e->nxt){
-      if(!visited[e->child])
-        stack.push(e->child);
-    }
-  }
 
 
 
-
-  return true;
-}
 
 /* provides methods for `kekulising` wln ring structures, using blossums to maximise pairs */
 bool WLNKekulize(WLNGraph &graph){
@@ -3137,10 +3156,8 @@ bool WLNKekulize(WLNGraph &graph){
     if(wring->aromatic_atoms){
 
       //find_augmenting_path(wring->locants['A']);
-      
-
-
-
+      wring->FillAdjMatrix();
+      wring->print_matrix();
 
     }
   }
@@ -4621,7 +4638,7 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
 {  
   fprintf(fp, "digraph WLNdigraph {\n");
   fprintf(fp, "  rankdir = LR;\n");
-  for (unsigned int i=0; i<=graph.symbol_count;i++)
+  for (unsigned int i=0; i< graph.symbol_count;i++)
   {
     WLNSymbol *node = graph.SYMBOLS[i];
     if(!node)
@@ -4761,7 +4778,7 @@ struct BabelGraph{
       fprintf(stderr,"Converting wln to obabel mol object: \n");
 
     // set up atoms
-    for (unsigned int i=1; i<=graph.symbol_count;i++){
+    for (unsigned int i=0; i<graph.symbol_count;i++){
       WLNSymbol *sym = graph.SYMBOLS[i];
       OBAtom *atom = 0;
 
@@ -4946,7 +4963,7 @@ struct BabelGraph{
     // create edges 
     std::map<WLNEdge*, OBBond*> bond_map; 
 
-    for(unsigned int i=1;i<=graph.symbol_count;i++){
+    for(unsigned int i=0;i<graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
       WLNEdge *e = 0;
       if(parent->bonds){
@@ -4967,11 +4984,9 @@ struct BabelGraph{
 };
 
 
-
 /**********************************************************************
                          API FUNCTION
 **********************************************************************/
-
 
 bool ReadWLN(const char *ptr, OBMol* mol)
 {   
