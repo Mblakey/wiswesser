@@ -190,11 +190,13 @@ struct WLNRing
       unsigned char loc_a = int_to_locant(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
 
-      if(rsym->aromatic){
+      // can rsym take a double bond
+
+      if(rsym->aromatic && rsym->num_edges < rsym->allowed_edges){
         WLNEdge *redge = 0;
         for(redge=rsym->bonds;redge;redge=redge->nxt){
           WLNSymbol *csym = redge->child;
-          if(csym->aromatic && redge->aromatic){
+          if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
             unsigned char loc_b = locants_ch[csym];
             unsigned int c = locant_to_int(loc_b-1);
             adj_matrix[r * rsize + c] = 1; 
@@ -1939,31 +1941,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     if(aromatic){
       for(unsigned int a=0;a<ring_path.size();a++){
         WLNSymbol *arom = ring->locants[ring_path[a]]; 
-        if(!arom->aromatic){
-          switch(arom->ch){
-            case 'O':
-            case 'V':
-            case 'M':
-            case 'Y':
-            case 'W':
-              break;
-
-            case 'B':
-            case 'N':
-              if(arom->num_edges < 3){
-                arom->aromatic = true;
-                ring->aromatic_atoms++;
-              }
-              break;
-            
-            default:
-              arom->aromatic = true;
-              ring->aromatic_atoms++;
-              break;
-          }
-        }
+        arom->aromatic = true;
+        ring->aromatic_atoms++;
       }
-
+    
       // add the edges based on statement before
       for(unsigned int a=0;a<ring_path.size()-1;a++){
         WLNSymbol *src = ring->locants[ring_path[a]];
@@ -1990,7 +1971,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
         }
         edge->aromatic = true;
       }
-        
 
       // should ring junctions ever be kekulised? 
     }
