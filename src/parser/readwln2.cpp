@@ -61,13 +61,6 @@ struct WLNGraph;
 struct ObjectStack;
 
 
-enum WLNTYPE
-{
-  STANDARD = 0,
-  RING = 1,     
-  SPECIAL = 2  // for now this is only going to be the pi bond
-};
-
 unsigned char static int_to_locant(unsigned int i){
   return i + 64;
 }
@@ -104,8 +97,6 @@ static void WARNING(const char *str){
 }
 
 
-
-
 /**********************************************************************
                           STRUCT DEFINTIONS
 **********************************************************************/
@@ -134,7 +125,7 @@ struct WLNSymbol
   std::string special; // string for element, or ring, if value = '*'
   
   bool aromatic; 
-  unsigned int type;
+  bool inRing;
   unsigned int allowed_edges;
   unsigned int num_edges;
 
@@ -148,17 +139,12 @@ struct WLNSymbol
     ch = '\0';
     allowed_edges = 0;
     num_edges = 0;
-    type = 0;
+    inRing = 0;
     previous = 0;
     bonds = 0;
     aromatic = 0;
   }
   ~WLNSymbol(){};
-
-  void set_edge_and_type(unsigned int e, unsigned int t=STANDARD){
-    allowed_edges = e;
-    type = t;
-  }
 
   void add_special(unsigned int s, unsigned int e)
   {
@@ -438,7 +424,7 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
     case 'F':
       new_symbol = AllocateWLNSymbol(sym,graph);
       if(new_symbol)
-        new_symbol->set_edge_and_type(6);            // allows FCl6
+        new_symbol->allowed_edges = 6;         // allows FCl6
       break;
 
     default:
@@ -1357,14 +1343,14 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
   WLNEdge   *edge = 0;
   
   if(carbon)
-    carbon->set_edge_and_type(4); // used for hydrogens
+    carbon->allowed_edges = 4;
   else 
     return 0;
   
   for(unsigned int i=0;i<3;i++){
     hydrogen = AllocateWLNSymbol('H',graph);
     if(hydrogen)
-      hydrogen->set_edge_and_type(1);
+      hydrogen->allowed_edges = 1;
     else
       return 0;
     edge = AllocateWLNEdge(hydrogen,carbon,graph);
@@ -1385,7 +1371,7 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   }
     
   head->ch = '1';
-  head->set_edge_and_type(4);
+  head->allowed_edges = 4;
 
   if(size == 1)
     return head;
@@ -1394,7 +1380,7 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   WLNSymbol *prev = head;
   for(unsigned int i=0;i<size-1;i++){
     WLNSymbol* carbon = AllocateWLNSymbol('1',graph);
-    carbon->set_edge_and_type(4); // allows hydrogen resolve
+    carbon->allowed_edges = 4; // allows hydrogen resolve
     if(!carbon)
       return 0;
     edge = AllocateWLNEdge(carbon,prev,graph);
@@ -1442,11 +1428,11 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
 
   head->ch = 'O'; // change the W symbol into the first oxygen
-  head->set_edge_and_type(2,head->type);
+  head->allowed_edges = 2;
   edge = saturate_edge(edge,1);
 
   oxygen = AllocateWLNSymbol('O',graph);
-  oxygen->set_edge_and_type(2,head->type);
+  oxygen->allowed_edges = 2;
   sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
   if(remaining_edges)
     sedge = unsaturate_edge(sedge,1); 
@@ -1512,7 +1498,7 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
     return 0;
   ring->locants[loc] = locant; 
   ring->locants_ch[locant] = loc;
-  locant->type = RING;
+  locant->inRing = true;
   return locant; 
 }  
 
@@ -1562,7 +1548,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       if(!curr)
         return 0;
 
-      curr->set_edge_and_type(4,RING);
+      curr->allowed_edges = 4;
+      curr->inRing = true;
       curr = assign_locant(loc,curr,ring);
     }
     else{
@@ -1612,7 +1599,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       if(!ring->locants[loc_broken]){
         // bond them in straight away
         WLNSymbol *broken = AllocateWLNSymbol('C',graph);
-        broken->set_edge_and_type(4,RING);
+        broken->inRing = true;
+        broken->allowed_edges = 4;
         broken = assign_locant(loc_broken,broken,ring);
         broken_lookup[parent].push_back(loc_broken);
         WLNEdge *edge = AllocateWLNEdge(ring->locants[loc_broken],ring->locants[parent],graph);
@@ -2360,11 +2348,17 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(5,RING);
+              new_locant->allowed_edges = 5;
+              new_locant->inRing = true;
               break;
 
             case 'X':
             case 'Y':
+            case 'K':
+
+              if(!heterocyclic && ch=='K')
+                warned = true;
+
               if(ring->locants[positional_locant])
                 positional_locant++;
 
@@ -2375,7 +2369,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(4,RING);
+              new_locant->allowed_edges = 4;
+              new_locant->inRing = true;
               break;
 
             case 'Z': // treat as NH2
@@ -2393,22 +2388,15 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(3,RING);
-              break;
-
-            case 'V':
-              if(ring->locants[positional_locant])
-                positional_locant++;
-
-              //  if this is a chelting oxygen, treat as nOU without any restrictions
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(2,RING);
+              new_locant->allowed_edges = 3;
+              new_locant->inRing = true;
               break;
 
             case 'M':
             case 'O':
-              if(!heterocyclic)
+            case 'V':
+
+              if(!heterocyclic && (ch == 'M' || ch == 'O'))
                 warned = true;
 
               if(ring->locants[positional_locant])
@@ -2416,26 +2404,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(2,RING);
+              new_locant->allowed_edges = 2;
+              new_locant->inRing = true;
               break;
 
-            case 'K':
-              if(!heterocyclic)
-                warned = true;
-
-              if(ring->locants[positional_locant])
-                positional_locant++; 
-              
-              if(spiro_atom && positional_locant == spiro_atom){
-                positional_locant++;
-                break;
-              }  
-
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->set_edge_and_type(4,RING);
-              break;
-
+        
             case 'U':
               // no need to put this in implied, it has to be specified
               if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
@@ -2456,7 +2429,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!ring->locants[positional_locant]){
                 new_locant = AllocateWLNSymbol('C',graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(2,RING);
+                new_locant->allowed_edges = 2;
+                new_locant->inRing = true;
               }
               else
                 new_locant = ring->locants[positional_locant];
@@ -2465,7 +2439,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 new_locant->allowed_edges++;
 
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
-              dioxo->set_edge_and_type(3,RING);
+              dioxo->allowed_edges = 3;
+              dioxo->inRing = true;
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
               e = unsaturate_edge(e,2);
               if(!e)
@@ -2538,11 +2513,16 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
                 new_locant = AllocateWLNSymbol(ch,graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(5,RING);
+                new_locant->allowed_edges = 6;
+                new_locant->inRing = true;
                 break;
 
               case 'X':
               case 'Y':
+              case 'K':
+                if(!heterocyclic && ch=='K')
+                  warned = true;
+
                 if(ring->locants[positional_locant])
                   positional_locant++;
 
@@ -2553,7 +2533,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
                 new_locant = AllocateWLNSymbol(ch,graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(4,RING);
+                new_locant->allowed_edges = 4;
+                new_locant->inRing = true;
                 break;
 
 
@@ -2572,47 +2553,25 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
                 new_locant = AllocateWLNSymbol(ch,graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(3,RING);
+                new_locant->allowed_edges = 3;
+                new_locant->inRing = true;
                 break;
 
               case 'V':
-                if(ring->locants[positional_locant])
-                  positional_locant++; 
-
-                new_locant = AllocateWLNSymbol(ch,graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(2,RING);
-                break;
-
               case 'M':
               case 'O':
-                if(!heterocyclic)
+                if(!heterocyclic && (ch == 'M' || ch == 'O'))
                   warned = true;
-                
+
                 if(ring->locants[positional_locant])
                   positional_locant++; 
 
                 new_locant = AllocateWLNSymbol(ch,graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(2,RING);
+                new_locant->allowed_edges = 2;
+                new_locant->inRing = true;
                 break;
 
-              case 'K':
-                if(!heterocyclic)
-                  warned = true;
-
-                if(ring->locants[positional_locant])
-                  positional_locant++; 
-                
-                if(spiro_atom && positional_locant == spiro_atom){
-                  positional_locant++;
-                  break;
-                }  
-
-                new_locant = AllocateWLNSymbol(ch,graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(4,RING);
-                break;
 
               case 'U':
                 unsaturations.push_back({positional_locant,positional_locant+1});
@@ -2627,7 +2586,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!ring->locants[positional_locant]){
                 new_locant = AllocateWLNSymbol('C',graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->set_edge_and_type(2,RING);
+                new_locant->allowed_edges = 2;
+                new_locant->inRing = true;
               }
               else
                 new_locant = ring->locants[positional_locant];
@@ -2636,7 +2596,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 new_locant->allowed_edges++;
 
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
-              dioxo->set_edge_and_type(3,RING);
+              dioxo->allowed_edges = 3;
+              dioxo->inRing = true;
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
               e = unsaturate_edge(e,2);
               if(!e)
@@ -3059,10 +3020,10 @@ bool ExpandWLNSymbols(WLNGraph &graph){
 
       case 'V':{
         sym->ch = 'C';
-        sym->set_edge_and_type(4, sym->type);
+        sym->allowed_edges = 4;
         
         WLNSymbol *oxygen = AllocateWLNSymbol('O',graph);
-        oxygen->set_edge_and_type(2,sym->type);
+        oxygen->allowed_edges = 2;
         
         WLNEdge *e = AllocateWLNEdge(oxygen,sym,graph);
         e = unsaturate_edge(e,1);
@@ -3395,7 +3356,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       else if (pending_locant){
         
-        if(prev && prev->type != RING)
+        if(prev && !prev->inRing)
           graph.charge_additions[prev]++;
 
         prev = 0;
@@ -3487,7 +3448,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
 
         curr = AllocateWLNSymbol('1',graph);
-        curr->set_edge_and_type(4);
+        curr->allowed_edges = 4;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3539,7 +3500,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(3);
+        curr->allowed_edges = 3;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3576,7 +3537,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(4);
+        curr->allowed_edges = 4;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3619,7 +3580,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(2);
+        curr->allowed_edges = 2;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3659,7 +3620,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(1);
+        curr->allowed_edges = 1;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3705,7 +3666,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
 
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(2,STANDARD);
+        curr->allowed_edges = 2;
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
@@ -3746,7 +3707,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         // create this 'W' symbol for post processing
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(3);
+        curr->allowed_edges = 3;
         graph.string_positions[i] = curr;
 
         if(prev){
@@ -3799,7 +3760,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(3);
+        curr->allowed_edges = 3;
 
         if(prev){
           if(prev->ch == 'W')
@@ -3845,7 +3806,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
 
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(2);
+        curr->allowed_edges = 2;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3888,7 +3849,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
       
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(4);
+        curr->allowed_edges = 4;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3930,7 +3891,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       { 
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(1);
+        curr->allowed_edges = 1;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3979,7 +3940,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
 
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(1);
+        curr->allowed_edges = 1;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -4026,7 +3987,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
   
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(3);
+        curr->allowed_edges = 3;
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -4071,9 +4032,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         
         if(ch == 'P')
-          curr->set_edge_and_type(5); // 3 or 5 valence
+          curr->allowed_edges = 5;
         else
-          curr->set_edge_and_type(6); // 2 or 6
+          curr->allowed_edges = 6;
           
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -4118,7 +4079,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         // set lower case for multiplier carbon
         curr = AllocateWLNSymbol('c',graph);
-        curr->set_edge_and_type(4);
+        curr->allowed_edges = 4;
 
         if(prev && i < len - 1){
 
@@ -4236,7 +4197,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else{
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
-        curr->set_edge_and_type(1);
+        curr->allowed_edges = 1;
   
         if(prev){
           // will add with more examples
@@ -4810,7 +4771,7 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
     fprintf(fp, "  %d", node->id);
     if (node->ch == '*')
       fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-    else if (node->type == RING)
+    else if (node->inRing)
       fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
     else{
       if(std::isdigit(node->ch)){
@@ -4977,7 +4938,7 @@ struct BabelGraph{
           atomic_num = 6;
           WLNEdge *e = 0;
           unsigned int orders = 0; 
-          if(sym->type != RING){
+          if(!sym->inRing){
             for(e = sym->bonds;e;e=e->nxt)
               orders += e->order;
             
@@ -4992,7 +4953,7 @@ struct BabelGraph{
 
         case 'N':
           atomic_num = 7;
-          if(sym->type == RING)
+          if(sym->inRing)
             sym->allowed_edges = 3;
 
           while(sym->num_edges < sym->allowed_edges){
