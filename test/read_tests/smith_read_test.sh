@@ -4,6 +4,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 SMITH="${SCRIPT_DIR}/../../data/smith.tsv"
 PARSE="${SCRIPT_DIR}/../../bin/readwln"
+COMP="${SCRIPT_DIR}/../../bin/obcomp"
 
 COUNT=0
 MISSED=0
@@ -15,19 +16,18 @@ while read p; do
   echo -ne "$LINE: "
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
-  
   NEW_SMILES=$($PARSE -osmi -s "${WLN}" 2> /dev/null)
 
   if [ -z $NEW_SMILES ]; then
     ((MISSED++));
-    echo "$WLN != $SMILES"
+    echo "$WLN != anything - $SMILES"
     continue
   fi;
 
-  #NEW_SMILES=${NEW_SMILES::-1}
   NEW_SMILES=${NEW_SMILES:0:${#NEW_SMILES}-1}
+  SAME=$($COMP "$SMILES" "$NEW_SMILES" 2> /dev/null)
 
-  if [[ "$SMILES" == "$NEW_SMILES" ]]; then
+  if [[ "$SAME" == 1 ]]; then
   	((COUNT++));
     echo -ne "\r"
   else

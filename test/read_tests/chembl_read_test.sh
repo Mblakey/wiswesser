@@ -4,7 +4,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 CHEMBL="${SCRIPT_DIR}/../../data/chembl24.tsv"
 PARSE="${SCRIPT_DIR}/../../bin/readwln"
-CANONICAL="${SCRIPT_DIR}/../../bin/obabel_strip"
+COMP="${SCRIPT_DIR}/../../bin/obcomp"
 
 COUNT=0
 MISSED=0
@@ -17,25 +17,24 @@ while read p; do
   echo -ne "$LINE: "
 	WLN=$(echo -n "$p" | cut -d $'\t' -f1)
   SMILES=$(echo -n "$p" | cut -d $'\t' -f3)
-  
-
-  CAN_SMILES=$($CANONICAL "$SMILES" 2> /dev/null)
-  NEW_SMILES=$($PARSE -ocan -s "${WLN}" 2> /dev/null) # chembl is canonical smiles
+  NEW_SMILES=$($PARSE -ocan -s "${WLN}" 2> /dev/null) 
 
   if [ -z $NEW_SMILES ]; then
     ((MISSED++));
-    echo "$WLN != anything"
+    echo "$WLN != anything - $SMILES"
     continue
   fi;
 
-  NEW_SMILES=${NEW_SMILES:0:${#NEW_SMILES}-1}
-  CAN_SMILES=${CAN_SMILES:0:${#CAN_SMILES}-1}
+  SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
+  NEW_SMILES="$(sed -e 's/[[:space:]]*$//' <<<${NEW_SMILES})"
 
-  if [[ "$CAN_SMILES" == "$NEW_SMILES" ]]; then
+  SAME=$($COMP "$SMILES" "$NEW_SMILES")
+
+  if [[ "$SAME" == "1" ]]; then
   	((COUNT++));
     echo -ne "\r"
   else
-    echo "$WLN != $CAN_SMILES    $NEW_SMILES"
+  	echo -ne  "$WLN != $SMILES\t$NEW_SMILES\n"
     ((WRONG++));
   fi;
 
