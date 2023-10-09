@@ -5347,11 +5347,11 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if (opt_wln2dot)
     WriteGraph(wln_graph,"wln-graph.dot");
   
-  if(!ExpandWLNSymbols(wln_graph))
-    return false;
-
   if(!WLNKekulize(wln_graph))
     return false; 
+
+  if(!ExpandWLNSymbols(wln_graph))
+    return false;
 
   // create an optional wln dotfile
   // if (opt_wln2dot)
