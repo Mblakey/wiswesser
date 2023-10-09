@@ -92,10 +92,6 @@ void Fatal(unsigned int pos)
   exit(1);
 }
 
-static void WARNING(const char *str){
-  fprintf(stderr,"  WARNING CALLED: %s\n",str);
-}
-
 
 /**********************************************************************
                           STRUCT DEFINTIONS
@@ -178,6 +174,8 @@ struct WLNRing
   };
 
   bool FillAdjMatrix(){
+
+    aromatic_atoms = 0;
     adj_matrix = (unsigned int*)malloc(sizeof(unsigned int) * (rsize*rsize)); 
     for (unsigned int i = 0; i< rsize;i++){
       for (unsigned int j=0; j < rsize;j++){
@@ -201,6 +199,7 @@ struct WLNRing
             unsigned int c = locant_to_int(loc_b-1);
             adj_matrix[r * rsize + c] = 1; 
             adj_matrix[c * rsize + r] = 1; 
+            aromatic_atoms++;
           }
         } 
       }
@@ -1942,34 +1941,20 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       for(unsigned int a=0;a<ring_path.size();a++){
         WLNSymbol *arom = ring->locants[ring_path[a]]; 
         arom->aromatic = true;
-        ring->aromatic_atoms++;
+        ring->aromatic_atoms = 1;
       }
     
-      // add the edges based on statement before
-      for(unsigned int a=0;a<ring_path.size()-1;a++){
+      // add the edges based on statement before n^2 but should work
+      for(unsigned int a=0;a<ring_path.size();a++){
         WLNSymbol *src = ring->locants[ring_path[a]];
-        WLNSymbol *trg = ring->locants[ring_path[a+1]];
-        
-        if(src->aromatic && trg->aromatic){
-          WLNEdge *edge = search_edge(src,trg); 
-          if(!edge){
-            fprintf(stderr,"Error: could not find edge in ring path\n");
-            return 0;
+        for(unsigned int b=a+1;b<ring_path.size();b++){
+          WLNSymbol *trg = ring->locants[ring_path[b]];
+          if(src->aromatic && trg->aromatic){
+            WLNEdge *edge = search_edge(src,trg); 
+            if(edge)
+              edge->aromatic = true;
           }
-          edge->aromatic = true;
         }
-      }
-
-      // look at the wrapping ring path
-      WLNSymbol *src = ring->locants[ring_path.front()];
-      WLNSymbol *trg = ring->locants[ring_path.back()];
-      if(src->aromatic && trg->aromatic){
-        WLNEdge *edge = search_edge(src,trg); 
-        if(!edge){
-          fprintf(stderr,"Error: could not find edge in ring path\n");
-          return 0;
-        }
-        edge->aromatic = true;
       }
 
       // should ring junctions ever be kekulised? 
@@ -2020,6 +2005,32 @@ bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds
   return true;
 }
 
+// try to handle if errors are occuring due to path changes
+bool post_saturate( std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
+                    unsigned int final_size,
+                    WLNRing *ring){
+
+  // post saturate bonds
+  for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
+    
+    unsigned char loc_1 = bond_pair.first;
+    unsigned char loc_2 = bond_pair.second;
+
+    if(loc_2 > int_to_locant(final_size)){
+      loc_1 = 'A';
+      loc_2--;
+    }
+
+    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
+    if(!edge)
+      return false;
+    else
+      edge->aromatic = false; // removes from kekulize consideration
+  }
+
+  return true;
+}
+
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
 void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph &graph,unsigned char spiro_atom='\0'){
 
@@ -2042,6 +2053,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
   std::vector<bool> aromaticity; 
   std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
+  std::vector<std::pair<unsigned char, unsigned char>>  saturations;
 
   std::vector<unsigned char>    pseudo_locants;
   std::vector<unsigned int>     pseudo_positions; 
@@ -2630,9 +2642,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
             }
 
-            // has the effect of unaromatising a bond
+            // has the effect of unaromatising a bond, remove from edge consideration
             case 'H':
-              WARNING("case 'H' for aromaticity is currently undefined");
+              saturations.push_back({positional_locant,positional_locant+1});
               break;
 
 
@@ -2788,7 +2800,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               }
                 // has the effect of unsaturating a bond
               case 'H':
-                WARNING("case 'H' for aromaticity is currently undefined");
+                saturations.push_back({positional_locant,positional_locant+1});
                 break;
 
               default:
@@ -3094,8 +3106,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   for (std::pair<unsigned char,int> &post : ring->post_charges)
     graph.charge_additions[ring->locants[post.first]] += post.second;
   
-  if(!post_unsaturate(unsaturations,final_size,ring))
+  if(!post_unsaturate(unsaturations,final_size,ring) || !post_saturate(saturations,final_size,ring)){
+    fprintf(stderr,"Error: failed on post ring bond (un)/saturation\n");
     Fatal(start+i);
+  }
+    
 }
 
 
@@ -3453,13 +3468,12 @@ bool WLNKekulize(WLNGraph &graph){
           }
         }
 
-        if(!B.solve())
-          return false;
+        B.solve();
 
-        for(int i = 0; i < wring->rsize; i++) {
+        for(int i = 0; i < (int)wring->rsize; i++) {
           if(i < B.mate[i]) {
             MatchR[i] = B.mate[i];
-            MatchR[B.mate[i]] = i;
+            //MatchR[B.mate[i]] = i;
           }
         }
       }
@@ -3475,6 +3489,7 @@ bool WLNKekulize(WLNGraph &graph){
               fprintf(stderr,"Error: failed to unsaturate bond in kekulize\n");
               return false;
             }
+
             MatchR[MatchR[i]] = 0; // remove from matching
           }
         }
@@ -3483,9 +3498,6 @@ bool WLNKekulize(WLNGraph &graph){
       free(MatchR);
     }
   }
-
-
-
 
   return true;
 }
