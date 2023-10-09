@@ -107,12 +107,14 @@ struct WLNEdge{
   WLNSymbol *child;
   WLNEdge *nxt;
   unsigned int order;
+  bool aromatic;
 
   WLNEdge(){
     parent   = 0;
     child    = 0;
     order    = 0;
     nxt      = 0;
+    aromatic = 0;
   }
   ~WLNEdge(){};
 };
@@ -193,7 +195,7 @@ struct WLNRing
         WLNEdge *redge = 0;
         for(redge=rsym->bonds;redge;redge=redge->nxt){
           WLNSymbol *csym = redge->child;
-          if(csym->aromatic){
+          if(csym->aromatic && redge->aromatic){
             unsigned char loc_b = locants_ch[csym];
             unsigned int c = locant_to_int(loc_b-1);
             adj_matrix[r * rsize + c] = 1; 
@@ -1790,6 +1792,33 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
               break;
           }
         }
+      }
+
+      // add the edges based on statement before
+      for(unsigned int a=0;a<ring_path.size()-1;a++){
+        WLNSymbol *src = ring->locants[ring_path[a]];
+        WLNSymbol *trg = ring->locants[ring_path[a+1]];
+        
+        if(src->aromatic && trg->aromatic){
+          WLNEdge *edge = search_edge(src,trg); 
+          if(!edge){
+            fprintf(stderr,"Error: could not find edge in ring path\n");
+            return 0;
+          }
+          edge->aromatic = true;
+        }
+      }
+
+      // look at the wrapping ring path
+      WLNSymbol *src = ring->locants[ring_path.front()];
+      WLNSymbol *trg = ring->locants[ring_path.back()];
+      if(src->aromatic && trg->aromatic){
+        WLNEdge *edge = search_edge(src,trg); 
+        if(!edge){
+          fprintf(stderr,"Error: could not find edge in ring path\n");
+          return 0;
+        }
+        edge->aromatic = true;
       }
          
     }
