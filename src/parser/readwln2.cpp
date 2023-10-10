@@ -4728,8 +4728,22 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             
             switch(prev->ch){
               // methyl contractions
-              case 'X':
+
               case 'Y':
+                if(prev->num_edges < prev->allowed_edges-1){
+                  if(!add_methyl(prev,graph))
+                    Fatal(i);
+
+                  prev = return_object_symbol(branch_stack);
+                }
+                else{ 
+                  // we pop, 
+                  branch_stack.pop();
+                  prev = branch_stack.branch; 
+                }
+                break;
+
+              case 'X':
               case 'K':
                 if(prev->num_edges < prev->allowed_edges){
                   if(!add_methyl(prev,graph))
