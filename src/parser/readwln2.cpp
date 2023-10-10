@@ -1597,9 +1597,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   }
 
   unsigned int remaining_edges = binded_symbol->allowed_edges - binded_symbol->num_edges; 
-  fprintf(stderr,"remaining edges: %d\n",binded_symbol->allowed_edges);
-
-
+ 
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->allowed_edges = 2;
   edge = saturate_edge(edge,1);
@@ -1628,10 +1626,17 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
 
   switch(target->ch){
 
-    case 'Y':
     case 'X':
     case 'K':
       while(target->num_edges < target->allowed_edges){
+        if(!add_methyl(target,graph))
+          return false;
+      }
+      target->num_edges = target->allowed_edges;
+      break;
+
+    case 'Y':
+      while(target->num_edges < target->allowed_edges-1){
         if(!add_methyl(target,graph))
           return false;
       }
@@ -3710,7 +3715,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         
         curr = AllocateWLNSymbol(ch,graph);
-        curr->allowed_edges = 3;
+        curr->allowed_edges = 4; // change methyl addition
 
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
@@ -3719,8 +3724,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
-            curr->num_edges = curr->num_edges - pending_unsaturate;
-            // 3 branch rather than 3 edge
             pending_unsaturate = 0;
           }
           

@@ -1,0 +1,4 @@
+Taken from "Using the Wiswesser line notation (WLN) for online, interactive searching of chemical structures"
+
+
+Although connecting atoms in a molecule are frequently found as noncontiguous symbols in a WLN string, they will be contiguous in a fragment. For example, the structure in Figure 2, 3-chloro-M/V-dimethyl-1 -piperidinecarboxamide, has the WLN notation T6NTJ AVN1&1 CG. In this WLN, the N symbol, representing nitrogen within the ring system T6NTJ, is not contiguous to the VN symbols which represent the carbonyl and nitrogen of the carboxamide group. However, the program which generates the codes from the WLN does recognize the connectivity of the atoms and connects the symbols as NVN.
