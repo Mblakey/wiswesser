@@ -1340,9 +1340,11 @@ bool RaiseBranchingSymbol(WLNSymbol *sym){
       break;
 
     case 'N':
-      fprintf(stderr,"Warning: N branches are exceeding 3, raising to K\n");
-      sym->allowed_edges++;
-      sym->ch = 'K';
+      if(!sym->inRing){
+        fprintf(stderr,"Warning: N branches are exceeding 3, raising to K\n");
+        sym->allowed_edges++;
+        sym->ch = 'K';
+      }
       break;
 
     default:
@@ -3716,7 +3718,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 4; // change methyl addition
 
@@ -3880,7 +3881,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 2;
         if(prev){
@@ -3920,8 +3920,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        
-        // create this 'W' symbol for post processing
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 3;
         graph.string_positions[i] = curr;
@@ -3974,7 +3972,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-        
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 3;
 
@@ -4020,7 +4017,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 2;
 
@@ -4063,7 +4059,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-      
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 4;
 
@@ -4154,7 +4149,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 1;
 
@@ -4201,7 +4195,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-  
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 3;
 
@@ -4244,7 +4237,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-
         curr = AllocateWLNSymbol(ch,graph);
         
         if(ch == 'P')
@@ -4292,7 +4284,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
         on_locant = '\0';
-
         // set lower case for multiplier carbon
         curr = AllocateWLNSymbol('c',graph);
         curr->allowed_edges = 4;
@@ -4364,6 +4355,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+
         if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
           pending_ring_in_ring = true;
 
@@ -4678,8 +4670,19 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         break;
       }
 
-      if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring)
+      if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring){
         pending_locant = true;
+
+        // single letter methyl branches
+        if(on_locant && !pending_inline_ring){
+          if(!add_methyl(branch_stack.ring->locants[on_locant],graph)){
+            fprintf(stderr,"Error: could not attach implied methyl to ring\n");
+            Fatal(i);
+          }
+          on_locant = 0;
+        }
+          
+      }
       else if (!opt_correct){
         fprintf(stderr,"Error: space used outside ring and ionic notation\n");
         Fatal(i);
@@ -4793,7 +4796,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       else if (pending_inline_ring)
       { 
-
         if(pending_ring_in_ring){
           // onlocant holds the char needed to wrap the ring back, 
           curr = wrap_ring->locants[on_locant];
@@ -4822,9 +4824,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             i++;
           }
 
+          //on_locant = '\0';
           pending_ring_in_ring = false;
           pending_inline_ring = false;
-
         }
         else{
           fprintf(stderr, "Error: only one pending ring can be active, check closures\n");
@@ -4950,6 +4952,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
     i++;
     ch = *(++wln_ptr);
+  }
+
+  // single letter methyl branches
+  if(on_locant && !pending_inline_ring && !branch_stack.empty()){
+    if(!add_methyl(branch_stack.ring->locants[on_locant],graph)){
+      fprintf(stderr,"Error: could not attach implied methyl to ring\n");
+      Fatal(i);
+    }
+    on_locant = 0;
   }
   
 
@@ -5367,8 +5378,9 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if (opt_wln2dot)
     WriteGraph(wln_graph,"wln-graph.dot");
   
+    // needs to be this order to allow K to take the methyl groups
   if(!WLNKekulize(wln_graph))
-    return false; 
+    return false;
 
   if(!ExpandWLNSymbols(wln_graph))
     return false;
