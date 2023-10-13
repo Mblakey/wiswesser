@@ -1474,6 +1474,8 @@ WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
   return edge;
 }
 
+unsigned int count_children();
+
 
 bool remove_edge(WLNSymbol *head,WLNEdge *edge){
   if(!head || !edge){
@@ -1607,7 +1609,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
  
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->allowed_edges = 2;
-  edge = saturate_edge(edge,1);
+  edge = unsaturate_edge(edge,1); // think the saturate was just a bug here?
 
   oxygen = AllocateWLNSymbol('O',graph);
   oxygen->allowed_edges = 2;
@@ -3337,42 +3339,19 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
 - it leads to ambiguety on how some structures could be represented, 
 hense left as a flag. */
 bool LegacyBonding(WLNGraph &graph){
-
   for(unsigned int i=0;i<graph.symbol_count;i++){
-
     WLNSymbol *sym = graph.SYMBOLS[i];
     WLNEdge *edge = 0; 
-
-    switch(sym->ch){
-  
-      case 'P':
-      case 'S':
-        for(edge=sym->bonds;edge;edge=edge->nxt){
-          if( (edge->child->ch == 'P' || edge->child->ch == 'S') && 
-              edge->order == 1 && 
-              (edge->child->num_edges < edge->child->allowed_edges) && 
-              (sym->num_edges < sym->allowed_edges))
-          {
-            if(!unsaturate_edge(edge,1))
-              return false; 
-          }
-        }
-        break;
-
-      case 'O':
-        for(edge=sym->bonds;edge;edge=edge->nxt){
-          if(  edge->order == 1 && 
-              (edge->child->num_edges < edge->child->allowed_edges) && 
-              (sym->num_edges < sym->allowed_edges))
-          {
-            if(!unsaturate_edge(edge,1))
-              return false; 
-          }
-        }
-      break;
-
-      default:
-        break;
+    for(edge=sym->bonds;edge;edge->nxt){
+      if( edge->child->ch == 'O' && 
+          edge->child->ch == 'P' && 
+          edge->child->ch == 'S' && 
+          edge->child->num_edges == 1 && 
+          (sym->num_edges < sym->allowed_edges))
+      {
+        if(!unsaturate_edge(edge,1))
+          return false;
+      }
     }
   }
   return true;
