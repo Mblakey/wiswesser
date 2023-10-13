@@ -77,12 +77,13 @@ wlngrep <options> <filename>
 
 ## Unit Testing
 
-All unit tests are contained in the `/test` directory.  
+All unit tests are contained in the `/test` directory. <br>
+These include: 
+1. `compare.sh`
+2. `reading.sh`
+3. `writing.sh`
+4. `file.sh`
 
-A text file for the WLN strings contained in Elbert G. Smiths rule book are contained in data. To run the unit test, run `./smith_test.sh`. This will give a score of successful conversions (100 is NOT expected), some incorrect strings are present. For Chembl, Chemspider and PubChem, run the equivilent shell files. 
-
-Another text file containing all the english words is included, `./english_test.sh` will parse the reader over every capatilised english word and check for seg faults. 
-
-
+Unit tests 1-3 operate on the data files in `\data`. For comparsions agaisnt the old parser in OpenBabel select 1, for reading count tests run 2, writing round trip tests 3. To parse a file of WLN strings, `file.sh` will attempt conversions on every line.
 
 
