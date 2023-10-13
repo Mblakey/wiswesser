@@ -1309,9 +1309,6 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
     top = branch_stack.top().second;
     if(!top)
       return top; // only iterate to the next
-
-    else if (top->ch == 'Y' && top->num_edges == top->allowed_edges-1)
-      branch_stack.pop();
     else if(top->num_edges == top->allowed_edges)
       branch_stack.pop();
     else
