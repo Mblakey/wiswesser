@@ -52,7 +52,6 @@ const char *format;
 static bool opt_wln2dot = false;
 static bool opt_debug = false;
 static bool opt_correct = false; 
-static bool opt_convention=false;
 
 const char *wln_string;
 struct WLNSymbol;
@@ -188,7 +187,7 @@ struct WLNRing
       unsigned int r = i;
       unsigned char loc_a = int_to_locant(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
-      if(rsym->ch == 'S' || rsym->ch == 'P') // for now lets see
+      if(rsym->ch == 'S') // for now lets see
         continue;
 
       if(rsym->aromatic && rsym->num_edges < rsym->allowed_edges){
@@ -196,7 +195,7 @@ struct WLNRing
         for(redge=rsym->bonds;redge;redge=redge->nxt){
           WLNSymbol *csym = redge->child;
 
-          if(csym->ch == 'S' || csym->ch == 'P')
+          if(csym->ch == 'S')
             continue;
 
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
@@ -1303,7 +1302,17 @@ unsigned int special_element_atm(std::string &special){
 }
 
 
+unsigned int count_children(WLNSymbol *sym){
+  WLNEdge *edge = 0; 
+  unsigned int count = 0;
+  for(edge=sym->bonds;edge;edge=edge->nxt)
+    count++;
 
+  if(sym->previous)
+    count++;
+
+  return count; 
+}
 
 // this one pops based on bond numbers
 WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
@@ -1314,10 +1323,14 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
     top = branch_stack.top().second;
     if(!top)
       return top; // only iterate to the next
+
+    if(top->ch == 'Y' && count_children(top)==3)
+      branch_stack.pop();
     else if(top->num_edges == top->allowed_edges)
       branch_stack.pop();
     else
       return top;
+    
   }
 
   return top;
@@ -1329,11 +1342,6 @@ bool RaiseBranchingSymbol(WLNSymbol *sym){
     return false;
 
   switch(sym->ch){
-    case 'Y':
-      fprintf(stderr,"Warning: Y branches are exceeding 3, raising to X\n");
-      sym->allowed_edges++;
-      sym->ch = 'X';
-      break;
 
     case 'M':
       fprintf(stderr,"Warning: M branches are exceeding 2, raising to N\n");
@@ -1474,8 +1482,6 @@ WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
   return edge;
 }
 
-unsigned int count_children();
-
 
 bool remove_edge(WLNSymbol *head,WLNEdge *edge){
   if(!head || !edge){
@@ -1580,7 +1586,6 @@ with an maximal group dioxo added */
 bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   WLNEdge *edge = 0;
-  WLNEdge *sedge = 0; 
   WLNSymbol *oxygen = 0;
   WLNSymbol *binded_symbol = 0; 
 
@@ -1605,16 +1610,19 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     return false; 
   }
 
-  unsigned int remaining_edges = binded_symbol->allowed_edges - binded_symbol->num_edges; 
- 
+  
   head->ch = 'O'; // change the W symbol into the first oxygen
   head->allowed_edges = 2;
-  edge = unsaturate_edge(edge,1); // think the saturate was just a bug here?
 
+  // should still be double bonded. 
   oxygen = AllocateWLNSymbol('O',graph);
   oxygen->allowed_edges = 2;
-  sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
-  if(remaining_edges)
+  edge = saturate_edge(edge,1);
+
+
+  WLNEdge *sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
+  
+  if(binded_symbol->num_edges < binded_symbol->allowed_edges)
     sedge = unsaturate_edge(sedge,1); 
   
   if(binded_symbol->ch == 'N')
@@ -1645,7 +1653,7 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
       break;
 
     case 'Y':
-      while(target->num_edges < target->allowed_edges-1){
+      while(count_children(target) < 3){
         if(!add_methyl(target,graph))
           return false;
       }
@@ -2555,7 +2563,12 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant,new_locant,ring);
-              new_locant->allowed_edges = 5;
+              
+              if(ch == 'P')
+                new_locant->allowed_edges = 5;
+              else
+                new_locant->allowed_edges = 6;
+
               new_locant->inRing = true;
               break;
 
@@ -2720,7 +2733,12 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
                 new_locant = AllocateWLNSymbol(ch,graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->allowed_edges = 6;
+                
+                 if(ch == 'P')
+                  new_locant->allowed_edges = 5;
+                else
+                  new_locant->allowed_edges = 6;
+
                 new_locant->inRing = true;
                 break;
 
@@ -3194,6 +3212,44 @@ bool multiply_carbon(WLNSymbol *sym){
   return true; 
 }
 
+/* adds in assumed double bonding that some WLN forms take
+- it leads to ambiguety on how some structures could be represented */
+bool ResolveHangingBonds(WLNGraph &graph){
+  for(unsigned int i=0;i<graph.symbol_count;i++){
+    WLNSymbol *sym = graph.SYMBOLS[i];
+    WLNEdge *edge = 0; 
+
+    if( ( sym->ch == 'O'  ||
+          sym->ch ==  'P' || 
+          sym->ch ==  'S') &&
+          sym->num_edges == 1)
+    {
+      edge = sym->bonds; 
+      if(edge && edge->order == 1 && (sym->num_edges < sym->allowed_edges) && 
+        (edge->child->num_edges < edge->child->allowed_edges)){
+        if(!unsaturate_edge(edge,1))
+          return false;
+      }
+    } 
+    else{
+      for(edge=sym->bonds;edge;edge = edge->nxt){
+        if( (edge->child->ch == 'O' ||
+            edge->child->ch ==  'P'  || 
+            edge->child->ch ==  'S') &&
+            edge->child->num_edges == 1 && 
+            (sym->num_edges < sym->allowed_edges) && 
+            (edge->child->num_edges < edge->child->allowed_edges))
+        {
+          if(!unsaturate_edge(edge,1))
+            return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+
 
 /* must be performed before sending to obabel graph*/
 bool ExpandWLNSymbols(WLNGraph &graph){
@@ -3243,8 +3299,8 @@ bool ExpandWLNSymbols(WLNGraph &graph){
         break; // ignore
     }
   }
-  
-  return true; 
+
+  return ResolveHangingBonds(graph); 
 }
 
 
@@ -3334,28 +3390,6 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
   return true;
 }
 
-
-/* adds in assumed double bonding that some WLN forms take
-- it leads to ambiguety on how some structures could be represented, 
-hense left as a flag. */
-bool LegacyBonding(WLNGraph &graph){
-  for(unsigned int i=0;i<graph.symbol_count;i++){
-    WLNSymbol *sym = graph.SYMBOLS[i];
-    WLNEdge *edge = 0; 
-    for(edge=sym->bonds;edge;edge->nxt){
-      if( edge->child->ch == 'O' && 
-          edge->child->ch == 'P' && 
-          edge->child->ch == 'S' && 
-          edge->child->num_edges == 1 && 
-          (sym->num_edges < sym->allowed_edges))
-      {
-        if(!unsaturate_edge(edge,1))
-          return false;
-      }
-    }
-  }
-  return true;
-}
 
 
 /**********************************************************************
@@ -4725,7 +4759,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_spiro = true;
       }
       else if (pending_locant)
-      {
+      { 
+
         // ionic species or spiro, reset the linkings
         prev = 0;
         curr = 0;
@@ -4748,18 +4783,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+
         if(!branch_stack.empty() && branch_stack.top().second){
           WLNSymbol *top = 0;
           top = branch_stack.top().second;
 
             // this means a <Y|X|..>'&' so handle methyl
           if(prev && prev == top){
-            
             switch(prev->ch){
               // methyl contractions
 
               case 'Y':
-                if(prev->num_edges < prev->allowed_edges-1){
+                if(count_children(prev) == 3){
                   if(!add_methyl(prev,graph))
                     Fatal(i);
 
@@ -5408,10 +5443,6 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ExpandWLNSymbols(wln_graph))
     return false;
 
-  if(opt_convention){
-    if(!LegacyBonding(wln_graph))
-      return false;
-  }
     
   // create an optional wln dotfile
   // if (opt_wln2dot)
@@ -5433,7 +5464,6 @@ static void DisplayUsage()
   fprintf(stderr, " -c                   allow run-time spelling correction where possible\n");
   fprintf(stderr, " -d                   print debug messages to stderr\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
-  fprintf(stderr, " -l                   use legacy conventions\n");
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
   fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
   exit(1);
@@ -5481,10 +5511,6 @@ static void ProcessCommandLine(int argc, char *argv[])
 
       case 'h':
         DisplayHelp();
-
-      case 'l':
-        opt_convention = true;
-        break;
 
       case 'w':
         opt_wln2dot = true;
