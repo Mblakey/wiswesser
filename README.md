@@ -34,6 +34,7 @@ readwln <options> -o<format> -s 'string'
 `-c` - enable run-time string correction, this allows correction of branching symbols and spaces where a valid WLN string can be seen <br>
 `-d` - enable all debugging logs to stderr<br>
 `-h` - display the help menu <br>
+`-l` - use legacy conventions for implied double bonding <br>
 `-o` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
 `-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands <br>
 
