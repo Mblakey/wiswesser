@@ -3198,11 +3198,8 @@ bool ExpandWLNSymbols(WLNGraph &graph){
     WLNSymbol *sym = graph.SYMBOLS[i];
     if(sym->ch == 'W' && !add_dioxo(sym,graph))
       return false;
-  }
 
-  // unsaturated carbons with C
-  for (unsigned int i=0;i<stop;i++){
-    WLNSymbol *sym = graph.SYMBOLS[i];
+    // unsaturated carbons with C
     if(sym->ch == 'c'){
       sym->ch = 'C';
       if(!multiply_carbon(sym))
@@ -3211,26 +3208,10 @@ bool ExpandWLNSymbols(WLNGraph &graph){
   }
 
   stop = graph.symbol_count;
-  WLNEdge *edge = 0; 
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
 
     switch(sym->ch){
-      
-      // PUS defualt?
-      case 'P':
-      case 'S':
-        if(opt_convention){
-          for(edge=sym->bonds;edge;edge=edge->nxt){
-            if( edge->order == 1 && 
-                (sym->num_edges < sym->allowed_edges) && 
-                (edge->child->num_edges < edge->child->allowed_edges))
-                  if(!unsaturate_edge(edge,1))
-                    return false; 
-          }
-        }
-        break;
-
       case 'Y':
       case 'X':
       case 'K':
@@ -3342,6 +3323,52 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
       if(opt_debug){
         fprintf(stderr, "  character at position [%d] has the following charge addition - %d\n",pos_charge.first,pos_charge.second);
       }
+    }
+  }
+  return true;
+}
+
+
+/* adds in assumed double bonding that some WLN forms take
+- it leads to ambiguety on how some structures could be represented, 
+hense left as a flag. */
+bool LegacyBonding(WLNGraph &graph){
+
+  for(unsigned int i=0;i<graph.symbol_count;i++){
+
+    WLNSymbol *sym = graph.SYMBOLS[i];
+    WLNEdge *edge = 0; 
+
+    switch(sym->ch){
+  
+      case 'P':
+      case 'S':
+        for(edge=sym->bonds;edge;edge=edge->nxt){
+          if( (edge->child->ch == 'P' || edge->child->ch == 'S') && 
+              edge->order == 1 && 
+              (edge->child->num_edges < edge->child->allowed_edges) && 
+              (sym->num_edges < sym->allowed_edges))
+          {
+            if(!unsaturate_edge(edge,1))
+              return false; 
+          }
+        }
+        break;
+
+      case 'O':
+        for(edge=sym->bonds;edge;edge=edge->nxt){
+          if(  edge->order == 1 && 
+              (edge->child->num_edges < edge->child->allowed_edges) && 
+              (sym->num_edges < sym->allowed_edges))
+          {
+            if(!unsaturate_edge(edge,1))
+              return false; 
+          }
+        }
+      break;
+
+      default:
+        break;
     }
   }
   return true;
@@ -5398,6 +5425,11 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ExpandWLNSymbols(wln_graph))
     return false;
 
+  if(opt_convention){
+    if(!LegacyBonding(wln_graph))
+      return false;
+  }
+    
   // create an optional wln dotfile
   // if (opt_wln2dot)
   //   WriteGraph(wln_graph,"wln-graph.dot");
