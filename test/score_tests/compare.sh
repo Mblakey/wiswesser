@@ -12,6 +12,8 @@ FILE=""
 OLD_COUNT=0
 NEW_COUNT=0
 
+OPT_LEGACY=0
+
 process_arguments() {
   # Loop through all the arguments
   for arg in "$@"; do
@@ -20,25 +22,12 @@ process_arguments() {
         # Display a help message
         echo "Usage: pubchem_score_test.sh [OPTIONS] <FILE.tsv>"
         echo "Options:"
+        echo "  -l, --legacy        Show this help message"
         echo "  -h, --help          Show this help message"
         ;;
-
-      -x|--fsm-exact)
-        shift # Shift to the next argument
-        OPT_EXACT=1
-        ;;
-      -c|--correct)
-        # Handle the -d or --directory option
-        shift # Shift to the next argument
-        OPT_SCORRECT=1
-        ;;
-      -g|--greedy-parse)
-        shift # Shift to the next argument
-        OPT_GREEDY=1
-        ;;
-      -o|--old)
+      -l|--legacy)
         shift
-        OPT_OLD=1
+        OPT_LEGACY=1
         ;;
       *)
         FILE=$arg
@@ -69,7 +58,12 @@ main(){
       continue
     fi;
 
-    NEW_SMILES=$($NEW -osmi -c -s "${WLN}" 2> /dev/null)
+    if [ $OPT_LEGACY -eq 1 ]; then
+      NEW_SMILES=$($NEW -osmi -c -l -s "${WLN}" 2> /dev/null)  
+    else
+      NEW_SMILES=$($NEW -osmi -c -s "${WLN}" 2> /dev/null)
+    fi; 
+    
     OLD_SMILES=$($OLD -osmi -s "${WLN}" 2> /dev/null) 
     
     SAME_NEW=""

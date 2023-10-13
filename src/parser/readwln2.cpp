@@ -188,13 +188,17 @@ struct WLNRing
       unsigned int r = i;
       unsigned char loc_a = int_to_locant(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
-
-      // can rsym take a double bond
+      if(rsym->ch == 'S' || rsym->ch == 'P') // for now lets see
+        continue;
 
       if(rsym->aromatic && rsym->num_edges < rsym->allowed_edges){
         WLNEdge *redge = 0;
         for(redge=rsym->bonds;redge;redge=redge->nxt){
           WLNSymbol *csym = redge->child;
+
+          if(csym->ch == 'S' || csym->ch == 'P')
+            continue;
+
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
             unsigned char loc_b = locants_ch[csym];
             unsigned int c = locant_to_int(loc_b-1);
