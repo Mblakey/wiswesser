@@ -52,6 +52,7 @@ const char *format;
 static bool opt_wln2dot = false;
 static bool opt_debug = false;
 static bool opt_correct = false; 
+static bool opt_convention=false;
 
 const char *wln_string;
 struct WLNSymbol;
@@ -3210,10 +3211,25 @@ bool ExpandWLNSymbols(WLNGraph &graph){
   }
 
   stop = graph.symbol_count;
+  WLNEdge *edge = 0; 
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
 
     switch(sym->ch){
+      
+      // PUS defualt?
+      case 'P':
+      case 'S':
+        if(opt_convention){
+          for(edge=sym->bonds;edge;edge=edge->nxt){
+            if( edge->order == 1 && 
+                (sym->num_edges < sym->allowed_edges) && 
+                (edge->child->num_edges < edge->child->allowed_edges))
+                  if(!unsaturate_edge(edge,1))
+                    return false; 
+          }
+        }
+        break;
 
       case 'Y':
       case 'X':
@@ -5402,6 +5418,7 @@ static void DisplayUsage()
   fprintf(stderr, " -c                   allow run-time spelling correction where possible\n");
   fprintf(stderr, " -d                   print debug messages to stderr\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
+  fprintf(stderr, " -l                   use legacy conventions\n");
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
   fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
   exit(1);
@@ -5449,6 +5466,10 @@ static void ProcessCommandLine(int argc, char *argv[])
 
       case 'h':
         DisplayHelp();
+
+      case 'l':
+        opt_convention = true;
+        break;
 
       case 'w':
         opt_wln2dot = true;
