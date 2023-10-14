@@ -4794,7 +4794,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               // methyl contractions
 
               case 'Y':
-                if(count_children(prev) == 3){
+                if(count_children(prev) < 3){
                   if(!add_methyl(prev,graph))
                     Fatal(i);
 
