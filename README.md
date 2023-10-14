@@ -21,8 +21,6 @@ the library to the parser in cmake. Babel files will be installed to `external`.
 
 ## Converting between WLN and CLN Formats
 
-The following command line utilities are for converting between WLN and other chemical formats 
-
 `readwln` - This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and returns the desired output format. 
 
 ```

@@ -148,13 +148,7 @@ struct WLNParser {
         unsigned int len = (unsigned int)(ptr-orig)+22;
         for (unsigned int i=0; i<len; i++)
             fputc(' ',stderr);
-        fprintf(stderr,"^\n");
-        MB_ERROR_CATCH +=1;
-
-        // saving to file for analysis
-        std::ofstream outfile;
-        outfile.open("../errors.txt", std::ios_base::app); // append instead of overwrite
-        outfile << orig << '\n';
+        fprintf(stderr,"^\n");       
         return false;
     }
 
