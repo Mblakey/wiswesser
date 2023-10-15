@@ -2572,8 +2572,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->inRing = true;
               break;
 
-            case 'X':
             case 'Y':
+            case 'X':
             case 'K':
 
               if(!heterocyclic && ch=='K')
@@ -2742,8 +2742,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 new_locant->inRing = true;
                 break;
 
-              case 'X':
               case 'Y':
+              case 'X':
               case 'K':
                 if(!heterocyclic && ch=='K')
                   warned = true;
@@ -4882,7 +4882,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             i++;
           }
 
-          //on_locant = '\0';
+          on_locant = '\0';
           pending_ring_in_ring = false;
           pending_inline_ring = false;
         }
