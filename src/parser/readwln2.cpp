@@ -517,6 +517,15 @@ struct ObjectStack{
     size++;
   }
 
+  void debug_stack(){
+    for(unsigned int i=0;i<size;i++){
+      fprintf(stderr,"%p,",stack[i].first);
+      if(stack[i].second)
+        fprintf(stderr,"%c)\n",stack[i].second->ch);
+      else
+        fprintf(stderr,"%p)\n",stack[i].second);
+    }
+  }
 
   bool empty(){
     if (stack.empty())
@@ -543,11 +552,12 @@ struct ObjectStack{
       return false;
   }
 
-  WLNRing *pop_to_ring(){
+  WLNRing *pop_to_ring(WLNRing *curr_ring){
     std::pair<WLNRing*,WLNSymbol*> t;
-    while(!t.first && !stack.empty()){
-      t = top();
+    t = top();
+    while( (!t.first||t.first==curr_ring) && !stack.empty()){
       pop();
+      t = top();
     }
     return t.first;
   }
@@ -4770,11 +4780,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // returns to last ring
       else if(i < len - 1 && wln_string[i+1] == ' '){
         // need to pop down to where the next ring is
-        ring = branch_stack.pop_to_ring();
+        ring = branch_stack.pop_to_ring(ring);
         if(!ring){
           fprintf(stderr,"Error: popping too many rings, check '&' count\n");
           Fatal(i);
         }
+
         break;
       }
       else
@@ -4825,9 +4836,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
                 prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
                 if(!prev){
                   prev = branch_stack.branch;
-                  ring = branch_stack.ring;
-                }
-                  
+                  //ring = branch_stack.ring;
+                }    
                 break;
             }
           }
@@ -4838,12 +4848,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         else if(!branch_stack.empty() && branch_stack.top().first){
           branch_stack.pop();
-          ring = branch_stack.ring;
-          
-          // ### maybe
           prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
           if(!prev)
             prev = branch_stack.branch;
+          ring = branch_stack.ring;
         }
         else{
           fprintf(stderr,"Error: '&' punctuation outside of branching chains is disallowed notation\n");
@@ -4939,9 +4947,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!found_next){
 
           pending_inline_ring = true;
-
-          if(!prev && branch_stack.branch)
+          if(!prev && branch_stack.branch){
+            // prev must be at top of the branch stack
             prev = branch_stack.branch;
+            while(branch_stack.top().second != prev)
+              branch_stack.pop();
+          }
         }
         else{
 
