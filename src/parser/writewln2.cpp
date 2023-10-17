@@ -631,10 +631,14 @@ struct BabelGraph{
 
       case 15:
         buffer += 'P';
+        if(neighbours == 1 && orders == 1)
+          buffer+='H';
         break;
 
       case 16:
         buffer += 'S';
+        if(neighbours == 1 && orders == 1)
+          buffer+='H';
         break;
 
       case 17:
@@ -1327,7 +1331,10 @@ struct BabelGraph{
 
           if(!branch_stack.empty())
             prev = branch_stack.top();
+          break;
 
+        case 'H':
+          prev = atom;
           break;
 
 

@@ -3246,6 +3246,7 @@ bool ResolveHangingBonds(WLNGraph &graph){
             (sym->num_edges < sym->allowed_edges) && 
             (edge->child->num_edges < edge->child->allowed_edges))
         {
+          fprintf(stderr,"here?\n");
           if(!unsaturate_edge(edge,1))
             return false;
         }
@@ -5461,8 +5462,8 @@ bool ReadWLN(const char *ptr, OBMol* mol)
 
     
   // create an optional wln dotfile
-  // if (opt_wln2dot)
-  //   WriteGraph(wln_graph,"wln-graph.dot");
+  if (opt_wln2dot)
+    WriteGraph(wln_graph,"wln-graph.dot");
 
   if(!obabel.ConvertFromWLN(mol,wln_graph))
     return false;

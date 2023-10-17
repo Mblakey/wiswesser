@@ -82,7 +82,7 @@ main(){
       ((COUNT++));
       echo -ne "\r"
     else
-      echo -ne  "$WLN != $SMILES\t$NEW_SMILES\n"
+      echo -ne  "$WLN == $SMILES\t$NEW_WLN\t$NEW_SMILES\n"
     fi;
 
   done <$FILE
