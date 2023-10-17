@@ -1316,8 +1316,6 @@ unsigned int count_children(WLNSymbol *sym){
 
 // this one pops based on bond numbers
 WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
-    // only used for characters that can 'act' like a '&' symbol
-
   WLNSymbol *top = 0;
   while(!branch_stack.empty()){
     top = branch_stack.top().second;
@@ -1330,9 +1328,7 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
       branch_stack.pop();
     else
       return top;
-    
   }
-
   return top;
 }
 
@@ -4801,7 +4797,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
                   prev = return_object_symbol(branch_stack);
                 }
                 else{ 
-                  // we pop, 
+                  // we pop,
                   branch_stack.pop();
                   prev = branch_stack.branch; 
                 }
@@ -4826,7 +4822,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               default:
                 // default pop
                 branch_stack.pop();
-                prev = branch_stack.branch; // if prev is nulled, then a ring is active
+                prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
+                if(!prev){
+                  prev = branch_stack.branch;
+                  ring = branch_stack.ring;
+                }
+                  
                 break;
             }
           }
@@ -4838,7 +4839,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         else if(!branch_stack.empty() && branch_stack.top().first){
           branch_stack.pop();
           ring = branch_stack.ring;
-          prev = branch_stack.branch; 
+          
+          // ### maybe
+          prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
+          if(!prev)
+            prev = branch_stack.branch;
         }
         else{
           fprintf(stderr,"Error: '&' punctuation outside of branching chains is disallowed notation\n");

@@ -12,6 +12,9 @@ MODE=""
 OLD_COUNT=0
 NEW_COUNT=0
 
+OPT_EXACT=0
+OPT_GREEDY=0
+
 process_arguments() {
   # Loop through all the arguments
   for arg in "$@"; do
@@ -26,8 +29,19 @@ process_arguments() {
         echo "  chembl"
         echo "Options:"
         echo "  -h, --help          Show this help message"
+        echo "  -x, --exact-match   Use wlngrep for exact matching"
+        echo "  -g, --greedy-match   Use wlngrep for greedy matching"
         exit 0;
         ;;
+      
+      -x|--exact-match)
+        shift;
+        OPT_EXACT=1;
+      ;;
+      -g|--greedy-match)
+        shift;
+        OPT_GREEDY=1;
+      ;;
       *)
         MODE=$arg
         ;;
@@ -62,10 +76,12 @@ main(){
     SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
 
-    pWLN=$($EXTRACT -x -s "${WLN}"  2> /dev/null)
-    if [ -z "$pWLN" ]; then
-      echo -ne "\r"
-      continue
+    if [ $OPT_EXACT -eq 1 ]; then
+      pWLN=$($EXTRACT -x -s "${WLN}"  2> /dev/null)
+      if [ -z "$pWLN" ]; then
+        echo -ne "\r"
+        continue
+      fi;
     fi;
 
     NEW_SMILES=$($NEW -osmi -c -s "${WLN}" 2> /dev/null)

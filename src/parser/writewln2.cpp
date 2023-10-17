@@ -587,14 +587,10 @@ struct BabelGraph{
       case 6:
         if(neighbours <= 2)
           buffer += '1';
-        else if(neighbours > 2){
-          if(orders == 3)
-            buffer += 'Y';
-          else
-            buffer += 'X';
-        }
-        else
-          buffer += 'C';
+        else if(neighbours == 3)
+          buffer += 'Y';
+        else if(neighbours == 4)
+          buffer += 'X';
         break;
       
       case 7:
@@ -1176,7 +1172,6 @@ struct BabelGraph{
     //##################################
 
 
-
     unsigned int Wgroups = 0;
   
     OBAtom* atom = start_atom;
@@ -1192,12 +1187,11 @@ struct BabelGraph{
       atom_stack.pop();
       atoms_seen[atom] = true;
 
-      
       if(prev){
         bond = mol->GetBond(prev,atom); 
         if(!bond){
 
-          if(prev != branch_stack.top()){
+          if(!branch_stack.empty() && prev != branch_stack.top()){
             prev = branch_stack.top();
             buffer += '&';
           }
@@ -1207,6 +1201,7 @@ struct BabelGraph{
             branch_stack.pop();
 
             switch(given_char[prev]){ // sorts out last closures
+              
               case 'Y':
               case 'B':
               case 'N':
@@ -1221,6 +1216,10 @@ struct BabelGraph{
                 break;
 
               case 'P':
+                if(evaluated_branches[prev] != 4 )
+                  buffer += '&';
+                break;
+
               case 'S':
               case '-':
                 if(evaluated_branches[prev] != 5 )
@@ -1260,6 +1259,7 @@ struct BabelGraph{
           return false;
         }
         if(!atom_stack.empty()){
+          fprintf(stderr,"here?\n");
           buffer+='&';
           cycle_count--;
         }
@@ -1280,13 +1280,13 @@ struct BabelGraph{
           prev = atom; 
           break;
 
-
 // carbons 
         // alkyl chain 
         case '1':
           prev = atom; 
+          if(CheckCarbonyl(atom))
+            buffer.back() = 'V';
           break;
-
 
         case 'Y':
         case 'X':
