@@ -251,10 +251,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
     if(!pushed){
       if(path.size() == path_size){
-        fprintf(stderr,"[ ");
-        for(unsigned int i=0;i<path.size();i++)
-          fprintf(stderr,"%d ",path[i].first->GetIdx());
-        fprintf(stderr,"]\n");
+
+        if(opt_debug){
+          fprintf(stderr,"  [ ");
+          for(unsigned int i=0;i<path.size();i++)
+            fprintf(stderr,"%d ",path[i].first->GetIdx());
+          fprintf(stderr,"]\n");
+        }
 
         for(unsigned int i=0;i<path_size;i++)
           locant_path[i] = path[i].first;
@@ -326,6 +329,21 @@ struct RingWrapper{
   bool multi;
   OBRing *ring; 
 };
+
+void write_wrapper(RingWrapper *wrapper, std::string &buffer){
+  if(wrapper->loc_a != 'A'){
+    buffer += ' ';
+    buffer += wrapper->loc_a;
+  }
+      
+  if(wrapper->ring->Size() > 9){
+    buffer+='-';
+    buffer+= std::to_string(wrapper->ring->Size());
+    buffer+='-';
+  }
+  else
+     buffer+= std::to_string(wrapper->ring->Size());
+}
 
 bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
                             std::vector<OBRing*> &ring_write_order,
@@ -421,36 +439,80 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       }
     }
   }
-  
-  bool work = true;
-  while(work){
-    work = false;
-    for(unsigned int i=0;i<stack_size;i++){
-      RingWrapper *wrapper = ring_stack[i];
-      if(opt_debug)
-        fprintf(stderr,"  %c --> %c m:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
+
+
+  for(;;){
     
-      if(wrapper->loc_a != 'A'){
-        buffer += ' ';
-        buffer += wrapper->loc_a;
+    unsigned int pos = 0;
+    RingWrapper *wrapper = ring_stack[pos];
+    if(!wrapper)
+      break;
+
+    if(wrapper->multi){
+
+      RingWrapper *a = ring_stack[pos+1];
+      RingWrapper *b = ring_stack[pos+2];
+      if(a && b){
+
+        if(a->loc_a != wrapper->loc_a){
+          pos+=1; 
+          wrapper = ring_stack[pos];
+        }
+        else if(b->loc_a != wrapper->loc_a){
+          pos+=2; 
+          wrapper = ring_stack[pos];
+        }
+        else{
+
+          if(opt_debug){
+            fprintf(stderr,"  %c --> %c multi:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
+            fprintf(stderr,"  %c --> %c multi:%d (%p)\n",a->loc_a,a->loc_b,a->multi,a->ring);
+            fprintf(stderr,"  %c --> %c multi:%d (%p)\n",b->loc_a,b->loc_b,b->multi,b->ring);
+          }
+      
+          
+          write_wrapper(wrapper,buffer);
+          write_wrapper(a,buffer);
+          write_wrapper(b,buffer);
+
+          for(unsigned int i=0;i<3;i++){
+            free(ring_stack[pos+i]);
+            ring_stack[pos+i] = 0;
+          }
+
+          // standard shift down
+          unsigned int idx = 0;
+          for(unsigned int i=0;i<stack_size;i++){
+            RingWrapper *r = ring_stack[i];
+            ring_stack[i] = 0;
+            if(r)
+              ring_stack[idx++] = r;
+          }
+
+          continue;
+        }
       }
-        
-      if(wrapper->ring->Size() > 9){
-        buffer+='-';
-        buffer+= std::to_string(wrapper->ring->Size());
-        buffer+='-';
-      }
-      else
-        buffer+= std::to_string(wrapper->ring->Size());
     }
+
+    if(opt_debug)
+      fprintf(stderr,"  %c --> %c multi:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
+
+    write_wrapper(wrapper,buffer);
+    free(ring_stack[pos]);
+    ring_stack[pos] = 0;
+
+    // standard shift down
+    unsigned int idx = 0;
+    for(unsigned int i=0;i<stack_size;i++){
+      RingWrapper *r = ring_stack[i];
+      ring_stack[i] = 0;
+      if(r)
+        ring_stack[idx++] = r;
+    }
+      
   }
 
-
-  for(unsigned int i=0;i<stack_size;i++)
-    free(ring_stack[i]);
-
   free(ring_stack);
-
   return true;  
 }
 
