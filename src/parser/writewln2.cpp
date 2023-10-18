@@ -372,7 +372,7 @@ std::string ReadPolyPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_s
 
 /* Only complication comes from multicylic rings, where if a multicyclic point is read
 all of its attached rings must be handled in sequence, if this is not possible, move to
-the next ring even if poly*/
+the next ring even if poly, need a stack plus lookahead to ensure the ring order is correct */
 std::string ReadMultiPath(    OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                               std::map<OBAtom*,bool>    &multi_atoms,
                               std::map<OBAtom*,OBRing*> &trivial_atoms,
@@ -1137,6 +1137,9 @@ struct BabelGraph{
   }
 
   bool CheckCarbonyl(OBAtom *atom){
+    if(atom->GetAtomicNum() != 6)
+      return false;
+
     FOR_NBORS_OF_ATOM(a,atom){
       OBAtom *nbor = &(*a);
       if(!atoms_seen[nbor] && !nbor->IsInRing() && nbor->GetAtomicNum() == 8){
@@ -1499,44 +1502,40 @@ struct BabelGraph{
   {
 
     unsigned char locant = 0;
-    unsigned char last_locant = 0; 
-   
+    unsigned char last_locant = 'A'; 
+
     for(unsigned int i=0;i<path_size;i++){
-      unsigned int Wgroups = 0; 
-      locant = int_to_locant(i+1); 
-      
-      Wgroups = CountDioxo(locant_path[i]);
-      if(Wgroups){
 
-        // handles 'A' starting and consecutive locants
-        if(i > 0 && locant-1 != last_locant){
+      locant = int_to_locant(i+1);
+      unsigned int Wgroups = CountDioxo(locant_path[i]);
+      bool carbonyl = CheckCarbonyl(locant_path[i]);
+
+      if(carbonyl || Wgroups || locant_path[i]->GetAtomicNum() != 6){
+        if(locant != last_locant){
           buffer += ' ';
           buffer += locant;
-        }
-        if(!WriteBabelAtom(locant_path[i],buffer))
-          return false; 
+          last_locant = locant;
+        } 
+        if(Wgroups){
+          if(!WriteBabelAtom(locant_path[i],buffer))
+            return false; 
 
-        for(unsigned int w=0;w<Wgroups;w++)
-          buffer+='W';
-      }
-      else if(CheckCarbonyl(locant_path[i])){
-        // handles 'A' starting and consecutive locants
-        if(i > 0 && locant-1 != last_locant){
-          buffer += ' ';
-          buffer += locant;
+          for(unsigned int w=0;w<Wgroups;w++)
+            buffer+='W';
+
+          last_locant++;
         }
-        buffer += 'V';
-        last_locant = locant; 
+        else if(carbonyl){
+          buffer += 'V';
+          last_locant++;
+        }
+        else{
+          WriteBabelAtom(locant_path[i],buffer);
+          last_locant++;
+        }
       }
-        
-      else if(locant_path[i]->GetAtomicNum() != 6){
-        WriteBabelAtom(locant_path[i],buffer);
-        last_locant = locant; 
-      }
-        
-      
-      
-      
+
+    
 #define WIP 0
 #if WIP
       OBAtom *first   = 0;

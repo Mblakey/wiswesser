@@ -5460,11 +5460,6 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ExpandWLNSymbols(wln_graph))
     return false;
 
-    
-  // create an optional wln dotfile
-  if (opt_wln2dot)
-    WriteGraph(wln_graph,"wln-graph.dot");
-
   if(!obabel.ConvertFromWLN(mol,wln_graph))
     return false;
 
