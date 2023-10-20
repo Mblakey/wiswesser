@@ -394,8 +394,12 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                 unsigned char a = int_to_locant(j+1);
                 unsigned char b = int_to_locant(i+1);
                 
-                if(m < a)
+                if(m < a){
                   wrapped->loc_a = m;
+                  if(opt_debug)
+                    fprintf(stderr,"  shift %c to %c\n",a,m);
+                }
+                  
                 else
                   wrapped->loc_a = a;
 
@@ -417,7 +421,11 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
   }
 
-  // means tail was left to wrap to ring end, usually comes from flat on attachments
+  // means tail was left to wrap to ring end, usually comes from flat on attachments,
+  // is it as simple as lowest attached point?
+
+#define OLD 1
+#if OLD
   if(left_behind){
     for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
       OBRing *obring = (*riter); 
@@ -439,7 +447,29 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       }
     }
   }
+#else
+  if(left_behind){
+    OBAtom *last = locant_path[path_size-1];
+    OBBond *last_bond = 0;
+    unsigned int i=0;
+    for(i=0;i<path_size-2;i++){
+      last_bond = mol->GetBond(last,locant_path[i]);
+      if(last_bond)
+        break;
+    }
 
+
+
+  }
+#endif
+
+  if(opt_debug){
+    for(unsigned int i=0;i<stack_size;i++){
+      RingWrapper *wrapper = ring_stack[i];
+      fprintf(stderr,"  %c --> %c multi:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
+    }
+  }
+    
 
   for(;;){
     
@@ -463,14 +493,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           wrapper = ring_stack[pos];
         }
         else{
-
-          if(opt_debug){
-            fprintf(stderr,"  %c --> %c multi:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
-            fprintf(stderr,"  %c --> %c multi:%d (%p)\n",a->loc_a,a->loc_b,a->multi,a->ring);
-            fprintf(stderr,"  %c --> %c multi:%d (%p)\n",b->loc_a,b->loc_b,b->multi,b->ring);
-          }
-      
-          
+ 
           write_wrapper(wrapper,buffer);
           write_wrapper(a,buffer);
           write_wrapper(b,buffer);
@@ -493,9 +516,6 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
         }
       }
     }
-
-    if(opt_debug)
-      fprintf(stderr,"  %c --> %c multi:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
 
     write_wrapper(wrapper,buffer);
     free(ring_stack[pos]);
