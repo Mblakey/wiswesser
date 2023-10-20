@@ -19,6 +19,7 @@ GNU General Public License for more details.
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <limits.h>
 
 #include <set>
 #include <deque>
@@ -199,9 +200,8 @@ find a multicyclic path thats stable with disjoined pericyclic points,
 we only need one hamiltonian, not all */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
-                            std::set<OBBond*>               &ring_bonds,
-                            std::map<OBAtom*,unsigned int>  &atom_shares,
-                            std::map<OBBond*,unsigned int>  &bond_shares)
+                            std::set<OBRing*>               &local_SSSR,
+                            std::map<OBAtom*,unsigned int>  &atom_shares)
 {
 
   // create the path
@@ -220,6 +220,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   OBAtom*                catom  = 0;
   OBBond*                bond   = 0; 
+  unsigned int           lowest_sum = UINT32_MAX;
 
   std::map<OBAtom*,bool> current; 
   std::deque<std::pair<OBAtom*,OBAtom*>> path; 
@@ -252,26 +253,70 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     if(!pushed){
       if(path.size() == path_size){
 
-        if(opt_debug){
-          fprintf(stderr,"  [ ");
-          for(unsigned int i=0;i<path.size();i++)
-            fprintf(stderr,"%d ",path[i].first->GetIdx());
-          fprintf(stderr,"]\n");
-        }
-
         for(unsigned int i=0;i<path_size;i++)
           locant_path[i] = path[i].first;
 
-        return locant_path;  
+        if(opt_debug)
+          print_locant_array(locant_path,path_size);
+        
+        // calculate the fusion sum here, expensive but necessary
+        unsigned int fusion_sum = 0;
+        for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+          OBRing *obring = (*riter); 
+
+          unsigned int min_loc = path_size;
+          for(unsigned int i=0;i<obring->Size();i++){
+            unsigned int pos = position_in_path( mol->GetAtom(obring->_path[i]) ,locant_path,path_size);
+            if(pos < min_loc)
+              min_loc = pos;
+          }
+
+          fusion_sum+=min_loc;
+        }
+
+      
+        // next calculate the earliest ith value for a non-consequtive bond that isnt the starting point
+        bool found = false;
+        unsigned char earliest_loc = 0; 
+        for(int i=1;i<path_size;i++){
+          OBAtom *src = locant_path[i];
+          for(int j=1;j<i-1;j++){
+            OBAtom *trg = locant_path[j]; 
+            if(mol->GetBond(src,trg)){
+              fprintf(stderr,"found %c --> %c\n",int_to_locant(i+1),int_to_locant(j+1));
+              earliest_loc = int_to_locant(j+1);
+              found = true;
+              break;
+            }
+          }
+          if(found)
+            break;
+        }
+        
+        // either multi locant sum OR highest multi
+        unsigned char highest_multi = 0;
+        for(unsigned int i=0;i<path_size;i++){
+          if(atom_shares[locant_path[i]]==3)
+            highest_multi = int_to_locant(i+1);
+        }
+
+        if(opt_debug)
+          fprintf(stderr,"  fusion sum for path: %d, earliest_loc: %c, highest multi:%c\n",fusion_sum,earliest_loc,highest_multi);
+       
       }
       OBAtom *tmp = path.back().first; 
       path.pop_back();
-      path.back().second = tmp;
-      current[tmp] = false; 
+
+      if(!path.empty()){
+        path.back().second = tmp;
+        current[tmp] = false; 
+      }
+      
     }
         
   }
 
+  exit(1);
   fprintf(stderr,"Error: no locant path is possible - requires unsupported branching\n");
   return 0;
 }
@@ -476,7 +521,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       if(pa != ring_stack[i]->loc_a){
 
         if(opt_debug)
-          fprintf(stderr,"    shifting to %c",pa);
+          fprintf(stderr,"    shifting to %c\n",pa);
 
         if(multi_used[ring_stack[i]->loc_a]>0)
           multi_used[ring_stack[i]->loc_a]--;
@@ -539,12 +584,37 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     if(wrapper->multi){
       bool write = true;
       unsigned int times_seen = multi_used[wrapper->loc_a];
-      // are the amount of times seen sequential?, if yes, write multicyclic point
+      // are the amount of times seen sequential? , if yes, write multicyclic point
+      // is there a non multicyclic that shares atoms with the group, if so we need to write the non multi first? 
       for(unsigned int i=0;i<times_seen;i++){
         if(ring_stack[i]->loc_a != wrapper->loc_a)
           write = false;
       }
 
+#define OFF 1
+#ifdef OFF
+      // check do we have an intersection with future non multicyclics? 
+      if(write){
+        std::map<unsigned int,unsigned int> shares; 
+        RingWrapper *last_wrap = ring_stack[times_seen-1]; 
+        for(unsigned int i=0;i<stack_size;i++){
+          if(!ring_stack[i]->multi){
+            
+            for(unsigned int k=0;k<ring_stack[i]->ring->Size();k++)
+              shares[ring_stack[i]->ring->_path[k]]++;
+
+            for(unsigned int k=0;k<last_wrap->ring->Size();k++){
+              shares[last_wrap->ring->_path[k]]++;
+              if(shares[last_wrap->ring->_path[k]] == 2){
+                write = false;
+                break;
+              }
+            } 
+            
+          }
+        }
+      }
+#endif
       if(write){
         for(unsigned int i=0;i<times_seen;i++){
           write_wrapper(ring_stack[i],buffer);
@@ -570,7 +640,8 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       ring_stack[i] = 0;
       if(r)
         ring_stack[idx++] = r;
-    }   
+    }
+    stack_size = idx;   
   }
 
 
@@ -1728,9 +1799,9 @@ struct BabelGraph{
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR); 
     
     bool multi = IsMultiCyclic(ring_atoms,atom_shares, multi_atoms); 
-
+    
     if(multi)
-      locant_path =  NPLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,local_SSSR,atom_shares);
     else
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares);
       

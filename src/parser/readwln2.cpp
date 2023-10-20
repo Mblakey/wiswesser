@@ -2145,10 +2145,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         else if (state_multi == 3){
           
-          if(positional_locant == 'T'){
-            fprintf(stderr,"its here\n");
-          }
-          
           ring_size_specifier += 23;
         }
         else if (state_pseudo){
@@ -3246,7 +3242,6 @@ bool ResolveHangingBonds(WLNGraph &graph){
             (sym->num_edges < sym->allowed_edges) && 
             (edge->child->num_edges < edge->child->allowed_edges))
         {
-          fprintf(stderr,"here?\n");
           if(!unsaturate_edge(edge,1))
             return false;
         }
