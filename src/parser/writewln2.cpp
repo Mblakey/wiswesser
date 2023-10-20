@@ -331,11 +331,12 @@ struct RingWrapper{
 };
 
 void write_wrapper(RingWrapper *wrapper, std::string &buffer){
+  
   if(wrapper->loc_a != 'A'){
     buffer += ' ';
     buffer += wrapper->loc_a;
   }
-      
+
   if(wrapper->ring->Size() > 9){
     buffer+='-';
     buffer+= std::to_string(wrapper->ring->Size());
@@ -343,6 +344,20 @@ void write_wrapper(RingWrapper *wrapper, std::string &buffer){
   }
   else
      buffer+= std::to_string(wrapper->ring->Size());
+}
+
+
+void wrapper_sort(RingWrapper **arr,int s, int e){
+  for (unsigned int j=s;j<e;j++){
+		unsigned char key = arr[j]->loc_a;
+    RingWrapper *ptr = arr[j];
+		int i = j-1;
+		while(i >= s && arr[i]->loc_a > key){
+      arr[i+1] = arr[i];
+			i--;
+		}
+		arr[i+1] = ptr;
+	}
 }
 
 bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
@@ -355,171 +370,198 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                             std::string &buffer)
 {  
   
-  unsigned int left_behind = 0;
   unsigned int stack_size = 0;
   RingWrapper **ring_stack = (RingWrapper**)malloc(sizeof(RingWrapper) * path_size); // path size will be a hard limit
   for(unsigned int i=0;i<path_size;i++)
     ring_stack[i] = 0;
 
+  std::map<unsigned char,unsigned int> multi_used; 
   std::map<OBRing*,bool> rings_checked;
   for(int i=0;i<path_size;i++){
     OBAtom *src = locant_path[i]; 
-    left_behind++;
     if(atom_shares[src] > 1){
-      for(int j=0;j<i-1;j++){
+      for(int j=0;j<i;j++){
         OBAtom *trg = locant_path[j];
 
-        if(atom_shares[trg] > 1 && mol->GetBond(src,trg)){ 
-          // what ring contains the two atoms, and has all positions less than i
-          for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-            OBRing *obring = *riter;  
-            if(!rings_checked[obring] && obring->IsMember(mol->GetBond(src,trg))){
-              // check all atoms have been seen already in the locant path
-              bool make = true;
-              unsigned char min_loc = path_size+1;
-              for(unsigned int k=0;k<obring->Size();k++){
-                OBAtom *tatom = mol->GetAtom(obring->_path[k]);
-                unsigned int pos = position_in_path(tatom,locant_path,path_size);
-                if(pos > i){
-                  make = false;
-                  break;
-                }
-                else if(pos < min_loc)
-                  min_loc = pos; 
-              }
-              if(make){
-                RingWrapper *wrapped = (RingWrapper*)malloc(sizeof(RingWrapper));
-                
-                unsigned char m = int_to_locant(min_loc+1);
-                unsigned char a = int_to_locant(j+1);
-                unsigned char b = int_to_locant(i+1);
-                
-                if(m < a){
-                  wrapped->loc_a = m;
-                  if(opt_debug)
-                    fprintf(stderr,"  shift %c to %c\n",a,m);
-                }
-                  
-                else
-                  wrapped->loc_a = a;
+        if(atom_shares[trg] > 1 && mol->GetBond(src,trg) && ( (j == i-1 && atom_shares[trg] == 3) || j < i-1)){ 
+      
+          RingWrapper *wrapped = (RingWrapper*)malloc(sizeof(RingWrapper));
+          unsigned char a = int_to_locant(j+1);
+          unsigned char b = int_to_locant(i+1);
 
-                wrapped->loc_b = b;
-                if(atom_shares[locant_path[wrapped->loc_a-'A']] == 3)
-                  wrapped->multi = true;
-                else 
-                  wrapped->multi = false;
-
-                wrapped->ring = obring; 
-                ring_stack[stack_size++] = wrapped; 
-                rings_checked[obring] = true;
-                left_behind = 0;
-              }
-            }
+          wrapped->loc_a = a;
+          wrapped->loc_b = b;
+          if(atom_shares[locant_path[wrapped->loc_a-'A']] == 3){
+            multi_used[a]++; // track how many are in the stack, must all be handled together
+            wrapped->multi = true;
           }
+          else 
+            wrapped->multi = false;
+
+          wrapped->ring = 0; 
+          ring_stack[stack_size++] = wrapped; 
         }
+
       }
     }
   }
 
-  // means tail was left to wrap to ring end, usually comes from flat on attachments,
-  // is it as simple as lowest attached point?
 
-#define OLD 1
-#if OLD
-  if(left_behind){
-    for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-      OBRing *obring = (*riter); 
-      if(!rings_checked[obring]){
-        unsigned char min_loc = path_size+1;
-        for(unsigned int i=0;i<obring->Size();i++){
-          OBAtom *latom = mol->GetAtom(obring->_path[i]);
-          unsigned int pos = position_in_path(latom,locant_path,path_size);
-          if(pos < min_loc)
-            min_loc = pos; 
-        }
-        RingWrapper *wrapped = (RingWrapper*)malloc(sizeof(RingWrapper));
-        wrapped->loc_a = int_to_locant(min_loc+1);
-        wrapped->loc_b = 'e';
-        wrapped->multi = false;
-        wrapped->ring = obring; 
-        ring_stack[stack_size++] = wrapped; 
-        rings_checked[obring] = true;
-      }
+  // multicyclic points need to be evaluated in locant order, if a block is multicyclic we can radix sort based on 
+  // locant a -> highest priority, locant b -> lowest priority, between blocks of non multicyclic pairs.
+  unsigned int last_break = 0;
+  unsigned int sandwiched = 0;
+  for(unsigned int i=0;i<stack_size+1;i++){
+     // +1 allows final sort if whole block is multi
+    RingWrapper *wrapper = ring_stack[i];
+    if(!wrapper || !wrapper->multi){
+      // sort between last break and i (i-1) in algorithm; 
+      if(sandwiched > 1)
+        wrapper_sort(ring_stack,last_break,i);
+      
+      sandwiched = 0;
+      last_break = i; 
     }
+    else
+      sandwiched++;
   }
-#else
-  if(left_behind){
-    OBAtom *last = locant_path[path_size-1];
-    OBBond *last_bond = 0;
-    unsigned int i=0;
-    for(i=0;i<path_size-2;i++){
-      last_bond = mol->GetBond(last,locant_path[i]);
-      if(last_bond)
-        break;
-    }
-
-
-
-  }
-#endif
 
   if(opt_debug){
     for(unsigned int i=0;i<stack_size;i++){
       RingWrapper *wrapper = ring_stack[i];
-      fprintf(stderr,"  %c --> %c multi:%d (%p)\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->ring);
+      fprintf(stderr,"  %c --> %c multi:%d\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi);
     }
   }
-    
 
+  for(unsigned int i=0;i<stack_size;i++){
+    // for multicyclic which ring contains the position after loc_b, should only be one
+    // for non multicyclic, which ring contains the position after loc_a, again only one
+    OBAtom *src = locant_path[ ring_stack[i]->loc_a-'A'];
+    OBAtom *trg = locant_path[ ring_stack[i]->loc_b-'A'];
+
+    OBAtom *find = 0;
+    if(atom_shares[src]==3)
+      find = locant_path[ ring_stack[i]->loc_b-'A' +1];
+    else
+      find = locant_path[ ring_stack[i]->loc_a-'A' +1];
+
+    OBRing *obring = 0;
+    for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+      if(!rings_checked[(*riter)] && (*riter)->IsMember(mol->GetBond(src,trg)) && (*riter)->IsMember(find)){
+        obring = (*riter);
+        break;
+      }
+    } 
+    if(!obring){
+      if(multi_used[ring_stack[i]->loc_a]>0)
+        multi_used[ring_stack[i]->loc_a]--;
+
+      free(ring_stack[i]);
+      ring_stack[i] = 0;
+    }
+    else{
+
+      if(opt_debug)
+        fprintf(stderr,"  assigning (%c -> %c) ring with %c\n",ring_stack[i]->loc_a,ring_stack[i]->loc_b,int_to_locant(1+position_in_path(find,locant_path,path_size)));
+
+      // assign the new loc_a to lowest locant seen in the assigned ring
+      unsigned int lowest_loc = path_size; 
+      for(unsigned int j=0;j<obring->Size();j++){
+       unsigned int npos = position_in_path(mol->GetAtom(obring->_path[j]),locant_path,path_size);
+        if(npos < lowest_loc)
+          lowest_loc = npos; 
+      }
+
+      unsigned char pa = int_to_locant(lowest_loc+1);
+      if(pa != ring_stack[i]->loc_a){
+
+        if(opt_debug)
+          fprintf(stderr,"    shifting to %c",pa);
+
+        if(multi_used[ring_stack[i]->loc_a]>0)
+          multi_used[ring_stack[i]->loc_a]--;
+
+        if(atom_shares[locant_path[lowest_loc]] == 3)
+          multi_used[pa]++;
+        else
+          ring_stack[i]->multi = false;
+
+        ring_stack[i]->loc_a = pa; 
+      }
+
+      ring_stack[i]->ring = obring;
+      rings_checked[obring] = true;
+    }
+  }
+
+  // clean up stage 
+  unsigned int idx = 0;
+  for(unsigned int i=0;i<stack_size;i++){
+    RingWrapper *r = ring_stack[i];
+    ring_stack[i] = 0;
+    if(r)
+      ring_stack[idx++] = r;
+  }
+  stack_size = idx;
+
+  // check if we've left any behind, always seems to happen on final looping closure not on an angle
+  unsigned int missed = 0;
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+    OBRing *cring = *(riter);
+    if(!rings_checked[cring]){
+      unsigned int lowest_loc = path_size; 
+      for(unsigned int j=0;j<cring->Size();j++){
+       unsigned int npos = position_in_path(mol->GetAtom(cring->_path[j]),locant_path,path_size);
+        if(npos < lowest_loc)
+          lowest_loc = npos; 
+      }
+
+      RingWrapper *wrapped = (RingWrapper*)malloc(sizeof(RingWrapper));
+      wrapped->loc_a = int_to_locant(lowest_loc+1);
+      wrapped->loc_b = 'e';
+
+      wrapped->multi = false;
+      wrapped->ring = cring; 
+      ring_stack[stack_size++] = wrapped; 
+      missed++;
+    }
+  }
+
+  if(missed > 1)
+    fprintf(stderr,"Warning: more than one ring seems to have been missed in read path\n");
+
+  unsigned int pos = 0;
   for(;;){
-    
-    unsigned int pos = 0;
     RingWrapper *wrapper = ring_stack[pos];
     if(!wrapper)
       break;
 
     if(wrapper->multi){
-
-      RingWrapper *a = ring_stack[pos+1];
-      RingWrapper *b = ring_stack[pos+2];
-      if(a && b){
-
-        if(a->loc_a != wrapper->loc_a){
-          pos+=1; 
-          wrapper = ring_stack[pos];
-        }
-        else if(b->loc_a != wrapper->loc_a){
-          pos+=2; 
-          wrapper = ring_stack[pos];
-        }
-        else{
- 
-          write_wrapper(wrapper,buffer);
-          write_wrapper(a,buffer);
-          write_wrapper(b,buffer);
-
-          for(unsigned int i=0;i<3;i++){
-            free(ring_stack[pos+i]);
-            ring_stack[pos+i] = 0;
-          }
-
-          // standard shift down
-          unsigned int idx = 0;
-          for(unsigned int i=0;i<stack_size;i++){
-            RingWrapper *r = ring_stack[i];
-            ring_stack[i] = 0;
-            if(r)
-              ring_stack[idx++] = r;
-          }
-
-          continue;
-        }
+      bool write = true;
+      unsigned int times_seen = multi_used[wrapper->loc_a];
+      // are the amount of times seen sequential?, if yes, write multicyclic point
+      for(unsigned int i=0;i<times_seen;i++){
+        if(ring_stack[i]->loc_a != wrapper->loc_a)
+          write = false;
       }
-    }
 
-    write_wrapper(wrapper,buffer);
-    free(ring_stack[pos]);
-    ring_stack[pos] = 0;
+      if(write){
+        for(unsigned int i=0;i<times_seen;i++){
+          write_wrapper(ring_stack[i],buffer);
+          free(ring_stack[i]);
+          ring_stack[i] = 0;
+        }
+        pos = 0;
+      }
+      else
+        pos++;
+    }
+    else{
+      write_wrapper(wrapper,buffer);
+      free(ring_stack[pos]);
+      ring_stack[pos] = 0;
+      pos = 0;
+    }
 
     // standard shift down
     unsigned int idx = 0;
@@ -528,14 +570,13 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       ring_stack[i] = 0;
       if(r)
         ring_stack[idx++] = r;
-    }
-      
+    }   
   }
+
 
   free(ring_stack);
   return true;  
 }
-
 
 
 /**********************************************************************
