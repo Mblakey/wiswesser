@@ -206,8 +206,12 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   // create the path
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
+  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++){
     locant_path[i] = 0;
+    best_path[i] = 0; 
+  }
+   
 
   // choose a seed with the highest degree of ring shares
   OBAtom *rseed = 0; 
@@ -220,7 +224,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   OBAtom*                catom  = 0;
   OBBond*                bond   = 0; 
+
+
+  // 3 parameters needed to seperate out the best locant path
   unsigned int           lowest_sum = UINT32_MAX;
+  unsigned char          earliest_locant = int_to_locant(path_size);
+  unsigned char          lowest_multi = int_to_locant(path_size);
+
 
   std::map<OBAtom*,bool> current; 
   std::deque<std::pair<OBAtom*,OBAtom*>> path; 
@@ -255,9 +265,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
         for(unsigned int i=0;i<path_size;i++)
           locant_path[i] = path[i].first;
-
-        if(opt_debug)
-          print_locant_array(locant_path,path_size);
         
         // calculate the fusion sum here, expensive but necessary
         unsigned int fusion_sum = 0;
@@ -274,8 +281,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           fusion_sum+=min_loc;
         }
 
+        if(fusion_sum < lowest_sum){
+          lowest_sum = fusion_sum;
+          copy_locant_path(best_path,locant_path,path_size);
+          continue; // 1st major
+        }
       
-        // next calculate the earliest ith value for a non-consequtive bond that isnt the starting point
+        // next calculate the earliest ith value for a non-consecutive bond that isnt the starting point
         bool found = false;
         unsigned char earliest_loc = 0; 
         for(int i=1;i<path_size;i++){
@@ -283,7 +295,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           for(int j=1;j<i-1;j++){
             OBAtom *trg = locant_path[j]; 
             if(mol->GetBond(src,trg)){
-              fprintf(stderr,"found %c --> %c\n",int_to_locant(i+1),int_to_locant(j+1));
               earliest_loc = int_to_locant(j+1);
               found = true;
               break;
@@ -291,6 +302,12 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           }
           if(found)
             break;
+        }
+
+        if(earliest_loc < earliest_locant){
+          earliest_locant = earliest_loc; 
+          copy_locant_path(best_path,locant_path,path_size);
+          continue; // 2nd major
         }
         
         // either multi locant sum OR highest multi
@@ -300,9 +317,12 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             highest_multi = int_to_locant(i+1);
         }
 
-        if(opt_debug)
-          fprintf(stderr,"  fusion sum for path: %d, earliest_loc: %c, highest multi:%c\n",fusion_sum,earliest_loc,highest_multi);
-       
+        if(highest_multi < lowest_multi){
+          copy_locant_path(best_path,locant_path,path_size);
+          lowest_multi = highest_multi;
+        }
+          
+        
       }
       OBAtom *tmp = path.back().first; 
       path.pop_back();
@@ -316,9 +336,16 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
         
   }
 
-  exit(1);
-  fprintf(stderr,"Error: no locant path is possible - requires unsupported branching\n");
-  return 0;
+  if(opt_debug){
+    fprintf(stderr,"  fusion sum for path: %d, earliest_loc: %c, lowest (high) multi:%c\n",lowest_sum,earliest_locant,lowest_multi);
+    fprintf(stderr,"  ");
+    print_locant_array(best_path,path_size);
+  }
+  // do a count check here or|else return null for unsuccessful locant path, - future 
+  free(locant_path);
+  locant_path=0;
+
+  return best_path;
 }
 
 
@@ -451,7 +478,8 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
   }
 
-
+#define SORT 1
+#if SORT
   // multicyclic points need to be evaluated in locant order, if a block is multicyclic we can radix sort based on 
   // locant a -> highest priority, locant b -> lowest priority, between blocks of non multicyclic pairs.
   unsigned int last_break = 0;
@@ -470,6 +498,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     else
       sandwiched++;
   }
+#endif
 
   if(opt_debug){
     for(unsigned int i=0;i<stack_size;i++){
@@ -575,6 +604,16 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   if(missed > 1)
     fprintf(stderr,"Warning: more than one ring seems to have been missed in read path\n");
 
+
+  if(opt_debug){
+    fprintf(stderr,"pre-read:\n");
+    for(unsigned int i=0;i<stack_size;i++){
+      RingWrapper *wrapper = ring_stack[i];
+      fprintf(stderr,"  %c --> %c multi:%d\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi);
+    }
+  }
+
+
   unsigned int pos = 0;
   for(;;){
     RingWrapper *wrapper = ring_stack[pos];
@@ -592,7 +631,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       }
 
 #define OFF 1
-#ifdef OFF
+#if OFF
       // check do we have an intersection with future non multicyclics? 
       if(write){
         std::map<unsigned int,unsigned int> shares; 
