@@ -433,14 +433,22 @@ bool consecutive(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int pat
   
   sort_locants(sequence,ring->Size());
   
+  if(opt_debug)
+    fprintf(stderr,"  ");
+
   // ignore the first two always 
   bool ret = true;
   for(unsigned int i=2;i<ring->Size()-1;i++){
-    if(sequence[i+1] != sequence[i]+1){
+    if(opt_debug)
+      fprintf(stderr,"%c ",sequence[i]);
+
+    if(sequence[i+1] != sequence[i]+1)
       ret = false;
-      break;
-    }
   }
+
+  if(opt_debug)
+    fprintf(stderr,"%c - %d \n",sequence[ring->Size()-1],ret);
+
   free(sequence);
   return ret;
 }
@@ -591,7 +599,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
 
   unsigned int pos = 0;
-  unsigned char path_eaten = 'A';
   for(;;){
     RingWrapper *wrapper = ring_stack[pos];
     if(!wrapper)
@@ -599,7 +606,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
     if(wrapper->multi){
       bool write = true;
-      unsigned char local_read = path_eaten; 
       unsigned int write_forward = 0;
       unsigned int times_seen = char_in_stack[wrapper->loc_a];
       // are the amount of times seen sequential? , if yes, write multicyclic point
@@ -613,10 +619,8 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
 #define WIP 0
 #if WIP
-        if(!consecutive(mol,ring_stack[i]->ring,locant_path,path_size) && 
-           highest_in_ring(mol,ring_stack[i]->ring,locant_path,path_size) != local_read+1)
+        if(!consecutive(mol,ring_stack[i]->ring,locant_path,path_size))
         {
-          fprintf(stderr,"not writing\n");
           write = false;
           break;
         }
@@ -624,8 +628,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
         if(ring_stack[i] && ring_stack[i]->loc_a == wrapper->loc_a)
           write_forward++;
-
-        local_read = highest_in_ring(mol,ring_stack[i]->ring,locant_path,path_size);
       }
 
       if(write){ 
@@ -636,14 +638,12 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
             ring_stack[i] = 0;
           }
         }
-        path_eaten = local_read;
         pos = 0;
       }
       else
         pos++;
     }
     else{
-      path_eaten = highest_in_ring(mol,wrapper->ring,locant_path,path_size);
       write_wrapper(wrapper,buffer);
       free(ring_stack[pos]);
       ring_stack[pos] = 0;
