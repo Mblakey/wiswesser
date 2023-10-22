@@ -564,7 +564,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           write_forward++;
       }
 
-      if(write){
+      if(write){ // almost
         for(unsigned int i=pos;i<pos+write_forward;i++){
           if(ring_stack[i]){
             write_wrapper(ring_stack[i],buffer);
