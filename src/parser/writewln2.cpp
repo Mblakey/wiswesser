@@ -211,10 +211,9 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     best_path[i] = 0; 
   }
    
-  // 3 parameters needed to seperate out the best locant path
-  unsigned int           lowest_sum = UINT32_MAX;
-  unsigned char          earliest_locant = int_to_locant(path_size);
-  unsigned char          lowest_multi = int_to_locant(path_size);
+  // parameters needed to seperate out the best locant path
+  unsigned int           lowest_sum       = UINT32_MAX;
+  unsigned char          lowest_non_multi = int_to_locant(path_size);
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
@@ -273,50 +272,37 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
               fusion_sum+=min_loc;
             }
 
-            if(fusion_sum < lowest_sum){
-              lowest_sum = fusion_sum;
-              copy_locant_path(best_path,locant_path,path_size);
-              continue; // 1st major
-            }
-
-            
-            // last calculate the earliest ith value for a non-consecutive bond that isnt the starting point
-            bool found = false;
-            unsigned char earliest_loc = 0; 
-            for(int i=1;i<(int)path_size;i++){
+            // trying to tease out 30e without a notation write and compare
+            unsigned char earliest_non_multi = 0;
+            for(int i=0;i<path_size;i++){
               OBAtom *src = locant_path[i];
-              for(int j=1;j<i-1;j++){
+              for(int j=0;j<i;j++){
                 OBAtom *trg = locant_path[j]; 
                 if(mol->GetBond(src,trg)){
-                  earliest_loc = int_to_locant(j+1);
-                  found = true;
-                  break;
+                  if( atom_shares[locant_path[i]]==2 &&
+                      atom_shares[locant_path[j]] == 2 &&
+                      !earliest_non_multi)
+                    earliest_non_multi = int_to_locant(i+1);
                 }
+                  
+                               
               }
-              if(found)
-                break;
             }
 
-            if(earliest_loc < earliest_locant){
-              earliest_locant = earliest_loc; 
+            if(fusion_sum < lowest_sum){ // rule 30d.
+              lowest_sum = fusion_sum;
+              lowest_non_multi = earliest_non_multi; 
               copy_locant_path(best_path,locant_path,path_size);
-              continue; // 3rd major
+              
+              if(opt_debug)
+                fprintf(stderr,"  set on fs: fusion sum for path: %d, lowest non-multi:%c\n",lowest_sum,lowest_non_multi);
             }
-
-            // either multi locant sum OR highest multi
-            unsigned char highest_multi = 0;
-            for(unsigned int i=0;i<path_size;i++){
-              if(atom_shares[locant_path[i]]==3)
-                highest_multi = int_to_locant(i+1);
-            }
-
-
-            if(highest_multi < lowest_multi){
+            else if(earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
+              lowest_non_multi = earliest_non_multi; 
               copy_locant_path(best_path,locant_path,path_size);
-              lowest_multi = highest_multi;
-              continue; // 2nd major?
+              if(opt_debug)
+                fprintf(stderr,"  set on enm: fusion sum for path: %d, lowest non-multi:%c\n",lowest_sum,lowest_non_multi);
             }
-        
           }
           
           OBAtom *tmp = path.back().first; 
@@ -333,11 +319,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     }
   }
 
-  if(opt_debug){
-    fprintf(stderr,"  fusion sum for path: %d, earliest_loc: %c, lowest (high) multi:%c\n",lowest_sum,earliest_locant,lowest_multi);
-    fprintf(stderr,"  ");
-    print_locant_array(best_path,path_size);
-  }
+  if(opt_debug)
+    fprintf(stderr,"fusion sum for path: %d, lowest non-multi:%c\n",lowest_sum,lowest_non_multi);
 
   // do a count check here or|else return null for unsuccessful locant path, - future 
   free(locant_path);
