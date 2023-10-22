@@ -74,6 +74,21 @@ unsigned char static create_relative_position(unsigned char parent){
     return relative;
 }
 
+void static write_locant(unsigned char locant,std::string &buffer){
+  if(locant < 'X')
+    buffer += locant;
+  else{
+    unsigned int amps = 0;
+    while(locant > 'X'){
+      amps++; 
+      locant+= -23;
+    }
+    buffer += locant; 
+    for(unsigned int i=0;i<amps;i++)
+      buffer += '&';
+  }
+}
+
 static void WARNING(const char *str){
   fprintf(stderr,"WARNING CALLED: %s\n",str);
 }
@@ -108,16 +123,6 @@ void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_
     new_path[i] = locant_path[i]; 
 }
 
-void SweepReducedPath(OBAtom** reduced_path,unsigned int path_size){
-  unsigned int idx = 0; 
-  for(unsigned int i=0;i<path_size;i++){
-    if(reduced_path[i])
-      reduced_path[idx++] = reduced_path[i];
-  }
-  for(unsigned int i=idx;i<path_size;i++)
-    reduced_path[i] = 0; 
-}
-
 unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
     if(atom == locant_path[i])
@@ -126,7 +131,6 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
   fprintf(stderr,"Error: atom not found in locant path\n");
   return 0; 
 }
-
 
 
 /*  standard ring walk, can deal with all polycyclics without an NP-Hard
@@ -349,6 +353,7 @@ bool IsMultiCyclic( std::set<OBAtom*>               &ring_atoms,
   return multi; 
 }
 
+
 /* 0 = not, 1 = true, 2 = partial */
 unsigned int IsAromatic(std::set<OBRing*> &local_SSSR){
   unsigned int arom = 3; // just an init value  
@@ -373,10 +378,12 @@ unsigned int IsAromatic(std::set<OBRing*> &local_SSSR){
   return arom; 
 }
 
+
+
 struct RingWrapper{
   unsigned char loc_a;
   unsigned char loc_b; 
-  unsigned char spawn;
+  unsigned char shift;
   bool multi;
   OBRing *ring; 
 };
@@ -397,15 +404,55 @@ void write_wrapper(RingWrapper *wrapper, std::string &buffer){
     buffer+= std::to_string(wrapper->ring->Size());
 }
 
+unsigned char highest_in_ring(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned char highest = 0;
+  for(unsigned int i=0;i<ring->Size();i++){
+    unsigned char loc = position_in_path(mol->GetAtom(ring->_path[i]), locant_path,path_size);
+    if(loc > highest)
+      highest = loc; 
+  }
+  return int_to_locant(highest+1); 
+}
 
-bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
-                            std::vector<OBRing*> &ring_write_order,
-                            std::set<OBAtom*>    &ring_atoms,
-                            std::set<OBBond*>    &ring_bonds,
-                            std::set<OBRing*>    &local_SSSR,
-                            std::map<OBAtom*,unsigned int> &atom_shares, 
-                            std::map<OBBond*,unsigned int> &bond_shares,
-                            std::string &buffer)
+void sort_locants(unsigned char *arr,unsigned int len){
+	for (unsigned int j=1;j<len;j++){
+		unsigned char key = arr[j];
+		int i = j-1;
+		while(i>=0 && arr[i] > key){
+			arr[i+1] = arr[i];
+			i--;
+		}
+		arr[i+1] = key;
+	}
+}
+
+bool consecutive(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
+  for(unsigned int i=0;i<ring->Size();i++)
+    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
+  
+  sort_locants(sequence,ring->Size());
+  
+  // ignore the first two always 
+  bool ret = true;
+  for(unsigned int i=2;i<ring->Size()-1;i++){
+    if(sequence[i+1] != sequence[i]+1){
+      ret = false;
+      break;
+    }
+  }
+  free(sequence);
+  return ret;
+}
+
+bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
+                      std::vector<OBRing*> &ring_write_order,
+                      std::set<OBAtom*>    &ring_atoms,
+                      std::set<OBBond*>    &ring_bonds,
+                      std::set<OBRing*>    &local_SSSR,
+                      std::map<OBAtom*,unsigned int> &atom_shares, 
+                      std::map<OBBond*,unsigned int> &bond_shares,
+                      std::string &buffer)
 {  
   
   unsigned int stack_size = 0;
@@ -426,7 +473,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           RingWrapper *wrapped = (RingWrapper*)malloc(sizeof(RingWrapper));
           wrapped->loc_a = int_to_locant(j+1);
           wrapped->loc_b = int_to_locant(i+1);
-          wrapped->spawn = wrapped->loc_a;
+          wrapped->shift = wrapped->loc_a;
           if(atom_shares[locant_path[wrapped->loc_a-'A']] == 3)
             wrapped->multi = true; // track how many are in the stack, must all be handled together
           else 
@@ -508,7 +555,7 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
   stack_size = idx;
 
-  // check if we've left any behind, always seems to happen on final looping closure not on an angle
+  // check if we've left any behind, always seems to happen on final looping closure when on a flat angle to 'A'
   unsigned int missed = 0;
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
     OBRing *cring = *(riter);
@@ -539,11 +586,12 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     fprintf(stderr,"  pre-read:\n");
     for(unsigned int i=0;i<stack_size;i++){
       RingWrapper *wrapper = ring_stack[i];
-      fprintf(stderr,"    %c --> %c multi:%d <-- [%c (%d)]\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->spawn,char_in_stack[wrapper->spawn]);
+      fprintf(stderr,"    %c --> %c multi:%d <-- [%c (%d)]\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->shift,char_in_stack[wrapper->shift]);
     }
   }
 
   unsigned int pos = 0;
+  unsigned char path_eaten = 'A';
   for(;;){
     RingWrapper *wrapper = ring_stack[pos];
     if(!wrapper)
@@ -551,20 +599,36 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
     if(wrapper->multi){
       bool write = true;
-      unsigned int times_seen = char_in_stack[wrapper->loc_a];
+      unsigned char local_read = path_eaten; 
       unsigned int write_forward = 0;
+      unsigned int times_seen = char_in_stack[wrapper->loc_a];
       // are the amount of times seen sequential? , if yes, write multicyclic point
       for(unsigned int i=pos;i<pos+times_seen;i++){
-        if(ring_stack[i] && (ring_stack[i]->loc_a != wrapper->loc_a && ring_stack[i]->spawn != wrapper->loc_a) ){
+        if( ring_stack[i] && 
+            (ring_stack[i]->loc_a != wrapper->loc_a && ring_stack[i]->shift != wrapper->loc_a) )
+        {
           write = false;
           break;
         }
 
+#define WIP 0
+#if WIP
+        if(!consecutive(mol,ring_stack[i]->ring,locant_path,path_size) && 
+           highest_in_ring(mol,ring_stack[i]->ring,locant_path,path_size) != local_read+1)
+        {
+          fprintf(stderr,"not writing\n");
+          write = false;
+          break;
+        }
+#endif
+
         if(ring_stack[i] && ring_stack[i]->loc_a == wrapper->loc_a)
           write_forward++;
+
+        local_read = highest_in_ring(mol,ring_stack[i]->ring,locant_path,path_size);
       }
 
-      if(write){ // almost
+      if(write){ 
         for(unsigned int i=pos;i<pos+write_forward;i++){
           if(ring_stack[i]){
             write_wrapper(ring_stack[i],buffer);
@@ -572,12 +636,14 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
             ring_stack[i] = 0;
           }
         }
+        path_eaten = local_read;
         pos = 0;
       }
       else
         pos++;
     }
     else{
+      path_eaten = highest_in_ring(mol,wrapper->ring,locant_path,path_size);
       write_wrapper(wrapper,buffer);
       free(ring_stack[pos]);
       ring_stack[pos] = 0;
@@ -1710,7 +1776,7 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_size;i++){
       if(ring_shares[locant_path[i]] > 2){
         count++; 
-        append+= int_to_locant(i+1);
+        write_locant(int_to_locant(i+1),append);
       }
     }
 
@@ -1773,7 +1839,7 @@ struct BabelGraph{
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
       buffer += ' ';
-      buffer += int_to_locant(path_size); // need to make the relative size
+      write_locant(int_to_locant(path_size),buffer); // need to make the relative size
     }
 
     ReadLocantAtomsBonds(locant_path,path_size,buffer);
