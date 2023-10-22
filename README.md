@@ -33,14 +33,7 @@ readwln <options> -o<format> -s 'string'
 `-d` - enable all debugging logs to stderr<br>
 `-h` - display the help menu <br>
 `-o` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
-`-w` - dump the wln graph to a dot file in the build directory, this can be seen using the following commands <br>
-
-```
-dot -Tsvg wln-graph.dot -o wln-graph.svg && open wln-graph.svg
-```
-
 <br>
-
 
 `writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string. 
 
@@ -66,12 +59,10 @@ wlngrep <options> <filename>
 #### Flags 
 
 `-c` - return number of matches instead of string <br>
-`-d` - dump resultant machine to dot file <br>
 `-o` - print only the matched parts of line <br>
 `-m` - do not minimise DFA (debugging only) <br>
 `-s` - interpret `<filename>` as a string to match <br>
 `-x` - return string if whole line matches <br>
-
 
 ## Unit Testing
 

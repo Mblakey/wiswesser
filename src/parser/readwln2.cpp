@@ -49,7 +49,6 @@ const char *cli_inp;
 const char *format; 
 
 // --- options ---
-static bool opt_wln2dot = false;
 static bool opt_debug = false;
 static bool opt_correct = false; 
 
@@ -5445,7 +5444,7 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
 
-  if (opt_wln2dot)
+  if (opt_debug)
     WriteGraph(wln_graph,"wln-graph.dot");
   
     // needs to be this order to allow K to take the methyl groups
@@ -5472,7 +5471,6 @@ static void DisplayUsage()
   fprintf(stderr, " -d                   print debug messages to stderr\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
-  fprintf(stderr, " -w                   dump wln trees to dot file in [build]\n");
   exit(1);
 }
 
@@ -5519,10 +5517,6 @@ static void ProcessCommandLine(int argc, char *argv[])
       case 'h':
         DisplayHelp();
 
-      case 'w':
-        opt_wln2dot = true;
-        break;
-      
       case 'o':
         if (!strcmp(ptr, "-osmi"))
         {
