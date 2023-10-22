@@ -37,6 +37,7 @@ readwln <options> -o<format> -s 'string'
 
 `writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string. 
 
+
 ```
 writewln <options> -i<format> -s 'string'
 ```
