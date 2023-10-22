@@ -543,7 +543,6 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
   }
 
-#ifdef REWORK
   unsigned int pos = 0;
   for(;;){
     RingWrapper *wrapper = ring_stack[pos];
@@ -552,15 +551,21 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
     if(wrapper->multi){
       bool write = true;
-      unsigned int times_seen = multi_used[wrapper->loc_a];
+      unsigned int times_seen = char_in_stack[wrapper->loc_a];
+      unsigned int write_forward = 0;
       // are the amount of times seen sequential? , if yes, write multicyclic point
       for(unsigned int i=pos;i<pos+times_seen;i++){
-        if(ring_stack[i] && ring_stack[i]->loc_a != wrapper->loc_a)
+        if(ring_stack[i] && (ring_stack[i]->loc_a != wrapper->loc_a && ring_stack[i]->spawn != wrapper->loc_a) ){
           write = false;
+          break;
+        }
+
+        if(ring_stack[i] && ring_stack[i]->loc_a == wrapper->loc_a)
+          write_forward++;
       }
 
       if(write){
-        for(unsigned int i=pos;i<pos+times_seen;i++){
+        for(unsigned int i=pos;i<pos+write_forward;i++){
           if(ring_stack[i]){
             write_wrapper(ring_stack[i],buffer);
             free(ring_stack[i]);
@@ -590,7 +595,6 @@ bool ReadLocantPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     stack_size = idx;   
   }
 
-#endif
   free(ring_stack);
   return true;  
 }
