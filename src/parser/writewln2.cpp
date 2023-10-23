@@ -392,6 +392,10 @@ bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
 }
 
 
+// next step for this writer
+bool HasBridging(); 
+
+
 unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
                             std::map<OBAtom*,bool>          &multi_atoms){
@@ -409,31 +413,6 @@ unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
 
   }
   return classification; 
-}
-
-
-/* 0 = not, 1 = true, 2 = partial */
-unsigned int IsAromatic(std::set<OBRing*> &local_SSSR){
-  unsigned int arom = 3; // just an init value  
-  for(std::set<OBRing*>::iterator iter = local_SSSR.begin(); iter != local_SSSR.end(); iter++){
-    if((*iter)->IsAromatic()){
-      if(arom == 3)
-        arom = 1; 
-      else if(arom == 0){
-        arom = 2;
-        return arom;
-      }
-    }
-    else{
-      if(arom == 3)
-        arom = 0; 
-      else if(arom == 1){
-        arom = 2;
-        return arom;
-      }
-    }
-  }
-  return arom; 
 }
 
 
