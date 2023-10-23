@@ -399,18 +399,14 @@ bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
 }
 
 
-// next step for this writer
-bool HasBridging(); 
 
 
 unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
-                            std::map<OBAtom*,unsigned int>  &atom_shares,
-                            std::map<OBAtom*,bool>          &multi_atoms){
-  
+                            std::map<OBAtom*,unsigned int>  &atom_shares)
+{
   unsigned int classification = 0;
   for(std::set<OBAtom*>::iterator iter = ring_atoms.begin();iter != ring_atoms.end();iter++){
     if(atom_shares[*iter] == 3){
-      multi_atoms[(*iter)] = true;
       if(classification < 1)
         classification = 1; 
     }
@@ -1551,10 +1547,10 @@ struct BabelGraph{
   /* parses the local ring system, return the size for creating the locant path with 
   non bonds to avoid */
   unsigned int ConstructLocalSSSR(  OBMol *mol, OBAtom *ring_root,
-                                    std::set<OBAtom*> &ring_atoms,
-                                    std::set<OBBond*> &ring_bonds,
+                                    std::set<OBAtom*>  &ring_atoms,
+                                    std::set<OBBond*>  &ring_bonds,
+                                    std::set<OBAtom*>  &bridging_atoms,
                                     std::map<OBAtom*,unsigned int> &atom_shares,
-                                    std::map<OBAtom*,bool>         &bridging_atoms,
                                     std::set<OBRing*> &local_SSSR)
   {
 
@@ -1567,7 +1563,7 @@ struct BabelGraph{
     OBAtom *prev = 0; 
     OBBond *bond = 0; 
     OBRing *obring = 0; 
-    std::map<OBBond*,unsigned int> forward_ring_addition;
+    std::set<OBAtom*> tmp_bridging_atoms;
   
     // get the seed ring and add path to ring_atoms
     FOR_RINGS_OF_MOL(r,mol){
@@ -1586,19 +1582,17 @@ struct BabelGraph{
             prev = ratom; 
           else{
             bond = mol->GetBond(prev,ratom);
-            if(bond){
-              forward_ring_addition[bond] = obring->Size();
+            if(bond)
               ring_bonds.insert(bond); 
-            }
+            
             prev = ratom; 
           }
         }
         // get the last bond
         bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
-        if(bond){
-          forward_ring_addition[bond] = obring->Size();
+        if(bond)
           ring_bonds.insert(bond); 
-        }
+        
 
         break;
       }
@@ -1628,14 +1622,10 @@ struct BabelGraph{
             prev = 0;
 
             // if its enough to say that true bridges cannot have more than two bonds each?
+            // yes but 2 bonds within the completed local SSSR,so this will needed filtering
             if(intersection.size() > 2){
-              for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++){
-                OBAtom *batom = *iiter;
-                if(batom->GetExplicitDegree() == 2){
-                  fprintf(stderr,"  adding atom %d as bridging\n",batom->GetIdx()); 
-                  bridging_atoms[batom] = true;
-                }
-              }
+              for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++)
+                tmp_bridging_atoms.insert(*iiter); 
             }
 
             for(unsigned int i=0;i<obring->Size();i++){
@@ -1647,28 +1637,43 @@ struct BabelGraph{
                 prev = ratom;
               else{
                 bond = mol->GetBond(prev,ratom);
-                if(bond){
-                  forward_ring_addition[bond] = obring->Size();
+                if(bond)
                   ring_bonds.insert(bond); 
-                }
+                
                 prev = ratom; 
               }
             }
             // get the last bond
             bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
-            if(bond){
-              forward_ring_addition[bond] = obring->Size();
+            if(bond)
               ring_bonds.insert(bond); 
-            }
+            
             running = true;
           }
         }
       }
     }
 
+    // filter out only the 2 bond bridge atoms
+    if(!tmp_bridging_atoms.empty()){
+      for(std::set<OBAtom*>::iterator brd_iter=tmp_bridging_atoms.begin(); brd_iter != tmp_bridging_atoms.end();brd_iter++){
+
+        unsigned int inter_ring_bonds = 0;
+        for(std::set<OBAtom*>::iterator aiter= ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
+          if(mol->GetBond(*brd_iter,*aiter))
+            inter_ring_bonds++; 
+        }
+        if(inter_ring_bonds == 2)
+          bridging_atoms.insert(*brd_iter); 
+      }
+    }
+
     if(opt_debug){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
+      if(!bridging_atoms.empty())
+        fprintf(stderr,"  bridging atoms: %lu\n",bridging_atoms.size());
+      
     }
       
     return ring_atoms.size(); 
@@ -1777,19 +1782,20 @@ struct BabelGraph{
     std::set<OBRing*>               local_SSSR;
     std::set<OBAtom*>               ring_atoms;
     std::set<OBBond*>               ring_bonds;
+    std::set<OBAtom*>               bridge_atoms;
     
     std::vector<OBRing*>            ring_write_order; 
 
     std::map<OBAtom*,unsigned int>  atom_shares;
-    std::map<OBAtom*,bool>          multi_atoms; 
-    std::map<OBAtom*,bool>          bridge_atoms;
+  
+   
     
-    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR); 
+    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR); 
     if(!path_size)
       Fatal("failed to write ring");
 
 
-    bool multi = ClassifyRing(ring_atoms,atom_shares, multi_atoms); 
+    bool multi = ClassifyRing(ring_atoms,atom_shares); 
     
     if(multi)
       locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,local_SSSR);
