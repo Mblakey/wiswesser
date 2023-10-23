@@ -219,6 +219,13 @@ OBAtom **PLocantPath( OBMol *mol, unsigned int path_size,
     }
   }
 
+  for(unsigned int i=0;i<path_size;i++){
+    if(!locant_path[i]){
+      free(locant_path);
+      Fatal("no continous locant path was possible - currently unsupported\n");
+    }
+  }
+
   return locant_path; 
 }
 
@@ -365,9 +372,11 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   free(locant_path);
   locant_path=0;
 
-  if(!best_path[0]){
-    free(best_path); 
-    Fatal("no continous locant path was possible - currently unsupported\n");
+  for(unsigned int i=0;i<path_size;i++){
+    if(!best_path[i]){
+      free(best_path);
+      Fatal("no continous locant path was possible - currently unsupported\n");
+    }
   }
 
   return best_path;
