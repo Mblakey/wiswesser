@@ -53,9 +53,6 @@ const char *format;
 // --- options ---
 static bool opt_debug = false;
 
-static void WARNING(const char *str){
-  fprintf(stderr,"WARNING CALLED: %s\n",str);
-}
 
 static void Fatal(const char *str){
   fprintf(stderr,"Fatal: %s\n",str);
@@ -304,7 +301,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             // trying to tease out 30e without a notation write and compare
             unsigned char earliest_non_multi = 0;
             unsigned char highest_multi = 0;
-            for(int i=0;i<path_size;i++){
+            for(int i=0;i< (int)path_size;i++){
               OBAtom *src = locant_path[i];
               if(atom_shares[src] == 3)
                 highest_multi = int_to_locant(i+1);
@@ -628,7 +625,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   for(unsigned int i=0;i<stack_size;i++)
     local_stack[i] = 0;
   
-  for(int i=0;i<path_size;i++){
+  for(int i=0;i< (int)path_size;i++){
     unsigned char src_char = int_to_locant(i+1); 
 
     for(int j=0;j<i;j++){
