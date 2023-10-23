@@ -1627,6 +1627,17 @@ struct BabelGraph{
             local_SSSR.insert(obring);
             prev = 0;
 
+            // if its enough to say that true bridges cannot have more than two bonds each?
+            if(intersection.size() > 2){
+              for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++){
+                OBAtom *batom = *iiter;
+                if(batom->GetExplicitDegree() == 2){
+                  fprintf(stderr,"  adding atom %d as bridging\n",batom->GetIdx()); 
+                  bridging_atoms[batom] = true;
+                }
+              }
+            }
+
             for(unsigned int i=0;i<obring->Size();i++){
               OBAtom *ratom = mol->GetAtom(obring->_path[i]);
               ring_atoms.insert(ratom);
