@@ -66,17 +66,13 @@ unsigned char static int_to_locant(unsigned int i){
   return i + 64;
 }
 
-unsigned int static locant_to_int(unsigned char loc){
-  return loc - 64;
-}
-
 
 void static write_locant(unsigned char locant,std::string &buffer){
   if(locant < 'X')
     buffer += locant;
   else{
     unsigned int amps = 0;
-    while(locant > 'X'){
+    while(locant >= 'X'){
       amps++; 
       locant+= -23;
     }
@@ -256,8 +252,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     if(atom_shares[rseed] == 3){
 
       OBAtom*                catom  = 0;
-      OBBond*                bond   = 0; 
-
       std::map<OBAtom*,bool> current; 
       std::deque<std::pair<OBAtom*,OBAtom*>> path; 
       path.push_back({rseed,0}); 
@@ -635,11 +629,9 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     local_stack[i] = 0;
   
   for(int i=0;i<path_size;i++){
-    OBAtom *src = locant_path[i];
     unsigned char src_char = int_to_locant(i+1); 
 
     for(int j=0;j<i;j++){
-      OBAtom *trg = locant_path[j];
       unsigned char trg_char = int_to_locant(j+1); 
 
       if(char_in_stack[trg_char] && valid_pair(trg_char,src_char,ring_stack,stack_size)){
