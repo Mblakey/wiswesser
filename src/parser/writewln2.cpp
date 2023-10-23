@@ -374,6 +374,11 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   free(locant_path);
   locant_path=0;
 
+  if(!best_path[0]){
+    free(best_path); 
+    Fatal("no continous locant path was possible - currently unsupported\n");
+  }
+
   return best_path;
 }
 
@@ -479,11 +484,8 @@ unsigned char add_to_path(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigne
 
 bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
                       std::vector<OBRing*> &ring_write_order,
-                      std::set<OBAtom*>    &ring_atoms,
-                      std::set<OBBond*>    &ring_bonds,
                       std::set<OBRing*>    &local_SSSR,
                       std::map<OBAtom*,unsigned int> &atom_shares, 
-                      std::map<OBBond*,unsigned int> &bond_shares,
                       std::string &buffer)
 {  
   
@@ -626,6 +628,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     } 
   }
 
+  // path walk writing algorithm
 
   RingWrapper **local_stack = (RingWrapper**)malloc(sizeof(RingWrapper) * stack_size); // should be a hard limit, write all at once
   for(unsigned int i=0;i<stack_size;i++)
@@ -652,12 +655,10 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           for(unsigned int p=0;p<seen;p++)
             write_wrapper(local_stack[p],buffer);
         }
-        
         // clear the local stack
         for(unsigned int i=0;i<stack_size;i++)
           local_stack[i] = 0;
       }
-      
     }
 
   }
@@ -1455,10 +1456,8 @@ struct BabelGraph{
           bond = mol->GetBond(prev,atom); 
         }
 
-        if(!bond){
-          fprintf(stderr,"Error: failure to read branched bond segment\n");
-          return 0;
-        }
+        if(!bond)
+          Fatal("failure to read branched bond segment");
 
         for(unsigned int i=1;i<bond->GetBondOrder();i++)
           buffer += 'U';
@@ -1471,10 +1470,9 @@ struct BabelGraph{
         buffer+= ' '; 
 
         cycle_count++;
-        if(!RecursiveParse(atom,mol,true,buffer,cycle_count)){
-          fprintf(stderr,"Error: failed to make inline ring\n");
-          return false;
-        }
+        if(!RecursiveParse(atom,mol,true,buffer,cycle_count))
+          Fatal("failed to make inline ring");
+  
         if(!atom_stack.empty()){
           fprintf(stderr,"here?\n");
           buffer+='&';
@@ -1484,8 +1482,8 @@ struct BabelGraph{
       }
 
       if(!WriteBabelAtom(atom,buffer))
-        return 0;
-
+        Fatal("failed to write atom");
+    
       // last added char, not interested in the ring types of '-'
       switch(buffer.back()){
         
@@ -1578,7 +1576,7 @@ struct BabelGraph{
 
     if(!ring_root){
       fprintf(stderr,"Error: ring root is nullptr\n");
-      return 0; 
+      return 0;
     }
 
     OBAtom *ratom = 0; 
@@ -1797,7 +1795,10 @@ struct BabelGraph{
     std::map<OBAtom*,bool>          multi_atoms; 
     
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR); 
-    
+    if(!path_size)
+      Fatal("failed to write ring");
+
+
     bool multi = ClassifyRing(ring_atoms,atom_shares, multi_atoms); 
     
     if(multi)
@@ -1816,9 +1817,8 @@ struct BabelGraph{
     else
       buffer += 'L';
 
-    buffer += ReadLocantPath( mol,locant_path,path_size,ring_write_order,
-                               ring_atoms,ring_bonds, local_SSSR,
-                              atom_shares,bond_shares,buffer); 
+    ReadLocantPath( mol,locant_path,path_size,ring_write_order,
+                    local_SSSR,atom_shares,buffer); 
     
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
@@ -1897,7 +1897,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
           buffer += " &"; // ionic species
         
         if(!obabel.ParseNonCyclic(&(*a),0,mol,buffer,0,0))
-          return false;
+          Fatal("failed on recursive branch parse");
 
         started = true; 
       }
@@ -1911,7 +1911,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
           buffer += " &"; // ionic species
 
         if(!obabel.RecursiveParse(mol->GetAtom( (&(*r))->_path[0]),mol,false,buffer,0))
-          return false; 
+          Fatal("failed on recursive ring parse");
 
         started = true;
       }
@@ -1924,7 +1924,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
       if(!obabel.atoms_seen[&(*a)]){
         buffer += " &"; // ionic species
         if(!obabel.ParseNonCyclic(&(*a),0,mol,buffer,0,0))
-          return false;
+          Fatal("failed on recursive branch parse");
       }
     }
     
