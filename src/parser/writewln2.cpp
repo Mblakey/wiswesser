@@ -240,6 +240,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 find a multicyclic path thats stable with disjoined pericyclic points */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
+                            std::set<OBAtom*>               &bridge_atoms,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
                             std::set<OBRing*>               &local_SSSR)
 {
@@ -251,7 +252,12 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     locant_path[i] = 0;
     best_path[i] = 0; 
   }
-   
+
+  // if there are bridges, set up a bridge map
+  std::map<OBAtom*,bool> is_bridging; 
+  for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin(); biter != bridge_atoms.end(); biter++)
+    is_bridging[*biter] = true; 
+
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_sum       = UINT32_MAX;
   unsigned char          lowest_non_multi = int_to_locant(path_size);
@@ -260,7 +266,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   // multi atoms are the starting seeds, must check them all unfortuanately 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     OBAtom *rseed = (*aiter);
-    if(atom_shares[rseed] == 3){
+    if(atom_shares[rseed] == 3 || is_bridging[rseed]){
 
       OBAtom*                catom  = 0;
       std::map<OBAtom*,bool> current; 
@@ -1797,8 +1803,8 @@ struct BabelGraph{
 
     bool multi = ClassifyRing(ring_atoms,atom_shares); 
     
-    if(multi)
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,local_SSSR);
+    if(multi || !bridge_atoms.empty())
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
     else
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
       
@@ -1816,6 +1822,15 @@ struct BabelGraph{
     ReadLocantPath( mol,locant_path,path_size,ring_write_order,
                     local_SSSR,atom_shares,buffer); 
     
+    if(!bridge_atoms.empty()){
+      for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin(); biter != bridge_atoms.end(); biter++){
+        buffer+= ' ';
+        unsigned char bloc = int_to_locant(position_in_path(*biter,locant_path,path_size)+1);
+        write_locant(bloc,buffer);
+      }
+      
+    }
+
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
       buffer += ' ';
