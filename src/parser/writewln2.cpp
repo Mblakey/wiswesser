@@ -159,11 +159,11 @@ void print_sorted_ring(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned i
 /*  standard ring walk, can deal with all polycyclics without an NP-Hard
     solution 
 */
-OBAtom **PLocantPath( OBMol *mol, unsigned int path_size,
-                            std::set<OBAtom*>              &ring_atoms,
-                            std::set<OBBond*>              &ring_bonds,
-                            std::map<OBAtom*,unsigned int> &atom_shares,
-                            std::map<OBBond*,unsigned int> &bond_shares)
+OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
+                        std::set<OBAtom*>              &ring_atoms,
+                        std::set<OBBond*>              &ring_bonds,
+                        std::map<OBAtom*,unsigned int> &atom_shares,
+                        std::set<OBRing*>              &local_SSSR)
 {
 
   // create the path
@@ -185,7 +185,14 @@ OBAtom **PLocantPath( OBMol *mol, unsigned int path_size,
   std::vector<OBBond*> nt_bonds; 
   for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
     OBBond *bond = (*biter);
-    if(bond_shares[bond] > 1)
+    unsigned int share = 0; 
+    for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+      OBRing *obring = (*riter); 
+      if(obring->IsMember(bond))
+        share++; 
+    }
+
+    if(share > 1)
       nt_bonds.push_back(bond);   
   }
 
@@ -233,8 +240,8 @@ OBAtom **PLocantPath( OBMol *mol, unsigned int path_size,
 find a multicyclic path thats stable with disjoined pericyclic points */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
-                            std::set<OBRing*>               &local_SSSR,
-                            std::map<OBAtom*,unsigned int>  &atom_shares)
+                            std::map<OBAtom*,unsigned int>  &atom_shares,
+                            std::set<OBRing*>               &local_SSSR)
 {
 
   // create the path
@@ -1547,7 +1554,7 @@ struct BabelGraph{
                                     std::set<OBAtom*> &ring_atoms,
                                     std::set<OBBond*> &ring_bonds,
                                     std::map<OBAtom*,unsigned int> &atom_shares,
-                                    std::map<OBBond*,unsigned int> &bond_shares,
+                                    std::map<OBAtom*,bool>         &bridging_atoms,
                                     std::set<OBRing*> &local_SSSR)
   {
 
@@ -1580,7 +1587,6 @@ struct BabelGraph{
           else{
             bond = mol->GetBond(prev,ratom);
             if(bond){
-              bond_shares[bond]++;
               forward_ring_addition[bond] = obring->Size();
               ring_bonds.insert(bond); 
             }
@@ -1590,7 +1596,6 @@ struct BabelGraph{
         // get the last bond
         bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
         if(bond){
-          bond_shares[bond]++;
           forward_ring_addition[bond] = obring->Size();
           ring_bonds.insert(bond); 
         }
@@ -1632,7 +1637,6 @@ struct BabelGraph{
               else{
                 bond = mol->GetBond(prev,ratom);
                 if(bond){
-                  bond_shares[bond]++;
                   forward_ring_addition[bond] = obring->Size();
                   ring_bonds.insert(bond); 
                 }
@@ -1642,7 +1646,6 @@ struct BabelGraph{
             // get the last bond
             bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
             if(bond){
-              bond_shares[bond]++;
               forward_ring_addition[bond] = obring->Size();
               ring_bonds.insert(bond); 
             }
@@ -1761,17 +1764,16 @@ struct BabelGraph{
 
     OBAtom **                       locant_path = 0; 
     std::set<OBRing*>               local_SSSR;
-
     std::set<OBAtom*>               ring_atoms;
     std::set<OBBond*>               ring_bonds;
     
     std::vector<OBRing*>            ring_write_order; 
 
     std::map<OBAtom*,unsigned int>  atom_shares;
-    std::map<OBBond*,unsigned int>  bond_shares;
     std::map<OBAtom*,bool>          multi_atoms; 
+    std::map<OBAtom*,bool>          bridge_atoms;
     
-    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR); 
+    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR); 
     if(!path_size)
       Fatal("failed to write ring");
 
@@ -1779,9 +1781,9 @@ struct BabelGraph{
     bool multi = ClassifyRing(ring_atoms,atom_shares, multi_atoms); 
     
     if(multi)
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,local_SSSR,atom_shares);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,local_SSSR);
     else
-      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bond_shares);
+      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
       
     for(unsigned int i=0;i<path_size;i++){
       if(inline_ring && locant_path[i] == ring_root)
