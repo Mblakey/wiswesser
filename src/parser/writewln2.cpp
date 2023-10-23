@@ -51,9 +51,16 @@ const char *cli_inp;
 const char *format; 
 
 // --- options ---
-static bool opt_wln2dot = false;
 static bool opt_debug = false;
 
+static void WARNING(const char *str){
+  fprintf(stderr,"WARNING CALLED: %s\n",str);
+}
+
+static void Fatal(const char *str){
+  fprintf(stderr,"Fatal: %s\n",str);
+  exit(1);
+}
 
 unsigned char static int_to_locant(unsigned int i){
   return i + 64;
@@ -89,9 +96,6 @@ void static write_locant(unsigned char locant,std::string &buffer){
   }
 }
 
-static void WARNING(const char *str){
-  fprintf(stderr,"WARNING CALLED: %s\n",str);
-}
 
 
 static void print_locant_array(OBAtom **locant_path, unsigned int size){
@@ -104,6 +108,41 @@ static void print_locant_array(OBAtom **locant_path, unsigned int size){
   }
     
   fprintf(stderr,"]\n");
+}
+
+unsigned char highest_in_ring(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned char highest = 0;
+  for(unsigned int i=0;i<ring->Size();i++){
+    unsigned char loc = position_in_path(mol->GetAtom(ring->_path[i]), locant_path,path_size);
+    if(loc > highest)
+      highest = loc; 
+  }
+  return int_to_locant(highest+1); 
+}
+
+void sort_locants(unsigned char *arr,unsigned int len){
+	for (unsigned int j=1;j<len;j++){
+		unsigned char key = arr[j];
+		int i = j-1;
+		while(i>=0 && arr[i] > key){
+			arr[i+1] = arr[i];
+			i--;
+		}
+		arr[i+1] = key;
+	}
+}
+
+void print_sorted_ring(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
+  for(unsigned int i=0;i<ring->Size();i++)
+    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
+  
+  sort_locants(sequence,ring->Size());
+  
+  for(unsigned int k=0;k<ring->Size();k++)
+    fprintf(stderr,"%c ",sequence[k]); 
+  
+  free(sequence);
 }
 
 
@@ -218,6 +257,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_sum       = UINT32_MAX;
   unsigned char          lowest_non_multi = int_to_locant(path_size);
+  unsigned char          lowest_multi     = int_to_locant(path_size); 
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
@@ -278,8 +318,11 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
             // trying to tease out 30e without a notation write and compare
             unsigned char earliest_non_multi = 0;
+            unsigned char highest_multi = 0;
             for(int i=0;i<path_size;i++){
               OBAtom *src = locant_path[i];
+              if(atom_shares[src] == 3)
+                highest_multi = int_to_locant(i+1);
               for(int j=0;j<i;j++){
                 OBAtom *trg = locant_path[j]; 
                 if(mol->GetBond(src,trg)){
@@ -296,17 +339,25 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             if(fusion_sum < lowest_sum){ // rule 30d.
               lowest_sum = fusion_sum;
               lowest_non_multi = earliest_non_multi; 
+              lowest_multi = highest_multi;
               copy_locant_path(best_path,locant_path,path_size);
-              
               if(opt_debug)
-                fprintf(stderr,"  set on fs:  fusion sum for path: %-2d, lowest non-multi:%c\n",lowest_sum,lowest_non_multi);
+                fprintf(stderr,"  set on fs:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
             }
-            else if(earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
+            else if(fusion_sum == lowest_sum && earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
               lowest_non_multi = earliest_non_multi; 
+              lowest_multi = highest_multi;
               copy_locant_path(best_path,locant_path,path_size);
               if(opt_debug)
-                fprintf(stderr,"  set on enm: fusion sum for path: %-2d, lowest non-multi:%c\n",lowest_sum,lowest_non_multi);
+                fprintf(stderr,"  set on enm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
             }
+            else if(fusion_sum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi < lowest_multi){ // not officially a rule but a good filter
+              lowest_multi = highest_multi;
+              copy_locant_path(best_path,locant_path,path_size);
+              if(opt_debug)
+                fprintf(stderr,"  set on hm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
+            }
+
           }
           
           OBAtom *tmp = path.back().first; 
@@ -340,17 +391,23 @@ bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
 }
 
 
-bool IsMultiCyclic( std::set<OBAtom*>               &ring_atoms,
-                    std::map<OBAtom*,unsigned int>  &atom_shares,
-                    std::map<OBAtom*,bool>          &multi_atoms){
-  bool multi = false;
+unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
+                            std::map<OBAtom*,unsigned int>  &atom_shares,
+                            std::map<OBAtom*,bool>          &multi_atoms){
+  
+  unsigned int classification = 0;
   for(std::set<OBAtom*>::iterator iter = ring_atoms.begin();iter != ring_atoms.end();iter++){
     if(atom_shares[*iter] == 3){
       multi_atoms[(*iter)] = true;
-      multi = true;
+      if(classification < 1)
+        classification = 1; 
     }
+
+    if(atom_shares[*iter] == 4)
+      return 2;
+
   }
-  return multi; 
+  return classification; 
 }
 
 
@@ -404,27 +461,6 @@ void write_wrapper(RingWrapper *wrapper, std::string &buffer){
     buffer+= std::to_string(wrapper->ring->Size());
 }
 
-unsigned char highest_in_ring(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
-  unsigned char highest = 0;
-  for(unsigned int i=0;i<ring->Size();i++){
-    unsigned char loc = position_in_path(mol->GetAtom(ring->_path[i]), locant_path,path_size);
-    if(loc > highest)
-      highest = loc; 
-  }
-  return int_to_locant(highest+1); 
-}
-
-void sort_locants(unsigned char *arr,unsigned int len){
-	for (unsigned int j=1;j<len;j++){
-		unsigned char key = arr[j];
-		int i = j-1;
-		while(i>=0 && arr[i] > key){
-			arr[i+1] = arr[i];
-			i--;
-		}
-		arr[i+1] = key;
-	}
-}
 
 bool consecutive(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
@@ -594,8 +630,10 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     fprintf(stderr,"  pre-read:\n");
     for(unsigned int i=0;i<stack_size;i++){
       RingWrapper *wrapper = ring_stack[i];
-      fprintf(stderr,"    %c --> %c multi:%d <-- [%c (%d)]\n",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->shift,char_in_stack[wrapper->shift]);
-    }
+      fprintf(stderr,"    %c --> %c multi:%d <-- [%c (%d)] contains: [ ",wrapper->loc_a,wrapper->loc_b,wrapper->multi,wrapper->shift,char_in_stack[wrapper->shift]);
+      print_sorted_ring(mol,wrapper->ring,locant_path,path_size);
+      fprintf(stderr,"]\n");
+    } 
   }
 
   unsigned int pos = 0;
@@ -616,15 +654,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           write = false;
           break;
         }
-
-#define WIP 0
-#if WIP
-        if(!consecutive(mol,ring_stack[i]->ring,locant_path,path_size))
-        {
-          write = false;
-          break;
-        }
-#endif
 
         if(ring_stack[i] && ring_stack[i]->loc_a == wrapper->loc_a)
           write_forward++;
@@ -669,27 +698,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 /**********************************************************************
                           Reduction Functions
 **********************************************************************/
-
-unsigned int highest_unbroken_numerical_chain(std::string &str){
-  unsigned int highest_chain = 0; 
-  unsigned int current_chain = 0; 
-  for(unsigned int i=0;i<str.size();i++){
-    if(str[i] <= '9' && str[i] >= '0')
-      current_chain++;
-    else{
-      if(current_chain > highest_chain)
-        highest_chain = current_chain;
-      
-      current_chain = 0; 
-    }
-  }
-
-  if(current_chain > highest_chain)
-    highest_chain = current_chain;
-
-  return highest_chain; 
-}
-
 
 std::string CondenseCarbonylChains(std::string &buffer){
   
@@ -1814,7 +1822,7 @@ struct BabelGraph{
     
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,atom_shares,bond_shares,local_SSSR); 
     
-    bool multi = IsMultiCyclic(ring_atoms,atom_shares, multi_atoms); 
+    bool multi = ClassifyRing(ring_atoms,atom_shares, multi_atoms); 
     
     if(multi)
       locant_path = NPLocantPath(mol,path_size,ring_atoms,local_SSSR,atom_shares);
@@ -1996,9 +2004,6 @@ static void ProcessCommandLine(int argc, char *argv[])
         case 'h':
           DisplayHelp();
 
-        case 'w':
-          opt_wln2dot = true;
-          break;
 
         case 'i':
           if (!strcmp(ptr, "-ismi"))
