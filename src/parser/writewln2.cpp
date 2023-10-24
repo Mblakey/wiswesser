@@ -148,7 +148,10 @@ void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned 
 }
 
 bool BondedEndPoints(   OBMol *mol,OBRing *ring, 
-                        OBAtom **locant_path, unsigned int path_size){
+                        OBAtom **locant_path, unsigned int path_size,
+                        std::set<OBAtom*>              &bridge_atoms,
+                        std::map<OBAtom*,unsigned int> &atom_shares,
+                        std::string &buffer){
 
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
   OBAtom **ring_array = (OBAtom**)malloc(sizeof(OBAtom*)*ring->Size()); 
@@ -169,26 +172,42 @@ bool BondedEndPoints(   OBMol *mol,OBRing *ring,
 		sequence[i+1] = key;
     ring_array[i+1] = ptr;
 	}
+
+  // need a new approach
+  bool sequential_read = true;
+  unsigned int last = ring->Size()-1;
+
+
+  // for(unsigned int i=0;i<ring->Size();i++)
+  //   fprintf(stderr,"%c ",sequence[i]);
+  // fprintf(stderr,"\n");
+
+  unsigned char bind = 0;
+  if(!mol->GetBond(ring_array[0],ring_array[last]) && !(bridge_atoms.find(ring_array[last]) != bridge_atoms.end()) ){
+    unsigned char loc = sequence[0];
+    for(unsigned int i=1;i<last;i++){
+      if(sequence[i] != loc+1)
+        sequential_read = false;
+      
+      if(mol->GetBond(ring_array[i],ring_array[last])){
+        bind = sequence[i];
+        break;
+      }
+        
+      
   
-
-  // multicyclic offsets are a tricky one, this should take care ofit
-  bool ret = false;
-  unsigned int pos = 1; 
-  while(pos < ring->Size()-2){
-    
-    if(mol->GetBond(ring_array[pos],ring_array[ring->Size()-1])){
-      if(ret = true)
-        fprintf(stderr,"%c --> %c\n",sequence[pos],sequence[ring->Size()-1]);
-      
-      ret = true;
+      loc = sequence[i];
     }
-      
-    pos++; 
+    if(!sequential_read){
+      buffer += '/';
+      write_locant(bind,buffer);
+      write_locant(sequence[last],buffer);
+    }
   }
-
+ 
   free(ring_array);
   free(sequence);
-  return ret;
+  return true;
 }
 
 
@@ -519,7 +538,8 @@ unsigned char add_to_path(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigne
 
 
 
-bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size, 
+bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+                      std::set<OBAtom*>               &bridge_atoms,
                       std::map<OBAtom*,unsigned int>  &atom_shares, 
                       std::set<OBRing*>               &local_SSSR,
                       std::string &buffer)
@@ -691,8 +711,8 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           sort_wrapper(local_stack,seen);
           for(unsigned int p=0;p<seen;p++){
             write_wrapper(local_stack[p],buffer);
-            bool test = BondedEndPoints(mol,local_stack[p]->ring,locant_path,path_size);
             // we can check for pseudo bridges here - are there any non consecutive bonds in the sorted path?
+            BondedEndPoints(mol,local_stack[p]->ring,locant_path,path_size,bridge_atoms,atom_shares,buffer);
           }
             
         }
@@ -1879,7 +1899,8 @@ struct BabelGraph{
       buffer += 'L';
 
     ReadLocantPath( mol,locant_path,path_size,
-                    atom_shares,local_SSSR,buffer); 
+                    bridge_atoms,atom_shares,local_SSSR,
+                    buffer); 
     
     if(!bridge_atoms.empty()){
       for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin(); biter != bridge_atoms.end(); biter++){
