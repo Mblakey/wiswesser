@@ -576,6 +576,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     // for non multicyclic, which ring contains the position after loc_a, again only one
     OBAtom *src = locant_path[ ring_stack[i]->loc_a-'A'];
     OBAtom *trg = locant_path[ ring_stack[i]->loc_b-'A'];
+    OBBond *lbond = mol->GetBond(src,trg); 
 
     OBAtom *find = 0;
     if(atom_shares[src]==3)
@@ -583,13 +584,17 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     else
       find = locant_path[ ring_stack[i]->loc_a-'A' +1];
 
+    if(!src || !trg || !lbond)
+      Fatal("catch");
+
     OBRing *obring = 0;
     for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-      if(!rings_checked[(*riter)] && (*riter)->IsMember(mol->GetBond(src,trg)) && (*riter)->IsMember(find)){
+      if(!rings_checked[(*riter)] && (*riter)->IsMember(lbond) && (*riter)->IsMember(find)){
         obring = (*riter);
         break;
       }
     } 
+
     if(!obring){
       free(ring_stack[i]);
       ring_stack[i] = 0;
@@ -739,10 +744,19 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
 std::string CondenseCarbonylChains(std::string &buffer){
   
+  bool special = false;
   unsigned int counter = 0; 
   std::string condensed = {}; 
   for(unsigned int i=0;i<buffer.size();i++){
-    if(buffer[i] == '1')
+    
+    if(buffer[i] == '-'){
+      if(special)
+        special = false;
+      else
+        special = true;
+    }
+
+    if(buffer[i] == '1' && !special)
       counter++; 
     else{
       if(counter){
