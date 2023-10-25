@@ -1320,6 +1320,9 @@ unsigned int count_children(WLNSymbol *sym){
   if(sym->previous)
     count++;
 
+  if(sym->num_edges == sym->allowed_edges)
+    return sym->num_edges;
+
   return count; 
 }
 
@@ -3275,7 +3278,8 @@ bool ExpandWLNSymbols(WLNGraph &graph){
       case 'Y':
       case 'X':
       case 'K':
-        resolve_methyls(sym,graph);
+        if(!resolve_methyls(sym,graph))
+          return false;
         break;
 
       case 'V':{
@@ -3706,6 +3710,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           else
             Fatal(i);
+
+          on_locant = 0;
         }
         
         // last notation is not neccessary
@@ -4000,6 +4006,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         // else do not update.
         if(!prev)
           prev = curr;
+        else
+          prev = return_object_symbol(branch_stack);
+
       }
       break;
 
