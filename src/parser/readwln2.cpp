@@ -1709,7 +1709,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
                           std::vector<unsigned char>    &multicyclic_locants,
                           std::vector<indexed_pair>     &pseudo_locants,
                           std::set<unsigned char>       &broken_locants,
-                          std::map<unsigned char,bool>  &bridge_locants,
+                          std::map<unsigned char,unsigned int>  &bridge_locants,
                           unsigned char size_designator,
                           WLNRing *ring,
                           WLNGraph &graph) 
@@ -1725,10 +1725,14 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
         local_size = component.first;
     }
 
+    
     for (unsigned int i=0;i<252;i++){
       if(bridge_locants[i])
         local_size+= -1; 
     }
+
+    if(opt_debug)
+      fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
   }
   else
     local_size = locant_to_int(size_designator);
@@ -1835,7 +1839,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
       return 0;
     }
-    
+
+    if(bridge_locants[bind_1]==1)
+      bridge_locants[bind_1]++;
+
     // --- PSD BRIDGE ONLY ---
     if(!pseudo_lookup[i].empty()){
 
@@ -1870,28 +1877,34 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     }
 
 
-    while( (shared_rings[bind_1] >= 2 && broken_lookup[bind_1].empty())
-          || (bridge_locants[bind_1] && ring->locants[bind_1]->num_edges >= 2) ){
-      predefined++;
-      bind_1++;
-      ring_path.push_front(bind_1);
-    }
+    // there needs to be a big think about bridges, messing around with these two statements
+    // is the key, but not stable for standard vs normal bicyclics
 
-
-    // whilst the cpp object is large, the alternative is many more lines
-    while(!broken_lookup[bind_1].empty()){
-      predefined++;
-      unsigned char bloc = broken_lookup[bind_1].front();
-      broken_lookup[bind_1].pop_front();
-      bind_1 = bloc;
-      ring_path.push_back(bind_1);
+    for(;;){
+      if(!broken_lookup[bind_1].empty()){
+        predefined++;
+        unsigned char bloc = broken_lookup[bind_1].front();
+        broken_lookup[bind_1].pop_front();
+        bind_1 = bloc;
+        ring_path.push_back(bind_1);
+      }
+      else if(shared_rings[bind_1] >= 2){
+        predefined++;
+        bind_1++;
+        ring_path.push_front(bind_1);
+      }
+      else if (bridge_locants[bind_1]==2){
+        bind_1++;
+        path = ring->locants[bind_1];
+      }
+      else
+        break;
     }
 
     // --- MULTI ALGORITHM --- 
-    std::map<unsigned char, bool> in_ring_path; // safety needed for infinite loops on incorrect notation
-    ring_path.push_back(ring->locants_ch[path]);
-    in_ring_path[ring->locants_ch[path]] = true;
 
+    ring_path.push_back(ring->locants_ch[path]);
+  
     unsigned char highest_loc = '\0'; 
     for (unsigned int i=0;i<comp_size - predefined; i++){  // 2 points are already defined
       highest_loc = '\0'; // highest of each child iteration 
@@ -1918,15 +1931,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
         }
       }
 
+      if(bridge_locants[highest_loc]==1)
+        bridge_locants[highest_loc]++;
+  
       path = ring->locants[highest_loc];
-      if(!in_ring_path[ring->locants_ch[path]]){
-        ring_path.push_back(ring->locants_ch[path]);
-        in_ring_path[ring->locants_ch[path]] = true;
-      }
-      else{
-        fprintf(stderr,"Error: notation causes infinite path cycles, check ring definition\n");
-        return false;
-      }
+      ring_path.push_back(highest_loc);
     }
 
     bind_2 = highest_loc; 
@@ -2086,7 +2095,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   std::vector<unsigned int>     pseudo_positions; 
   std::vector<unsigned char>    multicyclic_locants;
   std::set<unsigned char>       broken_locants;
-  std::map<unsigned char,bool>  bridge_locants;
+  std::map<unsigned char,unsigned int>  bridge_locants;
   
   // broken locants start at A = 129 for extended ascii 
   // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
@@ -3119,7 +3128,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     }
     fprintf(stderr,"\n");
 
-    fprintf(stderr,"  size denotion: %d\n",ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
+    fprintf(stderr,"  multi_size: %d\n",ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
     fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
   }
   
