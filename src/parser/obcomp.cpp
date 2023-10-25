@@ -33,7 +33,7 @@ bool AreSame(double a, double b, const double EPSILON)
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "can_babel <smiles> <smiles>\n");
+  fprintf(stderr, "obcomp <smiles> <smiles>\n");
   exit(1);
 }
 
@@ -89,18 +89,35 @@ int main(int argc, char *argv[]){
   OpenBabel::OBConversion conv;
 
   conv.SetInFormat("smi");
+  conv.SetOutFormat("can");
 
   conv.ReadString(&mol_1,smiles_1);
   conv.ReadString(&mol_2,smiles_2);
-  
+ 
+    
   // removes all the stereo
   mol_1.DeleteData(27);
   mol_2.DeleteData(27);
 
+  std::string smi_1 = conv.WriteString(&mol_1);
+  std::string smi_2 = conv.WriteString(&mol_2);
+
+  int res = smi_1.compare(smi_2);
+  if(res==0){
+    fprintf(stdout,"%d",1);
+    return 0;
+  }
+  else{
+    fprintf(stdout,"%d",0);
+    return 0;
+  }
+
+#if FP
   std::vector<unsigned int> first_fp;
   std::vector<unsigned int> second_fp;
 
-  OpenBabel::OBFingerprint* fp = OpenBabel::OBFingerprint::FindFingerprint("");
+
+  OpenBabel::OBFingerprint* fp = OpenBabel::OBFingerprint::FindFingerprint("FP2");
 
   fp->GetFingerprint(&mol_1, first_fp);
   fp->GetFingerprint(&mol_2, second_fp);
@@ -123,4 +140,6 @@ int main(int argc, char *argv[]){
     fprintf(stdout,"%d",0);
 
   return 0;
+
+#endif
 }
