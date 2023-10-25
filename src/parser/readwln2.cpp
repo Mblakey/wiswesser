@@ -1729,6 +1729,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       if(bridge_locants[i])
         local_size+= -1; 
     }
+    for (unsigned char loc_broken : broken_locants)
+      local_size+= -1;
 
     if(opt_debug)
       fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
@@ -2117,6 +2119,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             pseudo_locants.back() = positional_locant;
             expected_locants--;
           }
+          else{
+            fprintf(stderr,"here?\n");
+            bridge_locants[positional_locant] = true;
+          }
+            
 
           evaluating_break = 0;
         }
@@ -2441,7 +2448,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             pseudo_locants.back() = positional_locant;
             expected_locants--;
           }
-
+  
           evaluating_break = 0;
         }
         if (i > 1 && block[i-1] == ' '){
@@ -2919,6 +2926,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             multicyclic_locants.back() = positional_locant;
           else if(state_pseudo == 1 && expected_locants)
             pseudo_locants.back() = positional_locant;
+          else
+            bridge_locants[positional_locant] = true;
 
           evaluating_break = 0;
         }
@@ -2981,6 +2990,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             multicyclic_locants.back() = positional_locant;
           else if(state_pseudo == 1 && expected_locants)
             pseudo_locants.back() = positional_locant;
+          else
+            bridge_locants[positional_locant] = true;
 
           evaluating_break = 0;
         }
