@@ -2109,21 +2109,15 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
         if(evaluating_break){
           broken_locants.insert(positional_locant);
-
-          if(state_multi == 1 && expected_locants){
+          if(state_multi >= 1){
             multicyclic_locants.back() = positional_locant;
             state_multi = 2;
-            expected_locants--;
           }
-          else if(state_pseudo == 1 && expected_locants){
+          else if(state_pseudo == 1)
             pseudo_locants.back() = positional_locant;
-            expected_locants--;
-          }
-          else{
-            fprintf(stderr,"here?\n");
+          else
             bridge_locants[positional_locant] = true;
-          }
-            
+          
 
           evaluating_break = 0;
         }
@@ -2440,14 +2434,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         if(evaluating_break){
           broken_locants.insert(positional_locant);
 
-          if(state_multi == 1 && expected_locants){
+          if(state_multi == 1)
             multicyclic_locants.back() = positional_locant;
-            expected_locants--;
-          }
-          else if(state_pseudo == 1 && expected_locants){
+          else if(state_pseudo == 1)
             pseudo_locants.back() = positional_locant;
-            expected_locants--;
-          }
   
           evaluating_break = 0;
         }
@@ -2922,7 +2912,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         if(evaluating_break){
           broken_locants.insert(positional_locant);
 
-          if(state_multi == 1 && expected_locants)
+          if(state_multi >= 1 && expected_locants)
             multicyclic_locants.back() = positional_locant;
           else if(state_pseudo == 1 && expected_locants)
             pseudo_locants.back() = positional_locant;
@@ -2986,7 +2976,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         if(evaluating_break){
           broken_locants.insert(positional_locant);
 
-          if(state_multi == 1 && expected_locants)
+          if(state_multi >= 1 && expected_locants)
             multicyclic_locants.back() = positional_locant;
           else if(state_pseudo == 1 && expected_locants)
             pseudo_locants.back() = positional_locant;
