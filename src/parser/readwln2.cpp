@@ -1725,7 +1725,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
         local_size = component.first;
     }
 
-    
     for (unsigned int i=0;i<252;i++){
       if(bridge_locants[i])
         local_size+= -1; 
@@ -1832,16 +1831,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     aromatic = aromaticity[i];
     WLNSymbol *path = ring->locants[bind_1];
     
-    unsigned int predefined = 1;
     std::deque<unsigned char> ring_path; 
 
     if(!path){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
       return 0;
     }
-
-    if(bridge_locants[bind_1]==1)
-      bridge_locants[bind_1]++;
 
     // --- PSD BRIDGE ONLY ---
     if(!pseudo_lookup[i].empty()){
@@ -1876,26 +1871,22 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       continue;      
     }
 
-
     // there needs to be a big think about bridges, messing around with these two statements
     // is the key, but not stable for standard vs normal bicyclics
-
     for(;;){
       if(!broken_lookup[bind_1].empty()){
-        predefined++;
         unsigned char bloc = broken_lookup[bind_1].front();
         broken_lookup[bind_1].pop_front();
         bind_1 = bloc;
         ring_path.push_back(bind_1);
       }
       else if(shared_rings[bind_1] >= 2){
-        predefined++;
         bind_1++;
         ring_path.push_front(bind_1);
       }
-      else if (bridge_locants[bind_1]==2){
+      else if (bridge_locants[bind_1] && ring->locants[bind_1]->num_edges >=2){
         bind_1++;
-        path = ring->locants[bind_1];
+        ring_path.push_front(bind_1);
       }
       else
         break;
@@ -1904,9 +1895,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     // --- MULTI ALGORITHM --- 
 
     ring_path.push_back(ring->locants_ch[path]);
-  
     unsigned char highest_loc = '\0'; 
-    for (unsigned int i=0;i<comp_size - predefined; i++){  // 2 points are already defined
+    while(ring_path.size() != comp_size){  // 2 points are already defined
       highest_loc = '\0'; // highest of each child iteration 
 
       WLNEdge *lc = 0;
@@ -1931,9 +1921,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
         }
       }
 
-      if(bridge_locants[highest_loc]==1)
-        bridge_locants[highest_loc]++;
-  
       path = ring->locants[highest_loc];
       ring_path.push_back(highest_loc);
     }
@@ -1942,7 +1929,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
 
     // annoying catch needed for bridge notation that is 'implied' 
     if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
-      
       unsigned char back = ring_path.back();
       while(back < int_to_locant(local_size) && !ring_path.empty()){
         back++;
@@ -2426,6 +2412,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             track += ring_components[rn].first;
           ring->post_charges.push_back({int_to_locant(track + 1),-1});  // post is needed as this is before pointer assignment
         }
+        
         
         break;
 
@@ -5033,7 +5020,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   }
 
   // single letter methyl branches
-  if(on_locant && !pending_inline_ring && !branch_stack.empty()){
+  if(on_locant && on_locant != '0' && !pending_inline_ring && !branch_stack.empty()){
     if(!add_methyl(branch_stack.ring->locants[on_locant],graph)){
       fprintf(stderr,"Error: could not attach implied methyl to ring\n");
       Fatal(i);
