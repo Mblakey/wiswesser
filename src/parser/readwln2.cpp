@@ -3146,70 +3146,66 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     
 }
 
-
 bool multiply_carbon(WLNSymbol *sym){
   
   WLNEdge   *edge     = 0;
   WLNSymbol *back     = sym->previous; 
   WLNEdge   *fedge    = sym->bonds;
+  
+  if(!back||!fedge){
+    fprintf(stderr,"Error: multiplier carbon must have surrounding symbols, use H to resolve?\n");
+    return false;
+  }
+  
   WLNSymbol *forward  = fedge->child;
+  WLNEdge *bedge = 0;
+  for(edge=back->bonds;edge;edge=edge->nxt){      
+    if(edge->child == sym){
+      bedge = edge;
+      break;
+    }
+  }
 
- 
+  if(!forward||!bedge){
+    fprintf(stderr,"Error: multiplier carbon must have surrounding symbols, use H to resolve?\n");
+    return false;
+  }
+
   unsigned int back_edges = back->allowed_edges - back->num_edges; 
   unsigned int forward_edges = forward->allowed_edges - forward->num_edges;
 
- 
   // it seems to be the convention
-  // that if the back symbol can take a triple bond, we do it
+  // that if the forward facing symbol can take a triple bond, we do it
   
-  // this cannot be done for alkyl numbers, so
-
+  // this cannot be done for alkyl numbers, so.. turn off the chain edges
   if(std::isdigit(back->ch))
-    back_edges = 0;
+    back_edges = 1;
   if(std::isdigit(forward->ch))
-    forward_edges = 0;
+    forward_edges = 1;
 
-  if(back_edges <=  1 && forward_edges >= 2){
+  // experimental rule, if a triple bond will completely saturate an, atom, 
+  // we should always take it. 
+
+  if(forward->num_edges== 1 && forward->num_edges+2 == forward->allowed_edges){
     if(!unsaturate_edge(fedge,2))
       return false;
   }
-  else if (back_edges >= 2 && forward_edges <= 1){
-    for(edge=back->bonds;edge;edge=edge->nxt){      
-      if(edge->child == sym){
-        if(!unsaturate_edge(edge,2))
-          return false;
-      }
-    }
+  else if(back->num_edges == 1 && back->num_edges+2 == back->allowed_edges){
+    if(!unsaturate_edge(bedge,2))
+      return false;
   }
-  else if (back_edges > 1 && forward_edges > 1){
-    // unless a cyano is seen, force the first triple
-    if(forward->ch == 'N'){
+  else{
+    // first cases, forward edges force the triple
+    if(forward_edges >= 2){
       if(!unsaturate_edge(fedge,2))
         return false;
     }
-    else{
-      for(edge=back->bonds;edge;edge=edge->nxt){      
-        if(edge->child == sym){
-          if(!unsaturate_edge(edge,2))
-            return false;
-        }
-      }
-    }
-  }
-  else{
-    // try force a distrubtion of the bonds
- 
-    for(edge=back->bonds;edge;edge=edge->nxt){      
-      if(edge->child == sym){
-        if(!unsaturate_edge(edge,1))
-          return false;
-      }
-
-      if(!unsaturate_edge(fedge,1))
+    else if (forward_edges == 1 && back_edges >=1){
+      if(!unsaturate_edge(bedge,1) || !unsaturate_edge(fedge,1))
         return false;
     }
   }
-  
+
   return true; 
 }
 
@@ -3596,6 +3592,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   WLNRing   *ring       = 0;
   WLNRing   *wrap_ring  = 0;
 
+  bool cleared = true; // resets on ionics
   bool pending_locant           = false;
   bool pending_J_closure        = false;
   bool pending_inline_ring      = false;
@@ -3711,7 +3708,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           else
             Fatal(i);
 
-          on_locant = 0;
+          on_locant = '\0';
         }
         
         // last notation is not neccessary
@@ -3727,7 +3724,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       } 
       else{
         on_locant = '\0';
-
         curr = AllocateWLNSymbol('1',graph);
         curr->allowed_edges = 4;
 
@@ -3763,8 +3759,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
 
         prev = curr;
-        break;
       }
+      cleared = false;
       break;
     
 
@@ -3799,6 +3795,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_unsaturate = 0;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'X':
@@ -3832,6 +3829,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
       // oxygens
@@ -3874,6 +3872,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'Q':
@@ -3917,6 +3916,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!prev)
           prev = curr;
       }
+      cleared = false;
       break;
 
     case 'V':
@@ -3958,6 +3958,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'W':
@@ -4010,6 +4011,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           prev = return_object_symbol(branch_stack);
 
       }
+      cleared = false;
       break;
 
       // nitrogens
@@ -4051,12 +4053,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!edge)
             Fatal(i);
         }
-        
-        branch_stack.push({0,curr});
+
+        if(!prev || (prev && prev->ch != 'c'))
+          branch_stack.push({0,curr});
+
         graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'M':
@@ -4098,6 +4103,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_unsaturate = 0;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'K':
@@ -4141,6 +4147,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'Z':
@@ -4185,6 +4192,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!prev)
           prev = curr;
       }
+      cleared = false;
       break;
 
       // halogens - need to add rules for semi allowed hyper valence in ionions
@@ -4234,6 +4242,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!prev)
           prev = curr;
       }
+      cleared = false;
       break;
 
       // inorganics
@@ -4277,6 +4286,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'P':
@@ -4324,6 +4334,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
     // multiply bonded carbon, therefore must be at least a double bond
@@ -4362,14 +4373,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!edge)
             Fatal(i);
         }
-        else{
-          fprintf(stderr,"Error: 'C' carbon designation must be able to reach max valence without hydrogens\n");
-          Fatal(i);
-        }
 
         graph.string_positions[i] = curr;
         prev = curr;
       }
+      cleared = false;
       break;
 
     case 'A':
@@ -4396,6 +4404,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         fprintf(stderr,"Error: locant only symbol used in atomic definition\n");
         Fatal(i);
       }
+      cleared = false;
       break;
         
     // this can start a chelating ring compound, so has the same block as 'L\T'
@@ -4442,6 +4451,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         block_start = i;
         pending_J_closure = true;
       }
+      cleared = false;
       break;
         
         
@@ -4494,9 +4504,16 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         graph.string_positions[i] = curr;
-        curr = prev;
-        // dont update for H
+
+        if(prev && prev->num_edges < prev->allowed_edges)
+          curr = prev;
+        else
+          prev = return_object_symbol(branch_stack);
+        
+        if(!prev)
+          prev = curr; // failsafe to starting hydrogen
       }
+      cleared = false;
       break;
 
       // ring notation
@@ -4601,7 +4618,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         pending_J_closure = false;
       }
-      
+      cleared = false;
       break;
 
     case 'L':
@@ -4637,10 +4654,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           break;
         }
           
-        if (i == 0)
+        if (cleared)
           pending_inline_ring = true;
-        
-      
+          
         if (!pending_inline_ring)
         {
           fprintf(stderr, "Error: ring notation started without '-' denotion\n");
@@ -4651,6 +4667,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         block_start = i;
         pending_J_closure = true;
       }
+      cleared = false;
       break;
 
     case 'R':
@@ -4695,8 +4712,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         graph.string_positions[i] = curr;
-        prev = curr;;
+        prev = curr;
       }
+      cleared = false;
       break;
 
       // bonding
@@ -4719,6 +4737,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         pending_locant = false;
         on_locant = ch;
+      }
+      else if(cleared){
+        fprintf(stderr,"Error: floating double bond after ionic clear\n");
+        Fatal(i);
       }
       else{
         on_locant = '\0';
@@ -4767,12 +4789,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if (pending_locant)
       { 
-
         // ionic species or spiro, reset the linkings
         prev = 0;
         curr = 0;
         pending_locant = false;
-        
+        cleared = true;
         branch_stack.clear_all(); // burn stack
       }
       else if(on_locant){
@@ -4845,6 +4866,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           else{
             // means a closure is done, we return to the first avaliable symbol on the branch stack
             prev = return_object_symbol(branch_stack);
+            if(!prev)
+              prev = branch_stack.branch; // catches branching ring closures
           }
         }
         else if(!branch_stack.empty() && branch_stack.top().first){
@@ -4993,6 +5016,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             
           }
 
+          on_locant = '\0';
           branch_stack.push({0,curr});
 
           i+= gap+1;
@@ -5002,8 +5026,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           pending_unsaturate = 0;
           prev = curr;
         }
-
       }
+      cleared = false;
       break;
     }
     
