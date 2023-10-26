@@ -3186,6 +3186,8 @@ bool multiply_carbon(WLNSymbol *sym){
   // experimental rule, if a triple bond will completely saturate an, atom, 
   // we should always take it. 
 
+  fprintf(stderr,"bn:%d, fn:%d\n",forward->num_edges,back->num_edges);
+
   if(forward->num_edges== 1 && forward->num_edges+2 == forward->allowed_edges){
     if(!unsaturate_edge(fedge,2))
       return false;
@@ -3217,28 +3219,34 @@ bool ResolveHangingBonds(WLNGraph &graph){
     WLNEdge *edge = 0; 
 
     if( ( sym->ch == 'O'  ||
+          sym->ch == 'N'  ||
           sym->ch ==  'P' || 
           sym->ch ==  'S') &&
           sym->num_edges == 1)
     {
       edge = sym->bonds; 
-      if(edge && edge->order == 1 && (sym->num_edges < sym->allowed_edges) && 
+      if(edge && edge->order == 1){
+        
+        while((sym->num_edges < sym->allowed_edges) && 
         (edge->child->num_edges < edge->child->allowed_edges)){
-        if(!unsaturate_edge(edge,1))
-          return false;
+          if(!unsaturate_edge(edge,1))
+            return false;
+        }
       }
     } 
     else{
       for(edge=sym->bonds;edge;edge = edge->nxt){
         if( (edge->child->ch == 'O' ||
             edge->child->ch ==  'P'  || 
+            edge->child->ch ==  'N'  || 
             edge->child->ch ==  'S') &&
-            edge->child->num_edges == 1 && 
-            (sym->num_edges < sym->allowed_edges) && 
-            (edge->child->num_edges < edge->child->allowed_edges))
+            edge->child->num_edges == 1)
         {
-          if(!unsaturate_edge(edge,1))
-            return false;
+          while((sym->num_edges < sym->allowed_edges) && 
+            (edge->child->num_edges < edge->child->allowed_edges)){
+            if(!unsaturate_edge(edge,1))
+              return false;
+          }
         }
       }
     }
@@ -4054,9 +4062,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             Fatal(i);
         }
 
-        if(!prev || (prev && prev->ch != 'c'))
-          branch_stack.push({0,curr});
-
+        branch_stack.push({0,curr});
         graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = curr;
@@ -5334,6 +5340,8 @@ struct BabelGraph{
           break;
 
         case 'Q':
+          if(sym->num_edges == 0)
+            charge = -1;
           atomic_num = 8;
           hcount = 1;
           break;
