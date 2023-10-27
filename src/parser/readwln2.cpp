@@ -1822,7 +1822,18 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   }
 
   // instant access maps
-  std::map<unsigned char,unsigned int>              shared_rings; 
+  std::map<unsigned char,unsigned int> allowed_connections; 
+  for (unsigned int i=1;i<=local_size;i++){
+    unsigned char ch = int_to_locant(i);
+    if(i == 1 || i == local_size)
+      allowed_connections[ch] = 2; 
+    else
+      allowed_connections[ch] = 1; 
+    // can add in X here after concept is proven
+    if(bridge_locants[ch])
+      allowed_connections[ch]--; 
+  }
+ 
   std::map<unsigned char,unsigned char>             pseudo_lookback;  // look back for pseudo
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
   std::map<unsigned char, bool>                     spawned_broken; 
@@ -1838,7 +1849,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
   // calculate bindings and then traversals round the loops
   bool aromatic             = false;
-  unsigned char init_locant = '\0';
   unsigned char bind_1      = '\0';
   unsigned char bind_2      = '\0';
   unsigned int fuses        = 0; 
@@ -1847,43 +1857,31 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   for (unsigned int i=0;i<ring_assignments.size();i++){
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
     comp_size = component.first;
-    bind_1      = component.second;
-    init_locant = component.second;
+    bind_1    = component.second;
     aromatic = aromaticity[i];
     WLNSymbol *path = ring->locants[bind_1];
-    std::deque<unsigned char> ring_path; 
-    bool write = true; // lets us handle pseudo locants in place
 
     if(!path){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
       return 0;
     }
 
-    // there needs to be a big think about bridges, messing around with these two statements
-    // is the key, but not stable for standard vs normal bicyclics
-    for(;;){
-      if(!broken_lookup[bind_1].empty()){
-        unsigned char bloc = broken_lookup[bind_1].front();
-        broken_lookup[bind_1].pop_front();
-        bind_1 = bloc;
-        ring_path.push_back(bind_1);
-      }
-      else if(shared_rings[bind_1] >= 2){
-        bind_1++;
-        ring_path.push_front(bind_1);
-      }
-      else if (bridge_locants[bind_1] && ring->locants[bind_1]->num_edges >=2){
-        bind_1++;
-        ring_path.push_front(bind_1);
-      }
-      else
-        break;
+    // --- MULTI ALGORITHM --- 
+    unsigned int path_size = 0; 
+    unsigned char *ring_path = (unsigned char*)malloc(sizeof(unsigned char)*comp_size);
+    memset(ring_path,0,comp_size*sizeof(unsigned char)); 
+    ring_path[path_size++] = ring->locants_ch[path];
+    unsigned char highest_loc = '\0'; 
+
+    if(!broken_lookup[bind_1].empty()){
+      unsigned char bloc = broken_lookup[bind_1].front();
+      broken_lookup[bind_1].pop_front();
+      bind_1 = bloc;
+      ring_path[path_size++] = bind_1;
     }
 
-    // --- MULTI ALGORITHM --- 
-    ring_path.push_back(ring->locants_ch[path]);
-    unsigned char highest_loc = '\0'; 
-    while(ring_path.size() != comp_size && write){ 
+    while(path_size < comp_size){ 
+      // this should now overshoot
 
       highest_loc = '\0'; // highest of each child iteration 
       WLNEdge *lc = 0;
@@ -1908,20 +1906,69 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       }
 
       path = ring->locants[highest_loc];
-    
-      if(pseudo_lookback[highest_loc]){
-        bind_1 = pseudo_lookback[highest_loc];
-        ring_path.push_back(bind_1);
-        write = false;
-      }
+      ring_path[path_size++] = highest_loc;   
 
-      ring_path.push_back(highest_loc);
+      // if(pseudo_lookback[highest_loc] && ring_path.size() < comp_size){
+      //   bind_1 = pseudo_lookback[highest_loc];
+      // }
+
+      bind_2 = highest_loc;
     }
 
-    bind_2 = highest_loc; 
+    // shifting now performed here should be more stable
+    for(;;){
+      if(allowed_connections[bind_1]){
+        WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
+        if(!edge)
+          return false;
 
+        allowed_connections[bind_1]--;
+
+        if(!allowed_connections[bind_2])
+          fprintf(stderr,"we are detecting the problem\n");
+        
+        if(allowed_connections[bind_2])
+          allowed_connections[bind_2]--;
+        break;
+      }
+      else{
+
+        bind_1++; // increase bind_1 
+        bool found = false;
+        for(unsigned int a=0;a<path_size;a++){
+          if(ring_path[a] == bind_1)
+            found = true;
+        }
+
+        // if its already there, we dont change the path
+        if(!found){ 
+          // if its not, we have to spawn it in by knocking one off
+          for(unsigned int a=path_size-1;a>1;a--)
+            ring_path[a] = ring_path[a-1];
+
+          ring_path[0] = bind_1; 
+          bind_2 = ring_path[path_size-1]; 
+        }
+      }
+    }
+
+    if(opt_debug){
+      fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
+      for (unsigned int a=0;a<path_size;a++)
+        fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
+      fprintf(stderr," ]\n");
+    }
+
+    // updates the shared rings approach -> paths must MUST be exact for this to work
+    for (unsigned int a=0;a<path_size;a++){
+      if(ring_path[a] > 128)
+        spawned_broken[ring_path[a]] = true;
+    }
+
+#define ON 0
+#if ON
     // annoying catch needed for bridge notation that is 'implied' 
-    if(write && i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
+    if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
       unsigned char back = ring_path.back();
       while(back < int_to_locant(local_size) && !ring_path.empty()){
         back++;
@@ -1932,38 +1979,19 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       bind_2 = back;
       bind_1 = init_locant;
     }
+#endif
 
-
-    if(opt_debug){
-      fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
-      for (unsigned char ch : ring_path)
-        fprintf(stderr," %c(%d)",ch,ch);
-      
-      fprintf(stderr," ]\n");
-    }
-
-    // updates the shared rings approach -> paths must MUST be exact for this to work
-    for (unsigned char ch : ring_path){
-      shared_rings[ch]++; 
-      if(ch > 128)
-        spawned_broken[ch] = true;
-    }
-    
-    WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-    if(!edge)
-      return false;
-    
     if(aromatic){
-      for(unsigned int a=0;a<ring_path.size();a++){
+      for(unsigned int a=0;a<path_size;a++){
         WLNSymbol *arom = ring->locants[ring_path[a]]; 
         arom->aromatic = true;
         ring->aromatic_atoms = 1;
       }
     
       // add the edges based on statement before n^2 but should work
-      for(unsigned int a=0;a<ring_path.size();a++){
+      for(unsigned int a=0;a<path_size;a++){
         WLNSymbol *src = ring->locants[ring_path[a]];
-        for(unsigned int b=a+1;b<ring_path.size();b++){
+        for(unsigned int b=a+1;b<path_size;b++){
           WLNSymbol *trg = ring->locants[ring_path[b]];
           if(src->aromatic && trg->aromatic){
             WLNEdge *edge = search_edge(src,trg); 
@@ -1975,6 +2003,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
     }
 
+    free(ring_path);
+    ring_path = 0; 
     fuses++;
   }
 
