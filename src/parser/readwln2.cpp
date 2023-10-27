@@ -436,19 +436,6 @@ struct WLNGraph
   }
 };
 
-// some bridge notation is index dependent
-struct indexed_pair{
-  unsigned char bind_1 = '\0';
-  unsigned char bind_2 = '\0';
-  unsigned int index   = 0;
-
-  void set(unsigned char a, unsigned char b, unsigned int p){
-    bind_1 = a;
-    bind_2 = b;
-    index = p;
-  }
-
-};
 
 // needs to be able to hold both a WLNSymbol and WLNRing for branch returns
 struct ObjectStack{  
@@ -1710,7 +1697,7 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
                           std::vector<bool>             &aromaticity,
                           std::vector<unsigned char>    &multicyclic_locants,
-                          std::vector<indexed_pair>     &pseudo_locants,
+                          std::vector<unsigned char>    &pseudo_locants,
                           std::set<unsigned char>       &broken_locants,
                           std::map<unsigned char,unsigned int>  &bridge_locants,
                           unsigned char size_designator,
@@ -1741,9 +1728,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
   else
     local_size = locant_to_int(size_designator);
 
-  std::map<unsigned int,std::vector<indexed_pair>>  pseudo_lookup;
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
-  std::map<unsigned char, bool>                     spawned_broken;
+  std::map<unsigned char, bool>                     spawned_broken; 
   std::map<unsigned char,unsigned int>              shared_rings; 
 
   // create all the nodes in a large straight chain
@@ -1774,13 +1760,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     prev = curr;
   }
 
-  // shared rings cannot be done purely on ring paths annoyingly, leads to missteps in 
-  // bridged ring system where the ring is spawned outside the path. 
 
-  // pseudo pairs
-  for (indexed_pair psd_pair : pseudo_locants)
-    pseudo_lookup[psd_pair.index].push_back(psd_pair);
-  
   // broken locants
   if(!broken_locants.empty()){
     // create the atoms, 
@@ -1822,6 +1802,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     }
   }
 
+
   // calculate bindings and then traversals round the loops
   unsigned int comp_size = 0;
   unsigned char bind_1 = '\0';
@@ -1835,45 +1816,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     bind_1 = component.second;
     aromatic = aromaticity[i];
     WLNSymbol *path = ring->locants[bind_1];
-    
     std::deque<unsigned char> ring_path; 
 
     if(!path){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
       return 0;
-    }
-
-    // --- PSD BRIDGE ONLY ---
-    if(!pseudo_lookup[i].empty()){
-
-      indexed_pair psd_pair = pseudo_lookup[i].front(); // should only be 1
-      
-      bind_1 = psd_pair.bind_1;
-      bind_2 = psd_pair.bind_2;
-
-      // the binding is easy, its just figuring out what the ring path would be without
-      // bidirectional travel - dfs is unreliable with this struct design
-
-      // sometimes the notation lists the psd bridges that can be implied from the rings
-
-      if(!search_edge(ring->locants[bind_2],ring->locants[bind_1])){
-        WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-        if(!edge)
-          return false;
-
-        ring_path.push_back(bind_1);
-        ring_path.push_back(bind_2);
-
-        if(opt_debug){
-          fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
-          for (unsigned char ch : ring_path){
-            fprintf(stderr," %c(%d)",ch,ch);
-          }
-          fprintf(stderr," ]\n");
-        }
-      }
-      fuses++;
-      continue;      
     }
 
     // there needs to be a big think about bridges, messing around with these two statements
@@ -1908,7 +1855,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       for(lc = path->bonds;lc;lc = lc->nxt){
         WLNSymbol *child = lc->child;
         unsigned char child_loc = ring->locants_ch[child];
-
+        
         // skip the broken child if not yet included in a ring
         if(child_loc > 128 && !spawned_broken[child_loc])
           continue;
@@ -1933,7 +1880,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     bind_2 = highest_loc; 
 
     // annoying catch needed for bridge notation that is 'implied' 
-    if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
+    if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size) && pseudo_locants.empty()){
       unsigned char back = ring_path.back();
       while(back < int_to_locant(local_size) && !ring_path.empty()){
         back++;
@@ -1988,6 +1935,19 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     }
 
     fuses++;
+  }
+
+    // pseudo bridges
+  if(!pseudo_locants.empty()){
+    for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
+      unsigned char bind_1 = pseudo_locants[i];
+      unsigned char bind_2 = pseudo_locants[i+1];
+      if(opt_debug)
+        fprintf(stderr,"  pseudo fusing: %c <-- %c\n",bind_1,bind_2);
+
+      if(!AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph))
+        return false;
+    }
   }
 
   return local_size; 
@@ -2083,17 +2043,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   std::vector<std::pair<unsigned char, unsigned char>>  saturations;
 
   std::vector<unsigned char>    pseudo_locants;
-  std::vector<unsigned int>     pseudo_positions; 
   std::vector<unsigned char>    multicyclic_locants;
   std::set<unsigned char>       broken_locants;
   std::map<unsigned char,unsigned int>  bridge_locants;
-  
+  std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
+
   // broken locants start at A = 129 for extended ascii 
   // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
 
-  std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
-  std::vector<indexed_pair>                            indexed_bindings;  
-  
   unsigned int i = 0;    
   unsigned int len = block.size();
   const char *block_str = block.c_str();
@@ -2171,12 +2128,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           Fatal(i+start);
         }
 
-        if(!pseudo_positions.empty() && pseudo_positions.back() == ring_components.size() -1){
-          for (unsigned int p=0;p<pseudo_positions.size();p++){
-            pseudo_positions[p] += - 1; // back shift;
-          }
-        }
-        pseudo_positions.push_back(ring_components.size() -1); // which ring has the pseudo?
+        // we dont actually need the ring, so we can pop back as long as we keep the pair
+        ring_components.pop_back();
+        
         expected_locants = 2; 
         state_pseudo = 1;
         break; 
@@ -2449,7 +2403,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           expected_locants = ch - '0';
         }
         else{
-
           if(positional_locant)
             ring_components.push_back({ch-'0',positional_locant});
           else
@@ -3011,13 +2964,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             Fatal(i+start);
           }
 
-          // create the bindings needed for pseudo bridges
-          for (unsigned int i=0; i< pseudo_positions.size();i++){
-            indexed_pair pseudo; 
-            pseudo.set(pseudo_locants[i+i],pseudo_locants[i+i+1],pseudo_positions[i]);
-            indexed_bindings.push_back(pseudo);
-          }
-
           break;
         }
         if(expected_locants){
@@ -3113,19 +3059,21 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     }
     fprintf(stderr,"\n");
 
-    fprintf(stderr,"  pseudo bridge points: ");
-    for (unsigned int i=0; i< pseudo_positions.size();i++){
-      fprintf(stderr,"(%d)[%c <-- %c] ",pseudo_positions[i],pseudo_locants[i+i],pseudo_locants[i+i+1]);
+    if(!pseudo_locants.empty()){
+      fprintf(stderr,"  pseudo locants: ");
+      for (int i=0; i< pseudo_locants.size()-1;i+=2){
+        fprintf(stderr,"[%c <-- %c] ",pseudo_locants[i],pseudo_locants[i+1]);
+      }
+      fprintf(stderr,"\n");
     }
-    fprintf(stderr,"\n");
 
-    fprintf(stderr,"  multi_size: %d\n",ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
+    fprintf(stderr,"  multi size: %c(%d)\n",ring_size_specifier ,ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
     fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
   }
   
   unsigned int final_size = 0; 
   final_size = BuildCyclic(ring_components,aromaticity,
-                                multicyclic_locants,indexed_bindings,
+                                multicyclic_locants,pseudo_locants,
                                 broken_locants,
                                 bridge_locants,
                                 ring_size_specifier,
