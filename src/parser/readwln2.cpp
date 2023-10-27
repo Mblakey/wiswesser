@@ -1693,74 +1693,11 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 }  
 
 
-/* interesting here that the multicyclic points are not explicitly used */
-unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ring_assignments, 
-                          std::vector<bool>             &aromaticity,
-                          std::vector<unsigned char>    &multicyclic_locants,
-                          std::vector<unsigned char>    &pseudo_locants,
-                          std::set<unsigned char>       &broken_locants,
-                          std::map<unsigned char,unsigned int>  &bridge_locants,
-                          unsigned char size_designator,
-                          WLNRing *ring,
-                          WLNGraph &graph) 
+bool set_up_broken( WLNRing *ring, WLNGraph &graph,
+                    std::set<unsigned char> &broken_locants,
+                    std::map<unsigned char,std::deque<unsigned char>> &broken_lookup,
+                    std::map<unsigned char, bool> &spawned_broken)
 {
-  unsigned int local_size = 0;
-  if(!size_designator){
- 
-    for (unsigned int i=0;i<ring_assignments.size();i++){
-      std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
-      if(local_size)
-        local_size += component.first - 2;
-      else
-        local_size = component.first;
-    }
-
-    for (unsigned int i=0;i<252;i++){
-      if(bridge_locants[i])
-        local_size+= -1; 
-    }
-    for (unsigned char loc_broken : broken_locants)
-      local_size+= -1;
-
-    if(opt_debug)
-      fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
-  }
-  else
-    local_size = locant_to_int(size_designator);
-
-  std::map<unsigned char,std::deque<unsigned char>> broken_lookup; // want to pop front
-  std::map<unsigned char, bool>                     spawned_broken; 
-  std::map<unsigned char,unsigned int>              shared_rings; 
-
-  // create all the nodes in a large straight chain
-  WLNSymbol *curr = 0; 
-  WLNSymbol *prev = 0; 
-  for (unsigned int i=1;i<=local_size;i++){
-    unsigned char loc = int_to_locant(i);
-    if(!ring->locants[loc]){
-      curr = AllocateWLNSymbol('C',graph);
-      if(!curr)
-        return 0;
-
-      curr->allowed_edges = 4;
-      curr->inRing = true;
-      curr = assign_locant(loc,curr,ring);
-    }
-    else{
-      curr = ring->locants[loc];
-      if(!ring->locants_ch[curr])
-        ring->locants_ch[curr] = loc;
-    }
-      
-    if(prev){
-      WLNEdge *edge = AllocateWLNEdge(curr,prev,graph);
-      if(!edge)
-        return false;
-    }
-    prev = curr;
-  }
-
-
   // broken locants
   if(!broken_locants.empty()){
     // create the atoms, 
@@ -1802,21 +1739,120 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     }
   }
 
+  return true; 
+}
+
+bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
+                    std::vector<unsigned char> &pseudo_locants,
+                    std::map<unsigned char,unsigned char> &pseudo_lookback)
+{ 
+  if(!pseudo_locants.empty()){
+    for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
+      unsigned int bind_1 = pseudo_locants[i];
+      unsigned int bind_2 = pseudo_locants[i+1];
+      pseudo_lookback[bind_2] = bind_1; 
+    }
+  }
+  
+  return true;
+}
+
+/* interesting here that the multicyclic points are not explicitly used */
+unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &ring_assignments, 
+                          std::vector<bool>                                   &aromaticity,
+                          std::vector<unsigned char>                          &multicyclic_locants,
+                          std::vector<unsigned char>                          &pseudo_locants,
+                          std::set<unsigned char>                             &broken_locants,
+                          std::map<unsigned char,unsigned int>                &bridge_locants,
+                          unsigned char size_designator,
+                          WLNRing *ring,
+                          WLNGraph &graph) 
+{
+  unsigned int local_size = 0;
+  if(!size_designator){
+ 
+    for (unsigned int i=0;i<ring_assignments.size();i++){
+      std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
+      if(local_size)
+        local_size += component.first - 2;
+      else
+        local_size = component.first;
+    }
+
+    for (unsigned int i=0;i<252;i++){
+      if(bridge_locants[i])
+        local_size+= -1; 
+    }
+    for (unsigned char loc_broken : broken_locants)
+      local_size+= -1;
+
+    if(opt_debug)
+      fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
+  }
+  else
+    local_size = locant_to_int(size_designator);
+
+
+  // create all the nodes in a large straight chain
+  WLNSymbol *curr = 0; 
+  WLNSymbol *prev = 0; 
+  for (unsigned int i=1;i<=local_size;i++){
+    unsigned char loc = int_to_locant(i);
+    if(!ring->locants[loc]){
+      curr = AllocateWLNSymbol('C',graph);
+      if(!curr)
+        return 0;
+
+      curr->allowed_edges = 4;
+      curr->inRing = true;
+      curr = assign_locant(loc,curr,ring);
+    }
+    else{
+      curr = ring->locants[loc];
+      if(!ring->locants_ch[curr])
+        ring->locants_ch[curr] = loc;
+    }
+      
+    if(prev){
+      WLNEdge *edge = AllocateWLNEdge(curr,prev,graph);
+      if(!edge)
+        return false;
+    }
+    prev = curr;
+  }
+
+  // instant access maps
+  std::map<unsigned char,unsigned int>              shared_rings; 
+  std::map<unsigned char,unsigned char>             pseudo_lookback;  // look back for pseudo
+  std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
+  std::map<unsigned char, bool>                     spawned_broken; 
+
+  // broken locant map spawn
+  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken))
+    return false;
+
+  // pseudo locants map spawn 
+  if(!set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookback))
+    return true;
+
 
   // calculate bindings and then traversals round the loops
-  unsigned int comp_size = 0;
-  unsigned char bind_1 = '\0';
-  unsigned char bind_2 = '\0';
-  unsigned int fuses = 0; 
-  bool aromatic = false;
-
+  bool aromatic             = false;
+  unsigned char init_locant = '\0';
+  unsigned char bind_1      = '\0';
+  unsigned char bind_2      = '\0';
+  unsigned int fuses        = 0; 
+  unsigned int comp_size    = 0;
+  
   for (unsigned int i=0;i<ring_assignments.size();i++){
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
     comp_size = component.first;
-    bind_1 = component.second;
+    bind_1      = component.second;
+    init_locant = component.second;
     aromatic = aromaticity[i];
     WLNSymbol *path = ring->locants[bind_1];
     std::deque<unsigned char> ring_path; 
+    bool write = true; // lets us handle pseudo locants in place
 
     if(!path){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
@@ -1845,23 +1881,21 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
     }
 
     // --- MULTI ALGORITHM --- 
-
     ring_path.push_back(ring->locants_ch[path]);
     unsigned char highest_loc = '\0'; 
-    while(ring_path.size() != comp_size){  // 2 points are already defined
-      highest_loc = '\0'; // highest of each child iteration 
+    while(ring_path.size() != comp_size && write){ 
 
+      highest_loc = '\0'; // highest of each child iteration 
       WLNEdge *lc = 0;
       for(lc = path->bonds;lc;lc = lc->nxt){
         WLNSymbol *child = lc->child;
         unsigned char child_loc = ring->locants_ch[child];
-        
-        // skip the broken child if not yet included in a ring
-        if(child_loc > 128 && !spawned_broken[child_loc])
+
+        if(child_loc > 128 && !spawned_broken[child_loc])  // skip the broken child if not yet included in a ring
           continue;
 
         if(child_loc >= highest_loc)
-          highest_loc = child_loc;
+          highest_loc = child_loc;  
       }
 
       if(!highest_loc){
@@ -1874,29 +1908,37 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       }
 
       path = ring->locants[highest_loc];
+    
+      if(pseudo_lookback[highest_loc]){
+        bind_1 = pseudo_lookback[highest_loc];
+        ring_path.push_back(bind_1);
+        write = false;
+      }
+
       ring_path.push_back(highest_loc);
     }
 
     bind_2 = highest_loc; 
 
     // annoying catch needed for bridge notation that is 'implied' 
-    if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size) && pseudo_locants.empty()){
+    if(write && i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
       unsigned char back = ring_path.back();
       while(back < int_to_locant(local_size) && !ring_path.empty()){
         back++;
         ring_path.push_back(back);
         ring_path.pop_front();
       }
+
       bind_2 = back;
-      
-      if(!ring_path.empty())
-        bind_1 = ring_path.front();
+      bind_1 = init_locant;
     }
+
+
     if(opt_debug){
-      fprintf(stderr,"  %d  fusing: %c <-- %c   [",fuses,bind_2,bind_1);
-      for (unsigned char ch : ring_path){
+      fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
+      for (unsigned char ch : ring_path)
         fprintf(stderr," %c(%d)",ch,ch);
-      }
+      
       fprintf(stderr," ]\n");
     }
 
@@ -1906,11 +1948,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
       if(ch > 128)
         spawned_broken[ch] = true;
     }
-        
+    
     WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
     if(!edge)
       return false;
-
+    
     if(aromatic){
       for(unsigned int a=0;a<ring_path.size();a++){
         WLNSymbol *arom = ring->locants[ring_path[a]]; 
@@ -1931,23 +1973,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>> &ri
         }
       }
 
-      // should ring junctions ever be kekulised? 
     }
 
     fuses++;
-  }
-
-    // pseudo bridges
-  if(!pseudo_locants.empty()){
-    for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
-      unsigned char bind_1 = pseudo_locants[i];
-      unsigned char bind_2 = pseudo_locants[i+1];
-      if(opt_debug)
-        fprintf(stderr,"  pseudo fusing: %c <-- %c\n",bind_1,bind_2);
-
-      if(!AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph))
-        return false;
-    }
   }
 
   return local_size; 
@@ -2030,7 +2058,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int state_chelate        = 0;
   bool implied_assignment_used      = false; // allows a shorthand if wanted, but not mixing
   
-  unsigned int expected_locants       = 0;
+  unsigned int  expected_locants       = 0;
   unsigned int  evaluating_break      = 0;
   unsigned char ring_size_specifier   = '\0';
   unsigned char positional_locant     = '\0';
@@ -2042,10 +2070,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
   std::vector<std::pair<unsigned char, unsigned char>>  saturations;
 
-  std::vector<unsigned char>    pseudo_locants;
-  std::vector<unsigned char>    multicyclic_locants;
-  std::set<unsigned char>       broken_locants;
-  std::map<unsigned char,unsigned int>  bridge_locants;
+  std::vector<unsigned char>                multicyclic_locants;
+  std::vector<unsigned char>                pseudo_locants;
+  std::map<unsigned char,unsigned int>      bridge_locants;
+  std::set<unsigned char>                   broken_locants;
+  
   std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
 
   // broken locants start at A = 129 for extended ascii 
@@ -2129,7 +2158,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
 
         // we dont actually need the ring, so we can pop back as long as we keep the pair
-        ring_components.pop_back();
+        // we likely do need the ring
+        
+        //ring_components.pop_back();
         
         expected_locants = 2; 
         state_pseudo = 1;
@@ -2407,7 +2438,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             ring_components.push_back({ch-'0',positional_locant});
           else
             ring_components.push_back({ch-'0','A'});
-
+    
           positional_locant = '\0';
         }
         break;
@@ -2459,9 +2490,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
         if(expected_locants){
 
-          positional_locant = ch; // use for look back
-          expected_locants--;
-
+  
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -2470,6 +2499,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             fprintf(stderr,"Error: unhandled locant rule\n");
             Fatal(start+i);
           }
+
+          positional_locant = ch; // use for look back
+          expected_locants--;
+
           break;
         }
         else if(state_multi == 2){
@@ -2819,9 +2852,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         if(expected_locants){
 
-          positional_locant = ch; // use for look back
-          expected_locants--;
-
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -2830,6 +2860,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             fprintf(stderr,"Error: unhandled locant rule\n");
             Fatal(start+i);
           }
+
+          positional_locant = ch; // use for look back
+          expected_locants--;
 
           break;
         }
@@ -2885,9 +2918,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
         if(expected_locants){
 
-          positional_locant = ch; // use for look back
-          expected_locants--;
-
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -2896,6 +2926,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             fprintf(stderr,"Error: unhandled locant rule\n");
             Fatal(start+i);
           }
+
+          positional_locant = ch; // use for look back
+          expected_locants--;
           break;
         }
         else if(state_multi == 2){
@@ -2968,9 +3001,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         if(expected_locants){
 
-          positional_locant = ch; // use for look back
-          expected_locants--;
-
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -2979,6 +3009,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             fprintf(stderr,"Error: unhandled locant rule\n");
             Fatal(start+i);
           }
+
+          positional_locant = ch; // use for look back
+          expected_locants--;
+
           break;
         }
         else if(state_multi == 2){
@@ -3061,9 +3095,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
     if(!pseudo_locants.empty()){
       fprintf(stderr,"  pseudo locants: ");
-      for (int i=0; i< pseudo_locants.size()-1;i+=2){
+      for (unsigned int i=0; i< pseudo_locants.size()-1;i+=2)
         fprintf(stderr,"[%c <-- %c] ",pseudo_locants[i],pseudo_locants[i+1]);
-      }
       fprintf(stderr,"\n");
     }
 
