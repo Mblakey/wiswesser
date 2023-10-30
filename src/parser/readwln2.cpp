@@ -1696,7 +1696,8 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 bool set_up_broken( WLNRing *ring, WLNGraph &graph,
                     std::set<unsigned char> &broken_locants,
                     std::map<unsigned char,std::deque<unsigned char>> &broken_lookup,
-                    std::map<unsigned char, bool> &spawned_broken)
+                    std::map<unsigned char, bool> &spawned_broken, 
+                    std::map<unsigned char,unsigned int> &allowed_connections)
 {
   // broken locants
   if(!broken_locants.empty()){
@@ -1723,6 +1724,10 @@ bool set_up_broken( WLNRing *ring, WLNGraph &graph,
       
       if(!ring->locants[loc_broken]){
         // bond them in straight away
+        allowed_connections[loc_broken] = 3; 
+        if(allowed_connections[parent])
+          allowed_connections[parent]--;
+
         WLNSymbol *broken = AllocateWLNSymbol('C',graph);
         broken->inRing = true;
         broken->allowed_edges = 4;
@@ -1829,6 +1834,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       allowed_connections[ch] = 2; 
     else
       allowed_connections[ch] = 1; 
+
+    if(ring->locants[ch] && ring->locants[ch]->ch == 'X')
+      allowed_connections[ch]++;
     // can add in X here after concept is proven
     if(bridge_locants[ch])
       allowed_connections[ch]--; 
@@ -1839,13 +1847,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   std::map<unsigned char, bool>                     spawned_broken; 
 
   // broken locant map spawn
-  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken))
+  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections))
     return false;
 
   // pseudo locants map spawn 
   if(!set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookback))
-    return true;
-
+    return false;
 
   // calculate bindings and then traversals round the loops
   bool aromatic             = false;
@@ -1873,13 +1880,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     ring_path[path_size++] = ring->locants_ch[path];
     unsigned char highest_loc = '\0'; 
 
-    if(!broken_lookup[bind_1].empty()){
-      unsigned char bloc = broken_lookup[bind_1].front();
-      broken_lookup[bind_1].pop_front();
-      bind_1 = bloc;
-      ring_path[path_size++] = bind_1;
-    }
-
+  
     while(path_size < comp_size){ 
       // this should now overshoot
 
@@ -1917,7 +1918,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
     // shifting now performed here should be more stable
     for(;;){
-      if(allowed_connections[bind_1]){
+      if(allowed_connections[bind_1] && broken_lookup[bind_1].empty()){
         WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
         if(!edge)
           return false;
@@ -1931,6 +1932,19 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           allowed_connections[bind_2]--;
         break;
       }
+      else if(!broken_lookup[bind_1].empty()){
+
+        unsigned char bloc = broken_lookup[bind_1].front();
+        broken_lookup[bind_1].pop_front();
+        bind_1 = bloc;
+        
+        for(unsigned int a=path_size-1;a>0;a--)
+          ring_path[a] = ring_path[a-1];
+        
+        ring_path[0] = bind_1;
+        spawned_broken[bind_1] = true;
+        bind_2 = ring_path[path_size-1]; 
+      }
       else{
 
         bind_1++; // increase bind_1 
@@ -1943,7 +1957,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         // if its already there, we dont change the path
         if(!found){ 
           // if its not, we have to spawn it in by knocking one off
-          for(unsigned int a=path_size-1;a>1;a--)
+          for(unsigned int a=path_size-1;a>0;a--)
             ring_path[a] = ring_path[a-1];
 
           ring_path[0] = bind_1; 
@@ -1959,11 +1973,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       fprintf(stderr," ]\n");
     }
 
-    // updates the shared rings approach -> paths must MUST be exact for this to work
-    for (unsigned int a=0;a<path_size;a++){
-      if(ring_path[a] > 128)
-        spawned_broken[ring_path[a]] = true;
-    }
 
 #define ON 0
 #if ON
