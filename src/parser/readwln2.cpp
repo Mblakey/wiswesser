@@ -1837,6 +1837,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
     if(ring->locants[ch] && ring->locants[ch]->ch == 'X')
       allowed_connections[ch]++;
+
     // can add in X here after concept is proven
     if(bridge_locants[ch])
       allowed_connections[ch]--; 
@@ -1972,23 +1973,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
       fprintf(stderr," ]\n");
     }
-
-
-#define ON 0
-#if ON
-    // annoying catch needed for bridge notation that is 'implied' 
-    if(i == ring_assignments.size() - 1 && bind_2 != int_to_locant(local_size)){
-      unsigned char back = ring_path.back();
-      while(back < int_to_locant(local_size) && !ring_path.empty()){
-        back++;
-        ring_path.push_back(back);
-        ring_path.pop_front();
-      }
-
-      bind_2 = back;
-      bind_1 = init_locant;
-    }
-#endif
 
     if(aromatic){
       for(unsigned int a=0;a<path_size;a++){
