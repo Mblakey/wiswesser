@@ -176,6 +176,12 @@ struct WLNRing
 
     aromatic_atoms = 0;
     adj_matrix = (unsigned int*)malloc(sizeof(unsigned int) * (rsize*rsize)); 
+    
+    if(!adj_matrix){
+      fprintf(stderr,"Error: fatal memory allocation on AdjMatrix\n");
+      return false;
+    }
+    
     for (unsigned int i = 0; i< rsize;i++){
       for (unsigned int j=0; j < rsize;j++){
         adj_matrix[i * rsize + j] = 0; 
@@ -1751,7 +1757,14 @@ bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
                     std::vector<unsigned char> &pseudo_locants,
                     std::map<unsigned char,unsigned char> &pseudo_lookback)
 { 
+
   if(!pseudo_locants.empty()){
+
+    if(pseudo_locants.size() % 2 != 0){
+      fprintf(stderr,"Error: uneven pairs read for pseudo locants\n");
+      return false;
+    }
+
     for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
       unsigned int bind_1 = pseudo_locants[i];
       unsigned int bind_2 = pseudo_locants[i+1];
@@ -1798,11 +1811,21 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     local_size = locant_to_int(size_designator);
 
 
-  // create all the nodes in a large straight chain
+  // create all the nodes in a large straight chain and assign how many bonds
+  // each atom is allowed to take
+
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
+  std::map<unsigned char,unsigned int> allowed_connections; 
+
   for (unsigned int i=1;i<=local_size;i++){
     unsigned char loc = int_to_locant(i);
+
+    if(i == 1 || i == local_size)
+      allowed_connections[loc] = 2; 
+    else
+      allowed_connections[loc] = 1; 
+
     if(!ring->locants[loc]){
       curr = AllocateWLNSymbol('C',graph);
       if(!curr)
@@ -1814,9 +1837,15 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     }
     else{
       curr = ring->locants[loc];
+      if(curr->ch == 'X')
+        allowed_connections[loc]++;
+
       if(!ring->locants_ch[curr])
         ring->locants_ch[curr] = loc;
     }
+
+    if(bridge_locants[loc] && allowed_connections[loc])
+      allowed_connections[loc]--; 
       
     if(prev){
       WLNEdge *edge = AllocateWLNEdge(curr,prev,graph);
@@ -1826,23 +1855,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     prev = curr;
   }
 
-  // instant access maps
-  std::map<unsigned char,unsigned int> allowed_connections; 
-  for (unsigned int i=1;i<=local_size;i++){
-    unsigned char ch = int_to_locant(i);
-    if(i == 1 || i == local_size)
-      allowed_connections[ch] = 2; 
-    else
-      allowed_connections[ch] = 1; 
-
-    if(ring->locants[ch] && ring->locants[ch]->ch == 'X')
-      allowed_connections[ch]++;
-
-    // can add in X here after concept is proven
-    if(bridge_locants[ch])
-      allowed_connections[ch]--; 
-  }
- 
   std::map<unsigned char,unsigned char>             pseudo_lookback;  // look back for pseudo
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
   std::map<unsigned char, bool>                     spawned_broken; 
@@ -1877,11 +1889,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     // --- MULTI ALGORITHM --- 
     unsigned int path_size = 0; 
     unsigned char *ring_path = (unsigned char*)malloc(sizeof(unsigned char)*comp_size);
-    memset(ring_path,0,comp_size*sizeof(unsigned char)); 
+    for (unsigned int a=0;a<comp_size;a++)
+      ring_path[a] = 0;
+    
     ring_path[path_size++] = ring->locants_ch[path];
     unsigned char highest_loc = '\0'; 
 
-  
     while(path_size < comp_size){ 
       // this should now overshoot
 
@@ -1910,10 +1923,30 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       path = ring->locants[highest_loc];
       ring_path[path_size++] = highest_loc;   
 
-      // if(pseudo_lookback[highest_loc] && ring_path.size() < comp_size){
-      //   bind_1 = pseudo_lookback[highest_loc];
-      // }
+#define ON 1
+#if ON
+      if(pseudo_lookback[highest_loc] != '\0' && path_size < comp_size){
+        // compute a pseudo bond here and shift back locants? 
 
+        unsigned char pseudo_start = pseudo_lookback[highest_loc];
+        ring_path[path_size++] = pseudo_start;
+        while(path_size < comp_size){
+          ring_path[path_size] = ring_path[path_size-1]+1;
+          path_size++;  
+        }
+        
+        while(ring_path[0] != ring_path[path_size-1]+1){
+          for(unsigned int a=0;a<path_size-1;a++)
+            ring_path[a] = ring_path[a+1];
+          
+          ring_path[path_size-1]++;
+        }
+
+        // calculate where should this be placed
+        //bind_1 = pseudo_lookback[highest_loc];
+      }
+#endif
+      
       bind_2 = highest_loc;
     }
 
@@ -3414,8 +3447,8 @@ bool IsBipartite(WLNRing *ring){
     return false; 
   }
 
-  std::map<WLNSymbol*,unsigned int> color; // 0 un assigned, 1 first color, 2 second color
   std::deque<WLNSymbol*> queue; 
+  std::map<WLNSymbol*,unsigned int> color; // 0 un assigned, 1 first color, 2 second color
 
   color[top] = 1;
 
@@ -3427,7 +3460,6 @@ bool IsBipartite(WLNRing *ring){
 
     WLNEdge *e = 0 ;
     for(e=top->bonds;e;e=e->nxt){
-
       if(!ring->locants_ch[e->child])
         continue;
 
@@ -3471,7 +3503,6 @@ bool AdjMatrixBFS(WLNRing *ring, unsigned int src, unsigned int sink, int *path)
     visited[u] = true; 
 
     for(unsigned int v=0;v<ring->rsize;v++){
-      
       if(!visited[v] && ring->adj_matrix[u * ring->rsize + v] > 0){
         path[v] = u;
         if(v == sink)
@@ -3502,9 +3533,7 @@ bool BPMatching(WLNRing *ring, unsigned int u, bool *seen, int *MatchR){
 }
 
 bool WLNRingBPMaxMatching(WLNRing *ring, int *MatchR){
-  
   bool  *seen = (bool*)malloc(sizeof(bool) * ring->rsize);
-
   for (unsigned int i=0;i<ring->rsize;i++)
     seen[i] = false;
   
@@ -3517,24 +3546,27 @@ bool WLNRingBPMaxMatching(WLNRing *ring, int *MatchR){
 
 /* provides methods for `kekulising` wln ring structures, using blossums to maximise pairs */
 bool WLNKekulize(WLNGraph &graph){
-
   for(unsigned int i=0;i<graph.ring_count;i++){
     WLNRing *wring = graph.RINGS[i]; 
     if(wring->aromatic_atoms){
 
-      wring->FillAdjMatrix();
-      if(!wring){
+      int   *MatchR = (int*)malloc(sizeof(int) * wring->rsize);
+      if(!wring->FillAdjMatrix() || !MatchR){
         fprintf(stderr,"Error: failed to make aromatic matrix\n");
         return false;
       }
 
-      int   *MatchR = (int*)malloc(sizeof(int) * wring->rsize);
       for (unsigned int i=0;i<wring->rsize;i++)
         MatchR[i] = -1;
   
 
-      if(IsBipartite(wring) && !WLNRingBPMaxMatching(wring,MatchR))
+      if(IsBipartite(wring) && !WLNRingBPMaxMatching(wring,MatchR)){
+        
+        
+        free(MatchR);
+        MatchR = 0;
         return false;
+      }
       else{
         WLNBlossom B(wring->rsize);
 
@@ -3573,6 +3605,7 @@ bool WLNKekulize(WLNGraph &graph){
       }
       
       free(MatchR);
+      MatchR = 0;
     }
   }
 
