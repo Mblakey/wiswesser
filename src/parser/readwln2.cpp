@@ -1926,24 +1926,17 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 #define ON 1
 #if ON
       if(pseudo_lookback[highest_loc] != '\0' && path_size < comp_size){
-        // compute a pseudo bond here and shift back locants? 
-
-        unsigned char pseudo_start = pseudo_lookback[highest_loc];
-        ring_path[path_size++] = pseudo_start;
-        while(path_size < comp_size){
-          ring_path[path_size] = ring_path[path_size-1]+1;
-          path_size++;  
-        }
+        // lets get the bonds right and then worry about the path 
         
-        while(ring_path[0] != ring_path[path_size-1]+1){
-          for(unsigned int a=0;a<path_size-1;a++)
-            ring_path[a] = ring_path[a+1];
-          
-          ring_path[path_size-1]++;
-        }
+        bind_1 = pseudo_lookback[highest_loc];
+        bind_2 = highest_loc; 
 
-        // calculate where should this be placed
-        //bind_1 = pseudo_lookback[highest_loc];
+        path_size = comp_size;
+        for(unsigned int a = 0;a<comp_size;a++)
+          ring_path[a] = 0;
+        
+        // just reset
+        pseudo_lookback[highest_loc] = 0;
       }
 #endif
       
@@ -2010,8 +2003,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     if(aromatic){
       for(unsigned int a=0;a<path_size;a++){
         WLNSymbol *arom = ring->locants[ring_path[a]]; 
-        arom->aromatic = true;
-        ring->aromatic_atoms = 1;
+        if(arom){
+          arom->aromatic = true;
+          ring->aromatic_atoms = 1;
+        }
       }
     
       // add the edges based on statement before n^2 but should work
@@ -2019,7 +2014,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         WLNSymbol *src = ring->locants[ring_path[a]];
         for(unsigned int b=a+1;b<path_size;b++){
           WLNSymbol *trg = ring->locants[ring_path[b]];
-          if(src->aromatic && trg->aromatic){
+          if(src && trg && src->aromatic && trg->aromatic){
             WLNEdge *edge = search_edge(src,trg); 
             if(edge)
               edge->aromatic = true;
