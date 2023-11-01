@@ -4934,6 +4934,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           else{
             // means a closure is done, we return to the first avaliable symbol on the branch stack
             prev = return_object_symbol(branch_stack);
+            if(branch_stack.top().first)
+              branch_stack.pop();
+
             if(!prev)
               prev = branch_stack.branch; // catches branching ring closure
           }
@@ -5030,7 +5033,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         
         if(!found_next){
-
           pending_inline_ring = true;
           if(branch_stack.branch){
             // prev must be at top of the branch stack
