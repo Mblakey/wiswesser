@@ -1754,21 +1754,21 @@ bool set_up_broken( WLNRing *ring, WLNGraph &graph,
 }
 
 bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
-                    std::vector<unsigned char> &pseudo_locants,
-                    std::map<unsigned char,unsigned char> &pseudo_lookback)
+                            std::vector<unsigned char> &pseudo_locants,
+                            std::map<unsigned char,unsigned char> &pseudo_lookback)
 { 
 
   if(!pseudo_locants.empty()){
 
     if(pseudo_locants.size() % 2 != 0){
-      fprintf(stderr,"Error: uneven pairs read for pseudo locants\n");
+      fprintf(stderr,"Error: uneven pairs read for pseudo locants - ignoring designation\n");
       return false;
     }
 
     for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
       unsigned int bind_1 = pseudo_locants[i];
       unsigned int bind_2 = pseudo_locants[i+1];
-      pseudo_lookback[bind_2] = bind_1; 
+      pseudo_lookback[bind_2] = bind_1;
     }
   }
   
@@ -1801,9 +1801,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       if(bridge_locants[i])
         local_size+= -1; 
     }
-    for (unsigned char loc_broken : broken_locants)
-      local_size+= -1;
 
+    local_size+= - broken_locants.size();
     if(opt_debug)
       fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
   }
@@ -1859,12 +1858,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
   std::map<unsigned char, bool>                     spawned_broken; 
 
-  // broken locant map spawn
-  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections))
-    return false;
-
-  // pseudo locants map spawn 
-  if(!set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookback))
+  // broken locant map spawn + pseudo locants map spawn 
+  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections) || 
+     !set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookback))
     return false;
 
   // calculate bindings and then traversals round the loops
@@ -1873,6 +1869,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   unsigned char bind_2      = '\0';
   unsigned int fuses        = 0; 
   unsigned int comp_size    = 0;
+  unsigned int pseudo_pairs = pseudo_locants.size()/2;
   
   for (unsigned int i=0;i<ring_assignments.size();i++){
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
@@ -1884,6 +1881,26 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     if(!path){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
       return 0;
+    }
+
+    // If we need to catch fuse, we do
+    if(i==ring_assignments.size()-1 && pseudo_pairs){
+      for(unsigned int s = 1; s<=local_size;s++){
+        if(pseudo_lookback[int_to_locant(s)]){
+          unsigned char pbind_2 = int_to_locant(s); 
+          unsigned char pbind_1 = pseudo_lookback[pbind_2];
+
+          if(opt_debug)
+            fprintf(stderr,"  %d  catch fusing: %c <-- %c\n",fuses,pbind_2,pbind_1);
+          
+          WLNEdge *edge = AllocateWLNEdge(ring->locants[pbind_2],ring->locants[pbind_1],graph);
+          if(!edge)
+            return false;
+          
+          fuses++;
+        }
+      }
+      break;
     }
 
     // --- MULTI ALGORITHM --- 
@@ -1937,6 +1954,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         pseudo_lookback[highest_loc] = 0;
         if(bind_1 > 128)
           spawned_broken[bind_1] = true;
+        
+        if(pseudo_pairs)
+          pseudo_pairs--;
       }
 
       bind_2 = highest_loc;
