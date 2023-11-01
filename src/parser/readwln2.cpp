@@ -1854,13 +1854,15 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     prev = curr;
   }
 
-  std::map<unsigned char,unsigned char>             pseudo_lookback;  // look back for pseudo
+  std::map<unsigned char,unsigned char>             pseudo_lookup;  
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
+  
   std::map<unsigned char, bool>                     spawned_broken; 
+  std::map<unsigned char, bool>                     spawned_pseudo; // take when possible
 
   // broken locant map spawn + pseudo locants map spawn 
   if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections) || 
-     !set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookback))
+     !set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookup))
     return false;
 
   // calculate bindings and then traversals round the loops
@@ -1886,9 +1888,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     // If we need to catch fuse, we do
     if(i==ring_assignments.size()-1 && pseudo_pairs){
       for(unsigned int s = 1; s<=local_size;s++){
-        if(pseudo_lookback[int_to_locant(s)]){
+        if(pseudo_lookup[int_to_locant(s)]){
           unsigned char pbind_2 = int_to_locant(s); 
-          unsigned char pbind_1 = pseudo_lookback[pbind_2];
+          unsigned char pbind_1 = pseudo_lookup[pbind_2];
 
           if(opt_debug)
             fprintf(stderr,"  %d  catch fusing: %c <-- %c\n",fuses,pbind_2,pbind_1);
@@ -1924,6 +1926,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(child_loc > 128 && !spawned_broken[child_loc])  // skip the broken child if not yet included in a ring
           continue;
 
+        if(spawned_pseudo[child_loc]){
+          highest_loc = child_loc;
+          break;
+        }
+
         if(child_loc >= highest_loc)
           highest_loc = child_loc;  
       }
@@ -1941,20 +1948,21 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       ring_path[path_size++] = highest_loc;   
 
 
-      if(pseudo_lookback[highest_loc] != '\0' && path_size < comp_size){
+      if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size){
         // lets get the bonds right and then worry about the path 
         
-        bind_1 = pseudo_lookback[highest_loc];
+        bind_1 = pseudo_lookup[highest_loc];
         bind_2 = highest_loc; 
         path_size = comp_size;
         for(unsigned int a = 0;a<comp_size;a++)
           ring_path[a] = 0;
         
         // just reset
-        pseudo_lookback[highest_loc] = 0;
+        pseudo_lookup[highest_loc] = 0;
         if(bind_1 > 128)
           spawned_broken[bind_1] = true;
         
+        spawned_pseudo[bind_1] = true;
         if(pseudo_pairs)
           pseudo_pairs--;
       }
