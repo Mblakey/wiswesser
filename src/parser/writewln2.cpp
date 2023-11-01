@@ -1551,7 +1551,7 @@ struct BabelGraph{
           buffer+='&';
           if(cycle_count)
             cycle_count--;
-            
+
           prev = branch_stack.top();
         }
         continue;
@@ -1784,12 +1784,14 @@ struct BabelGraph{
   /* create the heteroatoms and locant path unsaturations where neccesary */
   bool ReadLocantAtomsBonds(  OBAtom** locant_path,unsigned int path_size,
                               std::vector<OBRing*> &ring_order,
+                              std::set<OBBond*>   &ring_bonds,
                               std::string &buffer)
   {
 
     
     unsigned char locant = 0;
     unsigned char last_locant = 'A'; 
+    std::map<OBBond*,bool> bonds_checked; 
 
     if(!std::isdigit(buffer.back()))
       last_locant = ' ';
@@ -1804,7 +1806,7 @@ struct BabelGraph{
       if(carbonyl || Wgroups || locant_path[i]->GetAtomicNum() != 6){
         if(locant != last_locant){
           buffer += ' ';
-          buffer += locant;
+          write_locant(locant,buffer);
           last_locant = locant;
         } 
         if(Wgroups){
@@ -1842,19 +1844,46 @@ struct BabelGraph{
         second = locant_path[0];
 
       OBBond *locant_bond = first->GetBond(second);
-      for(unsigned int k=0;k<ring_order.size();k++){
-        if(!ring_order[k]->IsAromatic() && ring_order[k]->IsMember(locant_bond))
-          bonds = true; 
-      }
-
       
-      if(bonds && locant_bond && locant_bond->GetBondOrder() > 1){
-        buffer += ' ';
-        buffer += locant;
-        for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
-          buffer += 'U';
+      if(locant_bond){
+        bonds_checked[locant_bond] = true;
+        for(unsigned int k=0;k<ring_order.size();k++){
+          if(!ring_order[k]->IsAromatic() && ring_order[k]->IsMember(locant_bond))
+            bonds = true; 
+        }
+
+        if(bonds && locant_bond && locant_bond->GetBondOrder() > 1){
+          buffer += ' ';
+          write_locant(locant,buffer);
+          for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
+            buffer += 'U';
+        }
       }
 #endif
+    }
+
+    for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end();biter++){
+      OBBond *fbond = *biter; 
+      if(!bonds_checked[fbond] && fbond->GetBondOrder() > 1){
+
+        for(unsigned int k=0;k<ring_order.size();k++){
+          if(!ring_order[k]->IsAromatic() && ring_order[k]->IsMember(fbond)){
+            
+            unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+            unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+            
+            buffer += ' ';
+            write_locant(floc,buffer);
+            for(unsigned int b=1;b<fbond->GetBondOrder();b++)
+              buffer += 'U';
+            buffer+='-';
+            buffer+=' ';
+            write_locant(bloc,buffer);
+            break;
+          }
+        }
+      }
+      bonds_checked[fbond] = true;
     }
     
     return true;
@@ -1928,18 +1957,28 @@ struct BabelGraph{
       }
     }
 
+    unsigned int size_check = 0;
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
       buffer += ' ';
       write_locant(int_to_locant(path_size),buffer); // need to make the relative size
+      size_check = buffer.size();
     }
 
-    ReadLocantAtomsBonds(locant_path,path_size,ring_order,buffer);
+    ReadLocantAtomsBonds(locant_path,path_size,ring_order,ring_bonds,buffer);
 
+    if(buffer.size() == size_check)
+      buffer += ' '; // has to be a choice whether to add the space here
+    
+    bool dash_added = false;
     for(unsigned int i=0;i<ring_order.size();i++){
       // check aromaticity
-      if(ring_order[i]->IsAromatic())
-        buffer += '&';
+      if(ring_order[i]->IsAromatic()){
+        if(!dash_added && buffer.back() == '&')
+          buffer+='-';
+        buffer+='&';
+        dash_added = true;
+      }
       else
         buffer += 'T';
     }
