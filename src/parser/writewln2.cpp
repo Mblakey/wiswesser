@@ -542,6 +542,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBAtom*>               &bridge_atoms,
                       std::map<OBAtom*,unsigned int>  &atom_shares, 
                       std::set<OBRing*>               &local_SSSR,
+                      std::vector<OBRing*>            &ring_order,
                       std::string &buffer)
 {  
   
@@ -583,9 +584,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       find = locant_path[ ring_stack[i]->loc_b-'A' +1];
     else
       find = locant_path[ ring_stack[i]->loc_a-'A' +1];
-
-    if(!src || !trg || !lbond)
-      Fatal("catch");
 
     OBRing *obring = 0;
     for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
@@ -690,7 +688,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
 
   // path walk writing algorithm
-
   RingWrapper **local_stack = (RingWrapper**)malloc(sizeof(RingWrapper) * stack_size); // should be a hard limit, write all at once
   for(unsigned int i=0;i<stack_size;i++)
     local_stack[i] = 0;
@@ -711,13 +708,13 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
             local_stack[seen++] = wrapper; 
         }
 
-
         if(char_in_stack[trg_char] == seen){
           sort_wrapper(local_stack,seen);
           for(unsigned int p=0;p<seen;p++){
             write_wrapper(local_stack[p],buffer);
             // we can check for pseudo bridges here - are there any non consecutive bonds in the sorted path?
             BondedEndPoints(mol,local_stack[p]->ring,locant_path,path_size,bridge_atoms,atom_shares,buffer);
+            ring_order.push_back(local_stack[p]->ring);
           }
             
         }
@@ -1551,10 +1548,11 @@ struct BabelGraph{
           Fatal("failed to make inline ring");
 
         if(!atom_stack.empty()){
-          //std::cout << buffer << std::endl;
           buffer+='&';
           if(cycle_count)
             cycle_count--;
+            
+          prev = branch_stack.top();
         }
         continue;
       }
@@ -1784,7 +1782,9 @@ struct BabelGraph{
 
 
   /* create the heteroatoms and locant path unsaturations where neccesary */
-  bool ReadLocantAtomsBonds( OBAtom** locant_path,unsigned int path_size,std::string &buffer)
+  bool ReadLocantAtomsBonds(  OBAtom** locant_path,unsigned int path_size,
+                              std::vector<OBRing*> &ring_order,
+                              std::string &buffer)
   {
 
     
@@ -1827,8 +1827,11 @@ struct BabelGraph{
       }
 
     
-#define WIP 0
+#define WIP 1
 #if WIP
+      // for now dont worry about positions, only that we get the double bonds
+      // we can condense later
+      bool bonds = false;
       OBAtom *first   = 0;
       OBAtom *second  = 0;
       // handles sequential locant unsaturations, when not aromatic
@@ -1839,11 +1842,15 @@ struct BabelGraph{
         second = locant_path[0];
 
       OBBond *locant_bond = first->GetBond(second);
-      if(locant_bond && locant_bond->GetBondOrder() > 1){
-        if(i > 0 && locant != last_locant){
-          buffer += ' ';
-          buffer += locant;
-        }
+      for(unsigned int k=0;k<ring_order.size();k++){
+        if(!ring_order[k]->IsAromatic() && ring_order[k]->IsMember(locant_bond))
+          bonds = true; 
+      }
+
+      
+      if(bonds && locant_bond && locant_bond->GetBondOrder() > 1){
+        buffer += ' ';
+        buffer += locant;
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
@@ -1871,16 +1878,7 @@ struct BabelGraph{
     buffer+= append; 
   }
 
-  void ReadAromaticity(std::vector<OBRing*> &ring_order,std::string &buffer){
-    for(unsigned int i=0;i<ring_order.size();i++){
-      // check aromaticity
-      if(ring_order[i]->IsAromatic())
-        buffer += '&';
-      else
-        buffer += 'T';
-    }
-  }
-  
+
   /* constructs and parses a cyclic structre, locant path is returned with its path_size */
   std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, bool inline_ring,std::string &buffer){
     if(opt_debug)
@@ -1892,12 +1890,10 @@ struct BabelGraph{
     std::set<OBBond*>               ring_bonds;
     std::set<OBAtom*>               bridge_atoms;
     
-    std::vector<OBRing*>            ring_write_order; 
-
+    std::vector<OBRing*>            ring_order; 
+    
     std::map<OBAtom*,unsigned int>  atom_shares;
   
-   
-    
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR); 
     if(!path_size)
       Fatal("failed to write ring");
@@ -1921,7 +1917,7 @@ struct BabelGraph{
       buffer += 'L';
 
     ReadLocantPath( mol,locant_path,path_size,
-                    bridge_atoms,atom_shares,local_SSSR,
+                    bridge_atoms,atom_shares,local_SSSR,ring_order,
                     buffer); 
     
     if(!bridge_atoms.empty()){
@@ -1938,7 +1934,15 @@ struct BabelGraph{
       write_locant(int_to_locant(path_size),buffer); // need to make the relative size
     }
 
-    ReadLocantAtomsBonds(locant_path,path_size,buffer);
+    ReadLocantAtomsBonds(locant_path,path_size,ring_order,buffer);
+
+    for(unsigned int i=0;i<ring_order.size();i++){
+      // check aromaticity
+      if(ring_order[i]->IsAromatic())
+        buffer += '&';
+      else
+        buffer += 'T';
+    }
 
     buffer += 'J';
     return {locant_path,path_size};
@@ -1974,7 +1978,7 @@ struct BabelGraph{
         }
       }
     }
-
+    
     free(path_pair.first);
     return true;
   }

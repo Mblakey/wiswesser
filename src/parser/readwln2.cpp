@@ -200,9 +200,9 @@ struct WLNRing
         for(redge=rsym->bonds;redge;redge=redge->nxt){
           WLNSymbol *csym = redge->child;
 
-          if(csym->ch == 'S')
+          if(csym->ch == 'S' || redge->order > 1)
             continue;
-
+        
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
             unsigned char loc_b = locants_ch[csym];
             unsigned int c = locant_to_int(loc_b-1);
@@ -2104,6 +2104,14 @@ bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds
       return false;
     else
       edge = unsaturate_edge(edge,1);
+
+    if(edge){
+      edge->aromatic = 0;
+      edge->child->aromatic = 0;
+      edge->parent->aromatic = 0;
+    }
+    else
+      return false;
   }
 
   return true;
@@ -3252,8 +3260,6 @@ bool multiply_carbon(WLNSymbol *sym){
   // experimental rule, if a triple bond will completely saturate an, atom, 
   // we should always take it. 
 
-  fprintf(stderr,"bn:%d, fn:%d\n",forward->num_edges,back->num_edges);
-
   if(forward->num_edges== 1 && forward->num_edges+2 == forward->allowed_edges){
     if(!unsaturate_edge(fedge,2))
       return false;
@@ -3622,7 +3628,9 @@ bool WLNKekulize(WLNGraph &graph){
           WLNSymbol *s = wring->locants[int_to_locant(MatchR[i]+1)];
           if(f && s){
             WLNEdge *edge = search_edge(f,s);
-            edge = unsaturate_edge(edge,1);
+            if(edge && edge->order == 1)
+              edge = unsaturate_edge(edge,1);
+            
             if(!edge){
               fprintf(stderr,"Error: failed to unsaturate bond in kekulize\n");
               return false;
