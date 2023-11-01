@@ -1856,9 +1856,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
   std::map<unsigned char,unsigned char>             pseudo_lookup;  
   std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
-  
   std::map<unsigned char, bool>                     spawned_broken; 
-  std::map<unsigned char, bool>                     spawned_pseudo; // take when possible
+  
+  std::map<unsigned char, bool>                     shortcuts; // take when possible?
 
   // broken locant map spawn + pseudo locants map spawn 
   if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections) || 
@@ -1926,8 +1926,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(child_loc > 128 && !spawned_broken[child_loc])  // skip the broken child if not yet included in a ring
           continue;
 
-        if(spawned_pseudo[child_loc]){
+        if(shortcuts[child_loc]){
           highest_loc = child_loc;
+          fprintf(stderr,"taking a shortcut?\n");
           break;
         }
 
@@ -1947,7 +1948,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       path = ring->locants[highest_loc];
       ring_path[path_size++] = highest_loc;   
 
-
       if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size){
         // lets get the bonds right and then worry about the path 
         
@@ -1962,12 +1962,19 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(bind_1 > 128)
           spawned_broken[bind_1] = true;
         
-        spawned_pseudo[bind_1] = true;
+        shortcuts[bind_1] = true;
         if(pseudo_pairs)
           pseudo_pairs--;
       }
 
       bind_2 = highest_loc;
+    }
+
+    if(opt_debug){
+      fprintf(stderr,"  path before shifting [");
+      for (unsigned int a=0;a<path_size;a++)
+        fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
+      fprintf(stderr," ]\n");
     }
 
     // shifting now performed here should be more stable
@@ -2007,7 +2014,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           return false;
 
         allowed_connections[bind_1]--;
-
         if(allowed_connections[bind_2])
           allowed_connections[bind_2]--;
 
@@ -2395,6 +2401,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                   ring_components.push_back({std::stoi(special),positional_locant}); //big ring
                 else
                   ring_components.push_back({std::stoi(special),'A'});
+
+                positional_locant = '\0';
               }
               else{
 
