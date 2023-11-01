@@ -1838,6 +1838,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       curr = ring->locants[loc];
       if(curr->ch == 'X')
         allowed_connections[loc]++;
+      else if(curr->ch == '*')
+        allowed_connections[loc] = 6; // allow octahedral geometry 
 
       if(!ring->locants_ch[curr])
         ring->locants_ch[curr] = loc;
@@ -1925,14 +1927,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
         if(child_loc > 128 && !spawned_broken[child_loc])  // skip the broken child if not yet included in a ring
           continue;
-
-        if(shortcuts[child_loc]){
+        else if(shortcuts[child_loc]){
           highest_loc = child_loc;
-          fprintf(stderr,"taking a shortcut?\n");
           break;
         }
-
-        if(child_loc >= highest_loc)
+        else if(child_loc >= highest_loc)
           highest_loc = child_loc;  
       }
 
@@ -1970,13 +1969,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       bind_2 = highest_loc;
     }
 
-    if(opt_debug){
-      fprintf(stderr,"  path before shifting [");
-      for (unsigned int a=0;a<path_size;a++)
-        fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
-      fprintf(stderr," ]\n");
-    }
-
     // shifting now performed here should be more stable
     for(;;){
       if(!broken_lookup[bind_1].empty()){
@@ -1997,18 +1989,16 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         ring_path[0] = bind_1;
         spawned_broken[bind_1] = true;
 
-        // psuedo check, will remove later
+        // pseudo check, will remove later
         if(ring_path[path_size-1])
           bind_2 = ring_path[path_size-1]; 
       }
       else if(allowed_connections[bind_1]){
         
         // very rare case where we get the right path a different way to normal
-        while(!allowed_connections[bind_2]){
-          fprintf(stderr,"rare shifting condition - %c(%d)\n",bind_2,bind_2);
+        while(!allowed_connections[bind_2])
           ring_path[path_size-1] = ++bind_2;
-        }
-          
+        
         WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
         if(!edge)
           return false;
