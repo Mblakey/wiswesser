@@ -1326,7 +1326,7 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
     top = branch_stack.top().second;
     if(!top)
       return top; // only iterate to the next
-
+    
     if(top->ch == 'Y' && count_children(top)==3)
       branch_stack.pop();
     else if(top->num_edges == top->allowed_edges)
@@ -2244,13 +2244,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         if(state_aromatics){
           fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
           Fatal(i+start);
-        }
-
-        // we dont actually need the ring, so we can pop back as long as we keep the pair
-        // we likely do need the ring
-        
-        //ring_components.pop_back();
-        
+        }      
         expected_locants = 2; 
         state_pseudo = 1;
         break; 
@@ -4877,21 +4871,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else if(on_locant){
         on_locant += 23;
       }
-      // returns to last ring
-      else if(i < len - 1 && wln_string[i+1] == ' '){
-        // need to pop down to where the next ring is
-        ring = branch_stack.pop_to_ring(ring);
-        if(!ring){
-          fprintf(stderr,"Error: popping too many rings, check '&' count\n");
-          Fatal(i);
+      else if(!branch_stack.empty())
+      {
+        
+        if(branch_stack.top().first){
+          branch_stack.pop();
+          prev = return_object_symbol(branch_stack);
+          ring = branch_stack.ring;
+          if(!prev)
+            prev = branch_stack.branch; // catches branching ring closure
         }
 
-        break;
-      }
-      else
-      {
-
-        if(!branch_stack.empty() && branch_stack.top().second){
+        else if(branch_stack.top().second){
           WLNSymbol *top = 0;
           top = branch_stack.top().second;
 
@@ -4934,10 +4925,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
                 // default pop
                 branch_stack.pop();
                 prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
-                if(!prev){
+                if(!prev)
                   prev = branch_stack.branch;
-                  //ring = branch_stack.ring;
-                }    
+
                 break;
             }
           }
@@ -4945,21 +4935,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             // means a closure is done, we return to the first avaliable symbol on the branch stack
             prev = return_object_symbol(branch_stack);
             if(!prev)
-              prev = branch_stack.branch; // catches branching ring closures
+              prev = branch_stack.branch; // catches branching ring closure
           }
         }
-        else if(!branch_stack.empty() && branch_stack.top().first){
-          branch_stack.pop();
-          prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
-          if(!prev)
-            prev = branch_stack.branch;
-          ring = branch_stack.ring;
-        }
-        else{
-          fprintf(stderr,"Error: '&' punctuation outside of branching chains is disallowed notation\n");
+      }
+      else{
+          fprintf(stderr,"Error: popping too many rings|symbols, check '&' count\n");
           Fatal(i);
         }
-      }
       break;
 
 
@@ -5049,11 +5032,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!found_next){
 
           pending_inline_ring = true;
-          if(!prev && branch_stack.branch){
+          if(branch_stack.branch){
             // prev must be at top of the branch stack
-            prev = branch_stack.branch;
-            while(branch_stack.top().second != prev)
+            while(branch_stack.top().second != branch_stack.branch)
               branch_stack.pop();
+
+            if(!prev)
+              prev = return_object_symbol(branch_stack);
           }
         }
         else{

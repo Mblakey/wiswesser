@@ -755,7 +755,9 @@ std::string CondenseCarbonylChains(std::string &buffer){
       else
         special = true;
     }
-
+    else if (buffer[i] == ' ')
+      special = false;
+  
     if(buffer[i] == '1' && !special)
       counter++; 
     else{
@@ -1449,9 +1451,10 @@ struct BabelGraph{
     if(last_cycle_seen > cycle_num){
       for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
         buffer+='&';
-        cycle_count+= -1; // once a ring is closed can you ever get back? - GOOD
-      }
         
+        if(cycle_count)
+          cycle_count+= -1; // once a ring is closed can you ever get back? - GOOD
+      }
     }
     last_cycle_seen = cycle_num;
 
@@ -1498,24 +1501,24 @@ struct BabelGraph{
               case 'Y':
               case 'B':
               case 'N':
-                if(evaluated_branches[prev] != 2 )
+                if(evaluated_branches[prev] < 2 )
                   buffer += '&';
                 break;
 
               case 'X':
               case 'K':
-                if(evaluated_branches[prev] != 3 )
+                if(evaluated_branches[prev] < 3 )
                   buffer += '&';
                 break;
 
               case 'P':
-                if(evaluated_branches[prev] != 4 )
+                if(evaluated_branches[prev] < 4 )
                   buffer += '&';
                 break;
 
               case 'S':
               case '-':
-                if(evaluated_branches[prev] != 5 )
+                if(evaluated_branches[prev] < 5 )
                   buffer += '&';
                 break;
 
@@ -1525,7 +1528,6 @@ struct BabelGraph{
             }
       
             prev = branch_stack.top();
-              
           }
 
           bond = mol->GetBond(prev,atom); 
@@ -1547,11 +1549,12 @@ struct BabelGraph{
         cycle_count++;
         if(!RecursiveParse(atom,mol,true,buffer,cycle_count))
           Fatal("failed to make inline ring");
-  
+
         if(!atom_stack.empty()){
-          fprintf(stderr,"here?\n");
+          //std::cout << buffer << std::endl;
           buffer+='&';
-          cycle_count--;
+          if(cycle_count)
+            cycle_count--;
         }
         continue;
       }
@@ -1582,8 +1585,11 @@ struct BabelGraph{
         case 'X':
           prev = atom;
           Wgroups = CountDioxo(atom);
-          for(unsigned int i=0;i<Wgroups;i++)
+          for(unsigned int i=0;i<Wgroups;i++){
             buffer+='W';
+            evaluated_branches[atom]+=3;
+          }
+            
           if(!Wgroups && CheckCarbonyl(atom))
             buffer.back() = 'V';
           else
@@ -1597,9 +1603,11 @@ struct BabelGraph{
         case 'P':
         case '-':
           Wgroups = CountDioxo(atom);
-          for(unsigned int i=0;i<Wgroups;i++)
+          for(unsigned int i=0;i<Wgroups;i++){
             buffer+='W';
-
+            evaluated_branches[atom]+=3;
+          }
+          
           prev = atom;
           branch_stack.push(atom);
           break;
@@ -1940,7 +1948,6 @@ struct BabelGraph{
   bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
     last_cycle_seen = cycle_num;
-
     std::pair<OBAtom**,unsigned int> path_pair;  
     path_pair = ParseCyclic(atom,mol,inline_ring,buffer);
 
@@ -1963,6 +1970,7 @@ struct BabelGraph{
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
+
         }
       }
     }
