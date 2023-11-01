@@ -1923,43 +1923,34 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       path = ring->locants[highest_loc];
       ring_path[path_size++] = highest_loc;   
 
-#define ON 1
-#if ON
+
       if(pseudo_lookback[highest_loc] != '\0' && path_size < comp_size){
         // lets get the bonds right and then worry about the path 
         
         bind_1 = pseudo_lookback[highest_loc];
         bind_2 = highest_loc; 
-
         path_size = comp_size;
         for(unsigned int a = 0;a<comp_size;a++)
           ring_path[a] = 0;
         
         // just reset
         pseudo_lookback[highest_loc] = 0;
+        if(bind_1 > 128)
+          spawned_broken[bind_1] = true;
       }
-#endif
-      
+
       bind_2 = highest_loc;
     }
 
     // shifting now performed here should be more stable
     for(;;){
-      if(allowed_connections[bind_1] && broken_lookup[bind_1].empty()){
-        WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-        if(!edge)
-          return false;
-
-        allowed_connections[bind_1]--;
-
-        if(!allowed_connections[bind_2])
-          fprintf(stderr,"we are detecting the problem\n");
+      if(!broken_lookup[bind_1].empty()){
         
-        if(allowed_connections[bind_2])
-          allowed_connections[bind_2]--;
-        break;
-      }
-      else if(!broken_lookup[bind_1].empty()){
+        while(spawned_broken[broken_lookup[bind_1].front()])
+          broken_lookup[bind_1].pop_front();
+        
+        if(broken_lookup[bind_1].empty())
+          continue;
 
         unsigned char bloc = broken_lookup[bind_1].front();
         broken_lookup[bind_1].pop_front();
@@ -1970,7 +1961,36 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         
         ring_path[0] = bind_1;
         spawned_broken[bind_1] = true;
-        bind_2 = ring_path[path_size-1]; 
+
+        // psuedo check, will remove later
+        if(ring_path[path_size-1])
+          bind_2 = ring_path[path_size-1]; 
+      }
+      else if(allowed_connections[bind_1]){
+        
+        // very rare case where we get the right path a different way to normal
+        while(!allowed_connections[bind_2]){
+          fprintf(stderr,"rare shifting condition - %c(%d)\n",bind_2,bind_2);
+          ring_path[path_size-1] = ++bind_2;
+        }
+          
+        WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
+        if(!edge)
+          return false;
+
+        allowed_connections[bind_1]--;
+
+        if(allowed_connections[bind_2])
+          allowed_connections[bind_2]--;
+
+        if(opt_debug){
+          fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
+          for (unsigned int a=0;a<path_size;a++)
+            fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
+          fprintf(stderr," ]\n");
+        }
+
+        break;
       }
       else{
 
@@ -1993,12 +2013,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       }
     }
 
-    if(opt_debug){
-      fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
-      for (unsigned int a=0;a<path_size;a++)
-        fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
-      fprintf(stderr," ]\n");
-    }
 
     if(aromatic){
       for(unsigned int a=0;a<path_size;a++){
