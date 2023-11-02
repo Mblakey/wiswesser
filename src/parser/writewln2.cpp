@@ -236,21 +236,12 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
                         std::set<OBRing*>              &local_SSSR)
 {
 
-  // if we add in the locant path minimise logic we can use this P solution
-
   // create the path
-  unsigned int locant_pos = 0; 
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
+  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++){
     locant_path[i] = 0;
-
-  // choose a seed with the highest degree of ring shares
-  OBAtom *rseed = 0; 
-  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-    if(!rseed)
-      rseed = (*aiter);
-    else if(atom_shares[(*aiter)] > atom_shares[rseed])
-      rseed = (*aiter);
+    best_path[i] = 0; 
   }
 
   // set up some non-trivial bonds
@@ -268,44 +259,72 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
       nt_bonds.push_back(bond);   
   }
 
+  unsigned int           lowest_sum       = UINT32_MAX;
+
   OBAtom*                ratom  = 0;
   OBAtom*                catom  = 0;
   OBBond*                bond   = 0; 
-  std::map<OBAtom*,bool> atoms_in_lp; 
   std::map<OBBond*,bool> ignore_bond; 
-  std::stack<OBAtom*>    stack; 
 
   for(unsigned int i=0;i<nt_bonds.size();i++){
     if(opt_debug)
       fprintf(stderr,"  fused ring junction: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
     ignore_bond[nt_bonds[i]] = true; 
   } 
-  
-  stack.push(rseed);
-  while(!stack.empty()){
-    ratom = stack.top();
-    stack.pop();
-    locant_path[locant_pos++] = ratom; 
-    atoms_in_lp[ratom] = true; 
 
-    FOR_NBORS_OF_ATOM(a,ratom){ 
-      catom = &(*a);   
-      bond = mol->GetBond(ratom,catom); 
-      if(atom_shares[catom] && !atoms_in_lp[catom] && !ignore_bond[bond]){
-        stack.push(catom);
-        break;
+  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
+    if(atom_shares[*aiter] == 2){
+      std::stack<OBAtom*>    stack; 
+      std::map<OBAtom*,bool> visited; 
+      unsigned int locant_pos = 0;
+      stack.push(*aiter);
+
+      while(!stack.empty()){
+        ratom = stack.top();
+        stack.pop();
+        locant_path[locant_pos++] = ratom; 
+        visited[ratom] = true; 
+
+        FOR_NBORS_OF_ATOM(a,ratom){ 
+          catom = &(*a);   
+          bond = mol->GetBond(ratom,catom); 
+          if(atom_shares[catom] && !visited[catom] && !ignore_bond[bond]){
+            stack.push(catom);
+            break;
+          }
+        }
+      }
+
+      // perform the fusion sum logic here
+      unsigned int fusion_sum = 0;
+      for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+        OBRing *obring = (*riter); 
+        unsigned int min_loc = path_size;
+        for(unsigned int i=0;i<obring->Size();i++){
+          unsigned int pos = position_in_path( mol->GetAtom(obring->_path[i]) ,locant_path,path_size);
+          if(pos < min_loc)
+            min_loc = pos;
+        }
+        fusion_sum+=min_loc;
+      }
+      if(fusion_sum < lowest_sum){ // rule 30d.
+        lowest_sum = fusion_sum;
+        copy_locant_path(best_path,locant_path,path_size);
+        if(opt_debug)
+          fprintf(stderr,"  set on fs:  fusion sum for path: %-2d\n",lowest_sum);
       }
     }
   }
 
+  free(locant_path);
   for(unsigned int i=0;i<path_size;i++){
-    if(!locant_path[i]){
-      free(locant_path);
+    if(!best_path[i]){
+      free(best_path);
       Fatal("no continous locant path was possible - currently unsupported\n");
     }
   }
 
-  return locant_path; 
+  return best_path; 
 }
 
 /* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
@@ -1957,11 +1976,8 @@ struct BabelGraph{
 
     if(local_SSSR.size() == 1)
       locant_path = MonoPath(mol,path_size,local_SSSR);
-#define ON 0
-#if ON
     else if(!multi)
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
-#endif
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
 
