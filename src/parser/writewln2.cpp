@@ -211,6 +211,21 @@ bool BondedEndPoints(   OBMol *mol,OBRing *ring,
 }
 
 
+OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
+                  std::set<OBRing*> &local_SSSR)
+{
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++)
+    locant_path[i] = 0; 
+
+  OBRing *mono = *(local_SSSR.begin());
+
+  for(unsigned int i=0;i<mono->Size();i++)
+  locant_path[i] = mol->GetAtom(mono->_path[i]);
+    
+  return locant_path;
+}
+
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution 
 */
@@ -220,6 +235,8 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
                         std::map<OBAtom*,unsigned int> &atom_shares,
                         std::set<OBRing*>              &local_SSSR)
 {
+
+  // if we add in the locant path minimise logic we can use this P solution
 
   // create the path
   unsigned int locant_pos = 0; 
@@ -319,121 +336,129 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   unsigned char          lowest_multi     = int_to_locant(path_size); 
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
+  std::vector<OBAtom*> seeds; 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     OBAtom *rseed = (*aiter);
-    if(atom_shares[rseed] == 3 || is_bridging[rseed]){
+    if(atom_shares[rseed] == 3 || is_bridging[rseed])
+      seeds.push_back(rseed);
+  }
 
-      OBAtom*                catom  = 0;
-      std::map<OBAtom*,bool> current; 
-      std::deque<std::pair<OBAtom*,OBAtom*>> path; 
-      path.push_back({rseed,0}); 
-      while(!path.empty()){
+  if(seeds.empty()){
+    for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
+      OBAtom *rseed = (*aiter);
+      if(atom_shares[rseed] == 2)
+        seeds.push_back(rseed);
+    }
+  }
 
-        OBAtom* ratom = path.back().first;
-        OBAtom* next = path.back().second;  
+  for(OBAtom *rseed : seeds){
+    
+    OBAtom*                catom  = 0;
+    std::map<OBAtom*,bool> current; 
+    std::deque<std::pair<OBAtom*,OBAtom*>> path; 
+    path.push_back({rseed,0}); 
 
-        if(!current[ratom])
-          current[ratom] = true;
+    while(!path.empty()){
+
+      OBAtom* ratom = path.back().first;
+      OBAtom* next = path.back().second;  
+
+      if(!current[ratom])
+        current[ratom] = true;
+      
+      bool skipped = false;
+      bool pushed = false;
+
+      if(!next)
+        skipped = true; 
+
+      FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
+        catom = &(*a);
+        if(atom_shares[catom]){
+          if(catom == next)
+            skipped = true;
+          else if(!current[catom] && skipped){
+            path.push_back({catom,0});
+            pushed = true; 
+            break;
+          }
+        }
+      }
+
+      if(!pushed){
+        if(path.size() == path_size){
+
+          for(unsigned int i=0;i<path_size;i++)
+            locant_path[i] = path[i].first;
+          
+          // calculate the fusion sum here, expensive but necessary
+          unsigned int fusion_sum = 0;
+          for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+            OBRing *obring = (*riter); 
+
+            unsigned int min_loc = path_size;
+            for(unsigned int i=0;i<obring->Size();i++){
+              unsigned int pos = position_in_path( mol->GetAtom(obring->_path[i]) ,locant_path,path_size);
+              if(pos < min_loc)
+                min_loc = pos;
+            }
+
+            fusion_sum+=min_loc;
+          }
+
+          // trying to tease out 30e without a notation write and compare
+          unsigned char earliest_non_multi = 0;
+          unsigned char highest_multi = 0;
+          for(int i=0;i< (int)path_size;i++){
+            OBAtom *src = locant_path[i];
+            if(atom_shares[src] == 3)
+              highest_multi = int_to_locant(i+1);
+            for(int j=0;j<i;j++){
+              OBAtom *trg = locant_path[j]; 
+              if(mol->GetBond(src,trg)){
+                if( atom_shares[locant_path[i]]==2 &&
+                    atom_shares[locant_path[j]] == 2 &&
+                    !earliest_non_multi)
+                  earliest_non_multi = int_to_locant(i+1);
+              }
+                
+                              
+            }
+          }
+
+          if(fusion_sum < lowest_sum){ // rule 30d.
+            lowest_sum = fusion_sum;
+            lowest_non_multi = earliest_non_multi; 
+            lowest_multi = highest_multi;
+            copy_locant_path(best_path,locant_path,path_size);
+            if(opt_debug)
+              fprintf(stderr,"  set on fs:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
+          }
+          else if(fusion_sum == lowest_sum && earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
+            lowest_non_multi = earliest_non_multi; 
+            lowest_multi = highest_multi;
+            copy_locant_path(best_path,locant_path,path_size);
+            if(opt_debug)
+              fprintf(stderr,"  set on enm: fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
+          }
+          else if(fusion_sum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi < lowest_multi){ // not officially a rule but a good filter
+            lowest_multi = highest_multi;
+            copy_locant_path(best_path,locant_path,path_size);
+            if(opt_debug)
+              fprintf(stderr,"  set on hm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
+          }
+          else {
+            // if(opt_debug)
+            //   fprintf(stderr,"  other:      fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",fusion_sum,earliest_non_multi,highest_multi);
+          }
+        }
         
-        bool skipped = false;
-        bool pushed = false;
-
-        if(!next)
-          skipped = true; 
-
-        FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
-          catom = &(*a);
-          if(atom_shares[catom]){
-            if(catom == next)
-              skipped = true;
-            else if(!current[catom] && skipped){
-              path.push_back({catom,0});
-              pushed = true; 
-              break;
-            }
-          }
-        }
-
-        if(!pushed){
-          if(path.size() == path_size){
-
-            for(unsigned int i=0;i<path_size;i++)
-              locant_path[i] = path[i].first;
-            
-            // calculate the fusion sum here, expensive but necessary
-            unsigned int fusion_sum = 0;
-            for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-              OBRing *obring = (*riter); 
-
-              unsigned int min_loc = path_size;
-              for(unsigned int i=0;i<obring->Size();i++){
-                unsigned int pos = position_in_path( mol->GetAtom(obring->_path[i]) ,locant_path,path_size);
-                if(pos < min_loc)
-                  min_loc = pos;
-              }
-
-              fusion_sum+=min_loc;
-            }
-
-            // trying to tease out 30e without a notation write and compare
-            unsigned char earliest_non_multi = 0;
-            unsigned char highest_multi = 0;
-            for(int i=0;i< (int)path_size;i++){
-              OBAtom *src = locant_path[i];
-              if(atom_shares[src] == 3)
-                highest_multi = int_to_locant(i+1);
-              for(int j=0;j<i;j++){
-                OBAtom *trg = locant_path[j]; 
-                if(mol->GetBond(src,trg)){
-                  if( atom_shares[locant_path[i]]==2 &&
-                      atom_shares[locant_path[j]] == 2 &&
-                      !earliest_non_multi)
-                    earliest_non_multi = int_to_locant(i+1);
-                }
-                  
-                               
-              }
-            }
-
-            if(fusion_sum < lowest_sum){ // rule 30d.
-              lowest_sum = fusion_sum;
-              lowest_non_multi = earliest_non_multi; 
-              lowest_multi = highest_multi;
-              copy_locant_path(best_path,locant_path,path_size);
-              if(opt_debug)
-                fprintf(stderr,"  set on fs:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
-            }
-            else if(fusion_sum == lowest_sum && earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
-              lowest_non_multi = earliest_non_multi; 
-              lowest_multi = highest_multi;
-              copy_locant_path(best_path,locant_path,path_size);
-              if(opt_debug)
-                fprintf(stderr,"  set on enm: fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
-            }
-            else if(fusion_sum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi < lowest_multi){ // not officially a rule but a good filter
-              lowest_multi = highest_multi;
-              copy_locant_path(best_path,locant_path,path_size);
-              if(opt_debug)
-                fprintf(stderr,"  set on hm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
-            }
-            else {
-              // if(opt_debug)
-              //   fprintf(stderr,"  other:      fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",fusion_sum,earliest_non_multi,highest_multi);
-            }
-
-
-          }
-          
-          OBAtom *tmp = path.back().first; 
-          path.pop_back();
-
-          if(!path.empty()){
-            path.back().second = tmp;
-            current[tmp] = false; 
-          }
-          
-        }
-            
+        OBAtom *tmp = path.back().first; 
+        path.pop_back();
+        if(!path.empty()){
+          path.back().second = tmp;
+          current[tmp] = false; 
+        } 
       }
     }
   }
@@ -1929,12 +1954,17 @@ struct BabelGraph{
 
 
     bool multi = ClassifyRing(ring_atoms,atom_shares); 
-    
-    if(multi || !bridge_atoms.empty())
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
-    else
+
+    if(local_SSSR.size() == 1)
+      locant_path = MonoPath(mol,path_size,local_SSSR);
+#define ON 0
+#if ON
+    else if(!multi)
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
-      
+#endif
+    else 
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
+
     for(unsigned int i=0;i<path_size;i++){
       if(inline_ring && locant_path[i] == ring_root)
         buffer += int_to_locant(i+1);
@@ -1967,17 +1997,16 @@ struct BabelGraph{
 
     ReadLocantAtomsBonds(locant_path,path_size,ring_order,ring_bonds,buffer);
 
-    if(buffer.size() == size_check)
+    if(buffer.size() == size_check && buffer.back() != '&')
       buffer += ' '; // has to be a choice whether to add the space here
     
     bool space_added = false;
     bool dash_added = false;
     for(unsigned int i=0;i<ring_order.size();i++){
-      // check aromaticity
+      if(!dash_added && buffer.back() == '&')
+        buffer+='-';
       if(ring_order[i]->IsAromatic()){
-        if(!dash_added && buffer.back() == '&')
-          buffer+='-';
-        else if(!space_added && (buffer.back() >= 'A' && buffer.back() <= 'Z'))
+        if(!space_added && (buffer.back() >= 'A' && buffer.back() <= 'Z'))
           buffer+=' ';
         
         buffer+='&';

@@ -2107,8 +2107,8 @@ bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds
 
     if(edge){
       edge->aromatic = 0;
-      edge->child->aromatic = 0;
-      edge->parent->aromatic = 0;
+      // edge->child->aromatic = 0;
+      // edge->parent->aromatic = 0;
     }
     else
       return false;
@@ -4889,6 +4889,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(on_locant){
         on_locant += 23;
+      }
+      else if (i < len-1 && wln_string[i] == ' '){
+        // this must be a ring pop, no matter what
+
+        if(branch_stack.empty() || !branch_stack.ring){
+          fprintf(stderr,"Error: '&' followed by a space indicates a ring pop, are there any rings?\n");
+          Fatal(i); 
+        }
+        else{
+          branch_stack.pop_to_ring(branch_stack.ring);
+          ring = branch_stack.ring;
+        }
       }
       else if(!branch_stack.empty())
       {
