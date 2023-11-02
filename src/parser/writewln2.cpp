@@ -683,8 +683,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
   stack_size = idx;
 
-  // check if we've left any behind, always seems to happen on final looping closure when on a flat angle to 'A'
-  unsigned int missed = 0;
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
     OBRing *cring = *(riter);
     if(!rings_checked[cring]){
@@ -705,13 +703,8 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
       wrapped->ring = cring; 
       ring_stack[stack_size++] = wrapped; 
-      missed++;
     }
   }
-
-  // if(missed > 1)
-  //   Fatal("more than one ring seems to have been missed in read path");
-
 
   if(opt_debug){
     fprintf(stderr,"  pre-read:\n");
@@ -2039,8 +2032,8 @@ struct BabelGraph{
 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
 
-    if(buffer.size() == size_check && buffer.back() != '&')
-      buffer += ' '; // has to be a choice whether to add the space here
+    // if(buffer.size() == size_check && buffer.back() != '&')
+    //   buffer += ' '; // has to be a choice whether to add the space here
     
     bool space_added = false;
     bool dash_added = false;
