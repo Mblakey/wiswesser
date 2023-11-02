@@ -4890,7 +4890,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else if(on_locant){
         on_locant += 23;
       }
-      else if (i < len-1 && wln_string[i] == ' '){
+      else if (i < len-1 && wln_string[i+1] == ' '){
         // this must be a ring pop, no matter what
 
         if(branch_stack.empty() || !branch_stack.ring){
