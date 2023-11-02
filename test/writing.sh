@@ -65,7 +65,7 @@ main(){
     NEW_WLN=$($WRITER -ismi -s "${SMILES}" 2> /dev/null) # chembl is canonical smiles
 
     if [ -z "$NEW_WLN" ]; then
-      echo "$SMILES != anything"
+      echo "$WLN != any new WLN string"
       continue
     fi;
 

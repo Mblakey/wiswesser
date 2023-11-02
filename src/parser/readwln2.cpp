@@ -2705,16 +2705,27 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
         
-            case 'U':
+            case 'U':{
               // no need to put this in implied, it has to be specified
               if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
-                unsaturations.push_back({positional_locant,block[i+3]});
-                block_str += 3;
-                i += 3;
+                
+                // can double bond to a amped locant
+                unsigned int k = 1;
+                unsigned char dloc = block[i+3]; 
+                while(block[k+i+3] == '&'){
+                  dloc+=23;
+                  k++;
+                } 
+                unsaturations.push_back({positional_locant,dloc});
+                block_str += 2+k;
+                i += 2+k;
+
+                fprintf(stderr,"triggering- k=%d\n",k);
               }
               else
                 unsaturations.push_back({positional_locant,positional_locant+1});
               break;
+            }
 
             // externally bonded to the symbol as a locant symbol
             case 'W':{
