@@ -320,7 +320,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
   for(unsigned int i=0;i<path_size;i++){
     if(!best_path[i]){
       free(best_path);
-      Fatal("no continous locant path was possible - currently unsupported\n");
+      Fatal("no continous locant path was possible - currently unsupported - PAlgorithm\n");
     }
   }
 
@@ -358,16 +358,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   std::vector<OBAtom*> seeds; 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     OBAtom *rseed = (*aiter);
-    if(atom_shares[rseed] == 3 || is_bridging[rseed])
+    if(atom_shares[rseed] >= 1 || is_bridging[rseed])
       seeds.push_back(rseed);
-  }
-
-  if(seeds.empty()){
-    for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-      OBAtom *rseed = (*aiter);
-      if(atom_shares[rseed] == 2)
-        seeds.push_back(rseed);
-    }
   }
 
   for(OBAtom *rseed : seeds){
@@ -405,6 +397,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
       }
 
       if(!pushed){
+
         if(path.size() == path_size){
 
           for(unsigned int i=0;i<path_size;i++)
@@ -440,8 +433,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                     !earliest_non_multi)
                   earliest_non_multi = int_to_locant(i+1);
               }
-                
-                              
+                       
             }
           }
 
@@ -489,7 +481,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   for(unsigned int i=0;i<path_size;i++){
     if(!best_path[i]){
       free(best_path);
-      Fatal("no continous locant path was possible - currently unsupported\n");
+      Fatal("no continous locant path was possible - currently unsupported - NPAlgorithm\n");
     }
   }
 
@@ -717,8 +709,8 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
   }
 
-  if(missed > 1)
-    Fatal("more than one ring seems to have been missed in read path");
+  // if(missed > 1)
+  //   Fatal("more than one ring seems to have been missed in read path");
 
 
   if(opt_debug){
@@ -1482,7 +1474,7 @@ struct BabelGraph{
   }
 
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
-  bool ParseNonCyclic(OBAtom* start_atom, unsigned int b_order,
+  bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from, unsigned int b_order,
                       OBMol *mol, std::string &buffer, 
                       unsigned int cycle_num, unsigned char locant){
     
@@ -1584,11 +1576,9 @@ struct BabelGraph{
       }
 
       if(atom->IsInRing()){
-        buffer+= '-';
-        buffer+= ' '; 
 
         cycle_count++;
-        if(!RecursiveParse(atom,mol,true,buffer,cycle_count))
+        if(!RecursiveParse(atom,spawned_from,mol,true,buffer,cycle_count))
           Fatal("failed to make inline ring");
 
         if(!atom_stack.empty()){
@@ -1826,7 +1816,7 @@ struct BabelGraph{
 
 
   /* create the heteroatoms and locant path unsaturations where neccesary */
-  bool ReadLocantAtomsBonds(  OBAtom** locant_path,unsigned int path_size,
+  bool ReadLocantAtomsBonds(  OBMol *mol, OBAtom** locant_path,unsigned int path_size,
                               std::vector<OBRing*> &ring_order,
                               std::set<OBBond*>   &ring_bonds,
                               std::string &buffer)
@@ -1869,6 +1859,22 @@ struct BabelGraph{
         else{
           WriteBabelAtom(locant_path[i],buffer);
           last_locant++;
+        }
+      }
+
+      if(locant_path[i]->GetAtomicNum() == 6){
+        unsigned int rbonds = 0; 
+        for(unsigned int k=0;k<path_size;k++){
+          if(mol->GetBond(locant_path[i],locant_path[k]))
+            rbonds++;
+        }
+        if(rbonds == 4){
+          if(locant != last_locant){
+            buffer += ' ';
+            write_locant(locant,buffer);
+            last_locant = locant;
+          } 
+          buffer += 'X';
         }
       }
 
@@ -1952,8 +1958,8 @@ struct BabelGraph{
   }
 
 
-  /* constructs and parses a cyclic structre, locant path is returned with its path_size */
-  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBMol *mol, bool inline_ring,std::string &buffer){
+  /* constructs and parses a cyclic structure, locant path is returned with its path_size */
+  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
 
@@ -1976,15 +1982,35 @@ struct BabelGraph{
 
     if(local_SSSR.size() == 1)
       locant_path = MonoPath(mol,path_size,local_SSSR);
-    else if(!multi)
+    else if(!multi && bridge_atoms.empty())
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
 
-    for(unsigned int i=0;i<path_size;i++){
-      if(inline_ring && locant_path[i] == ring_root)
-        buffer += int_to_locant(i+1);
+
+    if(inline_ring){
+      buffer+= '-';
+      bool spiro = false;
+      unsigned char root_locant = 0;
+      for(unsigned int i=0;i<path_size;i++){
+        if(locant_path[i] == ring_root)
+          root_locant = int_to_locant(i+1);
+
+        if(locant_path[i] == spawned_from){
+          // must be spiro ring
+          root_locant = int_to_locant(i+1);
+          spiro = true;
+          break;
+        }
+      }
+
+      if(spiro)
+        buffer += '&';
+      
+      buffer += ' ';
+      buffer += root_locant;
     }
+    
 
     if(IsHeteroRing(locant_path,path_size))
       buffer += 'T';
@@ -2011,7 +2037,7 @@ struct BabelGraph{
       size_check = buffer.size();
     }
 
-    ReadLocantAtomsBonds(locant_path,path_size,ring_order,ring_bonds,buffer);
+    ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
 
     if(buffer.size() == size_check && buffer.back() != '&')
       buffer += ' '; // has to be a choice whether to add the space here
@@ -2039,11 +2065,12 @@ struct BabelGraph{
   }
     
 
-  bool RecursiveParse(OBAtom *atom, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
+  bool RecursiveParse(OBAtom *atom, OBAtom *spawned_from, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
     last_cycle_seen = cycle_num;
-    std::pair<OBAtom**,unsigned int> path_pair;  
-    path_pair = ParseCyclic(atom,mol,inline_ring,buffer);
+    std::pair<OBAtom**,unsigned int> path_pair; 
+
+    path_pair = ParseCyclic(atom,spawned_from,mol,inline_ring,buffer);
 
     if(!path_pair.first){
       fprintf(stderr,"Error: failed on cyclic parse\n");
@@ -2058,7 +2085,7 @@ struct BabelGraph{
         OBAtom *latom = &(*iter);
         OBBond* lbond = path_pair.first[i]->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,lbond->GetBondOrder(),
+          if(!ParseNonCyclic( latom,path_pair.first[i],lbond->GetBondOrder(),
                               mol,buffer,
                               cycle_num,int_to_locant(i+1))){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -2102,7 +2129,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
         if(started)
           buffer += " &"; // ionic species
         
-        if(!obabel.ParseNonCyclic(&(*a),0,mol,buffer,0,0))
+        if(!obabel.ParseNonCyclic(&(*a),0,0,mol,buffer,0,0))
           Fatal("failed on recursive branch parse");
 
         started = true; 
@@ -2116,7 +2143,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
         if(started)
           buffer += " &"; // ionic species
 
-        if(!obabel.RecursiveParse(mol->GetAtom( (&(*r))->_path[0]),mol,false,buffer,0))
+        if(!obabel.RecursiveParse(mol->GetAtom( (&(*r))->_path[0]),0,mol,false,buffer,0))
           Fatal("failed on recursive ring parse");
 
         started = true;
@@ -2129,7 +2156,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     FOR_ATOMS_OF_MOL(a,mol){
       if(!obabel.atoms_seen[&(*a)]){
         buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(&(*a),0,mol,buffer,0,0))
+        if(!obabel.ParseNonCyclic(&(*a),0,0,mol,buffer,0,0))
           Fatal("failed on recursive branch parse");
       }
     }
