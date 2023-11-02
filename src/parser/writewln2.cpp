@@ -1970,17 +1970,23 @@ struct BabelGraph{
     if(buffer.size() == size_check)
       buffer += ' '; // has to be a choice whether to add the space here
     
+    bool space_added = false;
     bool dash_added = false;
     for(unsigned int i=0;i<ring_order.size();i++){
       // check aromaticity
       if(ring_order[i]->IsAromatic()){
         if(!dash_added && buffer.back() == '&')
           buffer+='-';
+        else if(!space_added && (buffer.back() >= 'A' && buffer.back() <= 'Z'))
+          buffer+=' ';
+        
         buffer+='&';
-        dash_added = true;
       }
       else
         buffer += 'T';
+
+      space_added = true;
+      dash_added = true;
     }
 
     buffer += 'J';
