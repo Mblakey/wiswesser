@@ -132,7 +132,6 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
   return 0; 
 }
 
-
 void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
   
@@ -163,74 +162,15 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
     if(prev && prev != sequence[k]-1){
       // if we've made a jump, can we get to the jump via locants already wrapped
       for(unsigned char loc = prev+1;loc<sequence[k];loc++){
-        if(!in_chain[loc])
+        if(!in_chain[loc]){
+          free(sequence);
           return false; // if we cant do it, return false
+        }
       }
     }
     prev = sequence[k];
   }
     
-  free(sequence);
-  return true;
-}
-
-bool BondedEndPoints(   OBMol *mol,OBRing *ring, 
-                        OBAtom **locant_path, unsigned int path_size,
-                        std::set<OBAtom*>              &bridge_atoms,
-                        std::map<OBAtom*,unsigned int> &atom_shares,
-                        std::string &buffer){
-
-  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
-  OBAtom **ring_array = (OBAtom**)malloc(sizeof(OBAtom*)*ring->Size()); 
-  for(unsigned int i=0;i<ring->Size();i++){
-    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
-    ring_array[i] = mol->GetAtom(ring->_path[i]); 
-  }
-
-  for (unsigned int j=1;j<ring->Size();j++){
-		unsigned char key = sequence[j];
-    OBAtom *ptr = ring_array[j];
-		int i = j-1;
-		while(i>=0 && sequence[i] > key){
-			sequence[i+1] = sequence[i];
-      ring_array[i+1] = ring_array[i];
-			i--;
-		}
-		sequence[i+1] = key;
-    ring_array[i+1] = ptr;
-	}
-
-  // need a new approach
-  bool sequential_read = true;
-  unsigned int last = ring->Size()-1;
-
-
-  // for(unsigned int i=0;i<ring->Size();i++)
-  //   fprintf(stderr,"%c ",sequence[i]);
-  // fprintf(stderr,"\n");
-
-  unsigned char bind = 0;
-  if(!mol->GetBond(ring_array[0],ring_array[last]) && !(bridge_atoms.find(ring_array[last]) != bridge_atoms.end()) ){
-    unsigned char loc = sequence[0];
-    for(unsigned int i=1;i<last;i++){
-      if(sequence[i] != loc+1)
-        sequential_read = false;
-      
-      if(mol->GetBond(ring_array[i],ring_array[last])){
-        bind = sequence[i];
-        break;
-      }
-        
-      loc = sequence[i];
-    }
-    if(!sequential_read){
-      buffer += '/';
-      write_locant(bind,buffer);
-      write_locant(sequence[last],buffer);
-    }
-  }
- 
-  free(ring_array);
   free(sequence);
   return true;
 }
@@ -457,8 +397,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                     atom_shares[locant_path[j]] == 2 &&
                     !earliest_non_multi)
                   earliest_non_multi = int_to_locant(i+1);
-              }
-                       
+              }   
             }
           }
 
@@ -482,10 +421,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             copy_locant_path(best_path,locant_path,path_size);
             if(opt_debug)
               fprintf(stderr,"  set on hm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",lowest_sum,lowest_non_multi,lowest_multi);
-          }
-          else {
-            // if(opt_debug)
-            //   fprintf(stderr,"  other:      fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c\n",fusion_sum,earliest_non_multi,highest_multi);
           }
         }
         
@@ -535,11 +470,9 @@ unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
 
     if(atom_shares[*iter] == 4)
       return 2;
-
   }
   return classification; 
 }
-
 
 
 struct RingWrapper{
@@ -585,17 +518,88 @@ bool valid_pair(unsigned char loc_a,unsigned char loc_b, RingWrapper **ring_stac
   return false;
 }
 
-unsigned char add_to_path(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, std::map<unsigned char,bool> &in_path){
-  unsigned char highest_added = 'A';
-  for(unsigned int i=0;i<ring->Size();i++){
-    unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
-    in_path[loc] = true;
 
-    if(loc > highest_added)
-      highest_added = loc; 
+void add_pseudo_bridges(OBMol *mol,RingWrapper *wrapper, 
+                        OBAtom **locant_path, unsigned int path_size,
+                        std::vector<unsigned char> &seen_before,
+                        std::string &buffer){
+
+  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*wrapper->ring->Size()); 
+  OBAtom **ring_array = (OBAtom**)malloc(sizeof(OBAtom*)*wrapper->ring->Size()); 
+  for(unsigned int i=0;i<wrapper->ring->Size();i++){
+    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(wrapper->ring->_path[i]),locant_path,path_size)+1); 
+    ring_array[i] = mol->GetAtom(wrapper->ring->_path[i]); 
   }
-  return highest_added;
+
+  for (unsigned int j=1;j<wrapper->ring->Size();j++){
+		unsigned char key = sequence[j];
+    OBAtom *ptr = ring_array[j];
+		int i = j-1;
+		while(i>=0 && sequence[i] > key){
+			sequence[i+1] = sequence[i];
+      ring_array[i+1] = ring_array[i];
+			i--;
+		}
+		sequence[i+1] = key;
+    ring_array[i+1] = ptr;
+	}
+
+  std::vector<unsigned char> bonds; 
+  for(unsigned int i=0;i<wrapper->ring->Size();i++){
+    for(unsigned int j=i+2;j<wrapper->ring->Size();j++){
+      if(mol->GetBond(ring_array[i],ring_array[j])){
+        
+        
+        if(seen_before.empty()){
+          bonds.push_back(sequence[i]);
+          bonds.push_back(sequence[j]);
+        }
+        else{
+
+          bool add = true;
+          for(unsigned int k=0;k<seen_before.size()-1;k+=2){
+            if(seen_before[k] == sequence[i] && seen_before[k+1] == sequence[j])
+              add = false;
+          }
+          if(add){
+            bonds.push_back(sequence[i]);
+            bonds.push_back(sequence[j]);
+          }
+        }
+        
+      }
+    }
+  }
+
+
+  if(bonds.size()>2 && !seen_before.empty()){
+    for(unsigned int i=0;i<bonds.size()-1;i+=2){
+      fprintf(stderr,"%c --> %c\n",bonds[i],bonds[i+1]);
+
+      bool write = true;
+      for(unsigned int j=0;j<seen_before.size()-1;j+=2){
+        if(seen_before[j] == bonds[i] && seen_before[j+1] == bonds[i+1])
+          write = false;
+      }
+      if(write){
+        buffer += '/';
+        write_locant(bonds[i],buffer);
+        write_locant(bonds[i+1],buffer);
+        seen_before.push_back(bonds[i]);
+        seen_before.push_back(bonds[i+1]);
+      }
+    }
+  }
+
+  for(unsigned int i=0;i<bonds.size()-1;i+=2){
+    seen_before.push_back(bonds[i]);
+    seen_before.push_back(bonds[i+1]);
+  }
+
+  free(ring_array);
+  free(sequence);
 }
+
 
 
 
@@ -609,11 +613,14 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   
   unsigned int stack_size = 0;
   RingWrapper **ring_stack = (RingWrapper**)malloc(sizeof(RingWrapper) * path_size); // path size will be a hard limit
-  for(unsigned int i=0;i<path_size;i++)
+  RingWrapper **write_stack = (RingWrapper**)malloc(sizeof(RingWrapper) * path_size); // path size will be a hard limit
+  for(unsigned int i=0;i<path_size;i++){
     ring_stack[i] = 0;
+    write_stack[i] = 0;
+  }
+  
 
   std::map<OBRing*,bool> rings_checked;
-  std::map<unsigned char,unsigned int> char_in_stack;
 
   for(int i=0;i<(int)path_size;i++){
     OBAtom *src = locant_path[i]; 
@@ -665,8 +672,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       if(opt_debug)
         fprintf(stderr,"  assigning (%c -> %c) ring with %c\n",ring_stack[i]->loc_a,ring_stack[i]->loc_b,int_to_locant(1+position_in_path(find,locant_path,path_size)));
 
-      char_in_stack[ring_stack[i]->loc_a]++;
-
       // assign the new loc_a to lowest locant seen in the assigned ring
       unsigned int lowest_loc = path_size; 
       unsigned int highest_loc = 0;
@@ -679,16 +684,17 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           highest_loc = npos;  
       }
 
-      ring_stack[i]->loc_b = int_to_locant(highest_loc+1); // BETA
-
+      // BETA logic, not sure its needed, might be harmful
+#define BETA 1
+#if BETA
+      ring_stack[i]->loc_b = int_to_locant(highest_loc+1); 
+#endif
+      
       unsigned char pa = int_to_locant(lowest_loc+1);
       if(pa != ring_stack[i]->loc_a){
 
         if(opt_debug)
-          fprintf(stderr,"    shifting to %c\n",pa);
-
-        char_in_stack[pa]++;
-        char_in_stack[ring_stack[i]->loc_a]--;
+          fprintf(stderr,"    A shifting to %c\n",pa);
 
         ring_stack[i]->loc_a = pa; 
       }
@@ -708,6 +714,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
   stack_size = idx;
 
+
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
     OBRing *cring = *(riter);
     if(!rings_checked[cring]){
@@ -724,22 +731,24 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       RingWrapper *wrapped = (RingWrapper*)malloc(sizeof(RingWrapper));
       wrapped->loc_a = int_to_locant(lowest_loc+1);
       wrapped->loc_b = int_to_locant(highest_loc+1);
-      char_in_stack[wrapped->loc_a]++;
-
       wrapped->ring = cring; 
-      ring_stack[stack_size++] = wrapped; 
+      ring_stack[stack_size++] = wrapped;
     }
   }
+
 
   if(opt_debug){
     fprintf(stderr,"  pre-read:\n");
     for(unsigned int i=0;i<stack_size;i++){
       RingWrapper *wrapper = ring_stack[i];
-      fprintf(stderr,"    %c --> %c [%d] contains: ",wrapper->loc_a,wrapper->loc_b,char_in_stack[wrapper->loc_a]);
+      fprintf(stderr,"    %c --> %c contains: ",wrapper->loc_a,wrapper->loc_b);
       print_ring_locants(mol,wrapper->ring,locant_path,path_size,true);
     } 
+
+    fprintf(stderr,"  writing:\n");
   }
 
+  
   unsigned int rings_done = 0;
   std::map<unsigned int,bool> written;
   std::map<unsigned char,bool> in_chain; 
@@ -771,12 +780,11 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     RingWrapper *to_write = ring_stack[pos_to_write];
 
     if(opt_debug){
-      fprintf(stderr,"    %d  writing: %c --> %c ",rings_done,to_write->loc_a,to_write->loc_b);
+      fprintf(stderr,"    %d: %c --> %c ",rings_done,to_write->loc_a,to_write->loc_b);
       print_ring_locants(mol,to_write->ring,locant_path,path_size,true);
     }
-    
+
     write_wrapper(to_write,buffer);
-    BondedEndPoints(mol,to_write->ring,locant_path,path_size,bridge_atoms,atom_shares,buffer);
     ring_order.push_back(to_write->ring);
 
     for(unsigned int k=0;k<to_write->ring->Size();k++){
@@ -785,13 +793,24 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
 
     written[pos_to_write] = true;
-    rings_done++;
+    write_stack[rings_done++] = to_write;
   }
 
+
+  // clean up and add bridges where needed
+#ifdef EGG
+
+  std::vector<unsigned char> seen_before;
+  for(unsigned int i=0;i<stack_size;i++)
+    add_pseudo_bridges(mol,write_stack[i],locant_path,path_size,seen_before,buffer);
+  
+#endif
+  
   for(unsigned int i=0;i<stack_size;i++)
     free(ring_stack[i]);
 
   free(ring_stack);
+  free(write_stack);
   
   return true;  
 }
