@@ -136,21 +136,42 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
 void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
   
-  unsigned int sum = 0;
-  for(unsigned int i=0;i<ring->Size();i++){
+  for(unsigned int i=0;i<ring->Size();i++)
     sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
-    sum+=sequence[i]; 
-  }
-
+  
   if(sort)
     sort_locants(sequence,ring->Size());
   fprintf(stderr,"[ ");
   for(unsigned int k=0;k<ring->Size();k++)
     fprintf(stderr,"%c ",sequence[k]);
-
-  fprintf(stderr,"] - sum: %d\n",sum);
+  fprintf(stderr,"]\n");
 
   free(sequence);
+}
+
+bool sequential_chain(  OBMol *mol,OBRing *ring, 
+                        OBAtom **locant_path, unsigned int path_size,
+                        std::map<unsigned char, bool> &in_chain)
+{
+  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
+  for(unsigned int i=0;i<ring->Size();i++)
+    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
+
+  sort_locants(sequence,ring->Size());
+  unsigned char prev = 0; 
+  for(unsigned int k=0;k<ring->Size();k++){
+    if(prev && prev != sequence[k]-1){
+      // if we've made a jump, can we get to the jump via locants already wrapped
+      for(unsigned char loc = prev+1;loc<sequence[k];loc++){
+        if(!in_chain[loc])
+          return false; // if we cant do it, return false
+      }
+    }
+    prev = sequence[k];
+  }
+    
+  free(sequence);
+  return true;
 }
 
 bool BondedEndPoints(   OBMol *mol,OBRing *ring, 
@@ -200,8 +221,6 @@ bool BondedEndPoints(   OBMol *mol,OBRing *ring,
         break;
       }
         
-      
-  
       loc = sequence[i];
     }
     if(!sequential_read){
@@ -718,54 +737,62 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       RingWrapper *wrapper = ring_stack[i];
       fprintf(stderr,"    %c --> %c [%d] contains: ",wrapper->loc_a,wrapper->loc_b,char_in_stack[wrapper->loc_a]);
       print_ring_locants(mol,wrapper->ring,locant_path,path_size,true);
-      unsigned int locant_sum = 0; 
     } 
   }
 
-  // path walk writing algorithm
-  RingWrapper **local_stack = (RingWrapper**)malloc(sizeof(RingWrapper) * stack_size); // should be a hard limit, write all at once
-  for(unsigned int i=0;i<stack_size;i++)
-    local_stack[i] = 0;
-  
-  for(int i=0;i< (int)path_size;i++){
-    unsigned char src_char = int_to_locant(i+1); 
+  unsigned int rings_done = 0;
+  std::map<unsigned int,bool> written;
+  std::map<unsigned char,bool> in_chain; 
 
-    for(int j=0;j<i;j++){
-      unsigned char trg_char = int_to_locant(j+1); 
+  while(rings_done < stack_size){
+    
+    unsigned int pos_to_write     = 0;
+    unsigned char lowest_in_ring  = 255;
 
-      if(char_in_stack[trg_char] && valid_pair(trg_char,src_char,ring_stack,stack_size)){
-        
-        // we can sort here to guarentee that pseudo bridges are placed correctly
-        unsigned int seen = 0;
-        for(unsigned int k=0;k<stack_size;k++){
-          RingWrapper *wrapper = ring_stack[k];
-          if(wrapper->loc_a == trg_char && wrapper->loc_b <= src_char)
-            local_stack[seen++] = wrapper; 
-        }
-
-        if(char_in_stack[trg_char] == seen){
-          sort_wrapper(local_stack,seen);
-          for(unsigned int p=0;p<seen;p++){
-            write_wrapper(local_stack[p],buffer);
-            // we can check for pseudo bridges here - are there any non consecutive bonds in the sorted path?
-            BondedEndPoints(mol,local_stack[p]->ring,locant_path,path_size,bridge_atoms,atom_shares,buffer);
-            ring_order.push_back(local_stack[p]->ring);
+    for(unsigned int i=0;i<stack_size;i++){
+      RingWrapper *wrapper = ring_stack[i];
+      if(!written[i]){
+        if(sequential_chain(mol,wrapper->ring,locant_path,path_size,in_chain)){
+          unsigned char min_loc = 255; 
+          for(unsigned int k=0;k<wrapper->ring->Size();k++){
+            unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(wrapper->ring->_path[k]),locant_path,path_size)+1); 
+            if(loc < min_loc)
+              min_loc = loc; 
           }
-            
+  
+          if(min_loc < lowest_in_ring){
+            lowest_in_ring = min_loc;
+            pos_to_write = i; 
+          }
         }
-        // clear the local stack
-        for(unsigned int i=0;i<stack_size;i++)
-          local_stack[i] = 0;
       }
     }
 
+    RingWrapper *to_write = ring_stack[pos_to_write];
+
+    if(opt_debug){
+      fprintf(stderr,"    %d  writing: %c --> %c ",rings_done,to_write->loc_a,to_write->loc_b);
+      print_ring_locants(mol,to_write->ring,locant_path,path_size,true);
+    }
+    
+    write_wrapper(to_write,buffer);
+    BondedEndPoints(mol,to_write->ring,locant_path,path_size,bridge_atoms,atom_shares,buffer);
+    ring_order.push_back(to_write->ring);
+
+    for(unsigned int k=0;k<to_write->ring->Size();k++){
+      unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->ring->_path[k]),locant_path,path_size)+1); 
+      in_chain[loc] = true;
+    }
+
+    written[pos_to_write] = true;
+    rings_done++;
   }
 
   for(unsigned int i=0;i<stack_size;i++)
     free(ring_stack[i]);
 
   free(ring_stack);
-  free(local_stack);
+  
   return true;  
 }
 
