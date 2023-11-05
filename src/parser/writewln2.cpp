@@ -135,15 +135,21 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
 
 void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
-  for(unsigned int i=0;i<ring->Size();i++)
-    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
   
+  unsigned int sum = 0;
+  for(unsigned int i=0;i<ring->Size();i++){
+    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
+    sum+=sequence[i]; 
+  }
+
   if(sort)
     sort_locants(sequence,ring->Size());
-  
+  fprintf(stderr,"[ ");
   for(unsigned int k=0;k<ring->Size();k++)
-    fprintf(stderr,"%c ",sequence[k]); 
-  
+    fprintf(stderr,"%c ",sequence[k]);
+
+  fprintf(stderr,"] - sum: %d\n",sum);
+
   free(sequence);
 }
 
@@ -710,9 +716,9 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     fprintf(stderr,"  pre-read:\n");
     for(unsigned int i=0;i<stack_size;i++){
       RingWrapper *wrapper = ring_stack[i];
-      fprintf(stderr,"    %c --> %c [%d] contains: [ ",wrapper->loc_a,wrapper->loc_b,char_in_stack[wrapper->loc_a]);
-      print_ring_locants(mol,wrapper->ring,locant_path,path_size);
-      fprintf(stderr,"]\n");
+      fprintf(stderr,"    %c --> %c [%d] contains: ",wrapper->loc_a,wrapper->loc_b,char_in_stack[wrapper->loc_a]);
+      print_ring_locants(mol,wrapper->ring,locant_path,path_size,true);
+      unsigned int locant_sum = 0; 
     } 
   }
 
@@ -1979,7 +1985,6 @@ struct BabelGraph{
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
-
 
     if(inline_ring){
       buffer+= '-';
