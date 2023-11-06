@@ -488,8 +488,6 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::string &buffer)
 {
 
-  // PROVE THIS WORKS BEFORE X CONNECTIONS
-
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections; 
   for(unsigned char ch ='A';ch <= int_to_locant(path_size);ch++){

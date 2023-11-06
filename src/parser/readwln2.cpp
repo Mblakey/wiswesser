@@ -1376,6 +1376,11 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
     fprintf(stderr,"Error: attempting bond of non-existent symbols - %s|%s is dead\n",child ? "":"child",parent ? "":"parent");
     return 0;
   }
+  else if (child == parent){
+    fprintf(stderr,"Error: making bond to self is impossible\n");
+    return 0;
+  }
+
 
   graph.edge_count++;
   if(graph.edge_count > REASONABLE){
@@ -1999,6 +2004,13 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         while(!allowed_connections[bind_2])
           ring_path[path_size-1] = ++bind_2;
         
+        if(opt_debug){
+          fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
+          for (unsigned int a=0;a<path_size;a++)
+            fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
+          fprintf(stderr," ]\n");
+        }
+
         WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
         if(!edge)
           return false;
@@ -2007,13 +2019,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(allowed_connections[bind_2])
           allowed_connections[bind_2]--;
 
-        if(opt_debug){
-          fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
-          for (unsigned int a=0;a<path_size;a++)
-            fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
-          fprintf(stderr," ]\n");
-        }
-
+      
         break;
       }
       else{
