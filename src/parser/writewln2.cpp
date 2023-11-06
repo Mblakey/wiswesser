@@ -563,7 +563,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
         if(sequential_chain(mol,wring,locant_path,path_size,in_chain)){
           unsigned char min_loc = 255; 
           for(unsigned int k=0;k<wring->Size();k++){
-            unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(wrapper->ring->_path[k]),locant_path,path_size)+1); 
+            unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)+1); 
             if(loc < min_loc)
               min_loc = loc; 
           }
@@ -576,36 +576,37 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       }
     }
 
-    RingWrapper *to_write = ring_stack[pos_to_write];
+    OBRing *to_write = ring_arr[pos_to_write];
 
     if(opt_debug){
-      fprintf(stderr,"    %d: %c --> %c ",rings_done,to_write->loc_a,to_write->loc_b);
-      print_ring_locants(mol,to_write->ring,locant_path,path_size,true);
+      fprintf(stderr,"    %d: %c(%d) -",rings_done,lowest_in_ring,lowest_in_ring);
+      print_ring_locants(mol,to_write,locant_path,path_size,true);
     }
 
-    write_wrapper(to_write,buffer);
-    ring_order.push_back(to_write->ring);
+    if(lowest_in_ring != 'A'){
+      buffer += ' ';
+      buffer += lowest_in_ring;
+    }
 
-    for(unsigned int k=0;k<to_write->ring->Size();k++){
-      unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->ring->_path[k]),locant_path,path_size)+1); 
+    if(to_write->Size() > 9){
+      buffer+='-';
+      buffer+= std::to_string(to_write->Size());
+      buffer+='-';
+    }
+    else
+      buffer+= std::to_string(to_write->Size());
+    
+    ring_order.push_back(to_write);
+    for(unsigned int k=0;k<to_write->Size();k++){
+      unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
       in_chain[loc] = true;
     }
 
-    written[pos_to_write] = true;
-    write_stack[rings_done++] = to_write;
+    pos_written[pos_to_write] = true;
+    rings_done++;
   }
 
-
-  // clean up and add bridges where needed
-  std::vector<unsigned char> seen_before;
-  for(unsigned int i=0;i<stack_size;i++)
-    add_pseudo_bridges(mol,write_stack[i],locant_path,path_size,seen_before,buffer);
-  
-  for(unsigned int i=0;i<stack_size;i++)
-    free(ring_stack[i]);
-
-  free(ring_stack);
-  free(write_stack);
+  free(ring_arr);
   return true;  
 }
 
