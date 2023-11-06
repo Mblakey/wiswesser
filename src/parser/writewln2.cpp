@@ -657,7 +657,7 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
   }
 
-
+  // horrid but effective, can tidy up later
   return true;
 }
 
