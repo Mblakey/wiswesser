@@ -685,7 +685,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       }
 
       // BETA logic, not sure its needed, might be harmful
-#define BETA 1
+#define BETA 0
 #if BETA
       ring_stack[i]->loc_b = int_to_locant(highest_loc+1); 
 #endif
@@ -799,11 +799,9 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
   // clean up and add bridges where needed
 #ifdef EGG
-
   std::vector<unsigned char> seen_before;
   for(unsigned int i=0;i<stack_size;i++)
     add_pseudo_bridges(mol,write_stack[i],locant_path,path_size,seen_before,buffer);
-  
 #endif
   
   for(unsigned int i=0;i<stack_size;i++)
@@ -811,7 +809,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
   free(ring_stack);
   free(write_stack);
-  
   return true;  
 }
 
