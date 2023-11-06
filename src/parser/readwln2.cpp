@@ -1902,11 +1902,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           if(opt_debug)
             fprintf(stderr,"  %d  catch fusing: %c <-- %c\n",fuses,pbind_2,pbind_1);
           
-          WLNEdge *edge = AllocateWLNEdge(ring->locants[pbind_2],ring->locants[pbind_1],graph);
-          if(!edge)
-            return false;
-          
-          fuses++;
+          if(!search_edge(ring->locants[pbind_2],ring->locants[pbind_1])){
+            WLNEdge *edge = AllocateWLNEdge(ring->locants[pbind_2],ring->locants[pbind_1],graph);
+            if(!edge)
+              return false;
+            fuses++;
+          }
         }
       }
       break;
@@ -2004,6 +2005,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         while(!allowed_connections[bind_2])
           ring_path[path_size-1] = ++bind_2;
         
+
         if(opt_debug){
           fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
           for (unsigned int a=0;a<path_size;a++)
@@ -2019,7 +2021,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(allowed_connections[bind_2])
           allowed_connections[bind_2]--;
 
-      
         break;
       }
       else{
