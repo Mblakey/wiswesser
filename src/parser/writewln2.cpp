@@ -500,16 +500,10 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
   for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin();biter != bridge_atoms.end(); biter++){
     unsigned char bloc = int_to_locant(position_in_path(*biter,locant_path,path_size))+1; 
-    
-    fprintf(stderr,"%c is bridging\n",bloc);
     if(connections[bloc])
       connections[bloc]--;
   }
 
-  // for(unsigned int i=0;i<path_size;i++){
-  //   fprintf(stderr,"%c: %d\n",int_to_locant(i+1),connections[int_to_locant(i+1)]);
-  // }
-  
 
   std::vector<unsigned char> bonds_seen;
   for(unsigned int i=0;i<ring_order.size();i++){
@@ -528,8 +522,6 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     if(connections[locant])
       connections[locant]--;
 
-    fprintf(stderr,"checking: %c\n",locant);
-    
     // get the bonds from the locant, add, decremenent map
     for(unsigned int k=0;k<psd_ring->Size();k++){
       unsigned int pos = position_in_path(mol->GetAtom(psd_ring->_path[k]),locant_path,path_size);
@@ -580,9 +572,7 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
               bonds_seen.push_back(b);
               legit_pair = true;
             }
-
           }
-
         }
 
         if(bchar+1 != locant && locant+1 != bchar && !legit_pair){
@@ -596,7 +586,6 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
             b = locant;
             a = bchar;
           }
-
           if(bonds_seen.empty()){
             bonds_seen.push_back(a);
             bonds_seen.push_back(b);
@@ -621,18 +610,52 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
 
     if(!legit_pair){
+      // we iterate the ring and find all non consecutive pairs and write as pseudo
+      for(unsigned int p = 0; p < psd_ring->Size();p++){
+        for(unsigned int q = p+1; q < psd_ring->Size();q++){
 
-      fprintf(stderr,"we may of found 1 - %c, ring %d\n",locant,i);
+          OBAtom *s = mol->GetAtom(psd_ring->_path[p]); 
+          OBAtom *e = mol->GetAtom(psd_ring->_path[q]);
+          
+          if(mol->GetBond(s,e)){
+
+            unsigned char schar = int_to_locant(position_in_path(s,locant_path,path_size))+1;
+            unsigned char echar = int_to_locant(position_in_path(e,locant_path,path_size))+1;
+            
+            unsigned char a = 0;
+            unsigned char b = 0;
+            if(schar < echar){
+              a = schar;
+              b = echar; 
+            }
+            else{
+              a = echar; 
+              b = schar; 
+            }
+
+            if(a+1 != b){
+              bool seen = false;
+              for(unsigned int j=0;j<bonds_seen.size()-1;j+=2){
+                if(bonds_seen[j] == a && bonds_seen[j+1] == b)
+                  seen = true;
+              }
+
+              if(!seen){
+                buffer += '/';
+                write_locant(a,buffer);
+                write_locant(b,buffer);
+                bonds_seen.push_back(a);
+                bonds_seen.push_back(b);
+              }
+            }
+          }
+          
+        }
+      }
 
     }
 
-
   }
-
-
-  for(unsigned int j=0;j<bonds_seen.size()-1;j+=2)
-    fprintf(stderr,"seen: %c --> %c\n",bonds_seen[j],bonds_seen[j+1]);
-
 
   return true;
 }
@@ -691,7 +714,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
       in_chain[loc] = true;
     }
-
 
     if(opt_debug){
       fprintf(stderr,"  %d: %c(%d) -",rings_done,lowest_in_ring,lowest_in_ring);
