@@ -497,6 +497,8 @@ void write_wrapper(RingWrapper *wrapper, std::string &buffer){
     buffer+= std::to_string(wrapper->ring->Size());
 }
 
+
+#ifdef DEPRECATED
 void sort_wrapper(RingWrapper **wrapper_stack,unsigned int stack_size){
 	for (unsigned int j=1;j<stack_size;j++){
 		unsigned char key = wrapper_stack[j]->loc_b;
@@ -517,12 +519,13 @@ bool valid_pair(unsigned char loc_a,unsigned char loc_b, RingWrapper **ring_stac
   }
   return false;
 }
-
+#endif
 
 void add_pseudo_bridges(OBMol *mol,RingWrapper *wrapper, 
                         OBAtom **locant_path, unsigned int path_size,
                         std::vector<unsigned char> &seen_before,
-                        std::string &buffer){
+                        std::string &buffer)
+{
 
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*wrapper->ring->Size()); 
   OBAtom **ring_array = (OBAtom**)malloc(sizeof(OBAtom*)*wrapper->ring->Size()); 
@@ -531,6 +534,9 @@ void add_pseudo_bridges(OBMol *mol,RingWrapper *wrapper,
     ring_array[i] = mol->GetAtom(wrapper->ring->_path[i]); 
   }
 
+
+#define SORT 1
+#if SORT
   for (unsigned int j=1;j<wrapper->ring->Size();j++){
 		unsigned char key = sequence[j];
     OBAtom *ptr = ring_array[j];
@@ -543,58 +549,24 @@ void add_pseudo_bridges(OBMol *mol,RingWrapper *wrapper,
 		sequence[i+1] = key;
     ring_array[i+1] = ptr;
 	}
+#endif 
 
-  std::vector<unsigned char> bonds; 
-  for(unsigned int i=0;i<wrapper->ring->Size();i++){
-    for(unsigned int j=i+2;j<wrapper->ring->Size();j++){
-      if(mol->GetBond(ring_array[i],ring_array[j])){
-        
-        
-        if(seen_before.empty()){
-          bonds.push_back(sequence[i]);
-          bonds.push_back(sequence[j]);
-        }
-        else{
 
-          bool add = true;
-          for(unsigned int k=0;k<seen_before.size()-1;k+=2){
-            if(seen_before[k] == sequence[i] && seen_before[k+1] == sequence[j])
-              add = false;
-          }
-          if(add){
-            bonds.push_back(sequence[i]);
-            bonds.push_back(sequence[j]);
-          }
-        }
-        
-      }
+  for(unsigned i=0; i<wrapper->ring->Size();i++){
+    for(unsigned int j=i+2; j<wrapper->ring->Size();j++){
+
+      if(sequence[i] == wrapper->loc_a && sequence[j] == wrapper->loc_b)
+        continue;
+      
+       
+      if(mol->GetBond(ring_array[i],ring_array[j]))
+        fprintf(stderr,"%c --> %c: bonded\n",sequence[i],sequence[j]);
+      
     }
   }
 
-
-  if(bonds.size()>2 && !seen_before.empty()){
-    for(unsigned int i=0;i<bonds.size()-1;i+=2){
-      fprintf(stderr,"%c --> %c\n",bonds[i],bonds[i+1]);
-
-      bool write = true;
-      for(unsigned int j=0;j<seen_before.size()-1;j+=2){
-        if(seen_before[j] == bonds[i] && seen_before[j+1] == bonds[i+1])
-          write = false;
-      }
-      if(write){
-        buffer += '/';
-        write_locant(bonds[i],buffer);
-        write_locant(bonds[i+1],buffer);
-        seen_before.push_back(bonds[i]);
-        seen_before.push_back(bonds[i+1]);
-      }
-    }
-  }
-
-  for(unsigned int i=0;i<bonds.size()-1;i+=2){
-    seen_before.push_back(bonds[i]);
-    seen_before.push_back(bonds[i+1]);
-  }
+  
+  
 
   free(ring_array);
   free(sequence);
@@ -619,9 +591,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     write_stack[i] = 0;
   }
   
-
   std::map<OBRing*,bool> rings_checked;
-
   for(int i=0;i<(int)path_size;i++){
     OBAtom *src = locant_path[i]; 
     if(atom_shares[src] > 1){
@@ -667,34 +637,19 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
     else{
 
-      // what if we also change loc_b here to the highest in ring
-
       if(opt_debug)
         fprintf(stderr,"  assigning (%c -> %c) ring with %c\n",ring_stack[i]->loc_a,ring_stack[i]->loc_b,int_to_locant(1+position_in_path(find,locant_path,path_size)));
-
-      // assign the new loc_a to lowest locant seen in the assigned ring
       unsigned int lowest_loc = path_size; 
-      unsigned int highest_loc = 0;
       for(unsigned int j=0;j<obring->Size();j++){
         unsigned int npos = position_in_path(mol->GetAtom(obring->_path[j]),locant_path,path_size);
         if(npos < lowest_loc)
-          lowest_loc = npos;
-
-        if(npos > highest_loc)
-          highest_loc = npos;  
+          lowest_loc = npos; 
       }
-
-      // BETA logic, not sure its needed, might be harmful
-#define BETA 0
-#if BETA
-      ring_stack[i]->loc_b = int_to_locant(highest_loc+1); 
-#endif
       
       unsigned char pa = int_to_locant(lowest_loc+1);
       if(pa != ring_stack[i]->loc_a){
-
         if(opt_debug)
-          fprintf(stderr,"    A shifting to %c\n",pa);
+          fprintf(stderr,"    L(a) shifting to %c\n",pa);
 
         ring_stack[i]->loc_a = pa; 
       }
@@ -715,6 +670,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   stack_size = idx;
 
 
+  // if we've missed any, get them here
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
     OBRing *cring = *(riter);
     if(!rings_checked[cring]){
@@ -798,11 +754,9 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
 
   // clean up and add bridges where needed
-#ifdef EGG
   std::vector<unsigned char> seen_before;
   for(unsigned int i=0;i<stack_size;i++)
     add_pseudo_bridges(mol,write_stack[i],locant_path,path_size,seen_before,buffer);
-#endif
   
   for(unsigned int i=0;i<stack_size;i++)
     free(ring_stack[i]);
@@ -2070,19 +2024,14 @@ struct BabelGraph{
       }
     }
 
-    unsigned int size_check = 0;
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
       buffer += ' ';
       write_locant(int_to_locant(path_size),buffer); // need to make the relative size
-      size_check = buffer.size();
     }
 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
 
-    // if(buffer.size() == size_check && buffer.back() != '&')
-    //   buffer += ' '; // has to be a choice whether to add the space here
-    
     bool space_added = false;
     bool dash_added = false;
     for(unsigned int i=0;i<ring_order.size();i++){
