@@ -1894,6 +1894,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
     // If we need to catch fuse, we do
     if(i==ring_assignments.size()-1 && pseudo_pairs){
+      bool caught = false;
       for(unsigned int s = 1; s<=local_size;s++){
         if(pseudo_lookup[int_to_locant(s)]){
           unsigned char pbind_2 = int_to_locant(s); 
@@ -1907,10 +1908,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
             if(!edge)
               return false;
             fuses++;
+            caught = true;
           }
         }
       }
-      break;
+      if(caught)
+        break;
     }
 
     // --- MULTI ALGORITHM --- 
@@ -1953,7 +1956,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       path = ring->locants[highest_loc];
       ring_path[path_size++] = highest_loc;   
 
-      if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size){
+      // let catch fuse take care of last pseudo pairs
+      if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size && i!=ring_assignments.size()-1){
         // lets get the bonds right and then worry about the path 
         
         bind_1 = pseudo_lookup[highest_loc];
