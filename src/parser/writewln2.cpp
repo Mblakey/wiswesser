@@ -297,7 +297,6 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 find a multicyclic path thats stable with disjoined pericyclic points */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
-                            std::set<OBAtom*>               &bridge_atoms,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
                             std::set<OBRing*>               &local_SSSR)
 {
@@ -310,23 +309,17 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     best_path[i] = 0; 
   }
 
-  // if there are bridges, set up a bridge map
-  std::map<OBAtom*,bool> is_bridging; 
-  for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin(); biter != bridge_atoms.end(); biter++)
-    is_bridging[*biter] = true; 
-
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_fcomp     = UINT32_MAX;
+  unsigned int           lowest_fcomp_g     = UINT32_MAX;
+  unsigned int           highest_fcomp_g     = 0;
   unsigned char          lowest_non_multi = int_to_locant(path_size);
-  unsigned char          lowest_multi     = int_to_locant(path_size);
-  unsigned char          lowest_bridge    = int_to_locant(path_size); 
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   std::vector<OBAtom*> seeds; 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     OBAtom *rseed = (*aiter);
-    if(atom_shares[rseed] >= 1 || is_bridging[rseed])
+    if(atom_shares[rseed] >= 1)
       seeds.push_back(rseed);
   }
 
@@ -373,23 +366,20 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           
           // calculate the fusion sum here, expensive but necessary
           unsigned int fsum = 0;
-          unsigned int highest_fcomp = 0;
           for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
             OBRing *obring = (*riter); 
             unsigned int lfsum =  fusion_sum(mol,obring,locant_path,path_size);
             fsum += lfsum; 
-            if(lfsum > highest_fcomp)
-              highest_fcomp = lfsum;
           }
 
           // trying to tease out 30e without a notation write and compare
           unsigned char earliest_non_multi = 0;
-          unsigned char highest_multi = 0;
           unsigned char earliest_bridge = 0;
+          unsigned char earliest_multi = 0;
+
           for(int i=0;i< (int)path_size;i++){
             OBAtom *src = locant_path[i];
-            if(atom_shares[src] == 3)
-              highest_multi = int_to_locant(i+1);
+            
             for(int j=0;j<i;j++){
               OBAtom *trg = locant_path[j]; 
               if(mol->GetBond(src,trg)){
@@ -400,52 +390,25 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
               }   
             }
 
-            if(is_bridging[locant_path[i]] && !earliest_bridge)
-              earliest_bridge = int_to_locant(i+1);
+            if(atom_shares[src] == 3 && !earliest_multi)
+              earliest_multi = int_to_locant(i+1);
+
           }
 
+          
+      
           if(fsum < lowest_sum){ // rule 30d.
             lowest_sum = fsum;
-            lowest_non_multi = earliest_non_multi; 
-            lowest_multi = highest_multi;
-            lowest_bridge = earliest_bridge;
+
             copy_locant_path(best_path,locant_path,path_size);
             if(opt_debug)
-              fprintf(stderr,"  set on fs:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
+              fprintf(stderr,"  set on fs:  fsum: %-2d\n",lowest_sum);
           }
-#define NEEDED 1
-#if NEEDED
-          else if(fsum == lowest_sum && earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
-            lowest_non_multi = earliest_non_multi; 
-            lowest_multi = highest_multi;
-            lowest_bridge = earliest_bridge;
-            copy_locant_path(best_path,locant_path,path_size);
-            if(opt_debug)
-              fprintf(stderr,"  set on enm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
+          else if(fsum == lowest_sum){
+            fprintf(stderr,"equal path\n");
           }
-          else if(fsum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi < lowest_multi){ // not officially a rule but a good filter
-            lowest_multi = highest_multi;
-            lowest_bridge = earliest_bridge;
-            copy_locant_path(best_path,locant_path,path_size);
-            if(opt_debug)
-              fprintf(stderr,"  set on hm:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
-          }
-          else if(fsum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi == lowest_multi && earliest_bridge < lowest_bridge){ // not officially a rule but a good filter
-            lowest_bridge = earliest_bridge;
-            copy_locant_path(best_path,locant_path,path_size);
-            if(opt_debug)
-              fprintf(stderr,"  set on brd:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
-          }
-          else if (fsum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi == lowest_multi && earliest_bridge == lowest_bridge && highest_fcomp < lowest_fcomp){
-            lowest_fcomp = highest_fcomp;
-            copy_locant_path(best_path,locant_path,path_size);
-            if(opt_debug)
-              fprintf(stderr,"  set on fsc: fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
-          }
-#endif
         }
 
-        
         OBAtom *tmp = path.back().first; 
         path.pop_back();
         if(!path.empty()){
@@ -516,6 +479,21 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     if(connections[bloc])
       connections[bloc]--;
   }
+
+//BETA
+  for(unsigned int i=0;i<path_size;i++){
+    if(locant_path[i]->GetAtomicNum() == 6){
+      unsigned int rbonds = 0; 
+      for(unsigned int k=0;k<path_size;k++){
+        if(mol->GetBond(locant_path[i],locant_path[k]))
+          rbonds++;
+      }
+
+      if(rbonds==4)
+        connections[int_to_locant(i+1)] = 4;
+    }
+  }
+  
 
 
   std::vector<unsigned char> bonds_seen;
@@ -1698,7 +1676,7 @@ struct BabelGraph{
     OBBond *bond = 0; 
     OBRing *obring = 0; 
     std::set<OBAtom*> tmp_bridging_atoms;
-  
+
     // get the seed ring and add path to ring_atoms
     FOR_RINGS_OF_MOL(r,mol){
       obring = &(*r);
@@ -1726,7 +1704,6 @@ struct BabelGraph{
         bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
         if(bond)
           ring_bonds.insert(bond); 
-        
 
         break;
       }
@@ -1735,9 +1712,12 @@ struct BabelGraph{
     bool running = true; 
     while(running){
       running = false;
+
       FOR_RINGS_OF_MOL(r,mol){
         obring = &(*r);
+
         if(!rings_seen[obring]){
+
           std::set<OBAtom*> ring_set; 
           std::set<OBAtom*> intersection; 
 
@@ -1749,7 +1729,7 @@ struct BabelGraph{
           std::set_intersection(ring_set.begin(), ring_set.end(), ring_atoms.begin(), ring_atoms.end(),
                                 std::inserter(intersection, intersection.begin()));
 
-          // intersection 1 is a spiro ring, ignore, 
+          // intersection == 1 is a spiro ring, ignore,
           if(intersection.size() > 1){
             rings_seen[obring] = true; 
             local_SSSR.insert(obring);
@@ -1788,10 +1768,11 @@ struct BabelGraph{
       }
     }
 
+
+
     // filter out only the 2 bond bridge atoms
     if(!tmp_bridging_atoms.empty()){
       for(std::set<OBAtom*>::iterator brd_iter=tmp_bridging_atoms.begin(); brd_iter != tmp_bridging_atoms.end();brd_iter++){
-
         unsigned int inter_ring_bonds = 0;
         for(std::set<OBAtom*>::iterator aiter= ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
           if(mol->GetBond(*brd_iter,*aiter))
@@ -1984,7 +1965,7 @@ struct BabelGraph{
     else if(!multi && bridge_atoms.empty())
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,bridge_atoms,atom_shares,local_SSSR);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,local_SSSR);
 
     if(inline_ring){
       buffer+= '-';
@@ -2118,10 +2099,11 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
   if(!cyclic){
     
     FOR_ATOMS_OF_MOL(a,mol){
-      if(!obabel.atoms_seen[&(*a)]){
+      OBAtom *satom = &(*a); 
+      if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         if(started)
           buffer += " &"; // ionic species
-        
+
         if(!obabel.ParseNonCyclic(&(*a),0,0,mol,buffer,0,0))
           Fatal("failed on recursive branch parse");
 
