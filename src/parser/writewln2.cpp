@@ -683,22 +683,30 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     
     unsigned int pos_to_write     = 0;
     unsigned char lowest_in_ring  = 255;
+    unsigned char highest_in_ring  = 0;
     unsigned int lowest_fsum = UINT32_MAX; 
 
     for(unsigned int i=0;i<arr_size;i++){
       OBRing *wring = ring_arr[i]; 
       if(!pos_written[i]){
         if(sequential_chain(mol,wring,locant_path,path_size,in_chain)){
+          
           unsigned char min_loc = 255; 
+          unsigned char high_loc = 0; 
           unsigned int fsum = fusion_sum(mol,wring,locant_path,path_size);
           for(unsigned int k=0;k<wring->Size();k++){
             unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)+1); 
             if(loc < min_loc)
               min_loc = loc; 
+            if(loc > high_loc)
+              high_loc = loc;
           }
   
-          if(min_loc < lowest_in_ring || (min_loc == lowest_in_ring && fsum < lowest_fsum) ){
+          if(min_loc < lowest_in_ring || 
+            (min_loc == lowest_in_ring && fsum < lowest_fsum) || 
+            (min_loc == lowest_in_ring && fsum == lowest_fsum && high_loc < highest_in_ring)){
             lowest_in_ring = min_loc;
+            highest_in_ring = high_loc;
             lowest_fsum = fsum;
             pos_to_write = i; 
           }
