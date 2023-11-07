@@ -317,6 +317,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_sum       = UINT32_MAX;
+  unsigned int           lowest_fcomp     = UINT32_MAX;
   unsigned char          lowest_non_multi = int_to_locant(path_size);
   unsigned char          lowest_multi     = int_to_locant(path_size);
   unsigned char          lowest_bridge    = int_to_locant(path_size); 
@@ -372,9 +373,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           
           // calculate the fusion sum here, expensive but necessary
           unsigned int fsum = 0;
+          unsigned int highest_fcomp = 0;
           for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
             OBRing *obring = (*riter); 
-            fsum += fusion_sum(mol,obring,locant_path,path_size);
+            unsigned int lfsum =  fusion_sum(mol,obring,locant_path,path_size);
+            fsum += lfsum; 
+            if(lfsum > highest_fcomp)
+              highest_fcomp = lfsum;
           }
 
           // trying to tease out 30e without a notation write and compare
@@ -408,6 +413,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             if(opt_debug)
               fprintf(stderr,"  set on fs:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
           }
+#define NEEDED 1
+#if NEEDED
           else if(fsum == lowest_sum && earliest_non_multi && earliest_non_multi < lowest_non_multi){ // rule 30e.
             lowest_non_multi = earliest_non_multi; 
             lowest_multi = highest_multi;
@@ -429,6 +436,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             if(opt_debug)
               fprintf(stderr,"  set on brd:  fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
           }
+          else if (fsum == lowest_sum && earliest_non_multi == lowest_non_multi && highest_multi == lowest_multi && earliest_bridge == lowest_bridge && highest_fcomp < lowest_fcomp){
+            lowest_fcomp = highest_fcomp;
+            copy_locant_path(best_path,locant_path,path_size);
+            if(opt_debug)
+              fprintf(stderr,"  set on fsc: fusion sum for path: %-2d, lowest non-multi: %c, highest_multi: %c, earliest_bridge: %c\n",lowest_sum,lowest_non_multi,lowest_multi,earliest_bridge);
+          }
+#endif
         }
 
         
@@ -701,7 +715,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
             if(loc > high_loc)
               high_loc = loc;
           }
-  
+
           if(min_loc < lowest_in_ring || 
             (min_loc == lowest_in_ring && fsum < lowest_fsum) || 
             (min_loc == lowest_in_ring && fsum == lowest_fsum && high_loc < highest_in_ring)){

@@ -2006,7 +2006,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       else if(allowed_connections[bind_1]){
         
         // very rare case where we get the right path a different way to normal
-        while(!allowed_connections[bind_2])
+        while(!allowed_connections[bind_2] || bind_2 == bind_1)
           ring_path[path_size-1] = ++bind_2;
         
 
