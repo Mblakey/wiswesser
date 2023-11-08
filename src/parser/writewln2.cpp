@@ -1453,6 +1453,10 @@ struct BabelGraph{
         bond = mol->GetBond(prev,atom); 
         if(!bond && !branch_stack.empty()){
           
+          prev = branch_stack.top();
+          if(remaining_branches[prev] > 0)
+            buffer += '&';
+
           for(;;){
             prev = branch_stack.top();
 
@@ -1480,7 +1484,7 @@ struct BabelGraph{
           if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
             remaining_branches[prev]--;
         }
-          
+
       }
 
       if(atom->IsInRing()){
@@ -1539,7 +1543,7 @@ struct BabelGraph{
             remaining_branches[atom] = 3;
           else
             remaining_branches[atom] = 2; 
-            
+
           if(!Wgroups && CheckCarbonyl(atom))
             buffer += 'V';
           else{
@@ -1583,7 +1587,7 @@ struct BabelGraph{
           branch_stack.push(atom); 
           break;
           
-// halogens
+// terminators
         case 'Q':
         case 'Z':
         case 'E':
@@ -1613,7 +1617,7 @@ struct BabelGraph{
         buffer+='W';
         remaining_branches[atom] += -3;
       }
-        
+
 
       FOR_NBORS_OF_ATOM(a,atom){
         if(!atoms_seen[&(*a)])
