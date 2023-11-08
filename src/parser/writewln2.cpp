@@ -1451,34 +1451,30 @@ struct BabelGraph{
       if(prev){
 
         bond = mol->GetBond(prev,atom); 
-        
         if(!bond && !branch_stack.empty()){
           
-          prev = branch_stack.top();
-          buffer += '&';
-          while(!mol->GetBond(prev,atom)){
+          for(;;){
+            prev = branch_stack.top();
 
-            if(remaining_branches[prev] > 0){
-              buffer += '&';
-              fprintf(stderr,"here - %d\n",remaining_branches[prev]);
-            }
-              
-            branch_stack.pop();
-            if(branch_stack.empty()){
-              Fatal("failure to read branched bond segment");
+            if(mol->GetBond(atom,prev)){
+              bond = mol->GetBond(prev,atom); 
               break;
             }
-            else
-              prev = branch_stack.top();
+            else{
+              if (remaining_branches[prev] > 0)
+                buffer += '&';
+              
+              branch_stack.pop();
+              if(branch_stack.empty())
+                Fatal("failure to read branched bond segment");
+            }
           }
-
-          bond = mol->GetBond(prev,atom); 
         }
 
-        remaining_branches[prev]--;
         if(!bond)
           Fatal("failure to read branched bond segment");
-        
+
+        remaining_branches[prev]--; // reduce the branches remaining  
         for(unsigned int i=1;i<bond->GetBondOrder();i++){
           buffer += 'U';
           if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
@@ -1537,12 +1533,13 @@ struct BabelGraph{
 
         case 'Y':
         case 'X':
+          prev = atom;
+          
           if(wln_character == 'X')
             remaining_branches[atom] = 3;
           else
             remaining_branches[atom] = 2; 
-
-          prev = atom;
+            
           if(!Wgroups && CheckCarbonyl(atom))
             buffer += 'V';
           else{
@@ -1553,30 +1550,36 @@ struct BabelGraph{
 
         case 'N':
         case 'B':
-          remaining_branches[atom] = 2 - correction; 
           prev = atom; 
           buffer += wln_character;
+          remaining_branches[atom] = 2 - correction; 
           branch_stack.push(atom); 
           break;
 
         case 'K':
-          remaining_branches[atom] = 3 - correction; 
-          prev = atom; 
+          prev = atom;
           buffer += wln_character;
+          remaining_branches[atom] = 3 - correction; 
           branch_stack.push(atom); 
           break;
         
         case 'P':
-          remaining_branches[atom] = 4 - correction; 
-          prev = atom; 
+          prev = atom;
           buffer += wln_character;
+          if(atom->GetExplicitValence() < 2)
+            buffer += 'H';
+          
+          remaining_branches[atom] = 4 - correction;  
           branch_stack.push(atom); 
           break;
 
         case 'S':
-          remaining_branches[atom] = 5 - correction; 
-          prev = atom; 
+          prev = atom;
           buffer += wln_character;
+          if(atom->GetExplicitValence() < 2)
+            buffer += 'H';
+
+          remaining_branches[atom] = 5 - correction; 
           branch_stack.push(atom); 
           break;
           
