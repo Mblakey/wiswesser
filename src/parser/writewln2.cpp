@@ -1462,8 +1462,7 @@ struct BabelGraph{
 
         bond = mol->GetBond(prev,atom); 
         if(!bond && !branch_stack.empty()){
-        
-          buffer += '&';
+          buffer += '&'; 
           for(;;){
             prev = branch_stack.top();
 
@@ -1512,7 +1511,6 @@ struct BabelGraph{
       }
 
        // remaining_branches are -1, we only look forward
-      bool branched = false;
       unsigned char wln_character =  WriteSingleChar(atom);
       unsigned int Wgroups = CountDioxo(atom);
       unsigned int correction = 0;
@@ -1555,8 +1553,6 @@ struct BabelGraph{
               remaining_branches[atom] = 3;
             else
               remaining_branches[atom] = 2; 
-
-            branched = true;
           }
           break;
 
@@ -1565,20 +1561,16 @@ struct BabelGraph{
           prev = atom; 
           buffer += wln_character;
 
-          if(atom->GetTotalDegree() > 1){
+          if(atom->GetTotalDegree() > 1)
             remaining_branches[atom] = 2 - correction; 
-            branched = true;
-          }
           break;
 
         case 'K':
           prev = atom;
           buffer += wln_character;
 
-          if(atom->GetTotalDegree() > 1){
+          if(atom->GetTotalDegree() > 1)
             remaining_branches[atom] = 3 - correction; 
-            branched = true;
-          }
           break;
         
         case 'P':
@@ -1587,10 +1579,8 @@ struct BabelGraph{
           if(atom->GetExplicitValence() < 2)
             buffer += 'H';
           
-          if(atom->GetTotalDegree() > 1){
+          if(atom->GetTotalDegree() > 1)
             remaining_branches[atom] = 4 - correction; 
-            branched = true; 
-          }
           break;
 
         case 'S':
@@ -1601,10 +1591,9 @@ struct BabelGraph{
           if(atom->GetExplicitValence() < 2)
             buffer += 'H';
 
-          if(atom->GetTotalDegree() > 1){
+          if(atom->GetTotalDegree() > 1)
             remaining_branches[atom] = 5 - correction; 
-            branched = true;
-          }
+
           break;
           
 // terminators
@@ -1633,18 +1622,19 @@ struct BabelGraph{
           return 0; 
       }
 
-      for(unsigned int i=0;i<Wgroups;i++){
-        buffer+='W';
-        remaining_branches[atom] += -3;
+      if(Wgroups){
+        for(unsigned int i=0;i<Wgroups;i++){
+          buffer+='W';
+          remaining_branches[atom] += -3;
+        }
+        OBAtom *ret = return_open_branch(branch_stack);
+        if(ret)
+          prev = ret; 
       }
 
-      if(branched){
-        if(remaining_branches[atom] > 0)
-          branch_stack.push(atom);
-        else if (!branch_stack.empty())
-          prev = return_open_branch(branch_stack);
-      }
-
+      if(remaining_branches[atom] > 0)
+        branch_stack.push(atom);
+      
       FOR_NBORS_OF_ATOM(a,atom){
         if(!atoms_seen[&(*a)])
           atom_stack.push(&(*a));
