@@ -842,11 +842,7 @@ struct BabelGraph{
 
   std::map<OBAtom*,bool> atoms_seen;
   std::map<OBRing*, bool> rings_seen; 
-
-  std::map<OBAtom*,unsigned char> given_char; // post lookup
-  std::map<OBAtom*,unsigned int>  evaluated_branches; // tracking for branch pop
-
-  std::vector<OBAtom**> stored_paths; // mem pool
+  std::map<OBAtom*,int>  remaining_branches; // tracking for branch pop
 
   // recursion tracking
   unsigned int cycle_count; 
@@ -856,112 +852,76 @@ struct BabelGraph{
     cycle_count = 0; 
     last_cycle_seen = 0; 
   };
-  ~BabelGraph(){
-    for(unsigned int i=0;i<stored_paths.size();i++){
-      free(stored_paths[i]);
-      stored_paths[i] = 0; 
-    }
-  };
+  ~BabelGraph(){};
 
-  bool WriteBabelAtom(OBAtom* atom, std::string &buffer){
+  unsigned char WriteSingleChar(OBAtom* atom){
 
-    if(!atom){
-      fprintf(stderr,"Error: nullptr OpenBabel Atom*\n");
-      return false; 
-    }
-
+    if(!atom)
+      Fatal("failed to write atom");
+    
     unsigned int neighbours = atom->GetExplicitDegree(); 
     unsigned int orders = atom->GetExplicitValence(); 
 
     switch(atom->GetAtomicNum()){
       case 1:
-        buffer += 'H';
-        break; 
+        return 'H';
 
       case 5:
-        buffer += 'B';
-        break;
+        return 'B';
 
       case 6:
         if(neighbours <= 2)
-          buffer += '1';
+          return '1';
         else if(neighbours == 3)
-          buffer += 'Y';
+          return 'Y';
         else if(neighbours == 4)
-          buffer += 'X';
-        break;
+          return 'X';
       
       case 7:
         switch(orders){
           case 0:
           case 1:
-            buffer += 'Z'; 
-            break;
+            return 'Z'; 
           case 2:
-            buffer += 'M';
-            break;
+            return 'M';
           case 3:
-            buffer += 'N';
-            break;
+            return 'N';
+
           case 4:
-            buffer += 'K';
-            break;
+            return 'K';
+
           default: 
             fprintf(stderr,"Error: Unrecognised nitrogen bonding enviroment, orders - %d\n",orders);
             return 0;
-
         }   
         break;
       
       case 8:
         if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge() != -1)
-          buffer += 'Q';
+          return 'Q';
         else
-          buffer += 'O';
-        break;
+          return 'O';
       
       case 9:
-        if(atom->GetExplicitValence() > 1)
-          buffer += "-F-";
-        else
-          buffer += 'F';
-        break;
+          return 'F';
 
       case 15:
-        buffer += 'P';
-        if(neighbours == 1 && orders == 1)
-          buffer+='H';
-        break;
+        return 'P';
 
       case 16:
-        buffer += 'S';
-        if(neighbours == 1 && orders == 1)
-          buffer+='H';
-        break;
-
+        return 'S';
+  
       case 17:
-        if(atom->GetExplicitValence() > 1)
-          buffer += "-G-";
-        else
-          buffer += 'G';
-        break;
+        return 'G';
 
       case 35:
-        if(atom->GetExplicitValence() > 1)
-          buffer += "-E-";
-        else
-          buffer += 'E';
-        break;
+        return 'E';
 
       case 53:
-        if(atom->GetExplicitValence() > 1)
-          buffer += "-I-";
-        else
-          buffer += 'I';
-        break;
+        return 'I';
 
 
-
+#ifdef WIP
   // all special elemental cases
 
       case 89:
@@ -1391,14 +1351,12 @@ struct BabelGraph{
       case 40:
         buffer += "-ZR-";
         break;
-      
 
+#endif
       default:
         fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
         return false;
     }
-
-    given_char[atom] = buffer.back(); // assign the last char, - will mean hypervalent
 
     return true; 
   }
@@ -1477,9 +1435,6 @@ struct BabelGraph{
       buffer+='U';
     //##################################
 
-
-    unsigned int Wgroups = 0;
-  
     OBAtom* atom = start_atom;
     OBAtom* prev = 0; 
     OBBond *bond = 0; 
@@ -1494,62 +1449,42 @@ struct BabelGraph{
       atoms_seen[atom] = true;
 
       if(prev){
+
         bond = mol->GetBond(prev,atom); 
-        if(!bond){
+        
+        if(!bond && !branch_stack.empty()){
+          
+          prev = branch_stack.top();
+          buffer += '&';
+          while(!mol->GetBond(prev,atom)){
 
-          if(!branch_stack.empty() && prev != branch_stack.top()){
-            prev = branch_stack.top();
-            buffer += '&';
-          }
-
-          // need to have a method where the branches are tracked 
-          while(!branch_stack.empty() && !mol->GetBond(prev,atom)){
-            branch_stack.pop();
-
-            switch(given_char[prev]){ // sorts out last closures
-              
-              case 'Y':
-              case 'B':
-              case 'N':
-                if(evaluated_branches[prev] < 2 )
-                  buffer += '&';
-                break;
-
-              case 'X':
-              case 'K':
-                if(evaluated_branches[prev] < 3 )
-                  buffer += '&';
-                break;
-
-              case 'P':
-                if(evaluated_branches[prev] < 4 )
-                  buffer += '&';
-                break;
-
-              case 'S':
-              case '-':
-                if(evaluated_branches[prev] < 5 )
-                  buffer += '&';
-                break;
-
-              default:
-                fprintf(stderr,"Error: unrecognised branching assignment - %c\n",given_char[prev]);
-                return 0;
+            if(remaining_branches[prev] > 0){
+              buffer += '&';
+              fprintf(stderr,"here - %d\n",remaining_branches[prev]);
             }
-      
-            prev = branch_stack.top();
+              
+            branch_stack.pop();
+            if(branch_stack.empty()){
+              Fatal("failure to read branched bond segment");
+              break;
+            }
+            else
+              prev = branch_stack.top();
           }
 
           bond = mol->GetBond(prev,atom); 
         }
 
+        remaining_branches[prev]--;
         if(!bond)
           Fatal("failure to read branched bond segment");
-
-        for(unsigned int i=1;i<bond->GetBondOrder();i++)
+        
+        for(unsigned int i=1;i<bond->GetBondOrder();i++){
           buffer += 'U';
-
-        evaluated_branches[prev]++;
+          if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
+            remaining_branches[prev]--;
+        }
+          
       }
 
       if(atom->IsInRing()){
@@ -1563,23 +1498,31 @@ struct BabelGraph{
           if(cycle_count)
             cycle_count--;
 
-          prev = branch_stack.top();
+          if(!branch_stack.empty())
+            prev = branch_stack.top();
         }
         continue;
       }
 
-      if(!WriteBabelAtom(atom,buffer))
-        Fatal("failed to write atom");
-    
+       // remaining_branches are -1, we only look forward
+
+      unsigned char wln_character =  WriteSingleChar(atom);
+      unsigned int Wgroups = CountDioxo(atom);
+      unsigned int correction = 0;
+      if(prev && bond)
+        correction = bond->GetBondOrder() -1;
+      else if (b_order)
+        correction = b_order - 1; 
+          
       // last added char, not interested in the ring types of '-'
-      switch(buffer.back()){
-        
+      switch(wln_character){
 // oxygens
         case 'O':
         case 'V':
         case 'M':
         case 'W': // W is not actually seen as a prev,
           prev = atom; 
+          buffer += wln_character; 
           break;
 
 // carbons 
@@ -1587,41 +1530,56 @@ struct BabelGraph{
         case '1':
           prev = atom; 
           if(CheckCarbonyl(atom))
-            buffer.back() = 'V';
+            buffer += 'V';
+          else
+            buffer += wln_character;
           break;
 
         case 'Y':
         case 'X':
-          prev = atom;
-          Wgroups = CountDioxo(atom);
-          for(unsigned int i=0;i<Wgroups;i++){
-            buffer+='W';
-            evaluated_branches[atom]+=3;
-          }
-            
-          if(!Wgroups && CheckCarbonyl(atom))
-            buffer.back() = 'V';
+          if(wln_character == 'X')
+            remaining_branches[atom] = 3;
           else
+            remaining_branches[atom] = 2; 
+
+          prev = atom;
+          if(!Wgroups && CheckCarbonyl(atom))
+            buffer += 'V';
+          else{
+            buffer += wln_character;
             branch_stack.push(atom);
+          }
           break;
 
         case 'N':
-        case 'K':
         case 'B':
-        case 'S':
+          remaining_branches[atom] = 2 - correction; 
+          prev = atom; 
+          buffer += wln_character;
+          branch_stack.push(atom); 
+          break;
+
+        case 'K':
+          remaining_branches[atom] = 3 - correction; 
+          prev = atom; 
+          buffer += wln_character;
+          branch_stack.push(atom); 
+          break;
+        
         case 'P':
-        case '-':
-          Wgroups = CountDioxo(atom);
-          for(unsigned int i=0;i<Wgroups;i++){
-            buffer+='W';
-            evaluated_branches[atom]+=3;
-          }
-          
-          prev = atom;
-          branch_stack.push(atom);
+          remaining_branches[atom] = 4 - correction; 
+          prev = atom; 
+          buffer += wln_character;
+          branch_stack.push(atom); 
+          break;
+
+        case 'S':
+          remaining_branches[atom] = 5 - correction; 
+          prev = atom; 
+          buffer += wln_character;
+          branch_stack.push(atom); 
           break;
           
-      
 // halogens
         case 'Q':
         case 'Z':
@@ -1629,6 +1587,7 @@ struct BabelGraph{
         case 'F':
         case 'G':
         case 'I':
+          buffer += wln_character; 
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
 
@@ -1637,14 +1596,21 @@ struct BabelGraph{
           break;
 
         case 'H':
+          if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
+            buffer += 'H';
           prev = atom;
           break;
-
 
         default:
           fprintf(stderr,"Error: unhandled char %c\n",buffer.back()); 
           return 0; 
       }
+
+      for(unsigned int i=0;i<Wgroups;i++){
+        buffer+='W';
+        remaining_branches[atom] += -3;
+      }
+        
 
       FOR_NBORS_OF_ATOM(a,atom){
         if(!atoms_seen[&(*a)])
@@ -1812,7 +1778,8 @@ struct BabelGraph{
     
 
     for(unsigned int i=0;i<path_size;i++){
-
+      
+      unsigned char het_char = 0;
       locant = int_to_locant(i+1);
       unsigned int Wgroups = CountDioxo(locant_path[i]);
       bool carbonyl = CheckCarbonyl(locant_path[i]);
@@ -1824,8 +1791,8 @@ struct BabelGraph{
           last_locant = locant;
         } 
         if(Wgroups){
-          if(!WriteBabelAtom(locant_path[i],buffer))
-            return false; 
+          het_char = WriteSingleChar(locant_path[i]);
+          buffer+=het_char; 
 
           for(unsigned int w=0;w<Wgroups;w++)
             buffer+='W';
@@ -1837,7 +1804,8 @@ struct BabelGraph{
           last_locant++;
         }
         else{
-          WriteBabelAtom(locant_path[i],buffer);
+          het_char = WriteSingleChar(locant_path[i]);
+          buffer += het_char; 
           last_locant++;
         }
       }

@@ -5396,8 +5396,11 @@ struct BabelGraph{
             for(e = sym->bonds;e;e=e->nxt)
               orders += e->order;
             
-            e = search_edge(sym,sym->previous);
-            orders += e->order;
+            if(sym->previous){
+              e = search_edge(sym,sym->previous);
+              orders += e->order;
+            }
+              
 
             if(orders < 4)
               hcount = 1;
