@@ -2594,8 +2594,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
 
         if(expected_locants){
-
-  
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -2682,6 +2680,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
             case 'Z': // treat as NH2
             case 'N':
+            case 'B':
               if(!heterocyclic)
                 warned = true;
 
@@ -2863,6 +2862,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               case 'Z':
               case 'N':
+              case 'B':
                 if(!heterocyclic)
                   warned = true;
                 

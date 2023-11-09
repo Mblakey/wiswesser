@@ -2167,7 +2167,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         if(started)
           buffer += " &"; // ionic species
-
         if(!obabel.ParseNonCyclic(&(*a),0,0,mol,buffer,0,0))
           Fatal("failed on recursive branch parse");
 
@@ -2193,9 +2192,10 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     obabel.cycle_count = 0;
     obabel.last_cycle_seen = 0;
     FOR_ATOMS_OF_MOL(a,mol){
-      if(!obabel.atoms_seen[&(*a)]){
+      OBAtom *satom = &(*a); 
+      if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(&(*a),0,0,mol,buffer,0,0))
+        if(!obabel.ParseNonCyclic(satom,0,0,mol,buffer,0,0))
           Fatal("failed on recursive branch parse");
       }
     }
