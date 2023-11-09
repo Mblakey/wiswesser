@@ -2673,7 +2673,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 positional_locant++;
                 break;
               }  
-
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant,new_locant,ring);
               new_locant->allowed_edges = 4;
@@ -4860,6 +4859,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       if(!branch_stack.empty() && !pending_inline_ring)
         branch_stack.pop_to_ring();
+      
+        
 
       if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring){
         pending_locant = true;
@@ -4903,27 +4904,24 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         cleared = true;
         branch_stack.clear_all(); // burn stack
       }
-      else if(on_locant){
-        fprintf(stderr,"pinged?\n");
+      else if(on_locant)
         on_locant += 23;
-      }
       else if (i < len-1 && wln_string[i+1] == ' '){
         // this must be a ring pop, no matter what
-
+        
         if(branch_stack.empty() || !branch_stack.ring){
           fprintf(stderr,"Error: '&' followed by a space indicates a ring pop, are there any rings?\n");
           Fatal(i); 
         }
-        else{
-          branch_stack.pop_to_ring(); // pop to the ring, closing all locants etc 
-          branch_stack.pop(); // pop that ring, 
+        else if(!branch_stack.empty()){
+          branch_stack.pop_to_ring();
+          branch_stack.pop(); // pop whats open
           ring = branch_stack.ring; // assign the previous ring
         }
       }
       else if(!branch_stack.empty())
       {
         
-      
         if(branch_stack.top().first){
           branch_stack.pop();
           prev = return_object_symbol(branch_stack);

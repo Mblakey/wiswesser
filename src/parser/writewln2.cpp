@@ -1459,7 +1459,6 @@ struct BabelGraph{
     if(last_cycle_seen > cycle_num){
       for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
         buffer+='&';
-        
         if(cycle_count)
           cycle_count+= -1; // once a ring is closed can you ever get back? - GOOD
       }
@@ -1536,6 +1535,7 @@ struct BabelGraph{
           if(cycle_count)
             cycle_count--;
 
+          last_cycle_seen = cycle_count;
           if(!branch_stack.empty())
             prev = branch_stack.top();
         }
@@ -1903,9 +1903,6 @@ struct BabelGraph{
         }
       }
 
-    
-#define WIP 1
-#if WIP
       // for now dont worry about positions, only that we get the double bonds
       // we can condense later
       bool bonds = false;
@@ -1934,7 +1931,6 @@ struct BabelGraph{
             buffer += 'U';
         }
       }
-#endif
     }
 
     for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end();biter++){
