@@ -1408,7 +1408,7 @@ struct BabelGraph{
           seen.push_back(nbor);
         }
           
-        if(carbonyls == 2 || oxo_ions == 2 || (oxo_ions == 1 && carbonyls == 1)){
+        if(carbonyls == 2 || (oxo_ions == 1 && carbonyls == 1)){
           Ws++;
           atoms_seen[seen[0]] = true;
           atoms_seen[seen[1]] = true;
