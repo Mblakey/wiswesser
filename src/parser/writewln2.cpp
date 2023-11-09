@@ -903,6 +903,9 @@ struct BabelGraph{
           return 'O';
       
       case 9:
+        if(neighbours > 1)
+          return '*';
+        else 
           return 'F';
 
       case 15:
@@ -912,17 +915,51 @@ struct BabelGraph{
         return 'S';
   
       case 17:
-        return 'G';
+        if(neighbours > 1)
+          return '*';
+        else
+          return 'G';
 
       case 35:
-        return 'E';
+        if(neighbours > 1)
+          return '*';
+        else
+          return 'E';
 
       case 53:
-        return 'I';
+        if(neighbours > 1)
+          return '*';
+        else
+          return 'I';
 
+      default:
+        return '*';
+        
+    }
 
-#ifdef WIP
+    return true; 
+  }
+
+  void WriteSpecial(OBAtom *atom, std::string &buffer){
+
   // all special elemental cases
+    switch(atom->GetAtomicNum()){
+
+      case 9:
+        buffer += "-F-";
+        break;
+
+      case 53:
+        buffer += "-I-";
+        break;
+
+      case 35:
+        buffer += "-E-";
+        break;
+
+      case 17:
+        buffer += "-G-";
+        break; 
 
       case 89:
         buffer += "-AC-";
@@ -1351,14 +1388,7 @@ struct BabelGraph{
       case 40:
         buffer += "-ZR-";
         break;
-
-#endif
-      default:
-        fprintf(stderr,"Error: unhandled element for WLNSymbol formation\n");
-        return false;
     }
-
-    return true; 
   }
 
   unsigned int CountDioxo(OBAtom *atom){
@@ -1490,7 +1520,6 @@ struct BabelGraph{
           if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
             remaining_branches[prev]--;
         }
-
       }
 
       if(atom->IsInRing()){
@@ -1513,13 +1542,7 @@ struct BabelGraph{
        // remaining_branches are -1, we only look forward
       unsigned char wln_character =  WriteSingleChar(atom);
       unsigned int Wgroups = CountDioxo(atom);
-      unsigned int correction = 0;
 
-      if(prev && bond)
-        correction = bond->GetBondOrder() -1;
-      else if (b_order)
-        correction = b_order - 1; 
-          
       // last added char, not interested in the ring types of '-'
       switch(wln_character){
 // oxygens
@@ -1553,6 +1576,8 @@ struct BabelGraph{
               remaining_branches[atom] = 3;
             else
               remaining_branches[atom] = 2; 
+
+            branch_stack.push(atom);
           }
           break;
 
@@ -1561,16 +1586,20 @@ struct BabelGraph{
           prev = atom; 
           buffer += wln_character;
 
-          if(atom->GetTotalDegree() > 1)
-            remaining_branches[atom] = 2 - correction; 
+          if(atom->GetTotalDegree() > 1){
+            remaining_branches[atom] = 2; 
+            branch_stack.push(atom);
+          }
           break;
 
         case 'K':
           prev = atom;
           buffer += wln_character;
 
-          if(atom->GetTotalDegree() > 1)
-            remaining_branches[atom] = 3 - correction; 
+          if(atom->GetTotalDegree() > 1){
+            remaining_branches[atom] = 3; 
+            branch_stack.push(atom);
+          }
           break;
         
         case 'P':
@@ -1579,21 +1608,33 @@ struct BabelGraph{
           if(atom->GetExplicitValence() < 2)
             buffer += 'H';
           
-          if(atom->GetTotalDegree() > 1)
-            remaining_branches[atom] = 4 - correction; 
+          if(atom->GetTotalDegree() > 1){
+            remaining_branches[atom] = 4; 
+            branch_stack.push(atom);
+          }
+            
           break;
 
         case 'S':
           prev = atom;
           buffer += wln_character;
 
-        
           if(atom->GetExplicitValence() < 2)
             buffer += 'H';
 
-          if(atom->GetTotalDegree() > 1)
-            remaining_branches[atom] = 5 - correction; 
+          if(atom->GetTotalDegree() > 1){
+            remaining_branches[atom] = 5; 
+            branch_stack.push(atom);
+          }
+          break;
 
+        case '*':
+          prev = atom; 
+          WriteSpecial(atom,buffer);
+          if(atom->GetTotalDegree() > 1){
+            remaining_branches[atom] = 5; 
+            branch_stack.push(atom);
+          }
           break;
           
 // terminators
@@ -1617,6 +1658,7 @@ struct BabelGraph{
           prev = atom;
           break;
 
+        
         default:
           fprintf(stderr,"Error: unhandled char %c\n",buffer.back()); 
           return 0; 
@@ -1632,9 +1674,6 @@ struct BabelGraph{
           prev = ret; 
       }
 
-      if(remaining_branches[atom] > 0)
-        branch_stack.push(atom);
-      
       FOR_NBORS_OF_ATOM(a,atom){
         if(!atoms_seen[&(*a)])
           atom_stack.push(&(*a));
@@ -1815,7 +1854,11 @@ struct BabelGraph{
         } 
         if(Wgroups){
           het_char = WriteSingleChar(locant_path[i]);
-          buffer+=het_char; 
+          
+          if(het_char != '*')
+            buffer+=het_char; 
+          else
+            WriteSpecial(locant_path[i],buffer); 
 
           for(unsigned int w=0;w<Wgroups;w++)
             buffer+='W';
@@ -1828,7 +1871,10 @@ struct BabelGraph{
         }
         else{
           het_char = WriteSingleChar(locant_path[i]);
-          buffer += het_char; 
+          if(het_char != '*')
+            buffer+=het_char; 
+          else
+            WriteSpecial(locant_path[i],buffer); 
           last_locant++;
         }
       }
