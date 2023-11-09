@@ -1480,7 +1480,8 @@ struct BabelGraph{
     OBBond *bond = 0; 
 
     std::stack<OBAtom*> atom_stack; 
-    std::stack<OBAtom*> branch_stack; 
+    std::stack<OBAtom*> branch_stack;
+    std::map<OBAtom*,bool> branching_atom; 
     atom_stack.push(atom); 
 
     while(!atom_stack.empty()){
@@ -1492,7 +1493,9 @@ struct BabelGraph{
 
         bond = mol->GetBond(prev,atom); 
         if(!bond && !branch_stack.empty()){
-          buffer += '&'; 
+          
+          if(!branching_atom[prev])
+            buffer += '&'; // requires a closure 
           for(;;){
             prev = branch_stack.top();
 
@@ -1577,6 +1580,7 @@ struct BabelGraph{
             else
               remaining_branches[atom] = 2; 
 
+            branching_atom[atom] = true;
             branch_stack.push(atom);
           }
           break;
@@ -1597,7 +1601,8 @@ struct BabelGraph{
           buffer += wln_character;
 
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] = 3; 
+            remaining_branches[atom] = 3;
+            branching_atom[atom] = true; 
             branch_stack.push(atom);
           }
           break;
@@ -1610,6 +1615,7 @@ struct BabelGraph{
           
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 4; 
+            branching_atom[atom] = true;
             branch_stack.push(atom);
           }
             
@@ -1624,6 +1630,7 @@ struct BabelGraph{
 
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 5; 
+            branching_atom[atom] = true;
             branch_stack.push(atom);
           }
           break;
@@ -1633,6 +1640,7 @@ struct BabelGraph{
           WriteSpecial(atom,buffer);
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 5; 
+            branching_atom[atom] = true;
             branch_stack.push(atom);
           }
           break;
@@ -2053,22 +2061,45 @@ struct BabelGraph{
 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
 
-    bool space_added = false;
-    bool dash_added = false;
-    for(unsigned int i=0;i<ring_order.size();i++){
-      if(!dash_added && buffer.back() == '&')
-        buffer+='-';
-      if(ring_order[i]->IsAromatic()){
-        if(!space_added && (buffer.back() >= 'A' && buffer.back() <= 'Z'))
-          buffer+=' ';
-        
-        buffer+='&';
-      }
-      else
-        buffer += 'T';
 
-      space_added = true;
-      dash_added = true;
+    // breaks incremented locant notation
+    if(buffer.back() == '&')
+      buffer+='-';
+    
+    unsigned int arom_state = 0; // 0 - null, 1 - all aromatic, 2- no aromatic, 3 mixed.
+    for(unsigned int i=0;i<ring_order.size();i++){
+      unsigned int arom = 0;
+      if(ring_order[i]->IsAromatic())
+        arom = 1;
+      else
+        arom = 2; 
+
+      if(arom_state != 0){
+        if(arom_state != arom){
+          arom_state = 3; 
+          break;
+        }
+      }
+      
+      arom_state = arom; 
+    }
+
+    if(arom_state == 2)
+      buffer += 'T';
+    else if(arom_state == 3){
+      bool space_added = false;
+      for(unsigned int i=0;i<ring_order.size();i++){
+        if(ring_order[i]->IsAromatic()){
+          if(!space_added && (buffer.back() >= 'A' && buffer.back() <= 'Z'))
+            buffer+=' ';
+      
+          buffer+='&';
+        }
+        else
+          buffer += 'T';
+
+        space_added = true;
+      }
     }
 
     buffer += 'J';
