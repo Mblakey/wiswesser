@@ -601,6 +601,7 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
     case 'E':
     case 'I':
     case 'F':
+    case 'B':
       new_symbol = AllocateWLNSymbol(sym,graph);
       if(new_symbol)
         new_symbol->allowed_edges = 6;         // allows FCl6
