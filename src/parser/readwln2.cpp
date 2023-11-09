@@ -2275,7 +2275,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
         // gives us a local working copy
         char *local_arr = new char [strlen(block_str)+1]; 
-        memset(local_arr,'\0',strlen(block_str)+1);
+        memset(local_arr,'\0',sizeof(char) * (strlen(block_str)+1) );
         strcpy(local_arr,block_str);
         const char *local = local_arr;
 
@@ -5055,7 +5055,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         // ahh variable length array.. gotcha
         char *local_arr  = new char [strlen(wln_ptr)+1]; 
-        memset(local_arr,'\0',strlen(wln_ptr)+1);
+        memset(local_arr,'\0',strlen(wln_ptr)+1 * sizeof(char));
         strcpy(local_arr,wln_ptr);
         const char *local = local_arr;
         
@@ -5071,10 +5071,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             found_next = true;
             break;
           }
+
           special.push_back(local_ch);
           gap++;
           local_ch = *(++local);
         }
+
+        fprintf(stderr,"\n");
 
         if(local_arr){
           delete [] local_arr;
@@ -5101,6 +5104,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             curr = define_hypervalent_element(special[0],graph);
             if(!curr)
               Fatal(i);
+            special.clear();
           }
           else if(gap == 2){
             curr = define_element(special,graph);
@@ -5111,7 +5115,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               graph.charge_additions[curr]++;
               //on_locant = '\0';
             }
-                            
+            special.clear();
           }
           else{
             fprintf(stderr,"Error: special '-' must be either 1 or 2 symbols - %d seen\n",gap);
