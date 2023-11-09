@@ -1468,7 +1468,7 @@ struct BabelGraph{
 
     if(locant){
       buffer+=' ';
-      buffer+= locant;
+      write_locant(locant,buffer);
     }
 
     for(unsigned int b=1;b<b_order;b++)

@@ -4858,6 +4858,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         break;
       }
 
+      if(!branch_stack.empty() && !pending_inline_ring)
+        branch_stack.pop_to_ring();
+
       if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring){
         pending_locant = true;
 
@@ -4901,6 +4904,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         branch_stack.clear_all(); // burn stack
       }
       else if(on_locant){
+        fprintf(stderr,"pinged?\n");
         on_locant += 23;
       }
       else if (i < len-1 && wln_string[i+1] == ' '){
