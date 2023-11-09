@@ -544,10 +544,10 @@ struct ObjectStack{
       return false;
   }
 
-  WLNRing *pop_to_ring(WLNRing *curr_ring){
+  WLNRing *pop_to_ring(){
     std::pair<WLNRing*,WLNSymbol*> t;
     t = top();
-    while( (!t.first||t.first==curr_ring) && !stack.empty()){
+    while(!t.first && !stack.empty()){
       pop();
       t = top();
     }
@@ -4881,6 +4881,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
 
     case '&':
+
       if (pending_J_closure)
         break;
       
@@ -4891,6 +4892,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if (pending_locant)
       { 
+
         // ionic species or spiro, reset the linkings
         prev = 0;
         curr = 0;
@@ -4909,13 +4911,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           Fatal(i); 
         }
         else{
-          branch_stack.pop_to_ring(branch_stack.ring);
-          ring = branch_stack.ring;
+          branch_stack.pop_to_ring(); // pop to the ring, closing all locants etc 
+          branch_stack.pop(); // pop that ring, 
+          ring = branch_stack.ring; // assign the previous ring
         }
       }
       else if(!branch_stack.empty())
       {
         
+      
         if(branch_stack.top().first){
           branch_stack.pop();
           prev = return_object_symbol(branch_stack);
@@ -4978,7 +4982,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             prev = return_object_symbol(branch_stack);
             if(branch_stack.top().first)
               branch_stack.pop();
-
+            
+              
             if(!prev)
               prev = branch_stack.branch; // catches branching ring closure
           }
@@ -5076,6 +5081,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         if(!found_next){
           pending_inline_ring = true;
+          return_object_symbol(branch_stack);
           if(branch_stack.branch){
             // prev must be at top of the branch stack
             while(branch_stack.top().second != branch_stack.branch)
@@ -5083,6 +5089,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
             if(!prev)
               prev = return_object_symbol(branch_stack);
+
           }
         }
         else{
