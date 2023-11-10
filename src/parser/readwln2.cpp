@@ -4991,7 +4991,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if (pending_locant)
       { 
-
         // ionic species or spiro, reset the linkings
         prev = 0;
         curr = 0;
@@ -5620,6 +5619,9 @@ struct BabelGraph{
       
         case '*':
           atomic_num = special_element_atm(sym->special);
+
+#define CHARGE_ON 0
+#if CHARGE_ON
           if(!sym->num_edges){
             switch (atomic_num){
               case 3:
@@ -5650,6 +5652,7 @@ struct BabelGraph{
                 break;
             }
           }
+#endif
           break;
 
         default:

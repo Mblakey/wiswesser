@@ -727,7 +727,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
     if(lowest_in_ring != 'A'){
       buffer += ' ';
-      buffer += lowest_in_ring;
+      write_locant(lowest_in_ring,buffer);
     }
 
     if(to_write->Size() > 9){
@@ -843,8 +843,9 @@ bool WriteBabelDotGraph(OBMol *mol){
 struct BabelGraph{
 
   std::map<OBAtom*,bool> atoms_seen;
-  std::map<OBRing*, bool> rings_seen; 
+  std::map<OBRing*,bool> rings_seen; 
   std::map<OBAtom*,int>  remaining_branches; // tracking for branch pop
+  std::map<OBAtom*,unsigned int> string_position; // essential for writing post charges. 
 
   // recursion tracking
   unsigned int cycle_count; 
@@ -1656,6 +1657,11 @@ struct BabelGraph{
             remaining_branches[atom] = 5 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
+          }
+          else{
+            // should cancel the charges
+            if(atom->GetFormalCharge() == 0)
+              buffer += 'H';
           }
           break;
           
