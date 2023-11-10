@@ -2619,9 +2619,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             break;
           }
             
-          if (opt_debug)
-            fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
-
           WLNSymbol *new_locant = 0; 
 
           switch(ch){
@@ -2777,6 +2774,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               Fatal(start+i);
           }
 
+          if (opt_debug)
+            fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
+
           graph.string_positions[start+i] = new_locant;
         }
         else{
@@ -2801,8 +2801,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
             }
 
-            if (opt_debug)
-              fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
             WLNSymbol *new_locant = 0; 
 
@@ -2937,6 +2935,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
                 Fatal(start+i);
             }
+
+            if (opt_debug)
+              fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
             graph.string_positions[start+i] = new_locant;
           }
@@ -3722,6 +3723,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   while(ch)
   {  
+    // fprintf(stderr,"char: %c onlocant: %c\n",ch,on_locant);
+    
+    // if(on_locant && ring)
+    //   prev = ring->locants[on_locant];
     
     // dont read any ionic notation
     if(zero_position && zero_position == i)
@@ -3840,12 +3845,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             edge = unsaturate_edge(edge,pending_unsaturate);
             pending_unsaturate = 0;
           }
-          
         }
-        
+
         std::string int_sequence;
         int_sequence.push_back(ch);
-
         while(*(wln_ptr+1)){
           if(!std::isdigit(*(wln_ptr+1)))
             break;
@@ -3860,7 +3863,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           fprintf(stderr,"Error: error in creating carbon chain, raise algorithm issue\n");
           Fatal(i);
         }
-
 
         prev = curr;
       }
@@ -3891,7 +3893,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             edge = unsaturate_edge(edge,pending_unsaturate);
             pending_unsaturate = 0;
           }
-          
         }
         
         branch_stack.push({0,curr});
@@ -3970,7 +3971,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           if(!edge)
             Fatal(i);
-          
         }
 
         graph.string_positions[i] = curr;
@@ -4368,7 +4368,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = ch;
       }
       else
-      {
+      { 
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 3;
@@ -4601,8 +4601,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             default:
               break;
           }
-
-          
         }
 
         graph.string_positions[i] = curr;
@@ -4853,6 +4851,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // specials
 
     case ' ':
+     
       if (pending_J_closure){
         j_skips = false;
         break;
@@ -4861,8 +4860,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       if(!branch_stack.empty() && !pending_inline_ring)
         branch_stack.pop_to_ring();
       
-        
-
       if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring){
         pending_locant = true;
 
@@ -4872,15 +4869,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             fprintf(stderr,"Error: could not attach implied methyl to ring\n");
             Fatal(i);
           }
-          on_locant = 0;
+          on_locant = '\0';
         }
-          
+        
       }
       else if (!opt_correct){
         fprintf(stderr,"Error: space used outside ring and ionic notation\n");
         Fatal(i);
       }
-       
       // only burn the stacks now on ionic clearance
       break;
 
@@ -4905,8 +4901,17 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         cleared = true;
         branch_stack.clear_all(); // burn stack
       }
-      else if(on_locant)
-        on_locant += 23;
+      else if(on_locant){
+        if(curr && curr == ring->locants[on_locant]){
+          on_locant += 23;
+          curr = ring->locants[on_locant];  
+          if(!curr){
+            fprintf(stderr,"Error: could not fetch expanded locant position - out of range\n");
+            Fatal(i);
+          }
+          prev = curr;
+        }
+      }
       else if (i < len-1 && wln_string[i+1] == ' '){
         // this must be a ring pop, no matter what
         
@@ -5077,8 +5082,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           local_ch = *(++local);
         }
 
-        fprintf(stderr,"\n");
-
         if(local_arr){
           delete [] local_arr;
           local = 0;
@@ -5136,7 +5139,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               Fatal(i);            
             
           }
-
           on_locant = '\0';
           branch_stack.push({0,curr});
 

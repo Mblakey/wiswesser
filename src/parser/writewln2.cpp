@@ -1605,7 +1605,7 @@ struct BabelGraph{
           buffer += wln_character;
 
           // K now given for all positive nitrogen
-          if(atom->GetExplicitDegree() < 4){
+          if(atom->GetExplicitValence() < 4){
             for(unsigned int i=atom->GetExplicitDegree();i<4;i++)
               buffer += 'H';
           }
