@@ -751,42 +751,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
 
 /**********************************************************************
-                          Reduction Functions
-**********************************************************************/
-
-std::string CondenseCarbonylChains(std::string &buffer){
-  
-  bool special = false;
-  unsigned int counter = 0; 
-  std::string condensed = {}; 
-  for(unsigned int i=0;i<buffer.size();i++){
-    
-    if(buffer[i] == '-'){
-      if(special)
-        special = false;
-      else
-        special = true;
-    }
-    else if (buffer[i] == ' ')
-      special = false;
-  
-    if(buffer[i] == '1' && !special)
-      counter++; 
-    else{
-      if(counter){
-        condensed += std::to_string(counter);
-        counter = 0; 
-      }
-      condensed += buffer[i];
-    }
-  }
-  if(counter)
-    condensed += std::to_string(counter);
-  return condensed;
-}
-
-
-/**********************************************************************
                          Debugging Functions
 **********************************************************************/
 
@@ -1477,6 +1441,8 @@ struct BabelGraph{
       buffer+='U';
     //##################################
 
+    unsigned int carbon_chain = 0;
+
     OBAtom* atom = start_atom;
     OBAtom* prev = 0; 
     OBBond *bond = 0; 
@@ -1494,7 +1460,11 @@ struct BabelGraph{
       if(prev){
         bond = mol->GetBond(prev,atom); 
         if(!bond && !branch_stack.empty()){
-          
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           if(!branching_atom[prev])
             buffer += '&'; // requires a closure 
           while(!branch_stack.empty()){
@@ -1518,6 +1488,11 @@ struct BabelGraph{
 
         remaining_branches[prev]--; // reduce the branches remaining  
         for(unsigned int i=1;i<bond->GetBondOrder();i++){
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+          
           buffer += 'U';
           if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
             remaining_branches[prev]--;
@@ -1525,6 +1500,10 @@ struct BabelGraph{
       }
 
       if(atom->IsInRing()){
+        if(carbon_chain){
+          buffer += std::to_string(carbon_chain);
+          carbon_chain = 0;
+        }
 
         cycle_count++;
         if(!RecursiveParse(atom,spawned_from,mol,true,buffer,cycle_count))
@@ -1552,6 +1531,8 @@ struct BabelGraph{
       unsigned char wln_character =  WriteSingleChar(atom);
       unsigned int Wgroups = CountDioxo(atom);
 
+      string_position[atom] = buffer.size()+1; // place the write position
+
       if(prev && bond)
         correction = bond->GetBondOrder() - 1;
       else if (b_order > 0)
@@ -1564,6 +1545,11 @@ struct BabelGraph{
         case 'V':
         case 'M':
         case 'W': // W is not actually seen as a prev,
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+          
           prev = atom; 
           buffer += wln_character; 
           break;
@@ -1572,14 +1558,25 @@ struct BabelGraph{
         // alkyl chain 
         case '1':
           prev = atom; 
-          if(CheckCarbonyl(atom))
+          if(CheckCarbonyl(atom)){
+            if(carbon_chain){
+              buffer += std::to_string(carbon_chain);
+              carbon_chain = 0;
+            }
             buffer += 'V';
+          }
+            
           else
-            buffer += wln_character;
+            carbon_chain++;
           break;
 
         case 'Y':
         case 'X':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           prev = atom;
           if(!Wgroups && CheckCarbonyl(atom))
             buffer += 'V';
@@ -1597,6 +1594,11 @@ struct BabelGraph{
 
         case 'N':
         case 'B':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           prev = atom; 
           buffer += wln_character;
 
@@ -1607,6 +1609,11 @@ struct BabelGraph{
           break;
 
         case 'K':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           prev = atom;
           buffer += wln_character;
 
@@ -1624,6 +1631,11 @@ struct BabelGraph{
           break;
         
         case 'P':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           prev = atom;
           buffer += wln_character;
           if(atom->GetExplicitValence() < 2)
@@ -1638,6 +1650,11 @@ struct BabelGraph{
           break;
 
         case 'S':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           prev = atom;
           buffer += wln_character;
           if(atom->GetExplicitValence() < 2)
@@ -1651,6 +1668,11 @@ struct BabelGraph{
           break;
 
         case '*':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           prev = atom; 
           WriteSpecial(atom,buffer);
           if(atom->GetTotalDegree() > 1){
@@ -1672,6 +1694,11 @@ struct BabelGraph{
         case 'F':
         case 'G':
         case 'I':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           buffer += wln_character; 
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
@@ -1681,6 +1708,11 @@ struct BabelGraph{
           break;
 
         case 'H':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
           buffer += wln_character;
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
@@ -1707,6 +1739,11 @@ struct BabelGraph{
           atom_stack.push(&(*a));
       }
 
+    }
+
+    if(carbon_chain){
+      buffer += std::to_string(carbon_chain);
+      carbon_chain = 0;
     }
 
     return atom; 
@@ -2222,7 +2259,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     
   }
 
-  buffer = CondenseCarbonylChains(buffer); 
   return true; 
 }
 
