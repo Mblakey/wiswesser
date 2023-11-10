@@ -3806,6 +3806,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           if(prev){
+
+            if(prev == branch_stack.branch){
+              while(!branch_stack.top().second && !branch_stack.empty())
+                branch_stack.pop();
+            }
+
             edge = AllocateWLNEdge(curr,prev,graph);
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
@@ -3837,6 +3843,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
             Fatal(i);
@@ -3885,6 +3897,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4; // change methyl addition
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
             Fatal(i);
@@ -3920,6 +3938,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
             Fatal(i);
@@ -3964,6 +3988,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 2;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4004,6 +4034,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 1;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           
           if(pending_unsaturate){
@@ -4050,6 +4086,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 2;
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4095,6 +4137,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           if(prev->ch == 'N')
             prev->allowed_edges++;
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
 
           edge = AllocateWLNEdge(curr,prev,graph);
           edge = unsaturate_edge(edge,2); // at minimum dioxo must take 3 bonds
@@ -4149,6 +4196,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(prev){
           if(prev->ch == 'W')
             curr->allowed_edges++;
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
           
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
@@ -4193,6 +4245,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 2;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4236,6 +4294,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4279,6 +4343,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 1;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4328,6 +4398,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 1;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4375,6 +4451,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 3;
 
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4422,6 +4504,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           curr->allowed_edges = 6;
           
         if(prev){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4467,6 +4555,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev && i < len - 1){
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
 
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
@@ -4585,7 +4678,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 1;
   
         if(prev){
-          // will add with more examples
+
+          if(prev == branch_stack.branch){
+            while(!branch_stack.top().second && !branch_stack.empty())
+              branch_stack.pop();
+          }
+
           edge = AllocateWLNEdge(curr,prev,graph);
           if(pending_unsaturate){
             edge = unsaturate_edge(edge,pending_unsaturate);
@@ -4883,7 +4981,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
 
     case '&':
-
       if (pending_J_closure)
         break;
       
@@ -4924,6 +5021,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           branch_stack.pop_to_ring();
           branch_stack.pop(); // pop whats open
           ring = branch_stack.ring; // assign the previous ring
+          
+          prev = return_object_symbol(branch_stack);
+          if(!prev)
+            prev = branch_stack.branch;
         }
       }
       else if(!branch_stack.empty())
@@ -4932,9 +5033,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(branch_stack.top().first){
           branch_stack.pop();
           prev = return_object_symbol(branch_stack);
-          ring = branch_stack.ring;
           if(!prev)
-            prev = branch_stack.branch; // catches branching ring closure
+            prev = branch_stack.branch;
+          ring = branch_stack.ring;
         }
 
         else if(branch_stack.top().second){
@@ -5020,6 +5121,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           if(prev){
+            
+            if(prev == branch_stack.branch){
+              while(!branch_stack.top().second && !branch_stack.empty())
+                branch_stack.pop();
+            }
+
             edge = AllocateWLNEdge(curr,prev,graph);
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
@@ -5096,10 +5203,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             // prev must be at top of the branch stack
             while(branch_stack.top().second != branch_stack.branch)
               branch_stack.pop();
-            
-           
+
             prev = return_object_symbol(branch_stack);
-          }
+          }    
         }
         else{
 
@@ -5128,8 +5234,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(prev){
             if(!gap && ring)
               edge = AllocateWLNEdge(ring->locants[prev->ch],prev,graph);
-            else
+            else{
+              if(prev == branch_stack.branch){
+                while(!branch_stack.top().second && !branch_stack.empty())
+                  branch_stack.pop();
+              }
               edge = AllocateWLNEdge(curr,prev,graph);
+            }
+              
 
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);

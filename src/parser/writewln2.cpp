@@ -1442,7 +1442,7 @@ struct BabelGraph{
 
   OBAtom *return_open_branch(std::stack<OBAtom*> &branch_stack){
     while(!branch_stack.empty()){
-      if(remaining_branches[branch_stack.top()])
+      if(remaining_branches[branch_stack.top()] > 0)
         return branch_stack.top();
       else
         branch_stack.pop();
@@ -1530,10 +1530,13 @@ struct BabelGraph{
           Fatal("failed to make inline ring");
 
         if(!atom_stack.empty()){
-          for(int i=0;i<(last_cycle_seen-cycle_num);i++){
-            buffer+='&';
-            if(cycle_count)
-              cycle_count--; // once a ring is closed can you ever get back? - GOOD
+
+          if(last_cycle_seen > cycle_num){
+            for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
+              buffer+='&';
+              if(cycle_count)
+                cycle_count--; // once a ring is closed can you ever get back? - GOOD
+            }
           }
 
           last_cycle_seen = cycle_count;
