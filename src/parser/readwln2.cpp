@@ -594,9 +594,20 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
   WLNSymbol *new_symbol = 0;
   
   switch(sym){
-    
+
+    case 'O':
+      new_symbol = AllocateWLNSymbol(sym,graph);
+      if(new_symbol)
+        new_symbol->allowed_edges = 3;
+      break;
+
     case 'P':
     case 'S':
+      new_symbol = AllocateWLNSymbol(sym,graph);
+      if(new_symbol)
+        new_symbol->allowed_edges = 8;
+      break;
+      
     case 'G':
     case 'E':
     case 'I':
@@ -3317,7 +3328,7 @@ bool ResolveHangingBonds(WLNGraph &graph){
           sym->ch == 'N'  ||
           sym->ch ==  'P' || 
           sym->ch ==  'S') &&
-          sym->num_edges == 1)
+          sym->num_edges == 1 && graph.charge_additions[sym] == 0)
     {
       edge = sym->bonds; 
       if(edge && edge->order == 1){
@@ -3335,7 +3346,7 @@ bool ResolveHangingBonds(WLNGraph &graph){
             edge->child->ch ==  'P'  || 
             edge->child->ch ==  'N'  || 
             edge->child->ch ==  'S') &&
-            edge->child->num_edges == 1)
+            edge->child->num_edges == 1 && graph.charge_additions[edge->child] == 0)
         {
           while((sym->num_edges < sym->allowed_edges) && 
             (edge->child->num_edges < edge->child->allowed_edges)){
@@ -5630,12 +5641,10 @@ struct BabelGraph{
       // ionic notation - overrides any given formal charge
       if(graph.charge_additions[sym]){
         charge = graph.charge_additions[sym];
-        if(charge < 0 && hcount)
-          hcount --;
+        if(charge != 0 && hcount)
+          hcount --; // let the charges relax the hydrogens 
       }
         
-
-
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
       if(!atom){
         fprintf(stderr,"Error: formation of obabel atom object\n");

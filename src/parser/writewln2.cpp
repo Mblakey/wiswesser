@@ -865,8 +865,11 @@ struct BabelGraph{
           return 'Q';
         else if (neighbours == 0 && atom->GetFormalCharge() != -2)
           return 'Q';
+        else if (atom->GetExplicitValence() > 2)
+          return '*';
         else
           return 'O';
+          
       
       case 9:
         if(neighbours > 1)
@@ -912,6 +915,10 @@ struct BabelGraph{
     switch(atom->GetAtomicNum()){
       case 5:
         buffer += "-B-";
+        break;
+
+      case 8:
+        buffer += "-O-";
         break;
 
       case 9:
@@ -1430,7 +1437,7 @@ struct BabelGraph{
     //      INDIRECT RECURSION TRACKING
 
     if(last_cycle_seen > cycle_num){
-      for(int i=0;i<(last_cycle_seen-cycle_num);i++){
+      for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
         buffer+='&';
         if(cycle_count)
           cycle_count--; // once a ring is closed can you ever get back? - GOOD
@@ -1713,6 +1720,10 @@ struct BabelGraph{
 
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
+
+
+          if(atom->GetExplicitDegree() == 0)
+            atom->SetFormalCharge(0); // notational implied, do not write ionic code
 
           string_position[atom] = buffer.size();
           break;
