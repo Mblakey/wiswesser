@@ -5620,6 +5620,7 @@ struct BabelGraph{
       
         case '*':
           atomic_num = special_element_atm(sym->special);
+          break;
 
         default:
           fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
