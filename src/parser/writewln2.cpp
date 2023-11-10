@@ -1530,9 +1530,11 @@ struct BabelGraph{
           Fatal("failed to make inline ring");
 
         if(!atom_stack.empty()){
-          buffer+='&';
-          if(cycle_count)
-            cycle_count--;
+          for(int i=0;i<(last_cycle_seen-cycle_num);i++){
+            buffer+='&';
+            if(cycle_count)
+              cycle_count--; // once a ring is closed can you ever get back? - GOOD
+          }
 
           last_cycle_seen = cycle_count;
           if(!branch_stack.empty())
@@ -1606,7 +1608,7 @@ struct BabelGraph{
 
           // K now given for all positive nitrogen
           if(atom->GetExplicitValence() < 4){
-            for(unsigned int i=atom->GetExplicitDegree();i<4;i++)
+            for(unsigned int i=atom->GetExplicitValence();i<4;i++)
               buffer += 'H';
           }
 

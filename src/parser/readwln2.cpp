@@ -4017,6 +4017,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = return_object_symbol(branch_stack);
+
         if(!prev)
           prev = curr;
       }
@@ -4927,7 +4928,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(!branch_stack.empty())
       {
-        
+
         if(branch_stack.top().first){
           branch_stack.pop();
           prev = return_object_symbol(branch_stack);
@@ -5091,14 +5092,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(!found_next){
           pending_inline_ring = true;
           return_object_symbol(branch_stack);
-          if(branch_stack.branch){
+          if(branch_stack.branch && !prev){
             // prev must be at top of the branch stack
             while(branch_stack.top().second != branch_stack.branch)
               branch_stack.pop();
-
-            if(!prev)
-              prev = return_object_symbol(branch_stack);
-
+            
+           
+            prev = return_object_symbol(branch_stack);
           }
         }
         else{
