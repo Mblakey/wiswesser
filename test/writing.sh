@@ -8,6 +8,8 @@ COMP="${SCRIPT_DIR}/../bin/obcomp"
 MODE=""
 FILE=""
 
+
+ARG_COUNT=0
 process_arguments() {
   # Loop through all the arguments
   for arg in "$@"; do
@@ -20,12 +22,18 @@ process_arguments() {
         echo "  pubchem"
         echo "  smith"
         echo "  chembl"
+        echo "  external"
         echo "Options:"
         echo "  -h, --help          Show this help message"
         exit 0;
         ;;
       *)
-        MODE=$arg
+        if [ $ARG_COUNT -eq 0 ]; then
+          MODE=$arg;
+        elif [ $ARG_COUNT -eq 1 ]; then
+          FILE=$arg
+        fi
+        ((ARG_COUNT++))
         ;;
     esac
     shift # Shift to the next argument
@@ -45,6 +53,8 @@ main(){
     FILE="${SCRIPT_DIR}/../data/smith.tsv"
   elif [ "$MODE" == "chembl" ]; then
     FILE="${SCRIPT_DIR}/../data/chembl24.tsv"
+  elif [ "$MODE" == "external" ]; then
+    echo "performing unit test on $FILE"
   else
     echo "mode choice invalid!, for help use -h flag";
     exit 1;
@@ -60,7 +70,6 @@ main(){
     WLN=$(echo -n "$p" | cut -d $'\t' -f1)
     SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
-
 
     NEW_WLN=$($WRITER -ismi -s "${SMILES}" 2> /dev/null) # chembl is canonical smiles
 
