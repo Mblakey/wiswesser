@@ -4,7 +4,8 @@ Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files and other
 
 To extract WLN from documents, Finite State Machine (FSM) parser is built from the WLN rules, this machine uses greedy matching to return matched WLN sequences from documents. 
 
-[READER RELEASE](./notes/release.md)
+[READER RELEASE NOTES](./notes/reader_release.md)
+[WRITER RELEASE NOTES](./notes/writer_release.md)
 
 ## Requirements
 

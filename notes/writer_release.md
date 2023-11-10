@@ -1,9 +1,7 @@
 
-# Wiswesser Reader Release Notes
+# Wiswesser Writer Release Notes
 
-The following are sections from Elbert G. Smiths rule book that were used to create
-the wln reader. Note that not all chapters are listed here, only the ones where compound
-types were introduced
+The following are sections from Elbert G. Smiths rule book that were used to create the wln writer. Note that not all chapters are listed here, only the ones where compound types were introduced.
 
 ## Rules fully supported
 * Unbranched and Branched Chains
@@ -21,8 +19,6 @@ types were introduced
 * Bicyclic Bridged Rings
 * Rings with Pseudo Bridges
 * Ring Structures with Crossed Bonds and Unbranched Bridges
-* Rings of Rings Contraction
-* Metallocenes and Catanenes 
 * Chelete Compounds
 * Ionic Charges, Free Radicals and Isotopes
 
@@ -32,4 +28,7 @@ types were introduced
 * Multipliers
 * Ring Contractions and Multipliers
 * All Special Problems Rules
+* Rings of Rings Contraction
+* Metallocenes and Catanenes 
+* Forced Locant Path Breaking Compounds
 

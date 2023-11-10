@@ -1700,6 +1700,10 @@ struct BabelGraph{
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
+
+          for(unsigned int i=0;i<atom->GetImplicitHCount();i++)
+            buffer += 'H';
+          
           break;
           
 // terminators
@@ -1997,6 +2001,7 @@ struct BabelGraph{
         }
         else if(carbonyl){
           buffer += 'V';
+          string_position[locant_path[i]] = buffer.size();
           last_locant++;
         }
         else{
@@ -2009,7 +2014,7 @@ struct BabelGraph{
             WriteSpecial(locant_path[i],buffer); 
             string_position[locant_path[i]] = buffer.size()+2;
           }
-          
+
           last_locant++;
         }
       }

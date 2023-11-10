@@ -607,7 +607,7 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
       if(new_symbol)
         new_symbol->allowed_edges = 8;
       break;
-      
+
     case 'G':
     case 'E':
     case 'I':
@@ -5641,7 +5641,7 @@ struct BabelGraph{
       // ionic notation - overrides any given formal charge
       if(graph.charge_additions[sym]){
         charge = graph.charge_additions[sym];
-        if(charge != 0 && hcount)
+        if(charge < 0 && hcount)
           hcount --; // let the charges relax the hydrogens 
       }
         
