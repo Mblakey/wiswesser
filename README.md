@@ -9,7 +9,7 @@ To extract WLN from documents, Finite State Machine (FSM) parser is built from t
 
 
 
-<img src="./notes/intro_wln.png" width="500">
+<img src="./notes/intro_wln.png" width="600">
 
 
 ## Requirements
