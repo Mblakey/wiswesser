@@ -883,6 +883,9 @@ struct BabelGraph{
           return 'X';
       
       case 7:
+        if(atom->GetFormalCharge() == +1)
+          return 'K';
+        
         if(orders == 0 || orders == 1)
             return 'Z'; 
         else if(orders == 2)
@@ -1600,6 +1603,12 @@ struct BabelGraph{
         case 'K':
           prev = atom;
           buffer += wln_character;
+
+          // K now given for all positive nitrogen
+          if(atom->GetExplicitDegree() < 4){
+            for(unsigned int i=atom->GetExplicitDegree();i<4;i++)
+              buffer += 'H';
+          }
 
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 3 - correction;
