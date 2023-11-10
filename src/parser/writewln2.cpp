@@ -1983,11 +1983,13 @@ struct BabelGraph{
         if(Wgroups){
           het_char = WriteSingleChar(locant_path[i]);
           
-          if(het_char != '*')
+          if(het_char != '*'){
             buffer+=het_char; 
-          else
+            string_position[locant_path[i]] = buffer.size();
+          }else{
             WriteSpecial(locant_path[i],buffer); 
-
+            string_position[locant_path[i]] = buffer.size()+2;
+          }
           for(unsigned int w=0;w<Wgroups;w++)
             buffer+='W';
 
@@ -1999,10 +2001,15 @@ struct BabelGraph{
         }
         else{
           het_char = WriteSingleChar(locant_path[i]);
-          if(het_char != '*')
-            buffer+=het_char; 
-          else
+          if(het_char != '*'){
+            buffer+=het_char;
+            string_position[locant_path[i]] = buffer.size(); 
+          }
+          else{
             WriteSpecial(locant_path[i],buffer); 
+            string_position[locant_path[i]] = buffer.size()+2;
+          }
+          
           last_locant++;
         }
       }
