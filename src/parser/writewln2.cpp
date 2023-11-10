@@ -1533,7 +1533,7 @@ struct BabelGraph{
 
           last_cycle_seen = cycle_count;
           if(!branch_stack.empty())
-            prev = branch_stack.top();
+            prev = return_open_branch(branch_stack);
         }
         continue;
       }
