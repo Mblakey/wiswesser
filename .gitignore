@@ -4,3 +4,4 @@ src/grammars/.antlr
 .vscode
 external
 scripts
+data/proprietary/*
