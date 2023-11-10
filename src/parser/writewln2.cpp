@@ -1574,7 +1574,7 @@ struct BabelGraph{
           else
             carbon_chain++; 
           
-          string_position[atom] = buffer.size();
+          string_position[atom] = buffer.size()+1;
           break;
 
         case 'Y':
@@ -1692,11 +1692,6 @@ struct BabelGraph{
             remaining_branches[atom] = 5 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
-          }
-          else{
-            // should cancel the charges
-            if(atom->GetFormalCharge() == 0)
-              buffer += 'H';
           }
           break;
           

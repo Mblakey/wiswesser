@@ -3841,6 +3841,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         curr = AllocateWLNSymbol('1',graph);
         curr->allowed_edges = 4;
+        graph.string_positions[i] = curr;
 
         if(prev){
 
@@ -5620,49 +5621,18 @@ struct BabelGraph{
         case '*':
           atomic_num = special_element_atm(sym->special);
 
-#define CHARGE_ON 0
-#if CHARGE_ON
-          if(!sym->num_edges){
-            switch (atomic_num){
-              case 3:
-              case 11:
-              case 19:
-              case 37:
-              case 55:
-              case 87:
-                charge = +1; 
-                break;
-            
-              case 4:
-              case 12:
-              case 20:
-              case 35:
-              case 56:
-              case 85:
-                charge = +2;
-                break;
-
-              case 5:
-              case 13:
-              case 31:
-              case 49:
-              case 81:
-              case 114:
-                charge = +3;
-                break;
-            }
-          }
-#endif
-          break;
-
         default:
           fprintf(stderr,"Error: unrecognised WLNSymbol* char in obabel mol build - %c\n",sym->ch);
           return false;
       }
 
       // ionic notation - overrides any given formal charge
-      if(graph.charge_additions[sym])
+      if(graph.charge_additions[sym]){
         charge = graph.charge_additions[sym];
+        if(charge < 0 && hcount)
+          hcount --;
+      }
+        
 
 
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
