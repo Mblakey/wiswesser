@@ -1380,6 +1380,12 @@ struct BabelGraph{
           Ws++;
           atoms_seen[seen[0]] = true;
           atoms_seen[seen[1]] = true;
+
+          for(OBAtom *pcharge : seen){
+            if(pcharge->GetFormalCharge() == -1)
+              pcharge->SetFormalCharge(0); // remove the charge, as this is expected 
+          }
+
           carbonyls = 0;
           oxo_ions = 0;
           seen.clear();
@@ -1492,7 +1498,7 @@ struct BabelGraph{
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
-          
+
           buffer += 'U';
           if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
             remaining_branches[prev]--;
@@ -1531,8 +1537,7 @@ struct BabelGraph{
       unsigned char wln_character =  WriteSingleChar(atom);
       unsigned int Wgroups = CountDioxo(atom);
 
-      string_position[atom] = buffer.size()+1; // place the write position
-
+    
       if(prev && bond)
         correction = bond->GetBondOrder() - 1;
       else if (b_order > 0)
@@ -1552,6 +1557,7 @@ struct BabelGraph{
           
           prev = atom; 
           buffer += wln_character; 
+          string_position[atom] = buffer.size(); 
           break;
 
 // carbons 
@@ -1565,9 +1571,10 @@ struct BabelGraph{
             }
             buffer += 'V';
           }
-            
           else
-            carbon_chain++;
+            carbon_chain++; 
+          
+          string_position[atom] = buffer.size();
           break;
 
         case 'Y':
@@ -1590,6 +1597,7 @@ struct BabelGraph{
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
+          string_position[atom] = buffer.size();
           break;
 
         case 'N':
@@ -1606,6 +1614,7 @@ struct BabelGraph{
             remaining_branches[atom] = 2 - correction; 
             branch_stack.push(atom);
           }
+          string_position[atom] = buffer.size();
           break;
 
         case 'K':
@@ -1628,6 +1637,8 @@ struct BabelGraph{
             branching_atom[atom] = true; 
             branch_stack.push(atom);
           }
+          string_position[atom] = buffer.size();
+          atom->SetFormalCharge(0); // remove the charge, as this is expected 
           break;
         
         case 'P':
@@ -1646,7 +1657,7 @@ struct BabelGraph{
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
-            
+          string_position[atom] = buffer.size();
           break;
 
         case 'S':
@@ -1665,6 +1676,7 @@ struct BabelGraph{
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
+          string_position[atom] = buffer.size();
           break;
 
         case '*':
@@ -1672,6 +1684,7 @@ struct BabelGraph{
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
+          string_position[atom] = buffer.size()+2;
 
           prev = atom; 
           WriteSpecial(atom,buffer);
@@ -1705,6 +1718,8 @@ struct BabelGraph{
 
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
+
+          string_position[atom] = buffer.size();
           break;
 
         case 'H':
@@ -1716,6 +1731,8 @@ struct BabelGraph{
           buffer += wln_character;
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
+
+          string_position[atom] = buffer.size();
           break;
 
         
@@ -1747,6 +1764,46 @@ struct BabelGraph{
     }
 
     return atom; 
+  }
+
+  void AddPostCharges(OBMol *mol,std::string &buffer){
+    if(opt_debug)
+      fprintf(stderr,"Post Charges\n");
+    
+    bool working = true;
+    while(working){
+      working = false;
+      FOR_ATOMS_OF_MOL(a,mol){
+        OBAtom *atom = &(*a);
+        if(atom->GetFormalCharge() != 0){
+
+          if(opt_debug)
+            fprintf(stderr,"  adding charge %d to atomic num: %d\n",atom->GetFormalCharge(),atom->GetAtomicNum());
+
+          if(atom->GetFormalCharge() > 0){
+            buffer += ' ';
+            buffer += '&';
+            buffer += std::to_string(string_position[atom]);
+            buffer += '/';
+            buffer += '0';
+            atom->SetFormalCharge(atom->GetFormalCharge()-1);
+            working = true;
+          }
+
+          if(atom->GetFormalCharge() < 0){
+            buffer += ' ';
+            buffer += '&';
+            buffer += '0';
+            buffer += '/';
+            buffer += std::to_string(string_position[atom]);
+            atom->SetFormalCharge(atom->GetFormalCharge()+1);
+            working = true;
+          }
+        }
+
+      }
+     
+    }
   }
 
   /* parses the local ring system, return the size for creating the locant path with 
@@ -2259,6 +2316,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     
   }
 
+  obabel.AddPostCharges(mol,buffer); // add in charges where we can 
   return true; 
 }
 
