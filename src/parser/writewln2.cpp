@@ -1445,7 +1445,7 @@ struct BabelGraph{
     }
     last_cycle_seen = cycle_num;
 
-    if(locant){
+    if(locant && locant != '0' && b_order > 0){ // allows OM through
       buffer+=' ';
       write_locant(locant,buffer);
     }
@@ -1519,8 +1519,17 @@ struct BabelGraph{
         }
 
         cycle_count++;
-        if(!RecursiveParse(atom,spawned_from,mol,true,buffer,cycle_count))
-          Fatal("failed to make inline ring");
+        if(locant == '0' && b_order == 0){
+          buffer += '-';
+          buffer += ' ';
+          buffer += '0';
+          if(!RecursiveParse(atom,spawned_from,mol,false,buffer,cycle_count))
+            Fatal("failed to make pi bonded ring");
+        }
+        else{
+          if(!RecursiveParse(atom,spawned_from,mol,true,buffer,cycle_count))
+            Fatal("failed to make inline ring");
+        }
 
         if(!atom_stack.empty()){
 
@@ -1978,6 +1987,19 @@ struct BabelGraph{
       unsigned int Wgroups = CountDioxo(locant_path[i]);
       bool carbonyl = CheckCarbonyl(locant_path[i]);
 
+      if( !carbonyl && !Wgroups && 
+        locant_path[i]->GetAtomicNum() == 6 &&
+        locant_path[i]->GetFormalCharge() == -1){
+        // organometallics logic 
+        if(locant != last_locant){
+          buffer += ' ';
+          write_locant(locant,buffer);
+          last_locant = locant;
+        } 
+
+        buffer += '0';
+      }
+
       if(carbonyl || Wgroups || locant_path[i]->GetAtomicNum() != 6){
         if(locant != last_locant){
           buffer += ' ';
@@ -2264,6 +2286,51 @@ struct BabelGraph{
 
         }
       }
+
+      // OM logic 
+      if(path_pair.first[i]->GetAtomicNum() == 6 && path_pair.first[i]->GetFormalCharge() == -1){
+        FOR_ATOMS_OF_MOL(om,mol){
+          OBAtom *organometallic = &(*om);
+          if( organometallic->GetAtomicNum() >= 20 && 
+              organometallic->GetFormalCharge() > 1 &&
+              organometallic->GetExplicitValence() == 0){
+            
+            unsigned int charge = organometallic->GetFormalCharge(); 
+            if(!atoms_seen[organometallic]){
+              buffer += ' ';
+              buffer += '0';
+              WriteSpecial(organometallic,buffer);
+              atoms_seen[organometallic] = true;
+              path_pair.first[i]->SetFormalCharge(0);
+              if(charge)
+                charge--;
+
+              // find and write the other rings based on the negative charges
+              FOR_ATOMS_OF_MOL(negc,mol){
+                OBAtom* next_pi =  &(*negc); 
+                if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
+                    && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
+                  if(!ParseNonCyclic(next_pi,path_pair.first[i],0,
+                              mol,buffer,
+                              cycle_num,'0')){
+                    fprintf(stderr,"Error: failed on non-cyclic parse\n");
+                    return false;
+                  }
+
+                  next_pi->SetFormalCharge(0);
+                  if(charge)
+                    charge--;
+                  else
+                    Fatal("Linking more pi bonded organometallics then charge allows\n");
+
+                  organometallic->SetFormalCharge(charge);
+                }
+              }
+            }
+          }
+        }
+      }
+
     }
     
     free(path_pair.first);
