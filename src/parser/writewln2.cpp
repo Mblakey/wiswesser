@@ -1846,6 +1846,20 @@ struct BabelGraph{
     OBRing *obring = 0; 
     std::set<OBAtom*> tmp_bridging_atoms;
 
+#define SSSR_TEST 0
+#if SSSR_TEST
+    unsigned int rc = 0;
+    FOR_RINGS_OF_MOL(r,mol){
+      obring = &(*r);
+      fprintf(stderr,"%d [ ",rc++);
+      for(unsigned int i=0;i<obring->Size();i++){
+        ratom = mol->GetAtom(obring->_path[i]);
+        fprintf(stderr,"%d ",ratom->GetIdx());
+      }
+      fprintf(stderr,"]\n");
+    }
+#endif
+
     // get the seed ring and add path to ring_atoms
     FOR_RINGS_OF_MOL(r,mol){
       obring = &(*r);
@@ -1955,6 +1969,7 @@ struct BabelGraph{
     if(opt_debug){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
+      fprintf(stderr,"  ring subcycles: %lu/%lu\n",local_SSSR.size(),mol->GetSSSR().size());
       if(!bridging_atoms.empty())
         fprintf(stderr,"  bridging atoms: %lu\n",bridging_atoms.size());
       
