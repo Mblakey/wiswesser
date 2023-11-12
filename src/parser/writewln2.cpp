@@ -300,6 +300,7 @@ find a multicyclic path thats stable with disjoined pericyclic points */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
+                            std::map<OBAtom*,OBAtom*>       &broken_atoms,
                             std::set<OBRing*>               &local_SSSR)
 {
 
@@ -449,7 +450,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
         if(opt_debug)
           fprintf(stderr,"  branching is bonded to: %c\n",int_to_locant(lowest_pos+1));
         
-        best_path[found_path_size++] = branching; // stick at end of path
+        if(broken_atoms[locant_path[lowest_pos]])
+          Fatal("multiple broken locants per atom are currently unsupported");
+        else
+          broken_atoms[locant_path[lowest_pos]] = branching;
+        
+        if(found_path_size < path_size)
+          best_path[found_path_size++] = branching; // stick at end of path
       }
     }
   }
@@ -510,6 +517,9 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
 //BETA
   for(unsigned int i=0;i<path_size;i++){
+    if(!locant_path[i])
+      Fatal("dead pointer in locant path");
+
     if(locant_path[i]->GetAtomicNum() == 6){
       unsigned int rbonds = 0; 
       for(unsigned int k=0;k<path_size;k++){
@@ -522,10 +532,15 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     }
   }
 
-  std::vector<unsigned char> bonds_seen;
+  if(locant_order.size() != ring_order.size())
+    Fatal("ring order and locant assignment size does not match");
 
+  std::vector<unsigned char> bonds_seen;
   for(unsigned int i=0;i<ring_order.size();i++){
     OBRing *psd_ring = ring_order[i];
+    if(!psd_ring)
+      Fatal("dead pointer in pseudo ring check");
+
     unsigned char locant = locant_order[i];
     bool legit_pair = false;
 
@@ -615,7 +630,6 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
               if(bonds_seen[j] == a && bonds_seen[j+1] == b)
                 seen = true;
             }
-
             if(!seen){
               bonds_seen.push_back(a);
               bonds_seen.push_back(b);
@@ -683,6 +697,7 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
                       std::set<OBAtom*>               &bridge_atoms,
+                      std::map<OBAtom*,OBAtom*>       &broken_atoms,
                       std::vector<OBRing*>            &ring_order,
                       std::string &buffer)
 {  
@@ -708,7 +723,6 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       OBRing *wring = ring_arr[i]; 
       if(!pos_written[i]){
         if(sequential_chain(mol,wring,locant_path,path_size,in_chain)){
-          
           unsigned char min_loc = 255; 
           unsigned char high_loc = 0; 
           unsigned int fsum = fusion_sum(mol,wring,locant_path,path_size);
@@ -729,13 +743,14 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
             pos_to_write = i; 
           }
 
-          // fprintf(stderr,"considering: ");
-          // print_ring_locants(mol,wring,locant_path,path_size);
         }
       }
     }
 
     OBRing *to_write = ring_arr[pos_to_write];
+    if(!to_write)
+      Fatal("out of access locant path reading");
+    
     ring_order.push_back(to_write);
     locant_order.push_back(lowest_in_ring);
 
@@ -848,7 +863,7 @@ struct BabelGraph{
   unsigned char WriteSingleChar(OBAtom* atom){
 
     if(!atom)
-      Fatal("failed to write atom");
+      Fatal("writing notation from dead atom ptr");
     
     unsigned int neighbours = atom->GetExplicitDegree(); 
     unsigned int orders = atom->GetExplicitValence(); 
@@ -935,7 +950,9 @@ struct BabelGraph{
 
   void WriteSpecial(OBAtom *atom, std::string &buffer){
 
-  // all special elemental cases
+    if(!atom)
+      Fatal("writing notation from dead atom ptr");
+    // all special elemental cases
     switch(atom->GetAtomicNum()){
       case 5:
         buffer += "-B-";
@@ -1390,6 +1407,9 @@ struct BabelGraph{
   }
 
   unsigned int CountDioxo(OBAtom *atom){
+    if(!atom)
+      Fatal("count dioxo on dead atom ptr");
+
     unsigned int Ws = 0; 
     unsigned int carbonyls = 0;
     unsigned int oxo_ions = 0; 
@@ -1427,6 +1447,9 @@ struct BabelGraph{
   }
 
   bool CheckCarbonyl(OBAtom *atom){
+    if(!atom)
+      Fatal("checking for carbonyl on dead atom ptr");
+
     if(atom->GetAtomicNum() != 6)
       return false;
 
@@ -1456,7 +1479,8 @@ struct BabelGraph{
   bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from, unsigned int b_order,
                       OBMol *mol, std::string &buffer, 
                       unsigned int cycle_num, unsigned char locant){
-    
+    if(!start_atom)
+      Fatal("writing notation from dead atom ptr");
     //##################################
     //      INDIRECT RECURSION TRACKING
 
@@ -2020,7 +2044,9 @@ struct BabelGraph{
     
 
     for(unsigned int i=0;i<path_size;i++){
-      
+      if(!locant_path[i])
+        Fatal("dead locant path atom ptr");
+
       unsigned char het_char = 0;
       locant = int_to_locant(i+1);
       unsigned int Wgroups = CountDioxo(locant_path[i]);
@@ -2187,10 +2213,9 @@ struct BabelGraph{
     std::set<OBRing*>               local_SSSR;
     std::set<OBAtom*>               ring_atoms;
     std::set<OBBond*>               ring_bonds;
-    std::set<OBAtom*>               bridge_atoms;
-    
     std::vector<OBRing*>            ring_order; 
-    
+    std::set<OBAtom*>               bridge_atoms;
+    std::map<OBAtom*,OBAtom*>       broken_atoms;
     std::map<OBAtom*,unsigned int>  atom_shares;
   
     unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR); 
@@ -2205,7 +2230,7 @@ struct BabelGraph{
     else if(!multi && bridge_atoms.empty())
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,local_SSSR);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,broken_atoms,local_SSSR);
 
     if(inline_ring){
       buffer+= '-';
@@ -2237,7 +2262,7 @@ struct BabelGraph{
       buffer += 'L';
 
     ReadLocantPath( mol,locant_path,path_size,
-                    local_SSSR,bridge_atoms,ring_order,
+                    local_SSSR,bridge_atoms,broken_atoms,ring_order,
                     buffer); 
     
     if(!bridge_atoms.empty()){
@@ -2391,12 +2416,10 @@ struct BabelGraph{
                          API FUNCTION
 **********************************************************************/
 
-
 bool WriteWLN(std::string &buffer, OBMol* mol)
 {   
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
-
 
   BabelGraph obabel; 
   unsigned int cyclic = 0;
@@ -2446,7 +2469,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
           Fatal("failed on recursive branch parse");
       }
     }
-    
   }
 
   obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
@@ -2463,7 +2485,6 @@ static void DisplayUsage()
   fprintf(stderr, "  -d                    print debug messages to stderr\n");
   fprintf(stderr, "  -h                    show the help for executable usage\n");
   fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
-  fprintf(stderr, "  -w                    dump wln trees & babel graphs to dot files in [build]\n");
   exit(1);
 }
 
