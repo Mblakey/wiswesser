@@ -2025,6 +2025,9 @@ struct BabelGraph{
           het_char = WriteSingleChar(locant_path[i]);
           
           if(het_char != '*'){
+            if(het_char == 'K')
+              locant_path[i]->SetFormalCharge(0);
+              
             buffer+=het_char; 
             string_position[locant_path[i]] = buffer.size();
           }else{
@@ -2044,6 +2047,9 @@ struct BabelGraph{
         else{
           het_char = WriteSingleChar(locant_path[i]);
           if(het_char != '*'){
+            if(het_char == 'K')
+              locant_path[i]->SetFormalCharge(0);
+
             buffer+=het_char;
             string_position[locant_path[i]] = buffer.size(); 
           }
