@@ -331,23 +331,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   // decend logic idea from Tom Allam
   while(!path_found && found_path_size > 1){ 
     
-    // create the path
-    locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
-    best_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
-    for(unsigned int i=0;i<found_path_size;i++){
-      locant_path[i] = 0;
-      best_path[i] = 0; 
-    }
-    
     for(OBAtom *rseed : seeds){
-      
       OBAtom*                catom  = 0;
       std::map<OBAtom*,bool> current; 
       std::vector<std::pair<OBAtom*,OBAtom*>> path; 
       path.push_back({rseed,0}); 
 
       while(!path.empty()){
-
         OBAtom* ratom = path.back().first;
         OBAtom* next = path.back().second;  
 
@@ -403,7 +393,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                     earliest_non_multi = int_to_locant(i+1);
                 }   
               }
-
               if(atom_shares[src] == 3 && !earliest_multi)
                 earliest_multi = int_to_locant(i+1);
             }
@@ -414,15 +403,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
               if(opt_debug)
                 fprintf(stderr,"  set on fs:  fsum: %-2d\n",lowest_sum);
             }
-#if FILTER
-            else if(fsum == lowest_sum){
-            
-            ;;
-            ;;
-            ;;
-
-            }
-#endif
           }
 
           OBAtom *tmp = path.back().first; 
@@ -445,7 +425,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
       found_path_size--; // decrement the path size and see what we can do
     }
   }
-
+  
   free(locant_path);
   if(!path_found){
     free(best_path);
@@ -459,7 +439,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
       if(position_in_path(*aiter,best_path,found_path_size,false) == 0 && best_path[0] != *aiter){
         OBAtom *branching = *aiter; 
-        
         unsigned int lowest_pos = found_path_size; 
         FOR_NBORS_OF_ATOM(a,branching){
           unsigned int bpos = position_in_path(&(*a),best_path,found_path_size);
@@ -478,7 +457,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     free(best_path);
     Fatal("no locant path could be generated, even with decrements\n");
   }
-  
+
   return best_path;
 }
 
