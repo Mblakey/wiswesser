@@ -2394,24 +2394,27 @@ struct BabelGraph{
 
 bool WriteWLN(std::string &buffer, OBMol* mol)
 {   
- 
+  
+  OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
+
+
   BabelGraph obabel; 
   unsigned int cyclic = 0;
   bool started = false; 
-  FOR_RINGS_OF_MOL(r,mol)
+  FOR_RINGS_OF_MOL(r,mol_copy)
     cyclic++;
 
   if(opt_debug)
-    WriteBabelDotGraph(mol);
+    WriteBabelDotGraph(mol_copy);
 
   if(!cyclic){
     
-    FOR_ATOMS_OF_MOL(a,mol){
+    FOR_ATOMS_OF_MOL(a,mol_copy){
       OBAtom *satom = &(*a); 
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         if(started)
           buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(&(*a),0,0,mol,buffer,0,0))
+        if(!obabel.ParseNonCyclic(&(*a),0,0,mol_copy,buffer,0,0))
           Fatal("failed on recursive branch parse");
 
         started = true; 
@@ -2419,13 +2422,13 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     }
   }
   else{
-    FOR_RINGS_OF_MOL(r,mol){
+    FOR_RINGS_OF_MOL(r,mol_copy){
     // start recursion from first cycle atom
       if(!obabel.rings_seen[&(*r)]){
         if(started)
           buffer += " &"; // ionic species
 
-        if(!obabel.RecursiveParse(mol->GetAtom( (&(*r))->_path[0]),0,mol,false,buffer,0))
+        if(!obabel.RecursiveParse(mol_copy->GetAtom( (&(*r))->_path[0]),0,mol_copy,false,buffer,0))
           Fatal("failed on recursive ring parse");
 
         started = true;
@@ -2435,18 +2438,20 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     // handles additional ionic atoms here
     obabel.cycle_count = 0;
     obabel.last_cycle_seen = 0;
-    FOR_ATOMS_OF_MOL(a,mol){
+    FOR_ATOMS_OF_MOL(a,mol_copy){
       OBAtom *satom = &(*a); 
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(satom,0,0,mol,buffer,0,0))
+        if(!obabel.ParseNonCyclic(satom,0,0,mol_copy,buffer,0,0))
           Fatal("failed on recursive branch parse");
       }
     }
     
   }
 
-  obabel.AddPostCharges(mol,buffer); // add in charges where we can 
+  obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
+
+  delete mol_copy; 
   return true; 
 }
 
