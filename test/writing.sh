@@ -2,6 +2,7 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+INCORRECT="${SCRIPT_DIR}/incorrect.txt"
 WRITER="${SCRIPT_DIR}/../bin/writewln"
 READER="${SCRIPT_DIR}/../bin/readwln"
 COMP="${SCRIPT_DIR}/../bin/obcomp"
@@ -10,21 +11,27 @@ FILE=""
 
 
 ARG_COUNT=0
+WRONG=0
 process_arguments() {
   # Loop through all the arguments
   for arg in "$@"; do
     case "$arg" in
+      -w|--wrong)
+        WRONG=1
+        echo "Failed SMILES" > $INCORRECT
+        ;;
       -h|--help)
         # Display a help message
-        echo "Usage: pubchem_score_test.sh <MODE>"
+        echo "Usage: writing.sh <options> <mode>"
         echo "Modes:"
         echo "  chemspider"
         echo "  pubchem"
         echo "  smith"
         echo "  chembl"
         echo "  external"
-        echo "Options:"
+        echo "options:"
         echo "  -h, --help          Show this help message"
+        echo "  -w, --wrong         Write failed smiles to incorrect.txt"
         exit 0;
         ;;
       *)
@@ -75,6 +82,11 @@ main(){
 
     if [ -z "$NEW_WLN" ]; then
       echo -ne "$WLN != any new WLN string\t${SMILES}\n$"
+
+      if [ $WRONG -eq 1 ]; then
+        echo "${SMILES}" >> $INCORRECT
+      fi;
+
       continue
     fi;
 
@@ -83,6 +95,11 @@ main(){
     
     if [ -z "$NEW_SMILES" ]; then
       echo "$NEW_WLN != anything $SMILES"
+
+      if [ $WRONG -eq 1 ]; then
+        echo "${SMILES}" >> $INCORRECT
+      fi;
+
       continue
     fi;
 
@@ -92,6 +109,9 @@ main(){
       echo -ne "\r"
     else
       echo -ne  "$WLN == $SMILES\t$NEW_WLN\t$NEW_SMILES\n"
+      if [ $WRONG -eq 1 ]; then
+        echo "${SMILES}" >> $INCORRECT
+      fi;
     fi;
 
   done <$FILE

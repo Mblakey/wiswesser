@@ -20,6 +20,7 @@ The following are sections from Elbert G. Smiths rule book that were used to cre
 * Rings with Pseudo Bridges
 * Ring Structures with Crossed Bonds and Unbranched Bridges
 * Chelete Compounds
+* Metallocenes and Catanenes 
 * Ionic Charges, Free Radicals and Isotopes
 
 
@@ -29,6 +30,5 @@ The following are sections from Elbert G. Smiths rule book that were used to cre
 * Ring Contractions and Multipliers
 * All Special Problems Rules
 * Rings of Rings Contraction
-* Metallocenes and Catanenes 
 * Forced Locant Path Breaking Compounds
 

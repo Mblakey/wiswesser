@@ -5,3 +5,4 @@ src/grammars/.antlr
 external
 scripts
 data/proprietary/*
+test/incorrect.txt
