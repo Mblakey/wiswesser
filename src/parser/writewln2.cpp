@@ -448,6 +448,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
         if(opt_debug)
           fprintf(stderr,"  branching is bonded to: %c\n",int_to_locant(lowest_pos+1));
+        
         best_path[found_path_size++] = branching; // stick at end of path
       }
     }
@@ -457,7 +458,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     free(best_path);
     Fatal("no locant path could be generated, even with decrements\n");
   }
-
   return best_path;
 }
 
