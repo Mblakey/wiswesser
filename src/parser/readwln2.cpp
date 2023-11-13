@@ -1992,7 +1992,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     }
 
     // shifting now performed here should be more stable
-    while(bind_1 < int_to_locant(path_size)){
+    for(;;){
       if(!broken_lookup[bind_1].empty()){
         
         while(spawned_broken[broken_lookup[bind_1].front()])
@@ -2021,7 +2021,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         while(!allowed_connections[bind_2] || bind_2 == bind_1)
           ring_path[path_size-1] = ++bind_2;
         
-
         if(opt_debug){
           fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
           for (unsigned int a=0;a<path_size;a++)
@@ -2029,12 +2028,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           fprintf(stderr," ]\n");
         }
 
-        if(bind_1 != bind_2 + 1 && bind_2 != bind_1 + 1){
-          WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-          if(!edge)
-            return false;
-        }
-
+        WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
+        if(!edge)
+          return false;
+        
         allowed_connections[bind_1]--;
         if(allowed_connections[bind_2])
           allowed_connections[bind_2]--;
@@ -2043,7 +2040,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       }
       else{
 
-        bind_1++; // increase bind_1 
+        bind_1++; // increase bind_1
+        if(bind_1 > int_to_locant(local_size)+1)
+           break;
+
         bool found = false;
         for(unsigned int a=0;a<path_size;a++){
           if(ring_path[a] == bind_1)

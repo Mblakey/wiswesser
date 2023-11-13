@@ -705,18 +705,18 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             // calculate the fusion sum here, expensive but necessary
             unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
 
-
-            // std::string tmp;
-            // std::vector<OBRing*> tmpr;
-            // ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmpr,tmp,false);
-
-            // fprintf(stderr,"%s - %d\n",tmp.c_str(),fsum);
-
+#define COMBO 1
+#if COMBO
+            if((fsum+tsum) < lowest_fsum){ // rule 30(d and e).
+              lowest_fsum = (fsum+tsum);
+              copy_locant_path(best_path,locant_path,found_path_size);
+            }
+#else
             if(fsum < lowest_fsum){ // rule 30(d and e).
-              lowest_tsum = tsum;
               lowest_fsum = fsum;
               copy_locant_path(best_path,locant_path,found_path_size);
             }
+#endif
           }
 
           OBAtom *tmp = path.back().first; 
