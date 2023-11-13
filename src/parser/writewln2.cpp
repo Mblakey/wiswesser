@@ -134,12 +134,33 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
   return 0; 
 }
 
+unsigned char fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned char min = 255; 
+  for(unsigned int i=0;i<ring->Size();i++){
+    OBAtom *latom = mol->GetAtom(ring->_path[i]); 
+    unsigned char lchar = int_to_locant(1+position_in_path(latom,locant_path,path_size)); 
+    if(lchar < min)
+      min = lchar; 
+  }
+  return min; 
+}
+
 unsigned int fusion_sum(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
   unsigned int fsum = 0;
   for(unsigned int i=0;i<ring->Size();i++)
     fsum+= position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size,false) +1;
   return fsum; 
 }
+
+unsigned int lowest_fusion_set(OBMol *mol, OBAtom **locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
+  unsigned int ret = 0; 
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+    unsigned char lfc = fusion_locant(mol,*riter,locant_path,path_size); 
+    ret += lfc; 
+  }
+  return ret;
+}
+
 
 void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
@@ -201,7 +222,7 @@ OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
 }
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
-    solution 
+    solution, fusion sum is the only filter rule needed here
 */
 OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>              &ring_atoms,
@@ -306,12 +327,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_sum       = UINT32_MAX;
-#define FILTER 0
-#if FILTER  
-  unsigned int           lowest_fcomp_g     = UINT32_MAX;
-  unsigned int           highest_fcomp_g     = 0;
-  unsigned char          lowest_non_multi = int_to_locant(path_size);
-#endif
+  unsigned int           lowest_set       = UINT32_MAX;
+
   // multi atoms are the starting seeds, must check them all unfortuanately 
   std::vector<OBAtom*> seeds; 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
@@ -372,37 +389,27 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             
             // calculate the fusion sum here, expensive but necessary
             unsigned int fsum = 0;
+            unsigned int fset = 0;
             for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
               OBRing *obring = (*riter); 
               unsigned int lfsum =  fusion_sum(mol,obring,locant_path,found_path_size);
               fsum += lfsum; 
             }
 
-            // trying to tease out 30e without a notation write and compare
-            unsigned char earliest_non_multi = 0;
-            unsigned char earliest_bridge = 0;
-            unsigned char earliest_multi = 0;
-
-            for(unsigned int i=0;i< found_path_size;i++){
-              OBAtom *src = locant_path[i];
-              for(int j=0;j<i;j++){
-                OBAtom *trg = locant_path[j]; 
-                if(mol->GetBond(src,trg)){
-                  if( atom_shares[locant_path[i]]==2 &&
-                      atom_shares[locant_path[j]] == 2 &&
-                      !earliest_non_multi)
-                    earliest_non_multi = int_to_locant(i+1);
-                }   
-              }
-              if(atom_shares[src] == 3 && !earliest_multi)
-                earliest_multi = int_to_locant(i+1);
-            }
+            fset = lowest_fusion_set(mol,locant_path,path_size,local_SSSR);
 
             if(fsum < lowest_sum){ // rule 30d.
               lowest_sum = fsum;
+              lowest_set = fset; 
               copy_locant_path(best_path,locant_path,found_path_size);
               if(opt_debug)
-                fprintf(stderr,"  set on fs:  fsum: %-2d\n",lowest_sum);
+                fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
+            }
+            else if (fsum == lowest_sum){ // rule 30e. 
+              lowest_set = fset;
+              copy_locant_path(best_path,locant_path,found_path_size);
+              if(opt_debug)
+                fprintf(stderr,"  set on fset:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
             }
           }
 
@@ -433,7 +440,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     Fatal("no locant path could be generated, even with decrements\n");
   }
 
-  if(found_path_size != path_found){
+  if(found_path_size < path_found){
+
     if(opt_debug)
       fprintf(stderr,"  found locant path with %d branches out\n",path_size-found_path_size);
 

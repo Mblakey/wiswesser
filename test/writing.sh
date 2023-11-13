@@ -22,16 +22,16 @@ process_arguments() {
         ;;
       -h|--help)
         # Display a help message
-        echo "Usage: writing.sh <options> <mode>"
-        echo "Modes:"
+        echo "Usage: writing.sh <options> <mode> <file>"
+        echo "modes:"
         echo "  chemspider"
         echo "  pubchem"
         echo "  smith"
         echo "  chembl"
         echo "  external"
         echo "options:"
-        echo "  -h, --help          Show this help message"
-        echo "  -w, --wrong         Write failed smiles to incorrect.txt"
+        echo "  -h, --help          show this help message"
+        echo "  -w, --wrong         write failed smiles to incorrect.txt"
         exit 0;
         ;;
       *)
