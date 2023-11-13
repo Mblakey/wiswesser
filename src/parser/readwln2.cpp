@@ -1991,6 +1991,17 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       bind_2 = highest_loc;
     }
 
+    // sanitize the ring path, if we've got duplicates (i.e hit the end of the path),
+    // we decrement and loop back round
+    for(unsigned int i=0;i<path_size;i++){
+      if(ring_path[i] == int_to_locant(local_size)){
+        for(unsigned int j=i+1;j<path_size;j++){
+          if(ring_path[j] == ring_path[i])
+            ring_path[j]--; // looping back
+        }
+      }
+    }
+
     // shifting now performed here should be more stable
     for(;;){
       if(!broken_lookup[bind_1].empty()){
@@ -2016,9 +2027,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           bind_2 = ring_path[path_size-1]; 
       }
       else if(allowed_connections[bind_1]){
-        
         // very rare case where we get the right path a different way to normal
-        while(!allowed_connections[bind_2] || bind_2 == bind_1)
+        
+        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
           ring_path[path_size-1] = ++bind_2;
         
         if(opt_debug){

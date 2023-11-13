@@ -199,11 +199,11 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
   return true;
 }
 
-unsigned int CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
-                      std::vector<OBRing*>            &ring_order,
-                      std::vector<unsigned char>      &locant_order,
-                      std::map<OBAtom*,bool>          &bridge_atoms,
-                      std::string &buffer)
+int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+                          std::vector<unsigned char>      &locant_order,
+                          std::vector<OBRing*>            &ring_order,
+                          std::map<OBAtom*,bool>          &bridge_atoms,
+                          std::string &buffer)
 {
 
   unsigned int pseudo_pairs = 0;
@@ -231,176 +231,81 @@ unsigned int CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int pat
     }
   }
 
-  if(locant_order.size() != ring_order.size())
-    Fatal("ring order and locant assignment size does not match");
-
-  std::vector<unsigned char> bonds_seen;
-  for(unsigned int i=0;i<ring_order.size();i++){
-    OBRing *psd_ring = ring_order[i];
-    if(!psd_ring)
-      Fatal("dead pointer in pseudo ring check");
-
-    unsigned char locant = locant_order[i];
-    bool legit_pair = false;
-
-    while(!connections[locant]){
-      locant++;
-      if(locant >= int_to_locant(path_size+1)){
-        fprintf(stderr,"Error: overflowing path in pseudo bridge determination\n");
-        return false;
-      }
-    }
-
-    if(connections[locant])
-      connections[locant]--;
-
-    // get the bonds from the locant, add, decremenent map
-    for(unsigned int k=0;k<psd_ring->Size();k++){
-      unsigned int pos = position_in_path(mol->GetAtom(psd_ring->_path[k]),locant_path,path_size);
-
-      if(int_to_locant(pos+1) == locant){
-        unsigned char fchar = 0;
-        unsigned char bchar = 0; 
-
-        if(k==0){
-          fchar = int_to_locant(position_in_path(mol->GetAtom(psd_ring->_path[k+1]),locant_path,path_size)) + 1;
-          bchar = int_to_locant(position_in_path(mol->GetAtom(psd_ring->_path[psd_ring->Size()-1]),locant_path,path_size)) + 1;
-        }
-        else if (k == psd_ring->Size()-1){
-          fchar = int_to_locant(position_in_path(mol->GetAtom(psd_ring->_path[0]),locant_path,path_size)) + 1;
-          bchar = int_to_locant(position_in_path(mol->GetAtom(psd_ring->_path[k-1]),locant_path,path_size)) + 1;
-        }
-        else{
-          fchar = int_to_locant(position_in_path(mol->GetAtom(psd_ring->_path[k+1]),locant_path,path_size)) + 1;
-          bchar = int_to_locant(position_in_path(mol->GetAtom(psd_ring->_path[k-1]),locant_path,path_size)) + 1;
-        }
-
-        if(fchar+1 != locant && locant+1 != fchar){
-          unsigned char a = 0;
-          unsigned char b = 0;
-          if(locant<fchar){
-            a = locant;
-            b = fchar;
-          }
-          else{
-            b = locant;
-            a = fchar;
-          }
-
-          if(bonds_seen.empty()){
-            bonds_seen.push_back(a);
-            bonds_seen.push_back(b);
-            legit_pair = true;
-          }
-          else{
-            bool seen = false;
-            for(unsigned int j=0;j<bonds_seen.size()-1;j+=2){
-              if(bonds_seen[j] == a && bonds_seen[j+1] == b)
-                seen = true;
-            }
-
-            if(!seen){
-              bonds_seen.push_back(a);
-              bonds_seen.push_back(b);
-              legit_pair = true;
-            }
-          }
-        }
-
-        if(bchar+1 != locant && locant+1 != bchar && !legit_pair){
-          unsigned char a = 0;
-          unsigned char b = 0;
-          if(locant<bchar){
-            a = locant;
-            b = bchar;
-          }
-          else{
-            b = locant;
-            a = bchar;
-          }
-          if(bonds_seen.empty()){
-            bonds_seen.push_back(a);
-            bonds_seen.push_back(b);
-            legit_pair = true;
-          }
-          else{
-            bool seen = false;
-            for(unsigned int j=0;j<bonds_seen.size()-1;j+=2){
-              if(bonds_seen[j] == a && bonds_seen[j+1] == b)
-                seen = true;
-            }
-            if(!seen){
-              bonds_seen.push_back(a);
-              bonds_seen.push_back(b);
-              legit_pair = true;
-            }
-          }
-        }
-        
-      }
-    }
-
-    if(!legit_pair){
-      // we iterate the ring and find all non consecutive pairs and write as pseudo
-      for(unsigned int p = 0; p < psd_ring->Size();p++){
-        for(unsigned int q = p+1; q < psd_ring->Size();q++){
-
-          OBAtom *s = mol->GetAtom(psd_ring->_path[p]); 
-          OBAtom *e = mol->GetAtom(psd_ring->_path[q]);
-          
-          if(mol->GetBond(s,e)){
-
-            unsigned char schar = int_to_locant(position_in_path(s,locant_path,path_size))+1;
-            unsigned char echar = int_to_locant(position_in_path(e,locant_path,path_size))+1;
-            
-            unsigned char a = 0;
-            unsigned char b = 0;
-            if(schar < echar){
-              a = schar;
-              b = echar; 
-            }
-            else{
-              a = echar; 
-              b = schar; 
-            }
-
-            if(a+1 != b){
-              bool seen = false;
-              for(unsigned int j=0;j<bonds_seen.size()-1;j+=2){
-                if(bonds_seen[j] == a && bonds_seen[j+1] == b)
-                  seen = true;
-              }
-
-              if(!seen){
-                buffer += '/';
-                write_locant(a,buffer);
-                write_locant(b,buffer);
-                bonds_seen.push_back(a);
-                bonds_seen.push_back(b);
-                pseudo_pairs+=2; // treat these as something to avoid
-              }
-            }
-          }
-          
-        }
-      }
+  std::map<std::set<unsigned char>,bool> seen_nt;
+  std::vector<std::set<unsigned char>> non_trivials;
+  for(unsigned int i=0;i<path_size;i++){
+    for(unsigned int j=i+2;j<path_size;j++){
+      if(mol->GetBond(locant_path[i],locant_path[j]))
+        non_trivials.push_back({int_to_locant(i+1),int_to_locant(j+1)});
     }
   }
 
-  // horrid but effective, can tidy up later
+  // shadow read graph traversal
+  std::map<unsigned char, unsigned char> highest_jump;
+
+  for(unsigned int i=0;i<ring_order.size();i++){
+    unsigned int steps = ring_order[i]->Size()-1;
+    unsigned char bind = locant_order[i];
+    unsigned char locant = locant_order[i];
+    std::vector<unsigned char> path;
+
+    path.push_back(bind);
+    for(unsigned int step = 0; step < steps;step++){
+      if(highest_jump[locant])
+        locant = highest_jump[locant];
+      else if(locant < int_to_locant(path_size))
+        locant++;
+
+      path.push_back(locant);
+    }
+
+    for(unsigned int a=0;a<path.size();a++){
+      fprintf(stderr,"%c ",path[a]);
+    }
+    fprintf(stderr,"\n");
+
+  
+    while(!connections[bind]){
+      bind++; // increase bind_1
+      bool found = false;
+      for(unsigned int a=0;a<path.size();a++){
+        if(path[a] == bind)
+          found = true;
+      }
+
+      // if its already there, we dont change the path
+      if(!found){ 
+        // if its not, we have to spawn it in by knocking one off
+        path.pop_back();
+        locant = path.back(); 
+      }
+    }
+      
+    fprintf(stderr,"%c --> %c\n",bind,locant);
+    highest_jump[bind] = locant;
+    
+    if(connections[bind])
+      connections[bind]--;
+    if(connections[locant])
+      connections[locant]--;
+
+  }
+
+
+  
   return pseudo_pairs;
 }
 
 
-unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+
+bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
-                      std::map<OBAtom*,bool>               &bridge_atoms,
+                      std::map<OBAtom*,bool>          &bridge_atoms,
                       std::map<OBAtom*,OBAtom*>       &broken_atoms,
                       std::vector<OBRing*>            &ring_order,
-                      std::string &buffer, 
-                      bool verbose=true)
+                      std::string &buffer,
+                      bool verbose)
 {  
-
   unsigned int arr_size = 0; 
   OBRing **ring_arr = (OBRing**)malloc(sizeof(OBRing*) * local_SSSR.size()); 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
@@ -443,7 +348,6 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
             lowest_rsum = rsum;
             pos_to_write = i; 
           }
-
         }
       }
     }
@@ -458,8 +362,6 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     if(!to_write)
       Fatal("out of access locant path reading");
     
-    ring_order.push_back(to_write);
-    locant_order.push_back(lowest_in_ring);
 
     for(unsigned int k=0;k<to_write->Size();k++){
       unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
@@ -474,11 +376,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     if(lowest_in_ring != 'A'){
       buffer += ' ';
       write_locant(lowest_in_ring,buffer);
-      assignement_score++;
     }
-    else if(!assignement_score)
-      assignement_score++;
-    
 
     if(to_write->Size() > 9){
       buffer+='-';
@@ -487,15 +385,18 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     }
     else
       buffer+= std::to_string(to_write->Size());
+
+    locant_order.push_back(lowest_in_ring);
+    ring_order.push_back(to_write);
     
     pos_written[pos_to_write] = true;
     rings_done++;
   }
 
-  assignement_score += CheckPseudoCodes(mol,locant_path,path_size,ring_order,locant_order,bridge_atoms,buffer);
+  PseudoCheck(mol,locant_path,path_size,locant_order,ring_order, bridge_atoms,buffer);
 
   free(ring_arr);
-  return assignement_score;  
+  return true;  
 }
 
 
@@ -610,19 +511,6 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 }
 
 
-/* rule 30b requires scoring of how many ring locants are cited, there is unfortunately 
-no way of knowing unless we write them... yikes, symmetrical molecules do not need this procedure */
-void DebugRingPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
-                                  std::set<OBRing*>               &local_SSSR,
-                                  std::map<OBAtom*,bool>          &bridge_atoms,
-                                  std::map<OBAtom*,OBAtom*>       &broken_atoms){
-
-  std::string ring_buffer; 
-  std::vector<OBRing*> ring_order; // tmp
-  ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,ring_order,ring_buffer,false);
-  std::cerr << ring_buffer << std::endl;
-}
-
 /* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
 find a multicyclic path thats stable with disjoined pericyclic points */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
@@ -634,8 +522,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 {
 
   // parameters needed to seperate out the best locant path
-  unsigned int           lowest_tsum       = UINT32_MAX;
   unsigned int           lowest_fsum       = UINT32_MAX;
+  unsigned int           pseudo_used       = 0; // minimise possible
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   std::vector<OBAtom*> seeds; 
@@ -677,7 +565,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
         if(!next)
           skipped = true; 
 
-        OBAtom *obpush = 0;
         FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
           catom = &(*a);
           if(atom_shares[catom]){
@@ -685,8 +572,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
               skipped = true;
             else if(!current[catom] && skipped && !pushed){
               path.push_back({catom,0});
-              obpush = catom;
               pushed = true; 
+              break;
             }
           }
         }
@@ -697,22 +584,18 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             for(unsigned int i=0;i<found_path_size;i++)
               locant_path[i] = path[i].first;
             
-            unsigned int tsum = 0;
-            for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++)
-              tsum += ring_sum(mol,*riter,locant_path,found_path_size);
-
             // calculate the fusion sum here, expensive but necessary
             unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
+            
+            std::vector<OBRing*> tmp; 
+            std::string candidate_string; // unfortunate but necessary
+            ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
 
-            // fprintf(stderr,"nt bonds: %d\n",nt_bonds_sum);
-
-            DebugRingPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms);
+        
             if(fsum < lowest_fsum){ // rule 30(d and e).
               lowest_fsum = fsum;
-              lowest_tsum = fsum;
               copy_locant_path(best_path,locant_path,found_path_size);
             }
-
           }
 
           OBAtom *tmp = path.back().first; 
@@ -2276,7 +2159,6 @@ struct BabelGraph{
       buffer += root_locant;
     }
     
-
     if(IsHeteroRing(locant_path,path_size))
       buffer += 'T';
     else
@@ -2284,7 +2166,7 @@ struct BabelGraph{
 
     ReadLocantPath( mol,locant_path,path_size,
                     local_SSSR,bridge_atoms,broken_atoms,ring_order,
-                    buffer); 
+                    buffer,true); 
     
     if(!bridge_atoms.empty()){
       for(unsigned int i=0;i<path_size;i++){
@@ -2303,7 +2185,6 @@ struct BabelGraph{
     }
 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
-
 
     // breaks incremented locant notation
     if(buffer.back() == '&')
