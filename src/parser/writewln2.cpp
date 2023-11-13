@@ -111,13 +111,6 @@ void sort_locants(unsigned char *arr,unsigned int len){
                           Locant Path Functions
 **********************************************************************/
 
-void shift_locants_left(OBAtom **locant_path,unsigned int path_size){
-  OBAtom *tmp = locant_path[0];
-  for(unsigned int i=0;i<path_size-1;i++)
-    locant_path[i] = locant_path[i+1]; 
-  locant_path[path_size-1] = tmp; 
-}
-
 void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++)
     new_path[i] = locant_path[i]; 
@@ -134,15 +127,15 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
   return 0; 
 }
 
-unsigned char fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
-  unsigned char min = 255; 
+unsigned int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned int lpos = path_size; 
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *latom = mol->GetAtom(ring->_path[i]); 
-    unsigned char lchar = int_to_locant(1+position_in_path(latom,locant_path,path_size,false)); 
-    if(lchar < min)
-      min = lchar; 
+    unsigned int pos = position_in_path(latom,locant_path,path_size,false); 
+    if(pos < lpos)
+      lpos = pos; 
   }
-  return min; 
+  return lpos; 
 }
 
 unsigned int fusion_sum(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
@@ -155,10 +148,19 @@ unsigned int fusion_sum(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned 
 unsigned int lowest_fusion_set(OBMol *mol, OBAtom **locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
   unsigned int ret = 0; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-    unsigned char lfc = fusion_locant(mol,*riter,locant_path,path_size); 
+    unsigned int lfc = fusion_locant(mol,*riter,locant_path,path_size); 
     ret += lfc; 
   }
   return ret;
+}
+
+unsigned int lowest_bridge_set(OBAtom **locant_path, unsigned int path_size, std::map<OBAtom*,bool> &bridge_atoms){
+  unsigned int ret = 0;
+  for(unsigned int i=0;i<path_size;i++){
+    if(bridge_atoms[locant_path[i]])
+      ret+=i;
+  }
+  return ret; 
 }
 
 
@@ -203,328 +205,6 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
     
   free(sequence);
   return true;
-}
-
-
-OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
-                  std::set<OBRing*> &local_SSSR)
-{
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
-    locant_path[i] = 0; 
-
-  OBRing *mono = *(local_SSSR.begin());
-
-  for(unsigned int i=0;i<mono->Size();i++)
-  locant_path[i] = mol->GetAtom(mono->_path[i]);
-    
-  return locant_path;
-}
-
-/*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
-    solution, fusion sum is the only filter rule needed here
-*/
-OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
-                        std::set<OBAtom*>              &ring_atoms,
-                        std::set<OBBond*>              &ring_bonds,
-                        std::map<OBAtom*,unsigned int> &atom_shares,
-                        std::set<OBRing*>              &local_SSSR)
-{
-
-  // create the path
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++){
-    locant_path[i] = 0;
-    best_path[i] = 0; 
-  }
-
-  // set up some non-trivial bonds
-  std::vector<OBBond*> nt_bonds; 
-  for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
-    OBBond *bond = (*biter);
-    unsigned int share = 0; 
-    for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-      OBRing *obring = (*riter); 
-      if(obring->IsMember(bond))
-        share++; 
-    }
-
-    if(share > 1)
-      nt_bonds.push_back(bond);   
-  }
-
-  unsigned int           lowest_sum       = UINT32_MAX;
-
-  OBAtom*                ratom  = 0;
-  OBAtom*                catom  = 0;
-  OBBond*                bond   = 0; 
-  std::map<OBBond*,bool> ignore_bond; 
-
-  for(unsigned int i=0;i<nt_bonds.size();i++){
-    if(opt_debug)
-      fprintf(stderr,"  fused ring junction: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
-    ignore_bond[nt_bonds[i]] = true; 
-  } 
-
-  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-    if(atom_shares[*aiter] == 2){
-      std::stack<OBAtom*>    stack; 
-      std::map<OBAtom*,bool> visited; 
-      unsigned int locant_pos = 0;
-      stack.push(*aiter);
-
-      while(!stack.empty()){
-        ratom = stack.top();
-        stack.pop();
-        locant_path[locant_pos++] = ratom; 
-        visited[ratom] = true; 
-
-        FOR_NBORS_OF_ATOM(a,ratom){ 
-          catom = &(*a);   
-          bond = mol->GetBond(ratom,catom); 
-          if(atom_shares[catom] && !visited[catom] && !ignore_bond[bond]){
-            stack.push(catom);
-            break;
-          }
-        }
-      }
-
-      // perform the fusion sum logic here
-      unsigned int fsum = 0;
-      for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-        OBRing *obring = (*riter); 
-        fsum += fusion_sum(mol,obring,locant_path,path_size);
-      }
-      if(fsum < lowest_sum){ // rule 30d.
-        lowest_sum = fsum;
-        copy_locant_path(best_path,locant_path,path_size);
-        if(opt_debug)
-          fprintf(stderr,"  set on fs:  fusion sum for path: %-2d\n",lowest_sum);
-      }
-    }
-  }
-
-  free(locant_path);
-  for(unsigned int i=0;i<path_size;i++){
-    if(!best_path[i]){
-      free(best_path);
-      Fatal("no continous locant path was possible - currently unsupported - PAlgorithm\n");
-    }
-  }
-
-  return best_path; 
-}
-
-/* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
-find a multicyclic path thats stable with disjoined pericyclic points */
-OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
-                            std::set<OBAtom*>               &ring_atoms,
-                            std::map<OBAtom*,unsigned int>  &atom_shares,
-                            std::map<OBAtom*,OBAtom*>       &broken_atoms,
-                            std::set<OBRing*>               &local_SSSR)
-{
-
-  // parameters needed to seperate out the best locant path
-  unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_set       = UINT32_MAX;
-  unsigned int           lowest_bridges   = UINT32_MAX; // specific mention in rule 30f.
-
-  // multi atoms are the starting seeds, must check them all unfortuanately 
-  std::vector<OBAtom*> seeds; 
-  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-    OBAtom *rseed = (*aiter);
-    if(atom_shares[rseed] >= 1)
-      seeds.push_back(rseed);
-  }
-
-  bool path_found = false;
-  unsigned int found_path_size = path_size;
-
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
-  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
-  for(unsigned int i=0;i<found_path_size;i++){
-    locant_path[i] = 0;
-    best_path[i] = 0; 
-  }
-
-  // decend logic idea from Tom Allam
-  while(!path_found && found_path_size > 1){ 
-    
-    for(OBAtom *rseed : seeds){
-      OBAtom*                catom  = 0;
-      std::map<OBAtom*,bool> current; 
-      std::vector<std::pair<OBAtom*,OBAtom*>> path; 
-      path.push_back({rseed,0}); 
-
-      while(!path.empty()){
-        OBAtom* ratom = path.back().first;
-        OBAtom* next = path.back().second;  
-
-        if(!current[ratom])
-          current[ratom] = true;
-        
-        bool skipped = false;
-        bool pushed = false;
-
-        if(!next)
-          skipped = true; 
-
-        FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
-          catom = &(*a);
-          if(atom_shares[catom]){
-            if(catom == next)
-              skipped = true;
-            else if(!current[catom] && skipped){
-              path.push_back({catom,0});
-              pushed = true; 
-              break;
-            }
-          }
-        }
-
-        if(!pushed){
-          if(path.size() == found_path_size){
-            path_found = true;
-            for(unsigned int i=0;i<found_path_size;i++)
-              locant_path[i] = path[i].first;
-            
-            // calculate the fusion sum here, expensive but necessary
-            unsigned int fsum = 0;
-            unsigned int fset = 0;
-            for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-              OBRing *obring = (*riter); 
-              unsigned int lfsum =  fusion_sum(mol,obring,locant_path,found_path_size);
-              fsum += lfsum; 
-            }
-
-            fset = lowest_fusion_set(mol,locant_path,found_path_size,local_SSSR);
-
-#define SWAPPED 0
-#if SWAPPED
-            if(fsum < lowest_sum){ // rule 30d.
-              lowest_sum = fsum;
-              lowest_set = fset; 
-              copy_locant_path(best_path,locant_path,found_path_size);
-              if(opt_debug)
-                fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
-            }
-            else if (fsum == lowest_sum){ // rule 30e. 
-              if(fset < lowest_set){
-                lowest_set = fset;
-                copy_locant_path(best_path,locant_path,found_path_size);
-                if(opt_debug)
-                  fprintf(stderr,"  set on fset:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
-              }
-            }
-#else
-            if(fset < lowest_set){ // rule 30d.
-              lowest_sum = fsum;
-              lowest_set = fset; 
-              copy_locant_path(best_path,locant_path,found_path_size);
-              if(opt_debug)
-                fprintf(stderr,"  set on fset:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
-            }
-            else if (fset == lowest_set){ // rule 30e. 
-              if(fsum < lowest_sum){
-                lowest_set = fset;
-                lowest_sum = fsum;
-                copy_locant_path(best_path,locant_path,found_path_size);
-                if(opt_debug)
-                  fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
-              }
-            }
-
-#endif
-          }
-
-          OBAtom *tmp = path.back().first; 
-          path.pop_back();
-          if(!path.empty()){
-            path.back().second = tmp;
-            current[tmp] = false; 
-          } 
-        }
-      }
-    }
-
-    for(unsigned int i=0;i<path_size;i++)
-      locant_path[i] = 0;
-    
-    if(!path_found){
-      for(unsigned int i=0;i<path_size;i++)
-        best_path[i] = 0;
-
-      found_path_size--; // decrement the path size and see what we can do
-    }
-  }
-  
-  free(locant_path);
-  if(!path_found){
-    free(best_path);
-    Fatal("no locant path could be generated, even with decrements - first stop point\n");
-  }
-
-  if(found_path_size < path_size){
-
-    if(opt_debug)
-      fprintf(stderr,"  found locant path with %d branches out\n",path_size-found_path_size);
-
-    for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
-      if(position_in_path(*aiter,best_path,found_path_size,false) == 0 && best_path[0] != *aiter){
-        OBAtom *branching = *aiter; 
-        unsigned int lowest_pos = found_path_size; 
-        FOR_NBORS_OF_ATOM(a,branching){
-          unsigned int bpos = position_in_path(&(*a),best_path,found_path_size);
-          if(bpos < lowest_pos)
-            lowest_pos = bpos; 
-        }
-
-        if(opt_debug)
-          fprintf(stderr,"  branching is bonded to: %c\n",int_to_locant(lowest_pos+1));
-        
-        if(broken_atoms[locant_path[lowest_pos]])
-          Fatal("multiple broken locants per atom are currently unsupported");
-        else
-          broken_atoms[locant_path[lowest_pos]] = branching;
-        
-        if(found_path_size < path_size)
-          best_path[found_path_size++] = branching; // stick at end of path
-      }
-    }
-  }
-
-  if(found_path_size < path_size){
-    free(best_path);
-    Fatal("no locant path could be generated, even with decrements - second stop point\n");
-  }
-  return best_path;
-}
-
-
-bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
-  for(unsigned int i=0;i<size;i++){
-    if(locant_array[i]->GetAtomicNum() != 6)
-      return true;
-  }
-  return false; 
-}
-
-
-unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
-                            std::map<OBAtom*,unsigned int>  &atom_shares)
-{
-  unsigned int classification = 0;
-  for(std::set<OBAtom*>::iterator iter = ring_atoms.begin();iter != ring_atoms.end();iter++){
-    if(atom_shares[*iter] == 3){
-      if(classification < 1)
-        classification = 1; 
-    }
-
-    if(atom_shares[*iter] == 4)
-      return 2;
-  }
-  return classification; 
 }
 
 bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
@@ -709,9 +389,7 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           
         }
       }
-
     }
-
   }
 
   // horrid but effective, can tidy up later
@@ -812,6 +490,352 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   free(ring_arr);
   return true;  
 }
+
+
+OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
+                  std::set<OBRing*> &local_SSSR)
+{
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++)
+    locant_path[i] = 0; 
+
+  OBRing *mono = *(local_SSSR.begin());
+
+  for(unsigned int i=0;i<mono->Size();i++)
+  locant_path[i] = mol->GetAtom(mono->_path[i]);
+    
+  return locant_path;
+}
+
+/*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
+    solution, fusion sum is the only filter rule needed here
+*/
+OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
+                        std::set<OBAtom*>              &ring_atoms,
+                        std::set<OBBond*>              &ring_bonds,
+                        std::map<OBAtom*,unsigned int> &atom_shares,
+                        std::set<OBRing*>              &local_SSSR)
+{
+
+  // create the path
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++){
+    locant_path[i] = 0;
+    best_path[i] = 0; 
+  }
+
+  // set up some non-trivial bonds
+  std::vector<OBBond*> nt_bonds; 
+  for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
+    OBBond *bond = (*biter);
+    unsigned int share = 0; 
+    for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+      OBRing *obring = (*riter); 
+      if(obring->IsMember(bond))
+        share++; 
+    }
+
+    if(share > 1)
+      nt_bonds.push_back(bond);   
+  }
+
+  unsigned int           lowest_sum       = UINT32_MAX;
+
+  OBAtom*                ratom  = 0;
+  OBAtom*                catom  = 0;
+  OBBond*                bond   = 0; 
+  std::map<OBBond*,bool> ignore_bond; 
+
+  for(unsigned int i=0;i<nt_bonds.size();i++){
+    if(opt_debug)
+      fprintf(stderr,"  fused ring junction: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
+    ignore_bond[nt_bonds[i]] = true; 
+  } 
+
+  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
+    if(atom_shares[*aiter] == 2){
+      std::stack<OBAtom*>    stack; 
+      std::map<OBAtom*,bool> visited; 
+      unsigned int locant_pos = 0;
+      stack.push(*aiter);
+
+      while(!stack.empty()){
+        ratom = stack.top();
+        stack.pop();
+        locant_path[locant_pos++] = ratom; 
+        visited[ratom] = true; 
+
+        FOR_NBORS_OF_ATOM(a,ratom){ 
+          catom = &(*a);   
+          bond = mol->GetBond(ratom,catom); 
+          if(atom_shares[catom] && !visited[catom] && !ignore_bond[bond]){
+            stack.push(catom);
+            break;
+          }
+        }
+      }
+
+      // perform the fusion sum logic here
+      unsigned int fsum = 0;
+      for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+        OBRing *obring = (*riter); 
+        fsum += fusion_sum(mol,obring,locant_path,path_size);
+      }
+      if(fsum < lowest_sum){ // rule 30d.
+        lowest_sum = fsum;
+        copy_locant_path(best_path,locant_path,path_size);
+        if(opt_debug)
+          fprintf(stderr,"  set on fs:  fusion sum for path: %-2d\n",lowest_sum);
+      }
+    }
+  }
+
+  free(locant_path);
+  for(unsigned int i=0;i<path_size;i++){
+    if(!best_path[i]){
+      free(best_path);
+      Fatal("no continous locant path was possible - currently unsupported - PAlgorithm\n");
+    }
+  }
+
+  return best_path; 
+}
+
+
+/* rule 30b requires scoring of how many ring locants are cited, there is unfortunately 
+no way of knowing unless we write them... yikes, symmetrical molecules do not need this procedure */
+unsigned int ScoreRingAssigments( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+                                  std::set<OBRing*>               &local_SSSR,
+                                  std::map<OBAtom*,bool>          &bridge_atoms,
+                                  std::map<OBAtom*,OBAtom*>       &broken_atoms){
+  unsigned int score = 0;
+
+  std::string ring_buffer; 
+  std::vector<OBRing*> ring_order; // tmp
+  ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,ring_order,ring_buffer);
+  
+  bool on_number = false;
+  for(unsigned int i=0;i<ring_buffer.size();i++){
+    if(ring_buffer[i] >= '0' && ring_buffer[i] <= '9')
+      on_number = true;
+    else{
+      if(ring_buffer[i] == '-')
+        continue;
+
+      if(on_number){
+        score++;
+        on_number = false;
+      }
+    }
+  }
+
+  // get the last one
+  if(on_number)
+    score++;
+
+  if(opt_debug)
+    fprintf(stderr,"  scoring: %s, %d\n",ring_buffer.c_str(),score);
+
+  return score; 
+}
+
+/* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
+find a multicyclic path thats stable with disjoined pericyclic points */
+OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
+                            std::set<OBAtom*>               &ring_atoms,
+                            std::map<OBAtom*,unsigned int>  &atom_shares,
+                            std::map<OBAtom*,bool>          &bridge_atoms, // rule 30f.
+                            std::map<OBAtom*,OBAtom*>       &broken_atoms,
+                            std::set<OBRing*>               &local_SSSR)
+{
+
+  // parameters needed to seperate out the best locant path
+  unsigned int           lowest_sum       = UINT32_MAX;
+  unsigned int           lowest_set       = UINT32_MAX;
+  unsigned int           lowest_score     = UINT32_MAX;
+
+  // multi atoms are the starting seeds, must check them all unfortuanately 
+  std::vector<OBAtom*> seeds; 
+  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
+    OBAtom *rseed = (*aiter);
+    if(atom_shares[rseed] >= 1)
+      seeds.push_back(rseed);
+  }
+
+  bool path_found = false;
+  unsigned int found_path_size = path_size;
+
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
+  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
+  for(unsigned int i=0;i<found_path_size;i++){
+    locant_path[i] = 0;
+    best_path[i] = 0; 
+  }
+
+  // decend logic idea from Tom Allam
+  while(!path_found && found_path_size > 1){ 
+    
+    for(OBAtom *rseed : seeds){
+      OBAtom*                catom  = 0;
+      std::map<OBAtom*,bool> current; 
+      std::vector<std::pair<OBAtom*,OBAtom*>> path; 
+      path.push_back({rseed,0}); 
+
+      while(!path.empty()){
+        OBAtom* ratom = path.back().first;
+        OBAtom* next = path.back().second;  
+
+        if(!current[ratom])
+          current[ratom] = true;
+        
+        bool skipped = false;
+        bool pushed = false;
+
+        if(!next)
+          skipped = true; 
+
+        FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
+          catom = &(*a);
+          if(atom_shares[catom]){
+            if(catom == next)
+              skipped = true;
+            else if(!current[catom] && skipped){
+              path.push_back({catom,0});
+              pushed = true; 
+              break;
+            }
+          }
+        }
+
+        if(!pushed){
+          if(path.size() == found_path_size){
+            path_found = true;
+            for(unsigned int i=0;i<found_path_size;i++)
+              locant_path[i] = path[i].first;
+            
+            // calculate the fusion sum here, expensive but necessary
+            unsigned int fsum = 0;
+            unsigned int fset = 0;
+            for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
+              OBRing *obring = (*riter); 
+              unsigned int lfsum =  fusion_sum(mol,obring,locant_path,found_path_size);
+              fsum += lfsum; 
+            }
+
+            fset = lowest_fusion_set(mol,locant_path,found_path_size,local_SSSR);
+            
+            if(fsum < lowest_sum){ // rule 30d.
+              lowest_sum = fsum;
+              lowest_set = fset; 
+              copy_locant_path(best_path,locant_path,found_path_size);
+              if(opt_debug)
+                fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",fsum,fset);
+            }
+            else if (fsum == lowest_sum){
+
+              // fusion sum gets us a lot of the way there, this read procedure is really wasteful
+              unsigned int score = ScoreRingAssigments(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms);
+              if(score < lowest_score){
+                lowest_score = score;
+                copy_locant_path(best_path,locant_path,found_path_size);
+                if(opt_debug)
+                  fprintf(stderr,"  set on score: fsum: %-2d, fset: %-2d\n",fsum,fset);
+              }
+            
+            }
+
+          }
+
+          OBAtom *tmp = path.back().first; 
+          path.pop_back();
+          if(!path.empty()){
+            path.back().second = tmp;
+            current[tmp] = false; 
+          } 
+        }
+      }
+    }
+
+    for(unsigned int i=0;i<path_size;i++)
+      locant_path[i] = 0;
+    
+    if(!path_found){
+      for(unsigned int i=0;i<path_size;i++)
+        best_path[i] = 0;
+
+      found_path_size--; // decrement the path size and see what we can do
+    }
+  }
+  
+  free(locant_path);
+  if(!path_found){
+    free(best_path);
+    Fatal("no locant path could be generated, even with decrements - first stop point\n");
+  }
+
+  if(found_path_size < path_size){
+
+    if(opt_debug)
+      fprintf(stderr,"  found locant path with %d branches out\n",path_size-found_path_size);
+
+    for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
+      if(position_in_path(*aiter,best_path,found_path_size,false) == 0 && best_path[0] != *aiter){
+        OBAtom *branching = *aiter; 
+        unsigned int lowest_pos = found_path_size; 
+        FOR_NBORS_OF_ATOM(a,branching){
+          unsigned int bpos = position_in_path(&(*a),best_path,found_path_size);
+          if(bpos < lowest_pos)
+            lowest_pos = bpos; 
+        }
+
+        if(opt_debug)
+          fprintf(stderr,"  branching is bonded to: %c\n",int_to_locant(lowest_pos+1));
+        
+        if(broken_atoms[locant_path[lowest_pos]])
+          Fatal("multiple broken locants per atom are currently unsupported");
+        else
+          broken_atoms[locant_path[lowest_pos]] = branching;
+        
+        if(found_path_size < path_size)
+          best_path[found_path_size++] = branching; // stick at end of path
+      }
+    }
+  }
+
+  if(found_path_size < path_size){
+    free(best_path);
+    Fatal("no locant path could be generated, even with decrements - second stop point\n");
+  }
+  return best_path;
+}
+
+
+bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
+  for(unsigned int i=0;i<size;i++){
+    if(locant_array[i]->GetAtomicNum() != 6)
+      return true;
+  }
+  return false; 
+}
+
+
+unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
+                            std::map<OBAtom*,unsigned int>  &atom_shares)
+{
+  unsigned int classification = 0;
+  for(std::set<OBAtom*>::iterator iter = ring_atoms.begin();iter != ring_atoms.end();iter++){
+    if(atom_shares[*iter] == 3){
+      if(classification < 1)
+        classification = 1; 
+    }
+
+    if(atom_shares[*iter] == 4)
+      return 2;
+  }
+  return classification; 
+}
+
 
 
 /**********************************************************************
@@ -2259,7 +2283,7 @@ struct BabelGraph{
     else if(!multi && bridge_atoms.empty())
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,broken_atoms,local_SSSR);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
 
     if(inline_ring){
       buffer+= '-';
