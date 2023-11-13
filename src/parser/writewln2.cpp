@@ -138,29 +138,21 @@ unsigned int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsign
   return lpos; 
 }
 
-unsigned int fusion_sum(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
-  unsigned int fsum = 0;
-  for(unsigned int i=0;i<ring->Size();i++)
-    fsum+= position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size,false) +1;
-  return fsum; 
+/* overall ring sum, combinates rule 30d and 30e for symmetrical structures */
+unsigned int ring_sum(OBMol *mol, OBRing *ring, OBAtom**locant_path,unsigned int path_size){
+  unsigned int rsum = 0;
+  for(unsigned int i=0;i<ring->Size();i++){
+    OBAtom *ratom = mol->GetAtom(ring->_path[i]);
+    rsum += position_in_path(ratom, locant_path,path_size,false) + 1; 
+  }
+  return rsum;
 }
 
-unsigned int lowest_fusion_set(OBMol *mol, OBAtom **locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
+unsigned int fusion_sum(OBMol *mol, OBAtom **locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
   unsigned int ret = 0; 
-  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-    unsigned int lfc = fusion_locant(mol,*riter,locant_path,path_size); 
-    ret += lfc; 
-  }
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
+    ret += fusion_locant(mol,*riter,locant_path,path_size) + 1; // A=1, B=2 etc 
   return ret;
-}
-
-unsigned int lowest_bridge_set(OBAtom **locant_path, unsigned int path_size, std::map<OBAtom*,bool> &bridge_atoms){
-  unsigned int ret = 0;
-  for(unsigned int i=0;i<path_size;i++){
-    if(bridge_atoms[locant_path[i]])
-      ret+=i;
-  }
-  return ret; 
 }
 
 
@@ -175,7 +167,7 @@ void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned 
   fprintf(stderr,"[ ");
   for(unsigned int k=0;k<ring->Size();k++)
     fprintf(stderr,"%c ",sequence[k]);
-  fprintf(stderr,"] - %d\n",fusion_sum(mol,ring,locant_path,path_size));
+  fprintf(stderr,"]\n");
 
   free(sequence);
 }
@@ -207,12 +199,14 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
   return true;
 }
 
-bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+unsigned int CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::vector<OBRing*>            &ring_order,
                       std::vector<unsigned char>      &locant_order,
                       std::map<OBAtom*,bool>          &bridge_atoms,
                       std::string &buffer)
 {
+
+  unsigned int pseudo_pairs = 0;
 
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections;
@@ -383,6 +377,7 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                 write_locant(b,buffer);
                 bonds_seen.push_back(a);
                 bonds_seen.push_back(b);
+                pseudo_pairs+=2; // treat these as something to avoid
               }
             }
           }
@@ -393,16 +388,17 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
 
   // horrid but effective, can tidy up later
-  return true;
+  return pseudo_pairs;
 }
 
 
-bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
                       std::map<OBAtom*,bool>               &bridge_atoms,
                       std::map<OBAtom*,OBAtom*>       &broken_atoms,
                       std::vector<OBRing*>            &ring_order,
-                      std::string &buffer)
+                      std::string &buffer, 
+                      bool verbose=true)
 {  
 
   unsigned int arr_size = 0; 
@@ -410,7 +406,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
     ring_arr[arr_size++]= *riter; 
   
-
+  unsigned int assignement_score = 0;
   unsigned int rings_done = 0;
   std::vector<unsigned char> locant_order;
   std::map<unsigned char,bool> in_chain; 
@@ -420,15 +416,17 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     unsigned int pos_to_write     = 0;
     unsigned char lowest_in_ring  = 255;
     unsigned char highest_in_ring  = 0;
-    unsigned int lowest_fsum = UINT32_MAX; 
-
+    unsigned int lowest_rsum = UINT32_MAX; 
+    
+    bool updated = false;
     for(unsigned int i=0;i<arr_size;i++){
       OBRing *wring = ring_arr[i]; 
       if(!pos_written[i]){
         if(sequential_chain(mol,wring,locant_path,path_size,in_chain)){
+          updated = true;
           unsigned char min_loc = 255; 
           unsigned char high_loc = 0; 
-          unsigned int fsum = fusion_sum(mol,wring,locant_path,path_size);
+          unsigned int rsum = ring_sum(mol,wring,locant_path,path_size);
           for(unsigned int k=0;k<wring->Size();k++){
             unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)+1); 
             if(loc < min_loc)
@@ -438,16 +436,22 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
           }
 
           if(min_loc < lowest_in_ring || 
-            (min_loc == lowest_in_ring && fsum < lowest_fsum) || 
-            (min_loc == lowest_in_ring && fsum == lowest_fsum && high_loc < highest_in_ring)){
+            (min_loc == lowest_in_ring && rsum < lowest_rsum) || 
+            (min_loc == lowest_in_ring && rsum == lowest_rsum && high_loc < highest_in_ring)){
             lowest_in_ring = min_loc;
             highest_in_ring = high_loc;
-            lowest_fsum = fsum;
+            lowest_rsum = rsum;
             pos_to_write = i; 
           }
 
         }
       }
+    }
+
+    // catch all whilst branching locant logic is not currently active
+    if(!updated){
+      free(ring_arr);
+      return 255;
     }
 
     OBRing *to_write = ring_arr[pos_to_write];
@@ -462,15 +466,19 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       in_chain[loc] = true;
     }
 
-    if(opt_debug){
-      fprintf(stderr,"  %d: %c(%d) -",rings_done,lowest_in_ring,lowest_in_ring);
+    if(opt_debug && verbose){
+      fprintf(stderr,"  %d(%d): %c(%d) -",rings_done,pos_to_write,lowest_in_ring,lowest_in_ring);
       print_ring_locants(mol,to_write,locant_path,path_size,false);
     }
 
     if(lowest_in_ring != 'A'){
       buffer += ' ';
       write_locant(lowest_in_ring,buffer);
+      assignement_score++;
     }
+    else if(!assignement_score)
+      assignement_score++;
+    
 
     if(to_write->Size() > 9){
       buffer+='-';
@@ -484,11 +492,10 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     rings_done++;
   }
 
-
-  CheckPseudoCodes(mol,locant_path,path_size,ring_order,locant_order,bridge_atoms,buffer);
+  assignement_score += CheckPseudoCodes(mol,locant_path,path_size,ring_order,locant_order,bridge_atoms,buffer);
 
   free(ring_arr);
-  return true;  
+  return assignement_score;  
 }
 
 
@@ -580,7 +587,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
       unsigned int fsum = 0;
       for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
         OBRing *obring = (*riter); 
-        fsum += fusion_sum(mol,obring,locant_path,path_size);
+        fsum += ring_sum(mol,obring,locant_path,path_size);
       }
       if(fsum < lowest_sum){ // rule 30d.
         lowest_sum = fsum;
@@ -609,35 +616,13 @@ unsigned int ScoreRingAssigments( OBMol *mol, OBAtom **locant_path, unsigned int
                                   std::set<OBRing*>               &local_SSSR,
                                   std::map<OBAtom*,bool>          &bridge_atoms,
                                   std::map<OBAtom*,OBAtom*>       &broken_atoms){
-  unsigned int score = 0;
 
   std::string ring_buffer; 
   std::vector<OBRing*> ring_order; // tmp
-  ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,ring_order,ring_buffer);
-  
-  bool on_number = false;
-  for(unsigned int i=0;i<ring_buffer.size();i++){
-    if(ring_buffer[i] >= '0' && ring_buffer[i] <= '9')
-      on_number = true;
-    else{
-      if(ring_buffer[i] == '-')
-        continue;
+  unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,ring_order,ring_buffer,false);
+  std::cerr << ring_buffer << std::endl;
 
-      if(on_number){
-        score++;
-        on_number = false;
-      }
-    }
-  }
-
-  // get the last one
-  if(on_number)
-    score++;
-
-  if(opt_debug)
-    fprintf(stderr,"  scoring: %s, %d\n",ring_buffer.c_str(),score);
-
-  return score; 
+  return score;
 }
 
 /* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
@@ -651,9 +636,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 {
 
   // parameters needed to seperate out the best locant path
-  unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_set       = UINT32_MAX;
-  unsigned int           lowest_score     = UINT32_MAX;
+  unsigned int           lowest_tsum       = UINT32_MAX;
+  unsigned int           lowest_fsum       = UINT32_MAX;
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   std::vector<OBAtom*> seeds; 
@@ -714,37 +698,25 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             for(unsigned int i=0;i<found_path_size;i++)
               locant_path[i] = path[i].first;
             
+            unsigned int tsum = 0;
+            for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++)
+              tsum += ring_sum(mol,*riter,locant_path,found_path_size);
+
             // calculate the fusion sum here, expensive but necessary
-            unsigned int fsum = 0;
-            unsigned int fset = 0;
-            for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-              OBRing *obring = (*riter); 
-              unsigned int lfsum =  fusion_sum(mol,obring,locant_path,found_path_size);
-              fsum += lfsum; 
-            }
+            unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
 
-            fset = lowest_fusion_set(mol,locant_path,found_path_size,local_SSSR);
-            
-            if(fsum < lowest_sum){ // rule 30d.
-              lowest_sum = fsum;
-              lowest_set = fset; 
+
+            // std::string tmp;
+            // std::vector<OBRing*> tmpr;
+            // ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmpr,tmp,false);
+
+            // fprintf(stderr,"%s - %d\n",tmp.c_str(),fsum);
+
+            if(fsum < lowest_fsum){ // rule 30(d and e).
+              lowest_tsum = tsum;
+              lowest_fsum = fsum;
               copy_locant_path(best_path,locant_path,found_path_size);
-              if(opt_debug)
-                fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",fsum,fset);
             }
-            else if (fsum == lowest_sum){
-
-              // fusion sum gets us a lot of the way there, this read procedure is really wasteful
-              unsigned int score = ScoreRingAssigments(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms);
-              if(score < lowest_score){
-                lowest_score = score;
-                copy_locant_path(best_path,locant_path,found_path_size);
-                if(opt_debug)
-                  fprintf(stderr,"  set on score: fsum: %-2d, fset: %-2d\n",fsum,fset);
-              }
-            
-            }
-
           }
 
           OBAtom *tmp = path.back().first; 
@@ -2070,7 +2042,7 @@ struct BabelGraph{
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
       fprintf(stderr,"  ring subcycles: %lu/%lu\n",local_SSSR.size(),mol->GetSSSR().size());
-      if(!bridge_count)
+      if(bridge_count)
         fprintf(stderr,"  bridging atoms: %d\n",bridge_count);
       
     }

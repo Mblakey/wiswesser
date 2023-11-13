@@ -1992,7 +1992,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     }
 
     // shifting now performed here should be more stable
-    for(;;){
+    while(bind_1 < int_to_locant(path_size)){
       if(!broken_lookup[bind_1].empty()){
         
         while(spawned_broken[broken_lookup[bind_1].front()])
@@ -2029,9 +2029,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           fprintf(stderr," ]\n");
         }
 
-        WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-        if(!edge)
-          return false;
+        if(bind_1 != bind_2 + 1 && bind_2 != bind_1 + 1){
+          WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
+          if(!edge)
+            return false;
+        }
 
         allowed_connections[bind_1]--;
         if(allowed_connections[bind_2])
