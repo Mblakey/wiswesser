@@ -677,15 +677,16 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
         if(!next)
           skipped = true; 
 
+        OBAtom *obpush = 0;
         FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
           catom = &(*a);
           if(atom_shares[catom]){
             if(catom == next)
               skipped = true;
-            else if(!current[catom] && skipped){
+            else if(!current[catom] && skipped && !pushed){
               path.push_back({catom,0});
+              obpush = catom;
               pushed = true; 
-              break;
             }
           }
         }
@@ -702,6 +703,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
             // calculate the fusion sum here, expensive but necessary
             unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
+
+            // fprintf(stderr,"nt bonds: %d\n",nt_bonds_sum);
 
             DebugRingPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms);
             if(fsum < lowest_fsum){ // rule 30(d and e).
