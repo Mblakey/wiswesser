@@ -612,17 +612,15 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 
 /* rule 30b requires scoring of how many ring locants are cited, there is unfortunately 
 no way of knowing unless we write them... yikes, symmetrical molecules do not need this procedure */
-unsigned int ScoreRingAssigments( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+void DebugRingPath( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                                   std::set<OBRing*>               &local_SSSR,
                                   std::map<OBAtom*,bool>          &bridge_atoms,
                                   std::map<OBAtom*,OBAtom*>       &broken_atoms){
 
   std::string ring_buffer; 
   std::vector<OBRing*> ring_order; // tmp
-  unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,ring_order,ring_buffer,false);
+  ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,ring_order,ring_buffer,false);
   std::cerr << ring_buffer << std::endl;
-
-  return score;
 }
 
 /* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
@@ -705,18 +703,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             // calculate the fusion sum here, expensive but necessary
             unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
 
-#define COMBO 1
-#if COMBO
-            if((fsum+tsum) < lowest_fsum){ // rule 30(d and e).
-              lowest_fsum = (fsum+tsum);
-              copy_locant_path(best_path,locant_path,found_path_size);
-            }
-#else
+            DebugRingPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms);
             if(fsum < lowest_fsum){ // rule 30(d and e).
               lowest_fsum = fsum;
+              lowest_tsum = fsum;
               copy_locant_path(best_path,locant_path,found_path_size);
             }
-#endif
+
           }
 
           OBAtom *tmp = path.back().first; 
