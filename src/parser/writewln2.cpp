@@ -328,6 +328,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_sum       = UINT32_MAX;
   unsigned int           lowest_set       = UINT32_MAX;
+  unsigned int           lowest_bridges   = UINT32_MAX; // specific mention in rule 30f.
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   std::vector<OBAtom*> seeds; 
@@ -529,28 +530,20 @@ unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
 bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::vector<OBRing*>            &ring_order,
                       std::vector<unsigned char>      &locant_order,
-                      std::set<OBAtom*>               &bridge_atoms,
+                      std::map<OBAtom*,bool>          &bridge_atoms,
                       std::string &buffer)
 {
 
   // set up the read shadowing algorithm
-  std::map<unsigned char,unsigned int> connections; 
-  for(unsigned char ch ='A';ch <= int_to_locant(path_size);ch++){
-    connections[ch] = 1;
-    if(ch == 'A' || ch == int_to_locant(path_size))
-      connections[ch]++;
-  }
-
-  for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin();biter != bridge_atoms.end(); biter++){
-    unsigned char bloc = int_to_locant(position_in_path(*biter,locant_path,path_size))+1; 
-    if(connections[bloc])
-      connections[bloc]--;
-  }
-
-//BETA
+  std::map<unsigned char,unsigned int> connections;
   for(unsigned int i=0;i<path_size;i++){
-    if(!locant_path[i])
-      Fatal("dead pointer in locant path");
+    unsigned char ch = int_to_locant(i+1); 
+    connections[ch] = 1;
+    if(i==0 || i == path_size-1)
+      connections[ch]++;
+    
+    if(bridge_atoms[locant_path[i]] && connections[ch])
+      connections[ch]--;
 
     if(locant_path[i]->GetAtomicNum() == 6){
       unsigned int rbonds = 0; 
@@ -728,7 +721,7 @@ bool CheckPseudoCodes(OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
 bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
-                      std::set<OBAtom*>               &bridge_atoms,
+                      std::map<OBAtom*,bool>               &bridge_atoms,
                       std::map<OBAtom*,OBAtom*>       &broken_atoms,
                       std::vector<OBRing*>            &ring_order,
                       std::string &buffer)
@@ -1908,9 +1901,9 @@ struct BabelGraph{
   /* parses the local ring system, return the size for creating the locant path with 
   non bonds to avoid */
   unsigned int ConstructLocalSSSR(  OBMol *mol, OBAtom *ring_root,
-                                    std::set<OBAtom*>  &ring_atoms,
-                                    std::set<OBBond*>  &ring_bonds,
-                                    std::set<OBAtom*>  &bridging_atoms,
+                                    std::set<OBAtom*>         &ring_atoms,
+                                    std::set<OBBond*>         &ring_bonds,
+                                    std::map<OBAtom*,bool>    &bridge_atoms,
                                     std::map<OBAtom*,unsigned int> &atom_shares,
                                     std::set<OBRing*> &local_SSSR)
   {
@@ -2034,6 +2027,7 @@ struct BabelGraph{
 
 
     // filter out only the 2 bond bridge atoms
+    unsigned int bridge_count = 0;
     if(!tmp_bridging_atoms.empty()){
       for(std::set<OBAtom*>::iterator brd_iter=tmp_bridging_atoms.begin(); brd_iter != tmp_bridging_atoms.end();brd_iter++){
         unsigned int inter_ring_bonds = 0;
@@ -2041,8 +2035,10 @@ struct BabelGraph{
           if(mol->GetBond(*brd_iter,*aiter))
             inter_ring_bonds++; 
         }
-        if(inter_ring_bonds == 2)
-          bridging_atoms.insert(*brd_iter); 
+        if(inter_ring_bonds == 2){
+          bridge_count++;
+          bridge_atoms[*brd_iter] = true;
+        }
       }
     }
 
@@ -2050,8 +2046,8 @@ struct BabelGraph{
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
       fprintf(stderr,"  ring subcycles: %lu/%lu\n",local_SSSR.size(),mol->GetSSSR().size());
-      if(!bridging_atoms.empty())
-        fprintf(stderr,"  bridging atoms: %lu\n",bridging_atoms.size());
+      if(!bridge_count)
+        fprintf(stderr,"  bridging atoms: %d\n",bridge_count);
       
     }
       
@@ -2246,7 +2242,8 @@ struct BabelGraph{
     std::set<OBAtom*>               ring_atoms;
     std::set<OBBond*>               ring_bonds;
     std::vector<OBRing*>            ring_order; 
-    std::set<OBAtom*>               bridge_atoms;
+
+    std::map<OBAtom*,bool>          bridge_atoms;
     std::map<OBAtom*,OBAtom*>       broken_atoms;
     std::map<OBAtom*,unsigned int>  atom_shares;
   
@@ -2298,10 +2295,12 @@ struct BabelGraph{
                     buffer); 
     
     if(!bridge_atoms.empty()){
-      for(std::set<OBAtom*>::iterator biter = bridge_atoms.begin(); biter != bridge_atoms.end(); biter++){
-        buffer+= ' ';
-        unsigned char bloc = int_to_locant(position_in_path(*biter,locant_path,path_size)+1);
-        write_locant(bloc,buffer);
+      for(unsigned int i=0;i<path_size;i++){
+        if(bridge_atoms[locant_path[i]]){
+          buffer+= ' ';
+          unsigned char bloc = int_to_locant(i+1);
+          write_locant(bloc,buffer);
+        }
       }
     }
 
