@@ -138,7 +138,7 @@ unsigned char fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsig
   unsigned char min = 255; 
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *latom = mol->GetAtom(ring->_path[i]); 
-    unsigned char lchar = int_to_locant(1+position_in_path(latom,locant_path,path_size)); 
+    unsigned char lchar = int_to_locant(1+position_in_path(latom,locant_path,path_size,false)); 
     if(lchar < min)
       min = lchar; 
   }
@@ -339,6 +339,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   bool path_found = false;
   unsigned int found_path_size = path_size;
+
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
   OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * found_path_size); 
   for(unsigned int i=0;i<found_path_size;i++){
@@ -396,8 +397,10 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
               fsum += lfsum; 
             }
 
-            fset = lowest_fusion_set(mol,locant_path,path_size,local_SSSR);
+            fset = lowest_fusion_set(mol,locant_path,found_path_size,local_SSSR);
 
+#define SWAPPED 0
+#if SWAPPED
             if(fsum < lowest_sum){ // rule 30d.
               lowest_sum = fsum;
               lowest_set = fset; 
@@ -406,11 +409,32 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                 fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
             }
             else if (fsum == lowest_sum){ // rule 30e. 
-              lowest_set = fset;
+              if(fset < lowest_set){
+                lowest_set = fset;
+                copy_locant_path(best_path,locant_path,found_path_size);
+                if(opt_debug)
+                  fprintf(stderr,"  set on fset:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
+              }
+            }
+#else
+            if(fset < lowest_set){ // rule 30d.
+              lowest_sum = fsum;
+              lowest_set = fset; 
               copy_locant_path(best_path,locant_path,found_path_size);
               if(opt_debug)
                 fprintf(stderr,"  set on fset:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
             }
+            else if (fset == lowest_set){ // rule 30e. 
+              if(fsum < lowest_sum){
+                lowest_set = fset;
+                lowest_sum = fsum;
+                copy_locant_path(best_path,locant_path,found_path_size);
+                if(opt_debug)
+                  fprintf(stderr,"  set on fsum:  fsum: %-2d, fset: %-2d\n",lowest_sum,lowest_set);
+              }
+            }
+
+#endif
           }
 
           OBAtom *tmp = path.back().first; 
@@ -423,11 +447,11 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
       }
     }
 
-    for(unsigned int i=0;i<found_path_size;i++)
+    for(unsigned int i=0;i<path_size;i++)
       locant_path[i] = 0;
     
     if(!path_found){
-      for(unsigned int i=0;i<found_path_size;i++)
+      for(unsigned int i=0;i<path_size;i++)
         best_path[i] = 0;
 
       found_path_size--; // decrement the path size and see what we can do
@@ -437,10 +461,10 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   free(locant_path);
   if(!path_found){
     free(best_path);
-    Fatal("no locant path could be generated, even with decrements\n");
+    Fatal("no locant path could be generated, even with decrements - first stop point\n");
   }
 
-  if(found_path_size < path_found){
+  if(found_path_size < path_size){
 
     if(opt_debug)
       fprintf(stderr,"  found locant path with %d branches out\n",path_size-found_path_size);
@@ -469,9 +493,9 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     }
   }
 
-  if(found_path_size != path_size){
+  if(found_path_size < path_size){
     free(best_path);
-    Fatal("no locant path could be generated, even with decrements\n");
+    Fatal("no locant path could be generated, even with decrements - second stop point\n");
   }
   return best_path;
 }
