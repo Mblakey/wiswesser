@@ -1995,9 +1995,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     // we decrement and loop back round
     for(unsigned int i=0;i<path_size;i++){
       if(ring_path[i] == int_to_locant(local_size)){
+        unsigned int tally = 1;
         for(unsigned int j=i+1;j<path_size;j++){
-          if(ring_path[j] == ring_path[i])
-            ring_path[j]--; // looping back
+          if(ring_path[j] == ring_path[i]){
+            ring_path[j] += -tally; // looping back
+            tally++;
+          } 
         }
       }
     }

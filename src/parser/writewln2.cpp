@@ -199,7 +199,7 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
   return true;
 }
 
-int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                           std::vector<unsigned char>      &locant_order,
                           std::vector<OBRing*>            &ring_order,
                           std::map<OBAtom*,bool>          &bridge_atoms,
@@ -210,6 +210,8 @@ int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections;
+  std::map<unsigned char, unsigned char> highest_jump;
+
   for(unsigned int i=0;i<path_size;i++){
     unsigned char ch = int_to_locant(i+1); 
     connections[ch] = 1;
@@ -233,6 +235,7 @@ int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
 
   std::map<std::set<unsigned char>,bool> seen_nt;
   std::vector<std::set<unsigned char>> non_trivials;
+
   for(unsigned int i=0;i<path_size;i++){
     for(unsigned int j=i+2;j<path_size;j++){
       if(mol->GetBond(locant_path[i],locant_path[j]))
@@ -241,8 +244,6 @@ int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   }
 
   // shadow read graph traversal
-  std::map<unsigned char, unsigned char> highest_jump;
-
   for(unsigned int i=0;i<ring_order.size();i++){
     unsigned int steps = ring_order[i]->Size()-1;
     unsigned char bind = locant_order[i];
@@ -259,12 +260,19 @@ int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       path.push_back(locant);
     }
 
-    for(unsigned int a=0;a<path.size();a++){
-      fprintf(stderr,"%c ",path[a]);
+    // add the loop back logic
+    for(unsigned int i=0;i<path.size();i++){
+      unsigned int tally = 1;
+      if(path[i] == int_to_locant(path_size)){
+        for(unsigned int j=i+1;j<path.size();j++){
+          if(path[j] == path[i]){
+            path[j] += -tally; // looping back
+            tally++;
+          }
+        }
+      }
     }
-    fprintf(stderr,"\n");
 
-  
     while(!connections[bind]){
       bind++; // increase bind_1
       bool found = false;
@@ -272,7 +280,6 @@ int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
         if(path[a] == bind)
           found = true;
       }
-
       // if its already there, we dont change the path
       if(!found){ 
         // if its not, we have to spawn it in by knocking one off
@@ -281,24 +288,37 @@ int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
       }
     }
       
-    fprintf(stderr,"%c --> %c\n",bind,locant);
     highest_jump[bind] = locant;
-    
+    seen_nt[{bind,locant}] = true;
+
+    fprintf(stderr,"adding: %c --> %c\n",bind,locant);
+  
     if(connections[bind])
       connections[bind]--;
     if(connections[locant])
       connections[locant]--;
-
   }
 
+  // now we check if this was possible without pseudo locants
+  std::set<unsigned char>::iterator psd_iter;
+  for(unsigned int i=0;i<non_trivials.size();i++){
+    std::set<unsigned char> nt_bond = non_trivials[i];
+    if(!seen_nt[nt_bond]){
+      psd_iter = nt_bond.begin();
+      buffer += '/';
+      write_locant(*psd_iter,buffer); 
+      write_locant(*(++psd_iter),buffer); 
+      pseudo_pairs++;
+    }
+  }
 
-  
   return pseudo_pairs;
 }
 
 
-
-bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
+/* read locant path algorithm, we return the number of non consecutive blocks,
+pseudo check will add determined pairs and check notation is viable for read */
+unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
                       std::map<OBAtom*,bool>          &bridge_atoms,
                       std::map<OBAtom*,OBAtom*>       &broken_atoms,
@@ -311,7 +331,7 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
     ring_arr[arr_size++]= *riter; 
   
-  unsigned int assignement_score = 0;
+  unsigned int assignment_score = 0;
   unsigned int rings_done = 0;
   std::vector<unsigned char> locant_order;
   std::map<unsigned char,bool> in_chain; 
@@ -376,8 +396,11 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     if(lowest_in_ring != 'A'){
       buffer += ' ';
       write_locant(lowest_in_ring,buffer);
+      assignment_score++;
     }
-
+    else if(!rings_done)
+      assignment_score++;
+  
     if(to_write->Size() > 9){
       buffer+='-';
       buffer+= std::to_string(to_write->Size());
@@ -393,10 +416,12 @@ bool ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
     rings_done++;
   }
 
-  PseudoCheck(mol,locant_path,path_size,locant_order,ring_order, bridge_atoms,buffer);
+  unsigned int pairs = PseudoCheck(mol,locant_path,path_size,locant_order,ring_order, bridge_atoms,buffer);
+  for(unsigned int i=0;i<pairs;i++)
+    assignment_score += 10; // this should mean we always try and avoid them
 
   free(ring_arr);
-  return true;  
+  return assignment_score;  
 }
 
 
@@ -523,7 +548,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
   // parameters needed to seperate out the best locant path
   unsigned int           lowest_fsum       = UINT32_MAX;
-  unsigned int           pseudo_used       = 0; // minimise possible
+  unsigned int           lowest_score      = UINT32_MAX;
 
   // multi atoms are the starting seeds, must check them all unfortuanately 
   std::vector<OBAtom*> seeds; 
@@ -584,17 +609,22 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             for(unsigned int i=0;i<found_path_size;i++)
               locant_path[i] = path[i].first;
             
-            // calculate the fusion sum here, expensive but necessary
-            unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
-            
-            std::vector<OBRing*> tmp; 
-            std::string candidate_string; // unfortunate but necessary
-            ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
 
-        
+            unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
+           
             if(fsum < lowest_fsum){ // rule 30(d and e).
               lowest_fsum = fsum;
               copy_locant_path(best_path,locant_path,found_path_size);
+            }
+            else if (fsum == lowest_fsum){
+              std::vector<OBRing*> tmp; 
+              std::string candidate_string; // unfortunate but necessary
+              unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
+
+              if(score < lowest_score){
+                lowest_score = score; 
+                copy_locant_path(best_path,locant_path,found_path_size);
+              }
             }
           }
 
