@@ -205,7 +205,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
                           std::map<OBAtom*,bool>          &bridge_atoms,
                           std::string &buffer)
 {
-
+  fprintf(stderr,"\n");
   unsigned int pseudo_pairs = 0;
 
   // set up the read shadowing algorithm
@@ -242,6 +242,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
         non_trivials.push_back({int_to_locant(i+1),int_to_locant(j+1)});
     }
   }
+
 
   // shadow read graph traversal
   for(unsigned int i=0;i<ring_order.size();i++){
@@ -281,7 +282,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
           found = true;
       }
       // if its already there, we dont change the path
-      if(!found){ 
+      if(!found && !path.empty()){ 
         // if its not, we have to spawn it in by knocking one off
         path.pop_back();
         locant = path.back(); 
@@ -291,8 +292,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
     highest_jump[bind] = locant;
     seen_nt[{bind,locant}] = true;
 
-    fprintf(stderr,"adding: %c --> %c\n",bind,locant);
-  
+
     if(connections[bind])
       connections[bind]--;
     if(connections[locant])
