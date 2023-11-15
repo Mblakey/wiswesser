@@ -67,6 +67,11 @@ main(){
     exit 1;
   fi;
 
+  if [ -z $FILE ]; then
+    echo "no file path for external!"
+    exit ;
+  fi;
+
   COUNT=0
   TOTAL=$(wc -l < $FILE)
 

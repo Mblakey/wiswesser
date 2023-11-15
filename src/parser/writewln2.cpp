@@ -1567,7 +1567,7 @@ struct BabelGraph{
           else
             carbon_chain++; 
           
-          string_position[atom] = buffer.size()+1;
+          string_position[atom] = buffer.size();
           break;
 
         case 'Y':
@@ -1620,6 +1620,7 @@ struct BabelGraph{
           buffer += wln_character;
 
           // K now given for all positive nitrogen
+          string_position[atom] = buffer.size();
           if(atom->GetExplicitValence() < 4){
             for(unsigned int i=atom->GetExplicitValence();i<4;i++)
               buffer += 'H';
@@ -1630,7 +1631,6 @@ struct BabelGraph{
             branching_atom[atom] = true; 
             branch_stack.push(atom);
           }
-          string_position[atom] = buffer.size();
           atom->SetFormalCharge(0); // remove the charge, as this is expected 
           break;
         
@@ -1642,6 +1642,7 @@ struct BabelGraph{
 
           prev = atom;
           buffer += wln_character;
+          string_position[atom] = buffer.size();
           if(atom->GetExplicitValence() < 2)
             buffer += 'H';
           
@@ -1650,7 +1651,6 @@ struct BabelGraph{
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
-          string_position[atom] = buffer.size();
           break;
 
         case 'S':
@@ -1661,6 +1661,7 @@ struct BabelGraph{
 
           prev = atom;
           buffer += wln_character;
+          string_position[atom] = buffer.size();
           if(atom->GetExplicitValence() < 2)
             buffer += 'H';
 
@@ -1668,8 +1669,7 @@ struct BabelGraph{
             remaining_branches[atom] = 5 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
-          }
-          string_position[atom] = buffer.size();
+          }          
           break;
 
         case '*':
@@ -1677,9 +1677,9 @@ struct BabelGraph{
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
-          string_position[atom] = buffer.size()+2;
 
           prev = atom; 
+          string_position[atom] = buffer.size()+2;          
           WriteSpecial(atom,buffer);
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 5 - correction; 
@@ -1705,17 +1705,16 @@ struct BabelGraph{
           }
 
           buffer += wln_character; 
+          string_position[atom] = buffer.size();
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
 
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
 
-
           if(atom->GetExplicitDegree() == 0)
             atom->SetFormalCharge(0); // notational implied, do not write ionic code
 
-          string_position[atom] = buffer.size();
           break;
 
         case 'H':
@@ -1822,20 +1821,6 @@ struct BabelGraph{
     OBBond *bond = 0; 
     OBRing *obring = 0; 
     std::set<OBAtom*> tmp_bridging_atoms;
-
-#define SSSR_TEST 0
-#if SSSR_TEST
-    unsigned int rc = 0;
-    FOR_RINGS_OF_MOL(r,mol){
-      obring = &(*r);
-      fprintf(stderr,"%d [ ",rc++);
-      for(unsigned int i=0;i<obring->Size();i++){
-        ratom = mol->GetAtom(obring->_path[i]);
-        fprintf(stderr,"%d ",ratom->GetIdx());
-      }
-      fprintf(stderr,"]\n");
-    }
-#endif
 
     // get the seed ring and add path to ring_atoms
     FOR_RINGS_OF_MOL(r,mol){

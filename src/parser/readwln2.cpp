@@ -2685,7 +2685,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             case 'Y':
             case 'X':
             case 'K':
-
               if(!heterocyclic && ch=='K')
                 warned = true;
 
@@ -2753,8 +2752,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 unsaturations.push_back({positional_locant,dloc});
                 block_str += 2+k;
                 i += 2+k;
-
-                fprintf(stderr,"triggering- k=%d\n",k);
               }
               else
                 unsaturations.push_back({positional_locant,positional_locant+1});
@@ -5657,8 +5654,12 @@ struct BabelGraph{
       // ionic notation - overrides any given formal charge
       if(graph.charge_additions[sym]){
         charge = graph.charge_additions[sym];
-        if(charge < 0 && hcount)
-          hcount --; // let the charges relax the hydrogens 
+        if(charge > 0 && hcount)
+          hcount--; // let the charges relax the hydrogens 
+        else if(charge < 0){
+          fprintf(stderr,"setting to 0\n");
+          hcount = 0;
+        }
       }
         
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
@@ -5672,7 +5673,6 @@ struct BabelGraph{
 
     // create edges 
     std::map<WLNEdge*, OBBond*> bond_map; 
-
     for(unsigned int i=0;i<graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
       WLNEdge *e = 0;
@@ -5686,6 +5686,12 @@ struct BabelGraph{
           bond_map[e] = bptr; 
         }
       }
+    }
+
+    FOR_ATOMS_OF_MOL(a,mol){
+      OBAtom *atom = &(*a); 
+      fprintf(stderr,"%d %d %d\n",atom->GetAtomicNum(),atom->GetFormalCharge(),atom->GetImplicitHCount());
+
     }
 
     return true;
