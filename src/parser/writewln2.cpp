@@ -609,20 +609,19 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             for(unsigned int i=0;i<found_path_size;i++)
               locant_path[i] = path[i].first;
             
-
+            std::vector<OBRing*> tmp; 
+            std::string candidate_string; // unfortunate but necessary, very expensive procedure (we optimise later!)
+            unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
             unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
            
-            if(fsum < lowest_fsum){ // rule 30(d and e).
+            if(score < lowest_score){ // rule 30(d and e).
+              lowest_score = score;
               lowest_fsum = fsum;
               copy_locant_path(best_path,locant_path,found_path_size);
             }
-            else if (fsum == lowest_fsum){
-              std::vector<OBRing*> tmp; 
-              std::string candidate_string; // unfortunate but necessary
-              unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
-
-              if(score < lowest_score){
-                lowest_score = score; 
+            else if (score == lowest_score){
+              if(fsum < lowest_fsum){
+                lowest_fsum = fsum; 
                 copy_locant_path(best_path,locant_path,found_path_size);
               }
             }
