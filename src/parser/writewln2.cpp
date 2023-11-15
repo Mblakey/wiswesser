@@ -206,6 +206,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
                           std::string &buffer)
 {
   unsigned int pseudo_pairs = 0;
+
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections;
   std::map<unsigned char, unsigned char> highest_jump;
@@ -272,7 +273,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       }
     }
 
-    while(!connections[bind]){
+    while(!connections[bind] && bind < int_to_locant(path_size)){
       bind++; // increase bind_1
       bool found = false;
       for(unsigned int a=0;a<path.size();a++){
@@ -1561,11 +1562,13 @@ struct BabelGraph{
               carbon_chain = 0;
             }
             buffer += 'V';
+            string_position[atom] = buffer.size();
           }
-          else
+          else{
+            string_position[atom] = buffer.size()+1; // writen next so offset by 1
             carbon_chain++; 
+          }
           
-          string_position[atom] = buffer.size();
           break;
 
         case 'Y':
