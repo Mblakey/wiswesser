@@ -5618,7 +5618,7 @@ struct BabelGraph{
         
         case 'S':
           atomic_num = 16;
-          while(sym->num_edges % 2 != 0){ // 2 and 6 valence
+          while(sym->num_edges % 2 != 0){ // 2,4 and6 valence
             hcount++;
             sym->num_edges++;
           }
@@ -5656,10 +5656,8 @@ struct BabelGraph{
         charge = graph.charge_additions[sym];
         if(charge > 0 && hcount)
           hcount--; // let the charges relax the hydrogens 
-        else if(charge < 0){
-          fprintf(stderr,"setting to 0\n");
+        else if(charge < 0)
           hcount = 0;
-        }
       }
         
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
@@ -5672,6 +5670,7 @@ struct BabelGraph{
     }
 
     // create edges 
+    std::vector<OBAtom*> remove; 
     std::map<WLNEdge*, OBBond*> bond_map; 
     for(unsigned int i=0;i<graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
@@ -5679,20 +5678,28 @@ struct BabelGraph{
       if(parent->bonds){
         for (e = parent->bonds;e;e = e->nxt){
           WLNSymbol *child = e->child;
-          unsigned int bond_order = e->order;  
-          OBBond *bptr = NMOBMolNewBond(mol,babel_atom_lookup[parent->id],babel_atom_lookup[child->id],bond_order);
-          if(!bptr)  
-            return false;
-          bond_map[e] = bptr; 
+
+          // seems a bit defensive? - patch work style coding
+          if(child->ch == 'H' && graph.charge_additions[parent] < 0)
+            remove.push_back(babel_atom_lookup[child->id]);
+          else{
+            unsigned int bond_order = e->order;  
+            OBBond *bptr = NMOBMolNewBond(mol,babel_atom_lookup[parent->id],babel_atom_lookup[child->id],bond_order);
+            if(!bptr)  
+              return false;
+            bond_map[e] = bptr; 
+          }
         }
       }
     }
 
-    FOR_ATOMS_OF_MOL(a,mol){
-      OBAtom *atom = &(*a); 
-      fprintf(stderr,"%d %d %d\n",atom->GetAtomicNum(),atom->GetFormalCharge(),atom->GetImplicitHCount());
+    for(OBAtom *r : remove)
+      mol->DeleteAtom(r); 
 
-    }
+    // FOR_ATOMS_OF_MOL(a,mol){
+    //   OBAtom *atom = &(*a); 
+    //   fprintf(stderr,"%d %d %d\n",atom->GetAtomicNum(),atom->GetFormalCharge(),atom->GetImplicitHCount());
+    // }
 
     return true;
   }
