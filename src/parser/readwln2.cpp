@@ -529,7 +529,9 @@ struct ObjectStack{
   void clear_all(){
     ring = 0;
     branch = 0;
-    stack.clear();
+    while(!stack.empty())
+      stack.pop_back();
+    size = 0;
   }
 
   std::pair<WLNRing*,WLNSymbol*> & top(){
@@ -5017,6 +5019,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         // ionic species or spiro, reset the linkings
         prev = 0;
         curr = 0;
+        ring = 0;
         pending_locant = false;
         cleared = true;
         branch_stack.clear_all(); // burn stack

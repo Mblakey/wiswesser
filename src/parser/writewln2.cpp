@@ -205,9 +205,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
                           std::map<OBAtom*,bool>          &bridge_atoms,
                           std::string &buffer)
 {
-  fprintf(stderr,"\n");
   unsigned int pseudo_pairs = 0;
-
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections;
   std::map<unsigned char, unsigned char> highest_jump;
@@ -1622,8 +1620,10 @@ struct BabelGraph{
           // K now given for all positive nitrogen
           string_position[atom] = buffer.size();
           if(atom->GetExplicitValence() < 4){
-            for(unsigned int i=atom->GetExplicitValence();i<4;i++)
+            for(unsigned int i=atom->GetExplicitValence();i<4;i++){
               buffer += 'H';
+              correction++;
+            }
           }
 
           if(atom->GetTotalDegree() > 1){
@@ -2366,9 +2366,12 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
     FOR_RINGS_OF_MOL(r,mol_copy){
     // start recursion from first cycle atom
       if(!obabel.rings_seen[&(*r)]){
-        if(started)
+        if(started){
           buffer += " &"; // ionic species
-
+          obabel.cycle_count = 0;
+          obabel.last_cycle_seen = 0;
+        }
+        
         if(!obabel.RecursiveParse(mol_copy->GetAtom( (&(*r))->_path[0]),0,mol_copy,false,buffer,0))
           Fatal("failed on recursive ring parse");
 
