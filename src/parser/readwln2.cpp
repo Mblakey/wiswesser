@@ -2533,8 +2533,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             track += ring_components[rn].first;
           ring->post_charges.push_back({int_to_locant(track + 1),-1});  // post is needed as this is before pointer assignment
         }
-        
-        
         break;
 
       case '1':
@@ -3765,7 +3763,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       else if (pending_locant){
         
-        if(prev && !prev->inRing)
+        if(pending_inline_ring && prev && !prev->inRing)
           graph.charge_additions[prev]++;
 
         prev = 0;
