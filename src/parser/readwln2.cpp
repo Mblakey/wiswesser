@@ -5654,10 +5654,8 @@ struct BabelGraph{
       // ionic notation - overrides any given formal charge
       if(graph.charge_additions[sym]){
         charge = graph.charge_additions[sym];
-        if(charge > 0 && hcount)
+        if(charge != 0 && hcount)
           hcount--; // let the charges relax the hydrogens 
-        else if(charge < 0)
-          hcount = 0;
       }
         
       atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
@@ -5695,11 +5693,6 @@ struct BabelGraph{
 
     for(OBAtom *r : remove)
       mol->DeleteAtom(r); 
-
-    // FOR_ATOMS_OF_MOL(a,mol){
-    //   OBAtom *atom = &(*a); 
-    //   fprintf(stderr,"%d %d %d\n",atom->GetAtomicNum(),atom->GetFormalCharge(),atom->GetImplicitHCount());
-    // }
 
     return true;
   }
