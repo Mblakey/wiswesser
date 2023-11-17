@@ -1987,6 +1987,7 @@ struct BabelGraph{
         } 
 
         buffer += '0';
+        locant_path[i]->SetFormalCharge(0);
       }
 
       if(carbonyl || Wgroups || locant_path[i]->GetAtomicNum() != 6){
