@@ -443,10 +443,12 @@ OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
     solution, fusion sum is the only filter rule needed here
 */
 OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
-                        std::set<OBAtom*>              &ring_atoms,
-                        std::set<OBBond*>              &ring_bonds,
-                        std::map<OBAtom*,unsigned int> &atom_shares,
-                        std::set<OBRing*>              &local_SSSR)
+                        std::set<OBAtom*>               &ring_atoms,
+                        std::set<OBBond*>               &ring_bonds,
+                        std::map<OBAtom*,unsigned int>  &atom_shares,
+                        std::map<OBAtom*,bool>          &bridge_atoms,
+                        std::map<OBAtom*,OBAtom*>       &broken_atoms,
+                        std::set<OBRing*>               &local_SSSR)
 {
 
   // create the path
@@ -473,18 +475,16 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
   }
 
   unsigned int           lowest_sum       = UINT32_MAX;
+  unsigned int           lowest_score       = UINT32_MAX;
 
   OBAtom*                ratom  = 0;
   OBAtom*                catom  = 0;
   OBBond*                bond   = 0; 
   std::map<OBBond*,bool> ignore_bond; 
 
-  for(unsigned int i=0;i<nt_bonds.size();i++){
-    if(opt_debug)
-      fprintf(stderr,"  fused ring junction: %d --> %-d\n",nt_bonds[i]->GetBeginAtomIdx(),nt_bonds[i]->GetEndAtomIdx());
+  for(unsigned int i=0;i<nt_bonds.size();i++)
     ignore_bond[nt_bonds[i]] = true; 
-  } 
-
+  
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){
       std::stack<OBAtom*>    stack; 
@@ -508,17 +508,21 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
         }
       }
 
-      // perform the fusion sum logic here
-      unsigned int fsum = 0;
-      for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++){
-        OBRing *obring = (*riter); 
-        fsum += ring_sum(mol,obring,locant_path,path_size);
-      }
-      if(fsum < lowest_sum){ // rule 30d.
+      std::vector<OBRing*> tmp; 
+      std::string candidate_string; // super annoying this has to go here, UPSET
+      unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
+      unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
+
+      if(score < lowest_score){
         lowest_sum = fsum;
+        lowest_score = score; 
         copy_locant_path(best_path,locant_path,path_size);
-        if(opt_debug)
-          fprintf(stderr,"  set on fs:  fusion sum for path: %-2d\n",lowest_sum);
+      }
+      else if (score == lowest_score){
+        if(fsum < lowest_sum){ // rule 30d.
+          lowest_sum = fsum;
+          copy_locant_path(best_path,locant_path,path_size);
+        }
       }
     }
   }
@@ -2146,10 +2150,13 @@ struct BabelGraph{
 
     bool multi = ClassifyRing(ring_atoms,atom_shares); 
 
+    if(opt_debug)
+      fprintf(stderr,"  multi classification: %d\n",multi);
+
     if(local_SSSR.size() == 1)
       locant_path = MonoPath(mol,path_size,local_SSSR);
     else if(!multi && bridge_atoms.empty())
-      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,local_SSSR);
+      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
 

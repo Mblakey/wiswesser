@@ -2528,7 +2528,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case '0':
         // place the minus charges on the last ring seen
         if(ring_components.size() == 1){
-          ring->post_charges.push_back({'B',-1});
+
+          if(positional_locant)
+            ring->post_charges.push_back({positional_locant,-1});
+          else
+            ring->post_charges.push_back({'A',-1});
         }else{
           unsigned int track = 0;
           for (unsigned int rn = 0; rn<ring_components.size()-1;rn++)
