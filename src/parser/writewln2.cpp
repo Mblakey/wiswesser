@@ -580,12 +580,13 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
       std::vector<std::pair<OBAtom*,OBAtom*>> path; 
       path.push_back({rseed,0}); 
 
-      while(!path.empty()){
+      unsigned int safety = 0;
+      while(!path.empty()){ // need a loop safety
+        safety++;
         OBAtom* ratom = path.back().first;
-        OBAtom* next = path.back().second;  
+        OBAtom* next = path.back().second;
 
-        if(!current[ratom])
-          current[ratom] = true;
+        current[ratom] = true;
         
         bool skipped = false;
         bool pushed = false;
@@ -606,7 +607,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           }
         }
 
-        if(!pushed){
+        if(!pushed && !path.empty()){
           if(path.size() == found_path_size){
             path_found = true;
             for(unsigned int i=0;i<found_path_size;i++)
@@ -628,6 +629,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                 copy_locant_path(best_path,locant_path,found_path_size);
               }
             }
+
           }
 
           OBAtom *tmp = path.back().first; 
@@ -635,8 +637,15 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           if(!path.empty()){
             path.back().second = tmp;
             current[tmp] = false; 
-          } 
+          }
         }
+
+        // super defensive temporary measure, this cannot be in the release
+        // guards agaisnt C60
+        if(safety == 1000000)
+          break;
+        
+          
       }
     }
 
