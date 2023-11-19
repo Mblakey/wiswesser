@@ -3,6 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 INCORRECT="${SCRIPT_DIR}/incorrect.txt"
+CORRECT="${SCRIPT_DIR}/correct.txt"
 WRITER="${SCRIPT_DIR}/../bin/writewln"
 READER="${SCRIPT_DIR}/../bin/readwln"
 COMP="${SCRIPT_DIR}/../bin/obcomp"
@@ -12,6 +13,7 @@ FILE=""
 
 ARG_COUNT=0
 WRONG=0
+RIGHT=0
 process_arguments() {
   # Loop through all the arguments
   for arg in "$@"; do
@@ -19,6 +21,10 @@ process_arguments() {
       -w|--wrong)
         WRONG=1
         echo "Failed SMILES" > $INCORRECT
+        ;;
+       -c|--correct)
+        RIGHT=1
+        echo "Correct SMILES" > $CORRECT
         ;;
       -h|--help)
         # Display a help message
@@ -32,6 +38,7 @@ process_arguments() {
         echo "options:"
         echo "  -h, --help          show this help message"
         echo "  -w, --wrong         write failed smiles to incorrect.txt"
+        echo "  -c, --correct       write correct smiles to correct.txt"
         exit 0;
         ;;
       *)
@@ -65,11 +72,6 @@ main(){
   else
     echo "mode choice invalid!, for help use -h flag";
     exit 1;
-  fi;
-
-  if [ -z $FILE ]; then
-    echo "no file path for external!"
-    exit ;
   fi;
 
   COUNT=0
@@ -112,6 +114,9 @@ main(){
     if [[ "$SAME" == "1" ]]; then
       ((COUNT++));
       echo -ne "\r"
+      if [ $RIGHT -eq 1 ]; then
+        echo "${NEW_WLN}" >> $CORRECT
+      fi;
     else
       echo -ne  "$WLN == $SMILES\t$NEW_WLN\t$NEW_SMILES\n"
       if [ $WRONG -eq 1 ]; then
