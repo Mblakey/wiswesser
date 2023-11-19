@@ -6,3 +6,4 @@ external
 scripts
 data/proprietary/*
 test/incorrect.txt
+test/correct.txt
