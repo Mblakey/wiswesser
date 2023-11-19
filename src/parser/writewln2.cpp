@@ -640,8 +640,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           }
         }
 
-        // super defensive temporary measure, this CANNOT be in the release
-        // guards agaisnt C60
+        // // super defensive temporary measure, this CANNOT be in the release
+        // // guards agaisnt C60
         if(safety == 1000000)
           break;
         
