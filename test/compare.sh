@@ -56,13 +56,13 @@ main(){
     echo "No mode selected!, for help use -h flag";
     exit 1;
   elif [ "$MODE" == "chemspider" ]; then
-    FILE="${SCRIPT_DIR}/../data/chemspider.tsv"
+    FILE="${SCRIPT_DIR}/../data/unit_test/chemspider.tsv"
   elif [ "$MODE" == "pubchem" ]; then
-    FILE="${SCRIPT_DIR}/../data/pubchem.tsv"
+    FILE="${SCRIPT_DIR}/../data/unit_test/pubchem.tsv"
   elif [ "$MODE" == "smith" ]; then
-    FILE="${SCRIPT_DIR}/../data/smith.tsv"
+    FILE="${SCRIPT_DIR}/../data/unit_test/smith.tsv"
   elif [ "$MODE" == "chembl" ]; then
-    FILE="${SCRIPT_DIR}/../data/chembl24.tsv"
+    FILE="${SCRIPT_DIR}/../data/unit_test/chembl24.tsv"
   else
     echo "mode choice invalid!, for help use -h flag";
     exit 1;
