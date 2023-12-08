@@ -2202,7 +2202,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned char positional_locant     = '\0';
   unsigned int last_locant_position   = 0;
 
-  std::string special;  
+  std::string str_buffer;  
 
   std::vector<bool> aromaticity; 
   std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
@@ -2221,14 +2221,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int i = 0;    
   unsigned int len = block.size();
   const char *block_str = block.c_str();
-  unsigned char ch = *block_str++;
+  unsigned char ch = *block_str;
 
   while(ch){
 
     switch(ch){
-
-      // specials
-
       case ' ':
 
         if(state_multi == 3)
@@ -2301,225 +2298,130 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
       // turn this into a look ahead type bias in order to significantly tidy this up
       case '-':{
-
-        // gives us a local working copy
-        char *local_arr = new char [strlen(block_str)+1]; 
-        memset(local_arr,'\0',sizeof(char) * (strlen(block_str)+1) );
-        strcpy(local_arr,block_str);
-        const char *local = local_arr;
-
-        unsigned char local_ch = *(local)++; // moved it over
+        
+        str_buffer.clear();
         unsigned int gap = 0; 
         bool found_next = false;
-        
-        while(local_ch != '\0'){
-          if(local_ch == ' ')
-            break;
-          if(local_ch == '-'){
-            // this calculates the gap to the next '-'
-            found_next = true;
-            break;
-          }
-          special.push_back(local_ch);
-          gap++;
-          local_ch = *local++;
-        }
+        unsigned int k = i+1; // use the block string and iterate
 
-        if(local_arr){
-          delete [] local_arr;
-          local = 0;
-          local_arr = 0;
-        }
-
-        // this will change on metallocenes defintions
-        if( (state_multi || state_pseudo) && expected_locants){
-          gap = 0;
-        }
-
-        // could ignore gap zeros as they will come back round again, therefore need a size check
-
-        if(found_next){
-          
-          // pointer is moved by 1 at the bottom, so its positions -1 
-          switch(gap){
-            case 0:
-
-              // we resolve only the first one
-              evaluating_break = 1; // on a space, number or character, we push to broken_locants
-
-              if(positional_locant){
-                if(positional_locant < 128){
-                  positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-                  last_locant_position = i;
-                  if(!positional_locant)
-                    Fatal(i+start);
-                }
-                else{
-                  // this means its already been moved, so we move the locant 23+23 across
-                  if(positional_locant + 46 > 252){
-                    fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
-                    Fatal(start+i);
-                  }
-                  positional_locant += 46;
-                  last_locant_position = i;
-                  // no need to move the global pointer here
-                }
-              }
-              else{
-                fprintf(stderr,"Error: trying to branch out character without starting point\n");
-                Fatal(start+i);  
-              }
-
+        if(!expected_locants){
+          while(k < block.size()){
+            if(block[k] == ' ')
               break;
-            case 1:{
-              if(!implied_assignment_used && !positional_locant){
-                implied_assignment_used = true;
-                positional_locant = 'A';
-              }
-              // this can only be hypervalent element
-  
-              if(positional_locant){
-                if(spiro_atom){
-                  if(positional_locant == spiro_atom){
-                    positional_locant++;
-                    block_str+=2; 
-                    i+=2;
-                    break;
-                  }
-                  else if(ring->locants[positional_locant]){
-                    positional_locant++;
-                    if(positional_locant == spiro_atom){
-                      positional_locant++;
-                      block_str+=2; 
-                      i+=2;
-                      break;
-                    }
-                  }
-                }
-                else if(ring->locants[positional_locant])
-                  positional_locant++;
-
-
-                WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(special[0],graph),ring);  // elemental definition 
-                if(!new_locant)
-                  Fatal(i+start);
-
-                graph.string_positions[start+i + 1] = new_locant; // attaches directly
-
-                if(opt_debug)
-                  fprintf(stderr,"  assigning hypervalent %c to position %c\n",special[0],positional_locant);
-              }
-              else{
-                fprintf(stderr,"Error: trying to assign element without starting point\n");
-                Fatal(start+i);  
-              }
-              block_str+=2; 
-              i+=2; 
+            if(block[k] == '-'){
+              // this calculates the gap to the next '-'
+              found_next = true;
               break;
             }
-            case 2:{
-              if(!implied_assignment_used && !positional_locant){
-                implied_assignment_used = true;
-                positional_locant = 'A';
-              }
+            str_buffer.push_back(block[k]);
+            gap++;
+            k++;
+          }
+        }
 
-              if(std::isdigit(special[0])){
-                for(unsigned char dig_check : special){
+        if(!found_next){
+          if(i > 0 && block[i-1] == '&')
+            state_aromatics = 1;
+          else{
+           
+            // if there wasnt any other symbol, it must be a notation extender
+            evaluating_break = 1; // on a space, number or character, we push to broken_locants
+
+            if(positional_locant){
+              if(positional_locant < 128){
+                positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
+                last_locant_position = i;
+                if(!positional_locant)
+                  Fatal(i+start);
+              }
+              else{
+                // this means its already been moved, so we move the locant 23+23 across
+                if(positional_locant + 46 > 252){
+                  fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
+                  Fatal(start+i);
+                }
+                positional_locant += 46;
+                last_locant_position = i;
+              }
+            }
+          }
+        }
+        else{
+          // if there was a double '--' this will have gap zero
+          if(gap == 0){
+            evaluating_break = 1; // on a space, number or character, we push to broken_locants
+            if(positional_locant){
+              if(positional_locant < 128){
+                positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
+                last_locant_position = i;
+                if(!positional_locant)
+                  Fatal(i+start);
+              }
+              else{
+                // this means its already been moved, so we move the locant 23+23 across
+                if(positional_locant + 46 > 252){
+                  fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
+                  Fatal(start+i);
+                }
+                positional_locant += 46;
+                last_locant_position = i;
+              }
+            }
+          }
+          else if (gap > 0){
+            if(!implied_assignment_used && !positional_locant){
+              implied_assignment_used = true;
+              positional_locant = 'A';
+            }
+
+            if(gap == 1){
+               
+              WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
+              if(!new_locant)
+                Fatal(i+start);
+
+              graph.string_positions[start+i + 1] = new_locant; // attaches directly
+              if(opt_debug)
+                fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
+              
+              block_str+=2; 
+              i+=2; 
+              positional_locant++;
+            }
+            else if (gap == 2){
+      
+              if(std::isdigit(str_buffer[0])){
+                for(unsigned char dig_check : str_buffer){
                   if(!std::isdigit(dig_check)){
                     fprintf(stderr,"Error: mixing numerical and alphabetical special defintions is not allowed\n");
                     Fatal(start+i);
                   }
                 }
                 if(positional_locant)
-                  ring_components.push_back({std::stoi(special),positional_locant}); //big ring
+                  ring_components.push_back({std::stoi(str_buffer),positional_locant}); //big ring
                 else
-                  ring_components.push_back({std::stoi(special),'A'});
+                  ring_components.push_back({std::stoi(str_buffer),'A'});
 
                 positional_locant = '\0';
               }
               else{
 
-                if(positional_locant){
+                // must be a special element 
+                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
+                if(!new_locant)
+                  Fatal(i+start);
 
-                  if(spiro_atom){
-                    if(positional_locant == spiro_atom){
-                      positional_locant++;
-                      block_str+=3; 
-                      i+=3;
-                      break;
-                    }
-                    else if(ring->locants[positional_locant]){
-                      positional_locant++;
-                      if(positional_locant == spiro_atom){
-                        positional_locant++;
-                        block_str+=3; 
-                        i+=3;
-                        break;
-                      }
-                    }
-                  }
-                  else if(ring->locants[positional_locant])
-                    positional_locant++;
-                  
-                  WLNSymbol* new_locant = assign_locant(positional_locant,define_element(special,graph),ring);  // elemental definition
-                  if(!new_locant)
-                    Fatal(i+start);
+                graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
 
-                  graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
-
-                  if(opt_debug)
-                    fprintf(stderr,"  assigning element %s to position %c\n",special.c_str(),positional_locant);
-                }
-                else{
-                  fprintf(stderr,"Error: trying to assign element without starting point\n");
-                  Fatal(start+i);  
-                }
+                if(opt_debug)
+                  fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
               }
-
+              positional_locant++;
               block_str+=3; 
-              i+=3;              
-              break;
+              i+=3;
             }
-            default:
-              fprintf(stderr,"Error: %d numerals incased in '-' brackets is unreasonable for WLN to create\n",gap);
-              Fatal(start+i);
           }
-
-
         }
-        else if(i > 0 && block[i-1] == '&')
-          state_aromatics = 1;
-        else{
-
-          // if there wasnt any other symbol, it must be a notation extender
-          evaluating_break = 1; // on a space, number or character, we push to broken_locants
-
-          if(positional_locant){
-            if(positional_locant < 128){
-              positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-              last_locant_position = i;
-              if(!positional_locant)
-                Fatal(i+start);
-            }
-            else{
-              // this means its already been moved, so we move the locant 23+23 across
-              if(positional_locant + 46 > 252){
-                fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
-                Fatal(start+i);
-              }
-              positional_locant += 46;
-              last_locant_position = i;
-            }
-          }
-          else{
-            fprintf(stderr,"Error: trying to branch out character without starting point\n");
-            Fatal(start+i);  
-          }
-
-        }
-
-
-        special.clear();
         break;
       }
 
@@ -2651,7 +2553,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
             
           WLNSymbol *new_locant = 0; 
-
           switch(ch){
             
             case 'D':
@@ -2667,16 +2568,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic)
                 warned = true;
 
-              if(ring->locants[positional_locant])
-                positional_locant++; 
-              
-              if(spiro_atom && positional_locant == spiro_atom){
-                positional_locant++;
-                break;
-              }  
-
               new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
+              new_locant = assign_locant(positional_locant++,new_locant,ring);
               
               if(ch == 'P')
                 new_locant->allowed_edges = 5;
@@ -2692,15 +2585,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic && ch=='K')
                 warned = true;
 
-              if(ring->locants[positional_locant])
-                positional_locant++;
-
-              if(spiro_atom && positional_locant == spiro_atom){
-                positional_locant++;
-                break;
-              }  
               new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
+              new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 4;
               new_locant->inRing = true;
               break;
@@ -2711,16 +2597,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic)
                 warned = true;
 
-              if(ring->locants[positional_locant])
-                positional_locant++;
-
-              if(spiro_atom && positional_locant == spiro_atom){
-                positional_locant++;
-                break;
-              }  
-
               new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
+              new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 3;
               new_locant->inRing = true;
               break;
@@ -2728,15 +2606,11 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             case 'M':
             case 'O':
             case 'V':
-
               if(!heterocyclic && (ch == 'M' || ch == 'O'))
                 warned = true;
 
-              if(ring->locants[positional_locant])
-                positional_locant++; 
-
               new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant,new_locant,ring);
+              new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 2;
               new_locant->inRing = true;
               break;
@@ -3189,7 +3063,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     }
     
     i++;
-    ch = *(block_str++);
+    ch = *(++block_str);
   }
 
   if(warned)
