@@ -21,7 +21,7 @@ process_arguments() {
     case "$arg" in
       -h|--help)
         # Display a help message
-        echo "Usage: pubchem_score_test.sh <MODE>"
+        echo "Usage: compare.sh <options> <mode>"
         echo "Modes:"
         echo "  chemspider"
         echo "  pubchem"
