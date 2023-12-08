@@ -3732,12 +3732,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_spiro            = false;
   bool pending_ring_in_ring     = false; // rings in rings
 
+  bool no_shift = false; // stop shifting if already done
+  std::string str_buffer; 
 
   unsigned char on_locant = '\0';         // locant tracking
   unsigned int pending_unsaturate = 0;    // 'U' style bonding
   bool j_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
-
-  std::string special;  // special elemental definitions
   
   // allows consumption of notation after block parses
   unsigned int block_start = 0;
@@ -4979,7 +4979,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // specials
 
     case ' ':
-     
       if (pending_J_closure){
         j_skips = false;
         break;
@@ -5184,48 +5183,37 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           Fatal(i);
         }
       }
-#ifdef HIGH_LEVEL_ASSIGNMENTS
-      else if(on_locant){
-        if(prev->ch < 128){
-          prev->ch += 128;
-        }
-        else
-          prev->ch += 46; 
-      }
-#endif
       else{
 
-        // ahh variable length array.. gotcha
-        char *local_arr  = new char [strlen(wln_ptr)+1]; 
-        memset(local_arr,'\0',strlen(wln_ptr)+1 * sizeof(char));
-        strcpy(local_arr,wln_ptr);
-        const char *local = local_arr;
-        
-        unsigned char local_ch = *(++local); // moved it over
-        unsigned int gap = 0; 
-        bool found_next = false;
+        str_buffer.clear();
+        bool closed_dash = false;
+        unsigned int first_dash = i;
 
-        while(local_ch != '\0'){
-          if(local_ch == ' ')
-            break;
-          if(local_ch == '-'){
-            // this calculates the gap to the next '-'
-            found_next = true;
+        // move off the first dash
+        i++;
+        ch = *(++wln_ptr);
+
+        while(ch != '\0'){
+          if(ch == '-'){
+            closed_dash = true;
             break;
           }
-
-          special.push_back(local_ch);
-          gap++;
-          local_ch = *(++local);
+          else if (ch == ' '){
+            no_shift = true;
+            break; // positions an open ring
+          }
+          else if (ch == '&'){
+            pending_spiro = true;
+            break;
+          }
+          else
+            str_buffer.push_back(ch);
+          
+          i++;
+          ch = *(++wln_ptr);
         }
 
-        if(local_arr){
-          delete [] local_arr;
-          local = 0;
-          local_arr = 0;
-        }
-        
-        if(!found_next){
+        if(!closed_dash){
           pending_inline_ring = true;
           return_object_symbol(branch_stack);
           if(branch_stack.branch && !prev){
@@ -5238,14 +5226,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         else{
 
-          if(gap == 1){
-            curr = define_hypervalent_element(special[0],graph);
+          if(str_buffer.size() == 1){
+            curr = define_hypervalent_element(str_buffer[0],graph);
             if(!curr)
               Fatal(i);
-            special.clear();
           }
-          else if(gap == 2){
-            curr = define_element(special,graph);
+          else if(str_buffer.size() == 2){
+            curr = define_element(str_buffer,graph);
             if(!curr)
               Fatal(i); 
             
@@ -5253,15 +5240,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               graph.charge_additions[curr]++;
               //on_locant = '\0';
             }
-            special.clear();
           }
           else{
-            fprintf(stderr,"Error: special '-' must be either 1 or 2 symbols - %d seen\n",gap);
+            fprintf(stderr,"Error: special '-' must be either 1 or 2 symbols - %lu seen\n",str_buffer.size());
             Fatal(i);
           }
 
           if(prev){
-            if(!gap && ring)
+            if(str_buffer.empty() && ring)
               edge = AllocateWLNEdge(ring->locants[prev->ch],prev,graph);
             else{
               if(prev == branch_stack.branch){
@@ -5271,7 +5257,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               edge = AllocateWLNEdge(curr,prev,graph);
             }
               
-
             if(pending_unsaturate){
               edge = unsaturate_edge(edge,pending_unsaturate);
               pending_unsaturate = 0;
@@ -5283,10 +5268,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           on_locant = '\0';
           branch_stack.push({0,curr});
 
-          i+= gap+1;
-          wln_ptr+= gap+1;
-
-          graph.string_positions[i-gap] = curr;
+          graph.string_positions[first_dash+1] = curr;
           pending_unsaturate = 0;
           prev = curr;
         }
@@ -5313,8 +5295,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       Fatal(i);
     }
 
-    i++;
-    ch = *(++wln_ptr);
+    if(!no_shift){
+      i++;
+      ch = *(++wln_ptr);
+    }
+    no_shift = false;
   }
 
   // single letter methyl branches
