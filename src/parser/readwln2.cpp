@@ -2199,8 +2199,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int  expected_locants       = 0;
   unsigned int  evaluating_break      = 0;
   unsigned char ring_size_specifier   = '\0';
-  unsigned char positional_locant     = '\0';
-  unsigned int last_locant_position   = 0;
+  unsigned char positional_locant     = 'A'; // have A as a default, lets tidy around this
 
   std::string str_buffer;  
 
@@ -2270,14 +2269,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           pseudo_locants.back() += 23;
         }
         else if(positional_locant){
-          
-          // can only be an extension of a positional multiplier for a branch
-          if (last_locant_position && last_locant_position == i-1)
-            positional_locant += 23;
-          else{
-            state_aromatics = 1;
-            aromaticity.push_back(1);
-          }
+          state_aromatics = 1;
+          aromaticity.push_back(1);
         }
         else{
           // if unhandled, then it must be an aromatic start
@@ -2330,7 +2323,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             if(positional_locant){
               if(positional_locant < 128){
                 positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-                last_locant_position = i;
                 if(!positional_locant)
                   Fatal(i+start);
               }
@@ -2341,7 +2333,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                   Fatal(start+i);
                 }
                 positional_locant += 46;
-                last_locant_position = i;
               }
             }
           }
@@ -2353,7 +2344,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             if(positional_locant){
               if(positional_locant < 128){
                 positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-                last_locant_position = i;
                 if(!positional_locant)
                   Fatal(i+start);
               }
@@ -2364,7 +2354,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                   Fatal(start+i);
                 }
                 positional_locant += 46;
-                last_locant_position = i;
               }
             }
           }
@@ -2472,12 +2461,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           expected_locants = ch - '0';
         }
         else{
-          if(positional_locant)
-            ring_components.push_back({ch-'0',positional_locant});
-          else
-            ring_components.push_back({ch-'0','A'});
-    
-          positional_locant = '\0';
+          ring_components.push_back({ch-'0',positional_locant});
+          positional_locant = 'A';
         }
         break;
 
@@ -2546,12 +2531,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           state_multi = 3;
         }
         else if (positional_locant){
+          
+          if (opt_debug)
+            fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
-          if(spiro_atom && positional_locant == spiro_atom){
-            positional_locant++;
-            break;
-          }
-            
           WLNSymbol *new_locant = 0; 
           switch(ch){
             
@@ -2641,6 +2624,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic)
                 warned = true;
 
+              if(positional_locant > 'A')
+                positional_locant--;
+
               // the carbon might not be created yet
               if(!ring->locants[positional_locant]){
                 new_locant = AllocateWLNSymbol('C',graph);
@@ -2676,9 +2662,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               Fatal(start+i);
           }
 
-          if (opt_debug)
-            fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
-
           graph.string_positions[start+i] = new_locant;
         }
         else{
@@ -2692,156 +2675,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
           else if(i>0 && block[i-1] == ' '){
             positional_locant = ch;
-            last_locant_position = i;
-          }
-          else{
-            implied_assignment_used = true;
-            positional_locant = 'A';
-
-            if(spiro_atom && positional_locant == spiro_atom){
-              positional_locant++;
-              break;
-            }
-
-
-            WLNSymbol *new_locant = 0; 
-
-            switch(ch){
-              
-              case 'D':
-              if(!state_chelate){
-                fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
-                Fatal(start+i);
-              }
-              break;
-
-              case 'S':
-              case 'P':
-                if(!heterocyclic)
-                  warned = true;
-
-                if(ring->locants[positional_locant])
-                  positional_locant++; 
-
-                if(spiro_atom && positional_locant == spiro_atom){
-                  positional_locant++;
-                  break;
-                }  
-
-                new_locant = AllocateWLNSymbol(ch,graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                
-                 if(ch == 'P')
-                  new_locant->allowed_edges = 5;
-                else
-                  new_locant->allowed_edges = 6;
-
-                new_locant->inRing = true;
-                break;
-
-              case 'Y':
-              case 'X':
-              case 'K':
-                if(!heterocyclic && ch=='K')
-                  warned = true;
-
-                if(ring->locants[positional_locant])
-                  positional_locant++;
-
-                if(spiro_atom && positional_locant == spiro_atom){
-                  positional_locant++;
-                  break;
-                }  
-
-                new_locant = AllocateWLNSymbol(ch,graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->allowed_edges = 4;
-                new_locant->inRing = true;
-                break;
-
-
-              case 'Z':
-              case 'N':
-              case 'B':
-                if(!heterocyclic)
-                  warned = true;
-                
-                if(ring->locants[positional_locant])
-                  positional_locant++; 
-
-                if(spiro_atom && positional_locant == spiro_atom){
-                  positional_locant++;
-                  break;
-                }  
-
-                new_locant = AllocateWLNSymbol(ch,graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->allowed_edges = 3;
-                new_locant->inRing = true;
-                break;
-
-              case 'V':
-              case 'M':
-              case 'O':
-                if(!heterocyclic && (ch == 'M' || ch == 'O'))
-                  warned = true;
-
-                if(ring->locants[positional_locant])
-                  positional_locant++; 
-
-                new_locant = AllocateWLNSymbol(ch,graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->allowed_edges = 2;
-                new_locant->inRing = true;
-                break;
-
-
-              case 'U':
-                unsaturations.push_back({positional_locant,positional_locant+1});
-                break;
-
-              // externally bonded to the symbol as a locant symbol
-            case 'W':{
-              if(!heterocyclic)
-                warned = true;
-
-              // the carbon might not be created yet
-              if(!ring->locants[positional_locant]){
-                new_locant = AllocateWLNSymbol('C',graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->allowed_edges = 2;
-                new_locant->inRing = true;
-              }
-              else
-                new_locant = ring->locants[positional_locant];
-
-              if(new_locant->ch == 'N')
-                new_locant->allowed_edges++;
-
-              WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
-              dioxo->allowed_edges = 3;
-              dioxo->inRing = true;
-              WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
-              e = unsaturate_edge(e,2);
-              if(!e)
-                Fatal(start+i);
-              
-              break;
-              }
-                // has the effect of unsaturating a bond
-              case 'H':
-                saturations.push_back({positional_locant,positional_locant+1});
-                break;
-
-              default:
-                fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
-                Fatal(start+i);
-            }
-
-            if (opt_debug)
-              fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
-
-            graph.string_positions[start+i] = new_locant;
           }
         }
 
@@ -2899,7 +2732,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         else{
           if(i>0 && block[i-1] == ' '){
             positional_locant = ch;
-            last_locant_position = i;
           }
           else{
             fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
@@ -2964,7 +2796,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         else{
           if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
             positional_locant = ch;
-            last_locant_position = i;
           }
           else{
             // this must be an aromatic state right?
@@ -3048,7 +2879,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         else{
           if(i>0 && block[i-1] == ' '){
             positional_locant = ch;
-            last_locant_position = i;
           }
           else{
             fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
