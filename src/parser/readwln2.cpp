@@ -2194,12 +2194,13 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int state_pseudo         = 0; 
   unsigned int state_aromatics      = 0;
   unsigned int state_chelate        = 0;
-  bool implied_assignment_used      = false; // allows a shorthand if wanted, but not mixing
-  
+
+
   unsigned int  expected_locants       = 0;
-  unsigned int  evaluating_break      = 0;
   unsigned char ring_size_specifier   = '\0';
-  unsigned char positional_locant     = 'A'; // have A as a default, lets tidy around this
+  
+  bool locant_attached                = false;  // more sensible way of modifying the locants 
+  unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
 
   std::string str_buffer;  
 
@@ -2226,33 +2227,31 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
     switch(ch){
       case ' ':
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
 
         if(state_multi == 3)
           state_multi = 0;
 
-        if(evaluating_break){
-          broken_locants.insert(positional_locant);
-          if(state_multi >= 1){
-            multicyclic_locants.back() = positional_locant;
-            state_multi = 2;
-          }
-          else if(state_pseudo == 1)
-            pseudo_locants.back() = positional_locant;
-          else
-            bridge_locants[positional_locant] = true;
-          
-
-          evaluating_break = 0;
-        }
         if(expected_locants){
           fprintf(stderr,"Error: %d locants expected before space character\n",expected_locants);
           Fatal(i+start);
         }
-        else if(state_multi == 1){
+        else if(state_multi == 1)
           state_multi = 2;
+        else if (state_pseudo)
+          state_pseudo = 0;
+        else if(positional_locant && locant_attached){
+          if(ring_components.empty()){
+            fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+            Fatal(start+i);
+          }
+          else
+            bridge_locants[positional_locant] = true;
         }
-        state_pseudo = 0;
+
         positional_locant = '\0'; // hard resets on spaces
+        locant_attached = false;
         break;
 
 
@@ -2262,15 +2261,13 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           break;
         }
         else if (state_multi == 3){
-          
           ring_size_specifier += 23;
         }
         else if (state_pseudo){
           pseudo_locants.back() += 23;
         }
-        else if(positional_locant){
-          state_aromatics = 1;
-          aromaticity.push_back(1);
+        else if(positional_locant && locant_attached){
+          positional_locant += 23;
         }
         else{
           // if unhandled, then it must be an aromatic start
@@ -2293,21 +2290,20 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case '-':{
         
         str_buffer.clear();
-        unsigned int gap = 0; 
         bool found_next = false;
         unsigned int k = i+1; // use the block string and iterate
 
         if(!expected_locants){
           while(k < block.size()){
-            if(block[k] == ' ')
+            if(block[k] == ' ' || block[k] == '&')
               break;
             if(block[k] == '-'){
               // this calculates the gap to the next '-'
-              found_next = true;
+              if(k != i+1)
+                found_next = true; // if there was a double '--' this will have gap zero
               break;
             }
             str_buffer.push_back(block[k]);
-            gap++;
             k++;
           }
         }
@@ -2316,15 +2312,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           if(i > 0 && block[i-1] == '&')
             state_aromatics = 1;
           else{
-           
-            // if there wasnt any other symbol, it must be a notation extender
-            evaluating_break = 1; // on a space, number or character, we push to broken_locants
 
-            if(positional_locant){
+            if(positional_locant && locant_attached){
+        
               if(positional_locant < 128){
                 positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
                 if(!positional_locant)
                   Fatal(i+start);
+
               }
               else{
                 // this means its already been moved, so we move the locant 23+23 across
@@ -2334,37 +2329,19 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 }
                 positional_locant += 46;
               }
+
+              if(state_pseudo && !pseudo_locants.empty())
+                  pseudo_locants.back() = positional_locant;
+              if(state_multi == 1 && !multicyclic_locants.empty())
+                multicyclic_locants.back() = positional_locant;
             }
           }
         }
         else{
-          // if there was a double '--' this will have gap zero
-          if(gap == 0){
-            evaluating_break = 1; // on a space, number or character, we push to broken_locants
-            if(positional_locant){
-              if(positional_locant < 128){
-                positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-                if(!positional_locant)
-                  Fatal(i+start);
-              }
-              else{
-                // this means its already been moved, so we move the locant 23+23 across
-                if(positional_locant + 46 > 252){
-                  fprintf(stderr,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?\n");
-                  Fatal(start+i);
-                }
-                positional_locant += 46;
-              }
-            }
-          }
-          else if (gap > 0){
-            if(!implied_assignment_used && !positional_locant){
-              implied_assignment_used = true;
-              positional_locant = 'A';
-            }
-
-            if(gap == 1){
-               
+          
+          if(str_buffer.size() == 1){
+            
+            if(positional_locant != spiro_atom){
               WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
               if(!new_locant)
                 Fatal(i+start);
@@ -2372,64 +2349,75 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               graph.string_positions[start+i + 1] = new_locant; // attaches directly
               if(opt_debug)
                 fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
-              
-              block_str+=2; 
-              i+=2; 
-              positional_locant++;
             }
-            else if (gap == 2){
-      
-              if(std::isdigit(str_buffer[0])){
-                for(unsigned char dig_check : str_buffer){
-                  if(!std::isdigit(dig_check)){
-                    fprintf(stderr,"Error: mixing numerical and alphabetical special defintions is not allowed\n");
-                    Fatal(start+i);
-                  }
+            else 
+              positional_locant++;
+
+            block_str+=2; 
+            i+=2; 
+            positional_locant++;
+            locant_attached = false;
+          }
+          else if (str_buffer.size() == 2){
+    
+            if(std::isdigit(str_buffer[0])){
+              for(unsigned char dig_check : str_buffer){
+                if(!std::isdigit(dig_check)){
+                  fprintf(stderr,"Error: mixing numerical and alphabetical special defintions is not allowed\n");
+                  Fatal(start+i);
                 }
-                if(positional_locant)
-                  ring_components.push_back({std::stoi(str_buffer),positional_locant}); //big ring
-                else
-                  ring_components.push_back({std::stoi(str_buffer),'A'});
-
-                positional_locant = '\0';
               }
-              else{
-
-                // must be a special element 
-                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
-                if(!new_locant)
-                  Fatal(i+start);
-
-                graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
-
-                if(opt_debug)
-                  fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
-              }
-              positional_locant++;
-              block_str+=3; 
-              i+=3;
+            
+              ring_components.push_back({std::stoi(str_buffer),positional_locant}); //big ring
+              positional_locant = 'A';
+              locant_attached = false;
             }
+            else if(positional_locant != spiro_atom){
+
+              // must be a special element 
+              WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
+              if(!new_locant)
+                Fatal(i+start);
+
+              graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
+
+              if(opt_debug)
+                fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
+              
+              positional_locant++;
+            }
+            else
+              positional_locant++;
+            
+            locant_attached = false;
+            
+            block_str+=3; 
+            i+=3;
+          }
+          else{
+            fprintf(stderr,"Error: ended in an unexpected state due to '-' characters\n");
+            Fatal(start+i);
           }
         }
+      
         break;
       }
 
-      // numerals - easy access
 
       case '0':
-        // place the minus charges on the last ring seen
-        if(ring_components.size() == 1){
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
 
-          if(positional_locant)
-            ring->post_charges.push_back({positional_locant,-1});
-          else
-            ring->post_charges.push_back({'A',-1});
-        }else{
-          unsigned int track = 0;
-          for (unsigned int rn = 0; rn<ring_components.size()-1;rn++)
-            track += ring_components[rn].first;
-          ring->post_charges.push_back({int_to_locant(track + 1),-1});  // post is needed as this is before pointer assignment
+        if(!ring_components.empty()){
+          if(!positional_locant)
+            positional_locant = 'A';
+
+          if(opt_debug)
+            fprintf(stderr,"  placing pi bond charge on locant - %c\n",positional_locant);
+
+          ring->post_charges.push_back({positional_locant++,-1});
         }
+        locant_attached = false;
         break;
 
       case '1':
@@ -2441,21 +2429,14 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case '7':
       case '8':
       case '9':
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
+
         if(state_aromatics){
           fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
           Fatal(i+start);
         }
 
-        if(evaluating_break){
-          broken_locants.insert(positional_locant);
-
-          if(state_multi == 1)
-            multicyclic_locants.back() = positional_locant;
-          else if(state_pseudo == 1)
-            pseudo_locants.back() = positional_locant;
-  
-          evaluating_break = 0;
-        }
         if (i > 1 && block[i-1] == ' '){
           state_multi   = 1; // enter multi state
           expected_locants = ch - '0';
@@ -2463,13 +2444,51 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         else{
           ring_components.push_back({ch-'0',positional_locant});
           positional_locant = 'A';
+          locant_attached = false;
+        }
+        break;
+
+      // bring this out as chelating notation is seperate
+      case 'D':
+        if(i == 0){
+          state_chelate = 1;
+          heterocyclic = true;
+          if(opt_debug)
+            fprintf(stderr,"  opening chelating notation\n");
+        }
+        if(state_aromatics){
+          fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
+          Fatal(i+start);
+        }
+
+        if(expected_locants){
+          if(state_multi)
+            multicyclic_locants.push_back(ch);
+          else if (state_pseudo)
+            pseudo_locants.push_back(ch);
+          else{
+            fprintf(stderr,"Error: unhandled locant rule\n");
+            Fatal(start+i);
+          }
+
+          positional_locant = ch; // use for look back
+          locant_attached = true;
+          expected_locants--;
+          break;
+        }
+        else if(state_multi == 2){
+          ring_size_specifier = ch;
+          state_multi = 3;
+        }
+        else if(i>0 && block[i-1] == ' '){
+          positional_locant = ch;
+          locant_attached = true;
         }
         break;
 
       case 'A':
       case 'B':
       case 'C':
-      case 'D':
       case 'E':
       case 'F':
       case 'G':
@@ -2489,26 +2508,12 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case 'X':
       case 'Y':
       case 'Z':
-        if(i == 0 && ch == 'D'){
-          state_chelate = 1;
-          heterocyclic = true;
-          break;
-        }
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
 
         if(state_aromatics){
           fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
           Fatal(i+start);
-        }
-
-        if(evaluating_break){
-          broken_locants.insert(positional_locant);
-
-          if(state_multi == 1 && expected_locants)
-            multicyclic_locants.back() = positional_locant;
-          else if(state_pseudo == 1 && expected_locants)
-            pseudo_locants.back() = positional_locant;
-          
-          evaluating_break = 0;
         }
 
         if(expected_locants){
@@ -2522,14 +2527,17 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
 
           positional_locant = ch; // use for look back
+          locant_attached = true;
           expected_locants--;
-
           break;
         }
         else if(state_multi == 2){
           ring_size_specifier = ch;
           state_multi = 3;
         }
+        else if (spiro_atom && positional_locant == spiro_atom)
+          positional_locant++;
+        
         else if (positional_locant){
           
           if (opt_debug)
@@ -2538,14 +2546,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           WLNSymbol *new_locant = 0; 
           switch(ch){
             
-            case 'D':
-              if(!state_chelate){
-                fprintf(stderr,"Error: %c is not allowed as a atom assignment within ring notation\n",ch);
-                Fatal(start+i);
-              }
-              // means open chelating bond
-              break;
-
             case 'S':
             case 'P':
               if(!heterocyclic)
@@ -2663,38 +2663,21 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
 
           graph.string_positions[start+i] = new_locant;
+          locant_attached = false; // locant is no longer primary
         }
-        else{
-          if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
-            if(ring_components.empty()){
-              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
-              Fatal(start+i);
-            }
-            else
-              bridge_locants[ch] = true;
-          }
-          else if(i>0 && block[i-1] == ' '){
-            positional_locant = ch;
-          }
+        else if(i>0 && block[i-1] == ' '){
+          positional_locant = ch;
+          locant_attached = true;
         }
-
         break;
 
       case 'L':
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
+
         if(state_aromatics){
           fprintf(stderr,"Error: character '%c' cannot be in the aromaticity assignment block\n",ch);
           Fatal(i+start);
-        }
-
-        if(evaluating_break){
-          broken_locants.insert(positional_locant);
-
-          if(state_multi == 1 && expected_locants)
-            multicyclic_locants.back() = positional_locant;
-          else if(state_pseudo == 1 && expected_locants)
-            pseudo_locants.back() = positional_locant;
-
-          evaluating_break = 0;
         }
 
         if(i==0){
@@ -2713,25 +2696,18 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
 
           positional_locant = ch; // use for look back
+          locant_attached = true;
           expected_locants--;
-
           break;
         }
         else if(state_multi == 2){
           ring_size_specifier = ch;
           state_multi = 3;
         }
-        else if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
-            if(ring_components.empty()){
-              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
-              Fatal(start+i);
-            }
-            else
-              bridge_locants[ch] = true;
-        }
         else{
           if(i>0 && block[i-1] == ' '){
             positional_locant = ch;
+            locant_attached = true;
           }
           else{
             fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
@@ -2743,31 +2719,20 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
 
       case 'T':
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
+
         if(state_aromatics){
           aromaticity.push_back(0);
           break;
         }
       
-        if(evaluating_break){
-          broken_locants.insert(positional_locant);
-
-          if(state_multi >= 1 && expected_locants)
-            multicyclic_locants.back() = positional_locant;
-          else if(state_pseudo == 1 && expected_locants)
-            pseudo_locants.back() = positional_locant;
-          else
-            bridge_locants[positional_locant] = true;
-
-          evaluating_break = 0;
-        }
-
         if(i==0){
           heterocyclic = true; 
           break;
         }
 
         if(expected_locants){
-
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -2778,6 +2743,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
 
           positional_locant = ch; // use for look back
+          locant_attached = true;
           expected_locants--;
           break;
         }
@@ -2785,17 +2751,21 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           ring_size_specifier = ch;
           state_multi = 3;
         }
-        else if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
-            if(ring_components.empty()){
-              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
-              Fatal(start+i);
-            }
-            else
-              bridge_locants[ch] = true;
+        else if(positional_locant && locant_attached){
+          if(ring_components.empty()){
+            fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+            Fatal(start+i);
+          }
+          else
+            bridge_locants[positional_locant] = true;
+
+          state_aromatics = 1;
+          aromaticity.push_back(0);
         }
         else{
           if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
             positional_locant = ch;
+            locant_attached = true;
           }
           else{
             // this must be an aromatic state right?
@@ -2808,22 +2778,12 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       
       // CLOSE
       case 'J':
+        if(positional_locant >= 128)
+          broken_locants.insert(positional_locant);
+
         if(state_aromatics)
           state_aromatics = 0;
         
-        if(evaluating_break){
-          broken_locants.insert(positional_locant);
-
-          if(state_multi >= 1 && expected_locants)
-            multicyclic_locants.back() = positional_locant;
-          else if(state_pseudo == 1 && expected_locants)
-            pseudo_locants.back() = positional_locant;
-          else
-            bridge_locants[positional_locant] = true;
-
-          evaluating_break = 0;
-        }
-
         if (i == block.size()-1){
           
           if(ring_components.empty()){
@@ -2860,6 +2820,7 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           }
 
           positional_locant = ch; // use for look back
+          locant_attached = true;
           expected_locants--;
 
           break;
@@ -2868,17 +2829,18 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           ring_size_specifier = ch;
           state_multi = 3;
         }
-        else if( (i>0 && i<len-1 && block[i-1] == ' ') && (block[i+1] == ' ' || block[i+1] == 'T' || block[i+1] == 'J') ){
-            if(ring_components.empty()){
-              fprintf(stderr,"Error: assigning bridge locants without a ring\n");
-              Fatal(start+i);
-            }
-            else
-              bridge_locants[ch] = true;
+        else if(positional_locant && locant_attached){
+          if(ring_components.empty()){
+            fprintf(stderr,"Error: assigning bridge locants without a ring\n");
+            Fatal(start+i);
+          }
+          else
+            bridge_locants[positional_locant] = true;
         }
         else{
           if(i>0 && block[i-1] == ' '){
             positional_locant = ch;
+            locant_attached = true;
           }
           else{
             fprintf(stderr,"Error: symbol '%c' is in an unhandled state, please raise issue if this notation is 100%% correct\n",ch);
