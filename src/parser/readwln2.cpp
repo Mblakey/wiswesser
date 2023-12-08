@@ -2193,10 +2193,8 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
   unsigned int state_pseudo         = 0; 
   unsigned int state_aromatics      = 0;
-  unsigned int state_chelate        = 0;
 
-
-  unsigned int  expected_locants       = 0;
+  unsigned int  expected_locants      = 0;
   unsigned char ring_size_specifier   = '\0';
   
   bool locant_attached                = false;  // more sensible way of modifying the locants 
@@ -2451,7 +2449,6 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       // bring this out as chelating notation is seperate
       case 'D':
         if(i == 0){
-          state_chelate = 1;
           heterocyclic = true;
           if(opt_debug)
             fprintf(stderr,"  opening chelating notation\n");
@@ -2535,9 +2532,10 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           ring_size_specifier = ch;
           state_multi = 3;
         }
-        else if (spiro_atom && positional_locant == spiro_atom)
+        else if (spiro_atom && positional_locant == spiro_atom){
           positional_locant++;
-        
+          locant_attached = false;
+        }
         else if (positional_locant){
           
           if (opt_debug)
@@ -2616,6 +2614,9 @@ void FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               }
               else
                 unsaturations.push_back({positional_locant,positional_locant+1});
+              
+              if(i < len && block[i+1] != 'U')
+                positional_locant++;
               break;
             }
 
