@@ -162,6 +162,11 @@ unsigned char * encode_string(  const char *wln,
 
   unsigned int i=0;
   while(wln[i] != 0){
+    if(!encode[wln[i]]){
+      fprintf(stderr,"Error: character %c is not in the wln alphabet\n",wln[i]);
+      return 0;
+    }
+    
     i++;
     bits += 6; 
   }
@@ -203,6 +208,11 @@ unsigned char * encode_string(  const char *wln,
 unsigned char* decode_string( const char *encoded_string, 
                               std::map<unsigned int,unsigned char> &decode){
 
+  if(!encoded_string){
+    fprintf(stderr,"Error: decoding null string\n");
+    return 0;
+  }
+  
   // easier to reverse the process into the binary bitstring and read from there
   std::string bitstring; 
   unsigned int i=0;
@@ -240,7 +250,7 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
-  const char *encode_test = "3UV3";
+  const char *encode_test = "L666TJ A2 B2 B100000 aL";
   fprintf(stderr,"%s\n",encode_test);
 
   std::map<unsigned char,unsigned int> encode;
