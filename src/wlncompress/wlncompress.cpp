@@ -128,7 +128,6 @@ static void ProcessCommandLine(int argc, char *argv[])
   return;
 }
 
-
 void print_bits(unsigned char val) {
   for (int i = 7; i >= 0; i--)
     fprintf(stderr,"%d", (val & (1 << i)) ? 1:0);
@@ -139,7 +138,6 @@ void write_6bits(unsigned char val, std::string &buffer) {
   for (int i = 7; i >= 2; i--)
     buffer += ((val & (1 << i)) ? '1':'0');
 }
-
 
 void initialise_maps(  std::map<unsigned char,unsigned int> &encode, 
                       std::map<unsigned int, unsigned char> &decode)
@@ -154,14 +152,15 @@ void initialise_maps(  std::map<unsigned char,unsigned int> &encode,
 }
 
 
-bool encode_string(const char *wln, std::string &bitstring,
-                   std::map<unsigned char,unsigned int> &encode)
+unsigned char * encode_string(  const char *wln, 
+                                std::map<unsigned char,unsigned int> &encode)
 {
-
+  
   // calculate the number of padding bits we need. 
   unsigned int bits = 6;  // write the null character as a block of 6
   unsigned int padding = 0; 
-  
+  std::string bitstring; 
+
   unsigned int i=0;
   while(wln[i] != 0){
     i++;
@@ -171,10 +170,8 @@ bool encode_string(const char *wln, std::string &bitstring,
   while((bits + padding) % 8 != 0)
     padding++; 
   
-
-  if(opt_verbose)
-    fprintf(stderr,"writing %d bits, need %d padding bits\n",bits,padding);
-
+  unsigned char *encoded_str = (unsigned char*)malloc(sizeof(unsigned char) * (bits+padding)/8);
+  memset(encoded_str,0,(bits+padding)/8);
 
   // parse the character string and replace with encode number, left shift the bits by 2
   // and then read the first 6 bits to create a binary 'string' using chars
@@ -189,10 +186,55 @@ bool encode_string(const char *wln, std::string &bitstring,
   for(unsigned j=0;j<padding;j++)
     bitstring += '0';
 
-  std::cout << bitstring << std::endl;
+  unsigned int p = 0;
+  for(unsigned int j=0;j<(bits+padding);j+=8){
+    i = 0;
+    char buffer[8] = {0}; 
 
-  return true;
+    for(unsigned int k=j; k<j+8;k++)
+      buffer[i++] = bitstring[k];
+    
+    encoded_str[p++] = (unsigned char)strtol(buffer,0,2);
+  }
+
+  return encoded_str;
 } 
+
+
+unsigned char* decode_string( const char *encoded_string, 
+                              std::map<unsigned int,unsigned char> &decode){
+
+  // easier to reverse the process into the binary bitstring and read from there
+  std::string bitstring; 
+  unsigned int i=0;
+  while(encoded_string[i] != 0){
+    for (int k = 7; k >= 0; k--)
+      bitstring += (encoded_string[i] & (1 << k)) ? '1':'0';
+    i++;
+  }
+
+  unsigned int bits = bitstring.size();
+  while(bits % 6 != 0)
+    bits--; 
+
+  unsigned char *decoded_str = (unsigned char*)malloc(sizeof(unsigned char) * (bits)/8);
+  memset(decoded_str,0,(bits)/8);
+
+  unsigned int d = 0;
+  for(unsigned int i=0; i <bitstring.size();i+=6){
+    unsigned int p = 2;
+    char buffer[8] = {0};
+    buffer[0] = '0';
+    buffer[1] = '0'; // effectively reverse the leftshift
+
+    for(unsigned int k=i;k<i+6;k++)
+      buffer[p++] = bitstring[k];
+      
+    decoded_str[d++] = decode[(unsigned int)strtol(buffer,0,2)];
+  }
+  
+  return decoded_str;
+}
 
 
 
@@ -202,14 +244,22 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
+  const char *encode_test = "3UV3";
+  fprintf(stderr,"%s\n",encode_test);
+
   std::map<unsigned char,unsigned int> encode;
   std::map<unsigned int, unsigned char> decode;
 
   initialise_maps(encode,decode);
 
-  std::string bit_buffer; 
-  encode_string("3UV3",bit_buffer,encode);
+  unsigned char *encoded_str = encode_string(encode_test,encode);
+  fprintf(stderr,"%s\n",encoded_str);
 
 
+  unsigned char *decoded_str = decode_string((const char*)encoded_str,decode);
+  fprintf(stderr,"%s\n",decoded_str);
+
+  free(encoded_str);
+  free(decoded_str);
   return 0;
 }
