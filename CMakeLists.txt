@@ -7,6 +7,7 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/src/parser
         ${PROJECT_SOURCE_DIR}/src/wlngrep
         ${PROJECT_SOURCE_DIR}/src/mwln
+        ${PROJECT_SOURCE_DIR}/src/wlncompress
 )
 
 add_executable(readwln ${PROJECT_SOURCE_DIR}/src/parser/readwln2.cpp)
@@ -17,6 +18,8 @@ add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/parser/obcomp.cpp)
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
 add_executable(writemwln ${PROJECT_SOURCE_DIR}/src/mwln/writemwln.cpp)
+
+add_executable(wlncompress ${PROJECT_SOURCE_DIR}/src/wlncompress/wlncompress.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/include/")
