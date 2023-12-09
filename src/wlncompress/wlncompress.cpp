@@ -5,6 +5,7 @@
 #include <map>
 #include <vector> // can optimise this out later
 #include <string> // just for prototype
+#include <iostream>
 
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
@@ -128,20 +129,70 @@ static void ProcessCommandLine(int argc, char *argv[])
 }
 
 
+void print_bits(unsigned char val) {
+  for (int i = 7; i >= 0; i--)
+    fprintf(stderr,"%d", (val & (1 << i)) ? 1:0);
+  fprintf(stderr,"\n");
+}
+
+void write_6bits(unsigned char val, std::string &buffer) {
+  for (int i = 7; i >= 2; i--)
+    buffer += ((val & (1 << i)) ? '1':'0');
+}
+
+
 void initialise_maps(  std::map<unsigned char,unsigned int> &encode, 
                       std::map<unsigned int, unsigned char> &decode)
 {
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -/&";
   unsigned int j=1;
   for (unsigned int i=0;i<40;i++){
-    if(opt_verbose)
-      fprintf(stderr,"%c --> %d\n",wln[i],j);
-  
     encode[wln[i]] = j;
     decode[j] = wln[i];
     j++;
   }
 }
+
+
+bool encode_string(const char *wln, std::string &bitstring,
+                   std::map<unsigned char,unsigned int> &encode)
+{
+
+  // calculate the number of padding bits we need. 
+  unsigned int bits = 6;  // write the null character as a block of 6
+  unsigned int padding = 0; 
+  
+  unsigned int i=0;
+  while(wln[i] != 0){
+    i++;
+    bits += 6; 
+  }
+
+  while((bits + padding) % 8 != 0)
+    padding++; 
+  
+
+  if(opt_verbose)
+    fprintf(stderr,"writing %d bits, need %d padding bits\n",bits,padding);
+
+
+  // parse the character string and replace with encode number, left shift the bits by 2
+  // and then read the first 6 bits to create a binary 'string' using chars
+
+  i = 0;
+  while(wln[i] != 0){
+    unsigned int encoding = encode[wln[i++]];
+    write_6bits(encoding << 2,bitstring);
+  }
+
+  write_6bits(0,bitstring); // write the null character and add padding bits
+  for(unsigned j=0;j<padding;j++)
+    bitstring += '0';
+
+  std::cout << bitstring << std::endl;
+
+  return true;
+} 
 
 
 
@@ -156,7 +207,8 @@ int main(int argc, char *argv[])
 
   initialise_maps(encode,decode);
 
-  
+  std::string bit_buffer; 
+  encode_string("3UV3",bit_buffer,encode);
 
 
   return 0;
