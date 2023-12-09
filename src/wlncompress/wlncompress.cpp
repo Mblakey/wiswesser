@@ -24,18 +24,6 @@ void write_6bits(unsigned char val, std::string &buffer) {
     buffer += ((val & (1 << i)) ? '1':'0');
 }
 
-void initialise_maps(  std::map<unsigned char,unsigned int> &encode, 
-                       std::map<unsigned int, unsigned char> &decode)
-{
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -/&";
-  unsigned int j=1;
-  for (unsigned int i=0;i<40;i++){
-    encode[wln[i]] = j;
-    decode[j] = wln[i];
-    j++;
-  }
-}
-
 
 unsigned char * encode_string(  const char *wln, 
                                 std::map<unsigned char,unsigned int> &encode)
@@ -62,6 +50,7 @@ unsigned char * encode_string(  const char *wln,
   while((bits + padding) % 8 != 0)
     padding++; 
   
+
   unsigned char *encoded_str = (unsigned char*)malloc(sizeof(unsigned char) * (bits+padding)/8);
   memset(encoded_str,0,(bits+padding)/8);
 
@@ -115,8 +104,8 @@ unsigned char* decode_string( const char *encoded_string,
   while(bits % 6 != 0)
     bits--; 
 
-  unsigned char *decoded_str = (unsigned char*)malloc(sizeof(unsigned char) * (bits)/8);
-  memset(decoded_str,0,(bits)/8);
+  unsigned char *decoded_str = (unsigned char*)malloc(sizeof(unsigned char) * (bits)/6);
+  memset(decoded_str,0,(bits)/6);
 
   unsigned int d = 0;
   for(unsigned int i=0; i <bitstring.size();i+=6){
@@ -262,11 +251,17 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -/&";
 
   std::map<unsigned char,unsigned int> encode;
   std::map<unsigned int, unsigned char> decode;
 
-  initialise_maps(encode,decode);
+  unsigned int j=1;
+  for (unsigned int i=0;i<40;i++){
+    encode[wln[i]] = j;
+    decode[j] = wln[i];
+    j++;
+  }
 
   FILE *fp = 0; 
   fp = fopen(input,"rb");
@@ -277,7 +272,7 @@ int main(int argc, char *argv[])
         return 1;
       
       unsigned char *decoded_str = decode_string((const char*)encoded_str,decode);
-  
+
       if(strcmp(input,(const char*)decoded_str) == 1)
         fprintf(stderr,"Error: decoding round trip failed - %s\n",decoded_str);
       else
