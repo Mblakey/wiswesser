@@ -5,7 +5,6 @@
 #include <map>
 #include <vector> // can optimise this out later
 #include <string> // just for prototype
-#include <iostream>
 
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
@@ -140,7 +139,7 @@ void write_6bits(unsigned char val, std::string &buffer) {
 }
 
 void initialise_maps(  std::map<unsigned char,unsigned int> &encode, 
-                      std::map<unsigned int, unsigned char> &decode)
+                       std::map<unsigned int, unsigned char> &decode)
 {
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -/&";
   unsigned int j=1;
@@ -235,9 +234,6 @@ unsigned char* decode_string( const char *encoded_string,
   
   return decoded_str;
 }
-
-
-
 
 
 int main(int argc, char *argv[])
