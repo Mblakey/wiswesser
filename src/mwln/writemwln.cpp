@@ -2421,7 +2421,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "writewln <options> -i<format> -s <input (escaped)>\n");
+  fprintf(stderr, "writemwln <options> -i<format> -s <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -d                    print debug messages to stderr\n");
   fprintf(stderr, "  -h                    show the help for executable usage\n");
@@ -2431,10 +2431,10 @@ static void DisplayUsage()
 
 static void DisplayHelp()
 {
-  fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
-  fprintf(stderr, " This parser writes to wiswesser\n"
+  fprintf(stderr, "\n--- Modern wisswesser notation parser (MWLN) ---\n\n");
+  fprintf(stderr, " This parser writes to an updated version of wiswesser\n"
                   " line notation (wln) from smiles/inchi, the parser is built on OpenBabels\n"
-                  " toolkit and will return the minimal WLN string\n");
+                  " toolkit and is part of michaels PhD investigations into compressing chemical strings\n");
   DisplayUsage();
 }
 

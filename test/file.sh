@@ -12,7 +12,7 @@ process_arguments() {
     case "$arg" in
       -h|--help)
         # Display a help message
-        echo "Usage: file.sh <options> <mode> <file>"
+        echo "Usage: file.sh <options> <file>"
         echo "options"
         echo "  -r, --read     read wln to smiles"
         echo "  -w, --write    write smiles to wln"
