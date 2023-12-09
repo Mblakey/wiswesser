@@ -6,6 +6,8 @@
 #include <vector> // can optimise this out later
 #include <string> // just for prototype
 
+
+unsigned saved_bytes = 0;
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 const char *input;
@@ -55,10 +57,10 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "compresswln <options> <input file> > <out>\n");
+  fprintf(stderr, "compresswln <options> <input> > <out>\n");
   fprintf(stderr, "<options>\n");
-  fprintf(stderr, "  -c          compress input file\n");
-  fprintf(stderr, "  -d          decompress input file\n");
+  fprintf(stderr, "  -c          compress input\n");
+  fprintf(stderr, "  -d          decompress input\n");
   fprintf(stderr, "  -v          verbose debugging statements on\n");
   exit(1);
 }
@@ -124,6 +126,11 @@ static void ProcessCommandLine(int argc, char *argv[])
     DisplayUsage();
   }
 
+  if(!opt_mode){
+    fprintf(stderr,"Error: please choose -c or -d for file\n");
+    DisplayUsage();
+  }
+
   return;
 }
 
@@ -156,6 +163,7 @@ unsigned char * encode_string(  const char *wln,
 {
   
   // calculate the number of padding bits we need. 
+  unsigned int sbits = 8;
   unsigned int bits = 6;  // write the null character as a block of 6
   unsigned int padding = 0; 
   std::string bitstring; 
@@ -169,6 +177,7 @@ unsigned char * encode_string(  const char *wln,
     
     i++;
     bits += 6; 
+    sbits+= 8;
   }
 
   while((bits + padding) % 8 != 0)
@@ -201,6 +210,7 @@ unsigned char * encode_string(  const char *wln,
     encoded_str[p++] = (unsigned char)strtol(buffer,0,2);
   }
 
+  saved_bytes += (sbits - (bits+padding))/8;
   return encoded_str;
 } 
 
@@ -250,22 +260,39 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
-  const char *encode_test = "L666TJ A2 B2 B100000 aL";
-  fprintf(stderr,"%s\n",encode_test);
 
   std::map<unsigned char,unsigned int> encode;
   std::map<unsigned int, unsigned char> decode;
 
   initialise_maps(encode,decode);
 
-  unsigned char *encoded_str = encode_string(encode_test,encode);
-  fprintf(stderr,"%s\n",encoded_str);
+  FILE *fp = 0; 
+  fp = fopen(input,"rb");
+  if(!fp){
+    if(opt_mode == 1){
+      unsigned char *encoded_str = encode_string(input,encode);
+      if(!encoded_str)
+        return 1;
+      
+      unsigned char *decoded_str = decode_string((const char*)encoded_str,decode);
+  
+      if(strcmp(input,(const char*)decoded_str) == 1)
+        fprintf(stderr,"Error: decoding round trip failed - %s\n",decoded_str);
+      else
+        fprintf(stdout,"%s\n",encoded_str);
+      
+      free(encoded_str);
+      free(decoded_str);
+    }
+    else if(opt_mode == 2)
+      fprintf(stderr,"Error: decoding from terminal string input will ignore special character values\n");
+  }
+  else{
+    fclose(fp);
+  }
 
+  if(opt_verbose)
+    fprintf(stderr,"saved %d bytes\n",saved_bytes);
 
-  unsigned char *decoded_str = decode_string((const char*)encoded_str,decode);
-  fprintf(stderr,"%s\n",decoded_str);
-
-  free(encoded_str);
-  free(decoded_str);
   return 0;
 }
