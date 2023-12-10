@@ -1,16 +1,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
 #include <map>
-#include <string> // just for prototype
-
 
 unsigned saved_bytes = 0;
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 const char *input;
-
 
 void print_bits(unsigned char val) {
   for (int i = 7; i >= 0; i--)
@@ -18,11 +14,11 @@ void print_bits(unsigned char val) {
   fprintf(stderr,"\n");
 }
 
+#if DEPRECATED
 void write_6bits(unsigned char val, std::string &buffer) {
   for (int i = 7; i >= 2; i--)
     buffer += ((val & (1 << i)) ? '1':'0');
 }
-
 
 unsigned char * encode_string(  const char *wln, 
                                 std::map<unsigned char,unsigned int> &encode,
@@ -87,7 +83,6 @@ unsigned char * encode_string(  const char *wln,
   return encoded_str;
 } 
 
-
 unsigned char* decode_string( const char *encoded_string, 
                               std::map<unsigned int,unsigned char> &decode){
 
@@ -127,140 +122,162 @@ unsigned char* decode_string( const char *encoded_string,
   
   return decoded_str;
 }
-
-
-bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
-  char *end = buffer+n;
-  char *ptr;
-  int ch;
-
-  ptr = buffer;
-  do {
-    ch = getc_unlocked(fp); // this increments fp
-    if (ch == '\n') {
-      if (add_nl)
-        *ptr++ = '\n'; // if i want the newline or not
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\f') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\r') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      ch = getc_unlocked(fp);
-      if (ch != '\n') {
-        if (ch == -1)
-          return false;
-        ungetc(ch,fp);
-      }
-      return true;
-    }
-    if (ch == -1) {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return ptr-buffer > 1;
-    }
-    *ptr++ = ch;
-  } while (ptr < end);
-  *ptr = 0;
-  
-  fprintf(stderr, "Warning: line too long!\n");
-  return false;
-}
+#endif
 
 
 bool encode_file(FILE *ifp,std::map<unsigned char,unsigned int> &encode){
-  char buffer[2048] = {0};
-  while(ReadLineFromFile(ifp,buffer,2048,false)){
-    unsigned char *encoded_str = encode_string(buffer,encode,stdout);
-    if(!encoded_str)
-      return false;
+  
+  // multiple of 6 and 8 = 48
+  unsigned char *bitstring = (unsigned char*)malloc(sizeof(unsigned char) * 48);
+  memset(bitstring,0,48);
 
-    free(encoded_str);
+  fseek(ifp,0,SEEK_END);
+  unsigned int file_len = ftell(ifp); // bytes
+  fseek(ifp,0,SEEK_SET);
+  
+  unsigned int word_pos = 0;
+  unsigned int enc = 0;
+  unsigned char ch = 0;
+
+  for(unsigned int i=0;i<file_len;i++){
+    fread(&ch, sizeof(unsigned char), 1, ifp);
+    
+    if(ch != '\n'){ 
+      enc = encode[ch];  // encode the char
+      enc = enc << 2;
+      for (int k = 7; k >= 2; k--)
+        bitstring[word_pos++] = ((enc & (1 << k)) ? '1':'0');
+    }
+    else{ // write a 6 bit null
+      for (int k = 0; k < 6; k++)
+        bitstring[word_pos++] = '0';
+    }
+
+    if(word_pos == 48 || i == file_len-1){
+    
+      unsigned int bit_pos = 0;
+      unsigned char encode_char = 0;
+      for(unsigned int p = 0; p < 48; p++){
+        unsigned char bit = bitstring[p];
+        bitstring[p] = 0;
+        bit_pos++;
+
+        if(bit == '1'){
+          switch(bit_pos){
+            case 1:
+              encode_char ^= 128;
+              break;
+            case 2:
+              encode_char ^= 64;
+              break;
+            case 3:
+              encode_char ^= 32;
+              break;
+            case 4:
+              encode_char ^= 16;
+              break;
+            case 5:
+              encode_char ^= 8;
+              break;
+            case 6:
+              encode_char ^= 4;
+              break;
+            case 7:
+              encode_char ^= 2;
+              break;
+            case 8:
+              encode_char ^= 1;
+              break;
+          }
+        }
+        else if(!bit){ // for a non exact buffer, char will contain the zero bit padding
+          if(encode_char)
+            fprintf(stdout,"%c",encode_char);
+          free(bitstring);
+          return true;
+        }
+        
+        if(bit_pos == 8){
+          fprintf(stdout,"%c",encode_char);
+          encode_char = 0;
+          bit_pos = 0;
+        }
+      }
+
+      word_pos = 0;  
+    }
+
   }
+
+  free(bitstring);
   return true;
 }
 
-#include <iostream>
 
 /* if the files are massive reading once into a singular buffer doesnt work 
    this is slower but should be independent on size due to buffer clears */
 bool decode_file(FILE *ifp,std::map<unsigned int,unsigned char> &decode){
 
   // create a char array for empty computer word (64bitOS)
-  unsigned char *bitstring = (unsigned char*)malloc(sizeof(unsigned char)*64);
-  memset(bitstring,0,64); 
+  unsigned char *bitstring = (unsigned char*)malloc(sizeof(unsigned char)*48);
+  memset(bitstring,0,48); 
 
   fseek(ifp,0,SEEK_END);
   unsigned int file_len = ftell(ifp); // bytes
   fseek(ifp,0,SEEK_SET);
 
   unsigned char ch = 0;
-  unsigned char decode_char = 0;
-
-  unsigned int bits_read = 0; 
-  unsigned int bytes_read = 0;
   unsigned int word_pos = 0;
-  unsigned int bit_pos = 0; // can carry to next word
   
   for(unsigned int i=0;i<file_len;i++){
     fread(&ch, sizeof(unsigned char), 1, ifp);
     for (int k = 7; k >= 0; k--)
       bitstring[word_pos++] = ((ch & (1 << k)) ? '1':'0');
     
-    bytes_read++;
     // read in computer words 8 bytes, not sure if this will optimise the memory
-    if(bytes_read == 8 || i == file_len-1){
+    if(word_pos == 48 || i == file_len-1){
+      unsigned int bit_pos = 0; // can carry to next word
+      unsigned char decode_char = 0;
       
-      word_pos = 0; // set counter to start of word
-      
+      for(unsigned int p=0;p<48;p++){
 
-      while(word_pos < 64 && bitstring[word_pos]){
-
-        unsigned char bit = bitstring[word_pos];
-        bitstring[word_pos++] = 0;
+        unsigned char bit = bitstring[p];
+        bitstring[p] = 0;
         bit_pos++;
-        bits_read++;
 
         if(bit == '1'){
           switch(bit_pos){
             case 1:
-              decode_char = decode_char ^ 32;
+              decode_char ^= 32;
               break;
             case 2:
-              decode_char = decode_char ^ 16;
+              decode_char ^= 16;
               break;
             case 3:
-              decode_char = decode_char ^ 8;
+              decode_char ^= 8;
               break;
             case 4:
-              decode_char = decode_char ^ 4;
+              decode_char ^= 4;
               break;
             case 5:
-              decode_char = decode_char ^ 2;
+              decode_char ^= 2;
               break;
             case 6:
-              decode_char = decode_char ^ 1;
+              decode_char ^= 1;
               break;
           }
         }
 
+        if(!bit){
+          fprintf(stdout,"\n");
+          free(bitstring);
+          return true;
+        }
+
         if(bit_pos == 6){
-          
           // terminate condition
           if(!decode_char){
             fprintf(stdout,"\n");
-             
-            // eat zero bits until the next multiple of 8 is found
-            while(bits_read % 8 != 0){
-              bitstring[word_pos++] = 0;
-              bits_read++;
-            }
-            bits_read = 0;
           }
           else
             fprintf(stdout,"%c",decode[decode_char]);
@@ -272,13 +289,8 @@ bool decode_file(FILE *ifp,std::map<unsigned int,unsigned char> &decode){
       }
 
       word_pos = 0; // 
-      bytes_read = 0;
     }
   }
-
-  
-
-
 
   free(bitstring);
   return true;
@@ -383,34 +395,17 @@ int main(int argc, char *argv[])
 
   FILE *fp = 0; 
   fp = fopen(input,"rb");
-  if(!fp){
-    if(opt_mode == 1){
-      unsigned char *encoded_str = encode_string(input,encode,0);
-      if(!encoded_str)
-        return 1;
-      
-      unsigned char *decoded_str = decode_string((const char*)encoded_str,decode);
-
-      if(strcmp(input,(const char*)decoded_str) == 1)
-        fprintf(stderr,"Error: decoding round trip failed - %s\n",decoded_str);
-      else
-        fprintf(stdout,"%s\n",encoded_str);
-      
-      free(encoded_str);
-      free(decoded_str);
-    }
-    else if(opt_mode == 2)
-      fprintf(stderr,"Error: decoding from terminal string input will ignore special character values\n");
-  }
-  else{
-
+  if(fp){
     if(opt_mode == 1)
       encode_file(fp,encode);
     else if (opt_mode == 2)
       decode_file(fp,decode);
-    
 
     fclose(fp);
+  }
+  else{
+    fprintf(stderr,"Error: could not open file at %s\n",input);
+    return 1;
   }
 
   if(opt_verbose && opt_mode == 1)
