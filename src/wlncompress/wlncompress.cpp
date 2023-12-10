@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include <map>
-#include <vector> // can optimise this out later
 #include <string> // just for prototype
 
 
@@ -26,7 +25,8 @@ void write_6bits(unsigned char val, std::string &buffer) {
 
 
 unsigned char * encode_string(  const char *wln, 
-                                std::map<unsigned char,unsigned int> &encode)
+                                std::map<unsigned char,unsigned int> &encode,
+                                FILE *fp)
 {
   
   // calculate the number of padding bits we need. 
@@ -76,6 +76,11 @@ unsigned char * encode_string(  const char *wln,
       buffer[i++] = bitstring[k];
     
     encoded_str[p++] = (unsigned char)strtol(buffer,0,2);
+  }
+
+  if(fp){
+    for(unsigned int i=0;i<p;i++)
+      fwrite (&encoded_str[i], 1, 1, fp);
   }
 
   saved_bytes += (sbits - (bits+padding))/8;
@@ -166,6 +171,119 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
   fprintf(stderr, "Warning: line too long!\n");
   return false;
 }
+
+
+bool encode_file(FILE *ifp,std::map<unsigned char,unsigned int> &encode){
+  char buffer[2048] = {0};
+  while(ReadLineFromFile(ifp,buffer,2048,false)){
+    unsigned char *encoded_str = encode_string(buffer,encode,stdout);
+    if(!encoded_str)
+      return false;
+
+    free(encoded_str);
+  }
+  return true;
+}
+
+#include <iostream>
+
+/* if the files are massive reading once into a singular buffer doesnt work 
+   this is slower but should be independent on size due to buffer clears */
+bool decode_file(FILE *ifp,std::map<unsigned int,unsigned char> &decode){
+
+  // create a char array for empty computer word (64bitOS)
+  unsigned char *bitstring = (unsigned char*)malloc(sizeof(unsigned char)*64);
+  memset(bitstring,0,64); 
+
+  fseek(ifp,0,SEEK_END);
+  unsigned int file_len = ftell(ifp); // bytes
+  fseek(ifp,0,SEEK_SET);
+
+  unsigned char ch = 0;
+  unsigned char decode_char = 0;
+
+  unsigned int bits_read = 0; 
+  unsigned int bytes_read = 0;
+  unsigned int word_pos = 0;
+  unsigned int bit_pos = 0; // can carry to next word
+  
+  for(unsigned int i=0;i<file_len;i++){
+    fread(&ch, sizeof(unsigned char), 1, ifp);
+    for (int k = 7; k >= 0; k--)
+      bitstring[word_pos++] = ((ch & (1 << k)) ? '1':'0');
+    
+    bytes_read++;
+    // read in computer words 8 bytes, not sure if this will optimise the memory
+    if(bytes_read == 8 || i == file_len-1){
+      
+      word_pos = 0; // set counter to start of word
+      
+
+      while(word_pos < 64 && bitstring[word_pos]){
+
+        unsigned char bit = bitstring[word_pos];
+        bitstring[word_pos++] = 0;
+        bit_pos++;
+        bits_read++;
+
+        if(bit == '1'){
+          switch(bit_pos){
+            case 1:
+              decode_char = decode_char ^ 32;
+              break;
+            case 2:
+              decode_char = decode_char ^ 16;
+              break;
+            case 3:
+              decode_char = decode_char ^ 8;
+              break;
+            case 4:
+              decode_char = decode_char ^ 4;
+              break;
+            case 5:
+              decode_char = decode_char ^ 2;
+              break;
+            case 6:
+              decode_char = decode_char ^ 1;
+              break;
+          }
+        }
+
+        if(bit_pos == 6){
+          
+          // terminate condition
+          if(!decode_char){
+            fprintf(stdout,"\n");
+             
+            // eat zero bits until the next multiple of 8 is found
+            while(bits_read % 8 != 0){
+              bitstring[word_pos++] = 0;
+              bits_read++;
+            }
+            bits_read = 0;
+          }
+          else
+            fprintf(stdout,"%c",decode[decode_char]);
+          
+          // reset after a 6 block read
+          decode_char = 0;
+          bit_pos = 0;
+        }
+      }
+
+      word_pos = 0; // 
+      bytes_read = 0;
+    }
+  }
+
+  
+
+
+
+  free(bitstring);
+  return true;
+}
+
 
 static void DisplayUsage()
 {
@@ -267,7 +385,7 @@ int main(int argc, char *argv[])
   fp = fopen(input,"rb");
   if(!fp){
     if(opt_mode == 1){
-      unsigned char *encoded_str = encode_string(input,encode);
+      unsigned char *encoded_str = encode_string(input,encode,0);
       if(!encoded_str)
         return 1;
       
@@ -285,10 +403,17 @@ int main(int argc, char *argv[])
       fprintf(stderr,"Error: decoding from terminal string input will ignore special character values\n");
   }
   else{
+
+    if(opt_mode == 1)
+      encode_file(fp,encode);
+    else if (opt_mode == 2)
+      decode_file(fp,decode);
+    
+
     fclose(fp);
   }
 
-  if(opt_verbose)
+  if(opt_verbose && opt_mode == 1)
     fprintf(stderr,"saved %d bytes\n",saved_bytes);
 
   return 0;
