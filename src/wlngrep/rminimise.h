@@ -17,7 +17,6 @@ Minimise and prove language equivalence for DFA
 
 #include "rfsm.h"
 #include "rtransitions.h"
-#include "rmerge.h"
 
 
 struct StateRank{

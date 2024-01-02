@@ -44,11 +44,14 @@ struct FSMEdge{
 	FSMState *dwn;
 	FSMEdge *nxt;
 
+  double p;
+
   FSMEdge(){
     id = 0;
     ch = 0;
     dwn = 0;
     nxt = 0;
+    p = 0.0;
   };
 };
 
@@ -148,7 +151,19 @@ struct FSMAutomata{
       return true;
   }
 
+  void AssignEqualProbs(){
+    for(unsigned int i=0;i<num_states;i++){
+      FSMState *s = states[i];
 
+      unsigned int count = 0;
+      FSMEdge *e = 0; 
+      for(e=s->transitions;e;e=e->nxt)
+        count++;
+      
+      for(e=s->transitions;e;e=e->nxt)
+        e->p = (double)1/(double)count; 
+    }
+  }
 
 	FSMState* AddState(bool accept=false){
     		
