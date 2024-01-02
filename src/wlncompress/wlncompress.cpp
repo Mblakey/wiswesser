@@ -602,6 +602,18 @@ FSMAutomata * CreateWLNDFA(){
   return wlnMinimal;
 }
 
+void print_bits(void *ptr, int size, int offset=0) 
+{
+  if(size>8){
+    fprintf(stderr,"Error: print functions maxes at 64 bits\n");
+    return;
+  }
+  long long *ch = (long long*)ptr;
+  int size_bits = size * 8;
+  for(int i = size_bits-1-offset; i>=0; i--)
+    fprintf(stderr,"%lld", (*ch >> i) & 1) ;
+  
+}
 
 bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
   char *end = buffer+n;
@@ -646,109 +658,266 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
   return false;
 }
 
+void stream_to_bytes(std::string &stream){
+  unsigned int char_pos = 0;
+  unsigned char out = 0;
+  for(unsigned int i=0;i<stream.size();i++){
+
+    if(stream[i] == 1)
+      out ^= (1 << char_pos);
+  
+    if(char_pos == 7){
+      char_pos = 0;
+      fprintf(stdout,"%c",out);
+      out = 0;
+    }
+    else
+      char_pos++;
+  }
+
+}
+
 
 bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
   
+  unsigned int lines = 1;
+  unsigned char ch = 0;
+  fseek(ifp,0,SEEK_END);
+  unsigned int file_len = ftell(ifp); // bytes
+  fseek(ifp,0,SEEK_SET);
+
+
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
-
-  unsigned int buff_size = 1024;
-  char buffer[buff_size] = {0};
-  char *bptr = buffer; 
 
   unsigned int low = 0; 
   unsigned int high = UINT32_MAX;
   unsigned int underflow_bits = 0;
 
-  unsigned int lines = 0;
-  while(ReadLineFromFile(ifp,buffer,buff_size,true)){
-    lines++;
-    bptr = buffer;
-    unsigned char ch = *bptr;
-    curr = wlnmodel->root;
-    std::string lbitstream;  
+  std::string cstream;
 
-    while(ch){
-      unsigned int T = 0;
-      bool found = 0;
-      unsigned int Cc = 0;
-      unsigned int Cn = 0;
-      for(edge=curr->transitions;edge;edge=edge->nxt){
-        T += (unsigned int)(edge->p * 100);
-        if(edge->ch == ch){
-          Cn += (unsigned int)(edge->p * 100);
-          found = 1;
-          curr = edge->dwn;
-          break; 
-        }
-        else
-          Cc += (unsigned int)(edge->p * 100);
-      }
-      Cn += Cc; 
-
-      if(!found){
-        fprintf(stderr,"Error: invalid wln syntax - skipping %-4d: (%c) %s",lines,ch,buffer);
-        break;
-      }
-
-      uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
-      uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
-      uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T); 
-
-      low = new_low; 
-      high = new_high;
-
-      unsigned char lb = low & (1 << 31) ? 1:0;
-      unsigned char hb = high & (1 << 31) ? 1:0;
-      unsigned char lb2 = low & (1 << 30) ? 1:0;
-      unsigned char hb2 = high & (1 << 30) ? 1:0;
-      unsigned char ubit = lb ? 0:1;
-
-       if(lb == hb){
-        while(lb == hb){
-          lbitstream += lb; 
+  for(unsigned int i=0;i<file_len+1;i++){
+    if(i<file_len)
+      fread(&ch, sizeof(unsigned char), 1, ifp);
+    else 
+      ch = 0;
     
-          low <<= 1; // shift in the zero 
-          high <<= 1; // shift in zero then set to 1.
-          high ^= 1;
-          lb = low & (1 << 31) ? 1:0;
-          hb = high & (1 << 31) ? 1:0;
+    if(ch == '\n')
+      lines++;
 
-          if(underflow_bits){
-            for(unsigned int i=0;i<underflow_bits;i++)
-              lbitstream += ubit;
-            underflow_bits = 0;
-          }
+    unsigned int T = 0;
+    bool found = 0;
+    unsigned int Cc = 0;
+    unsigned int Cn = 0;
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      T += (unsigned int)(edge->p * 100);
+      if(edge->ch == ch){
+        Cn += (unsigned int)(edge->p * 100);
+        found = 1;
+        curr = edge->dwn;
+        break; 
+      }
+      else
+        Cc += (unsigned int)(edge->p * 100);
+    }
+    Cn += Cc; 
+
+    if(!found){
+      fprintf(stderr,"Error: invalid wln syntax - please remove line: %d\n",lines);
+      return false;
+    }
+
+    uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
+    uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
+    uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T); 
+
+    low = new_low; 
+    high = new_high;
+
+    unsigned char lb = low & (1 << 31) ? 1:0;
+    unsigned char hb = high & (1 << 31) ? 1:0;
+    unsigned char lb2 = low & (1 << 30) ? 1:0;
+    unsigned char hb2 = high & (1 << 30) ? 1:0;
+    unsigned char ubit = lb ? 0:1;
+
+    if(lb == hb){
+      while(lb == hb){
+        cstream += lb; 
+  
+        low <<= 1; // shift in the zero 
+        high <<= 1; // shift in zero then set to 1.
+        high ^= 1;
+        lb = low & (1 << 31) ? 1:0;
+        hb = high & (1 << 31) ? 1:0;
+
+        if(underflow_bits){
+          for(unsigned int i=0;i<underflow_bits;i++)
+            cstream += ubit;
+          underflow_bits = 0;
         }
       }
-      else if (lb2 && !hb2){      
-        low <<= 1;
-        high <<= 1; 
-
-        low ^= (1 << 31);
-        high ^= (1 << 31);
-        high ^= 1;
-        
-        underflow_bits++;
-      }
-
-      ch = *(++bptr);
     }
+    else if (lb2 && !hb2){      
+      low <<= 1;
+      high <<= 1; 
 
-    memset(buffer,0,sizeof(char)*1024);
-
-    for(unsigned int i=0;i<lbitstream.size();i++){
-      fprintf(stderr,"%d",lbitstream[i]);
+      low ^= (1 << 31);
+      high ^= (1 << 31);
+      high ^= 1;
+      
+      underflow_bits++;
     }
-    fprintf(stderr,"\n");
   }
-  // write the end of file character
 
+  if(opt_verbose){
+    fprintf(stderr,"%d to %d bits: %f compression ratio\n",
+            file_len*8,cstream.size(),
+            (double)(file_len*8)/(double)cstream.size() );
+  }
 
+  stream_to_bytes(cstream);
   return true;
 }
 
-bool decode_file(FILE *ifp){
+
+
+bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
+  
+  FSMState *curr = wlnmodel->root;
+  FSMEdge *edge = 0;
+
+  unsigned int low = 0; 
+  unsigned int high = UINT32_MAX;
+  
+  // init encoded to 32 bits
+  unsigned int zero_added = 0;
+  unsigned int enc_pos = 0;
+  unsigned int encoded = 0; 
+
+
+  unsigned char ch = 0;
+  unsigned int i=0;
+  while(i < 4){ // read 32 bits
+    fread(&ch, sizeof(unsigned char), 1, ifp);
+    for(int j = 7;j>=0;j--){
+      if(ch & (1 << j))
+        encoded ^= (1 << 31-enc_pos);
+      
+      enc_pos++;  
+    }
+    i++;
+  }
+
+  // saved the next char, will read its MSB to shift in
+  fread(&ch, sizeof(unsigned char), 1, ifp);
+  i++;
+
+  enc_pos = 0;
+  unsigned int safety = 0;
+  for(;;){
+    safety++;
+    if(safety == 10000)
+      return true;
+
+    unsigned int T = 0;
+    unsigned int Cc = 0;
+    unsigned int Cn = 0;
+    for(edge=curr->transitions;edge;edge=edge->nxt)
+      T += (unsigned int)(edge->p * 100);
+    
+  
+    uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
+    uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range);
+
+
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      Cn += (unsigned int)(edge->p * 100);
+      if(scaled_sym >= Cc && scaled_sym < Cn){
+        if(!edge->ch)
+          return true; 
+        else
+          fprintf(stdout,"%c",edge->ch);
+
+        curr = edge->dwn;
+        break;
+      }
+      else
+        Cc = Cn;
+    }
+
+
+    uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
+    uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T);  // should there be a minus 1 here?
+
+    low = new_low;
+    high = new_high;
+
+    unsigned char lb = low & (1 << 31) ? 1:0;
+    unsigned char hb = high & (1 << 31) ? 1:0;
+    unsigned char lb2 = low & (1 << 30) ? 1:0;
+    unsigned char hb2 = high & (1 << 30) ? 1:0;
+
+    if(lb == hb){
+      while(lb == hb){
+  
+        low <<= 1; // shift in the zero 
+        high <<= 1; // shift in zero then set to 1.
+        high ^= 1;
+
+        encoded <<= 1;
+        if(ch & (1 << 7))
+          encoded ^= 1;
+
+        ch <<= 1;
+        enc_pos++;
+
+        if(enc_pos == 8){ // read the next block
+          fread(&ch, sizeof(unsigned char), 1, ifp);
+          i++;
+          enc_pos = 0;
+        } 
+
+        lb = low & (1 << 31) ? 1:0;
+        hb = high & (1 << 31) ? 1:0;
+      }
+    }
+    else if (lb2 && !hb2){      
+      unsigned int p = 0;
+      unsigned int encoded_shift = 0; 
+      for(int j=31;j>=0;j--){
+        if(j != 30){
+          if (encoded & (1 << j))
+            encoded_shift ^= (1 << 31-p);
+          p++;
+        }
+      }
+      
+      if(ch & (1 << 7))
+        encoded_shift ^= 1;
+
+      ch <<= 1;
+      enc_pos++;
+
+      if(enc_pos == 8){ // read the next block
+        fread(&ch, sizeof(unsigned char), 1, ifp);
+        i++;
+        enc_pos = 0;
+      } 
+      
+      encoded = encoded_shift; // set the bit to spliced
+
+      low <<= 1;
+      high <<= 1; 
+
+      low ^= (1 << 31);
+      high ^= (1 << 31);
+      high ^= 1;
+
+    }
+
+  }
+
+
 
 
   return true;
@@ -843,12 +1012,16 @@ int main(int argc, char *argv[])
 
   FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
 
-  // to every accept, add the null character, and the newline character
+
+
+  // make the root an accept and EOF 
+  wlnmodel->MakeAccept(wlnmodel->root);
+  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');
+
+  // to every accept, add the null character, and the newline character pointing back to the root
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
-    if(wlnmodel->states[i]->accept){
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->states[i],'\n');
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->states[i],'\0');
-    }
+    if(wlnmodel->states[i]->accept)
+      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
   wlnmodel->AssignEqualProbs();
@@ -860,7 +1033,7 @@ int main(int argc, char *argv[])
     if(opt_mode == 1)
       encode_file(fp,wlnmodel);
     else if (opt_mode == 2)
-      decode_file(fp);
+      decode_file(fp,wlnmodel);
 
     fclose(fp);
   }
