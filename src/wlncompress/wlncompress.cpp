@@ -794,7 +794,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
   unsigned int enc_pos = 0;
   unsigned int encoded = 0; 
 
-
   unsigned char ch = 0;
   unsigned int i=0;
   while(i < 4){ // read 32 bits
@@ -808,7 +807,9 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     i++;
   }
 
-  // saved the next char, will read its MSB to shift in
+  fprintf(stderr,"%d\n",enc_pos);
+
+  // // saved the next char, will read its MSB to shift in
   fread(&ch, sizeof(unsigned char), 1, ifp);
   i++;
 
@@ -816,12 +817,12 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
   unsigned int safety = 0;
   for(;;){
     safety++;
-    if(safety == 10000)
+    if(safety == 100)
       return true;
 
-    unsigned int T = 0;
-    unsigned int Cc = 0;
-    unsigned int Cn = 0;
+    uint64_t T = 0;
+    uint64_t Cc = 0;
+    uint64_t Cn = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt)
       T += (unsigned int)(edge->p * 100);
     
@@ -881,6 +882,8 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         hb = high & (1 << 31) ? 1:0;
       }
     }
+
+#if WRONG
     else if (lb2 && !hb2){      
       unsigned int p = 0;
       unsigned int encoded_shift = 0; 
@@ -914,7 +917,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
       high ^= 1;
 
     }
-
+#endif
   }
 
 
