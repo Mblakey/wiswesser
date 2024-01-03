@@ -91,7 +91,8 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int T = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt)
       T += edge->c;
-    
+
+
     bool found = 0;
     unsigned int Cc = 0;
     unsigned int Cn = 0;
@@ -101,15 +102,14 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
         found = 1;
         curr = edge->dwn;
 
-        // if(edge->c < UINT32_MAX)
-        //   edge->c++; // adaptive?
+        if(edge->c < 256)
+          edge->c++; // adaptive?
         
         break; 
       }
       else
         Cc += edge->c;
     }
-    
     Cn += Cc; 
 
     if(!found){
@@ -173,10 +173,6 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
   
-  fseek(ifp,0,SEEK_END);
-  unsigned int file_len = ftell(ifp); // bytes
-  fseek(ifp,0,SEEK_SET);
-
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
@@ -209,9 +205,9 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
   enc_pos = 0;
   for(;;){
 
-    uint64_t T = 0;
-    uint64_t Cc = 0;
-    uint64_t Cn = 0;
+    unsigned int T = 0;
+    unsigned int Cc = 0;
+    unsigned int Cn = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt)
       T += edge->c;
     
@@ -227,8 +223,8 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         else
           fputc(edge->ch,stdout);
 
-        // if(edge->c < UINT32_MAX)
-        //   edge->c++; // adaptive hack for now
+        if(edge->c < 256)
+          edge->c++; // adaptive hack for now
         
         curr = edge->dwn;
         break;
@@ -266,7 +262,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
           if(!fread(&ch, sizeof(unsigned char), 1, ifp))
             ch = UINT8_MAX;
           
-          i++;
           enc_pos = 0;
         } 
 
@@ -295,7 +290,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         if(!fread(&ch, sizeof(unsigned char), 1, ifp))
           ch = UINT8_MAX;
 
-        i++;
         enc_pos = 0;
       } 
       
@@ -307,7 +301,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
       low ^= (1 << 31);
       high ^= (1 << 31);
       high ^= 1;
-
     }
   }
 
