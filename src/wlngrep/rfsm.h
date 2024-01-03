@@ -45,6 +45,7 @@ struct FSMEdge{
 	FSMEdge *nxt;
 
   double p;
+  unsigned int c; 
 
   FSMEdge(){
     id = 0;
@@ -52,6 +53,7 @@ struct FSMEdge{
     dwn = 0;
     nxt = 0;
     p = 0.0;
+    c = 0;
   };
 };
 

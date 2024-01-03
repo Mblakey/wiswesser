@@ -1,69 +1,20 @@
-
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
+#include <math.h>
 
+#include <iostream>
+#include <string>
+#include <map>
 
 #include "rfsm.h"
 #include "rconvert.h"
 #include "wlnmatch.h"
 
-
-const char *filename;
-unsigned int lines_parsed = 0; 
-
-unsigned int opt_dump         = 0;
-unsigned int opt_match_option = 0; // 0 - return whole line, 1 - return matches only, 2 - exact match only, 
-unsigned int opt_count        = 0;
-unsigned int opt_string_file  = 0;
-unsigned int opt_minimise     = 1;
-
-
-bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
-  char *end = buffer+n;
-  char *ptr;
-  int ch;
-
-  ptr = buffer;
-  do {
-    ch = getc_unlocked(fp); // this increments fp
-    if (ch == '\n') {
-      if (add_nl)
-        *ptr++ = '\n'; // if i want the newline or not
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\f') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\r') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      ch = getc_unlocked(fp);
-      if (ch != '\n') {
-        if (ch == -1)
-          return false;
-        ungetc(ch,fp);
-      }
-      return true;
-    }
-    if (ch == -1) {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return ptr-buffer > 1;
-    }
-    *ptr++ = ch;
-  } while (ptr < end);
-  *ptr = 0;
-  
-  fprintf(stderr, "Warning: line too long!\n");
-  return false;
-}
-
+unsigned saved_bytes = 0;
+unsigned int opt_mode = 0;
+unsigned int opt_verbose = false;
+const char *input;
 
 /* for ease of building, this will build an NFA, which will subset down to a DFA */
 void BuildWLNFSM(FSMAutomata *wlnNFA){
@@ -644,178 +595,137 @@ FSMAutomata * CreateWLNDFA(){
   BuildWLNFSM(wln); 
 
   wlnDFA = ConvertToDFA(wln);
-
-  if(opt_minimise){
-    wlnMinimal = MinimiseDFA(wlnDFA);
-    
-    if(wlnMinimal){
-      wlnMinimal->InitJumpTable();
-      if(opt_dump)
-        wlnMinimal->DumpFSM("wln-minimal.dot");
-    }
-      
-    delete wln;
-    delete wlnDFA;
-    return wlnMinimal;
-  }
-  else{
-
-    if(wlnDFA){
-      wlnDFA->InitJumpTable();
-      if(opt_dump)
-        wlnDFA->DumpFSM("wln-dfa.dot");
-    }
-
-    delete wln;
-    return wlnDFA;
-  }
-
+  wlnMinimal = MinimiseDFA(wlnDFA);
+  
+  delete wln;
+  delete wlnDFA;
+  return wlnMinimal;
 }
 
-static bool MatchFile(FILE *fp,FSMAutomata *machine){
 
-  unsigned int matches = 0; 
-  char *buffer = (char*)malloc(sizeof(char) * BUFF_SIZE+1);
-  memset(buffer,0,BUFF_SIZE+1);
+bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
+  
+  unsigned char ch = 0;
+  fseek(ifp,0,SEEK_END);
+  unsigned int file_len = ftell(ifp); // bytes
+  fseek(ifp,0,SEEK_SET);
 
-  while(ReadLineFromFile(fp,buffer,BUFF_SIZE,false)){
-    lines_parsed++;
-    matches += DFAGreedyMatchLine(buffer,machine,isatty(1),opt_match_option, opt_count);
+  FSMState *curr = wlnmodel->root;
+  FSMEdge *edge = 0;
+
+  unsigned int low = 0; 
+  unsigned int high = UINT32_MAX;
+  unsigned int underflow_bits = 0;
+
+
+  for(unsigned int i=0;i<file_len;i++){
+    fread(&ch, sizeof(unsigned char), 1, ifp);
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      if(edge->ch == ch){
+        edge->c++; 
+        curr = edge->dwn; 
+        break;
+      }
+    }
+  }
+
+  // add 1 for EOF
+  for(edge=wlnmodel->root->transitions;edge;edge=edge->nxt){
+    if(!edge->ch)
+      edge->c = 1; 
   }
   
-  if(opt_count)
-    fprintf(stderr,"%d matches\n",matches);
 
-  free(buffer);
   return true;
 }
 
+
 static void DisplayUsage()
 {
-  fprintf(stderr, "usage: wlngrep <options> <file>\n");
-  fprintf(stderr, "options:\n");
-  fprintf(stderr, "-c|--only-count        return number of matches instead of string\n");
-  fprintf(stderr, "-d|--dump              dump resultant machine to dot file\n");
-  fprintf(stderr, "-o|--only-matching     print only the matched parts of line\n");
-  fprintf(stderr, "-m|--not-minimal       do not minimise DFA (debugging only)\n");
-  fprintf(stderr, "-s|--string            interpret <file> as a string to match\n");
-  fprintf(stderr, "-x|--exact-matching    return string if whole line matches\n");
+  fprintf(stderr, "wlntrain <options> <input> > <out>\n");
+  fprintf(stderr, "<options>\n");
+  fprintf(stderr, "  -v          verbose debugging statements on\n");
   exit(1);
 }
 
+
 static void ProcessCommandLine(int argc, char *argv[])
 {
-
   const char *ptr = 0;
-  int i, j;
+  int i,j;
 
-  filename = (const char *)0;
+  input = (const char *)0;
 
   j = 0;
   for (i = 1; i < argc; i++)
   {
 
     ptr = argv[i];
+    if (ptr[0] == '-' && ptr[1]){
+      switch (ptr[1]){
+        
 
-    if (ptr[0] == '-' && ptr[1])
-      switch (ptr[1])
-      {
-
-        case 'c':
-          opt_count = 1;
+        case 'v':
+          opt_verbose = true;
           break;
 
-        case 'd':
-          opt_dump = 1; 
-          break;
-
-        case 'o':
-          opt_match_option = 1; 
-          break;
-
-        case 'm':
-          opt_minimise = 0;
-
-        case 's':
-          opt_string_file = 1;
-          break;
-
-        case 'x':
-          opt_match_option = 2;
-          break;
-
-        case '-':
-          if(!strcmp(ptr,"--only-count"))
-            opt_count = 1;
-          else if(!strcmp(ptr,"--dump"))
-            opt_dump = 1;
-          else if(!strcmp(ptr,"--only-matching"))
-            opt_match_option = 1;
-          else if(!strcmp(ptr,"--not-minimal"))
-            opt_minimise = 0;
-          else if(!strcmp(ptr,"--exact-matching"))
-            opt_match_option = 2;
-          else if(!strcmp(ptr,"--string"))
-            opt_string_file = 1;
-
-          break;
 
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
       }
-
-    else
-      switch (j++)
-      {
-      case 0:
-        filename = ptr;
-        break;
+    }
+    else{
+      switch(j++){
+        case 0:
+          input = ptr; 
+          break;
+        default:
+          fprintf(stderr,"Error: multiple files not currently supported\n");
+          exit(1);
       }
+    }
   }
 
-  if(!filename){
-    fprintf(stderr,"Error: not enough args\n");
+  if(!input){
+    fprintf(stderr,"Error: no input file given\n");
     DisplayUsage();
   }
-
 
   return;
 }
 
-int main(int argc, char* argv[])
+
+int main(int argc, char *argv[])
 {
-  ProcessCommandLine(argc,argv); 
+  ProcessCommandLine(argc, argv);
 
-  FSMAutomata *wlnDFA = CreateWLNDFA();
-  if(!wlnDFA || wlnDFA->type != DFA)
-    return 1;
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -/&";
 
-  if(opt_dump){
-    fprintf(stderr,"machines dumped, exiting\n");
-    delete wlnDFA;
-    return 0;
+  FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
+
+  // make the root an accept and EOF 
+  wlnmodel->MakeAccept(wlnmodel->root);
+  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');
+
+  // to every accept, add the null character, and the newline character pointing back to the root
+  for(unsigned int i=0;i<wlnmodel->num_states;i++){
+    if(wlnmodel->states[i]->accept)
+      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
-  if(!opt_string_file){
-    FILE *fp = fopen(filename,"r");
-    if(!fp){
-      fprintf(stderr,"Error: unable to open file at: %s\n",filename);
-      return 1; 
-    }
-
-    MatchFile(fp,wlnDFA);
-    fprintf(stderr,"%d lines parsed\n",lines_parsed);
-
+ 
+  FILE *fp = 0; 
+  fp = fopen(input,"rb");
+  if(fp){
+    train_on_file(fp,wlnmodel);
     fclose(fp);
   }
   else{
-    unsigned int matches = DFAGreedyMatchLine(filename,wlnDFA,isatty(0),opt_match_option,opt_count);
-    if(opt_count)
-      fprintf(stderr,"%d matches\n",matches);
+    fprintf(stderr,"Error: could not open file at %s\n",input);
+    return 1;
   }
 
-
-  delete wlnDFA; 
+  delete wlnmodel;
   return 0;
 }

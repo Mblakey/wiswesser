@@ -615,56 +615,12 @@ void print_bits(void *ptr, int size, int offset=0)
   
 }
 
-bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
-  char *end = buffer+n;
-  char *ptr;
-  int ch;
-
-  ptr = buffer;
-  do {
-    ch = getc_unlocked(fp); // this increments fp
-    if (ch == '\n') {
-      if (add_nl)
-        *ptr++ = '\n'; // if i want the newline or not
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\f') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\r') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      ch = getc_unlocked(fp);
-      if (ch != '\n') {
-        if (ch == -1)
-          return false;
-        ungetc(ch,fp);
-      }
-      return true;
-    }
-    if (ch == -1) {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return ptr-buffer > 1;
-    }
-    *ptr++ = ch;
-  } while (ptr < end);
-  *ptr = 0;
-  
-  fprintf(stderr, "Warning: line too long!\n");
-  return false;
-}
-
 void stream_to_bytes(std::string &stream){
   unsigned int char_pos = 0;
   unsigned char out = 0;
   for(unsigned int i=0;i<stream.size();i++){
-
-    if(stream[i] == 1)
-      out ^= (1 << char_pos);
+    if(stream[i])
+      out ^= (1 << 7-char_pos);
   
     if(char_pos == 7){
       char_pos = 0;
@@ -675,6 +631,19 @@ void stream_to_bytes(std::string &stream){
       char_pos++;
   }
 
+  unsigned int zero_added = 0; 
+  while(char_pos < 8){
+    if(zero_added)
+      out ^= (1 << 7-char_pos);
+    
+    zero_added = 1;
+    char_pos++; 
+  }
+  fprintf(stdout,"%c",out); // can read just 111..s in decode
+
+  if(!zero_added){
+    fprintf(stdout,"%c",128);
+  }
 }
 
 
@@ -685,7 +654,6 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
   fseek(ifp,0,SEEK_END);
   unsigned int file_len = ftell(ifp); // bytes
   fseek(ifp,0,SEEK_SET);
-
 
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
@@ -706,11 +674,13 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
       lines++;
 
     unsigned int T = 0;
+    for(edge=curr->transitions;edge;edge=edge->nxt)
+      T += (unsigned int)(edge->p * 100);
+
     bool found = 0;
     unsigned int Cc = 0;
     unsigned int Cn = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt){
-      T += (unsigned int)(edge->p * 100);
       if(edge->ch == ch){
         Cn += (unsigned int)(edge->p * 100);
         found = 1;
@@ -729,10 +699,10 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
     uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
-    uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T); 
+    uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T); // potentially off by -1 here
 
     low = new_low; 
-    high = new_high;
+    high = new_high; // truncate
 
     unsigned char lb = low & (1 << 31) ? 1:0;
     unsigned char hb = high & (1 << 31) ? 1:0;
@@ -783,6 +753,10 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
   
+  fseek(ifp,0,SEEK_END);
+  unsigned int file_len = ftell(ifp); // bytes
+  fseek(ifp,0,SEEK_SET);
+
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
@@ -796,6 +770,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
   unsigned char ch = 0;
   unsigned int i=0;
+
   while(i < 4){ // read 32 bits
     fread(&ch, sizeof(unsigned char), 1, ifp);
     for(int j = 7;j>=0;j--){
@@ -807,18 +782,16 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     i++;
   }
 
-  fprintf(stderr,"%d\n",enc_pos);
-
-  // // saved the next char, will read its MSB to shift in
+  // saved the next char, will read its MSB to shift in
   fread(&ch, sizeof(unsigned char), 1, ifp);
   i++;
 
   enc_pos = 0;
   unsigned int safety = 0;
   for(;;){
-    safety++;
-    if(safety == 100)
-      return true;
+    // safety++;
+    // if(safety == 1000)
+    //   return true;
 
     uint64_t T = 0;
     uint64_t Cc = 0;
@@ -828,7 +801,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     
   
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
-    uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range);
+    uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range); // potential -1 here
 
 
     for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -873,7 +846,11 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         enc_pos++;
 
         if(enc_pos == 8){ // read the next block
-          fread(&ch, sizeof(unsigned char), 1, ifp);
+          if(i<file_len)
+            fread(&ch, sizeof(unsigned char), 1, ifp);
+          else
+            ch = UINT8_MAX;
+          
           i++;
           enc_pos = 0;
         } 
@@ -882,8 +859,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         hb = high & (1 << 31) ? 1:0;
       }
     }
-
-#if WRONG
     else if (lb2 && !hb2){      
       unsigned int p = 0;
       unsigned int encoded_shift = 0; 
@@ -902,7 +877,11 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
       enc_pos++;
 
       if(enc_pos == 8){ // read the next block
-        fread(&ch, sizeof(unsigned char), 1, ifp);
+        if(i<file_len)
+          fread(&ch, sizeof(unsigned char), 1, ifp);
+        else
+          ch = UINT8_MAX;
+
         i++;
         enc_pos = 0;
       } 
@@ -917,11 +896,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
       high ^= 1;
 
     }
-#endif
   }
-
-
-
 
   return true;
 }
@@ -929,7 +904,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "compresswln <options> <input> > <out>\n");
+  fprintf(stderr, "wlncompress <options> <input> > <out>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c          compress input\n");
   fprintf(stderr, "  -d          decompress input\n");
@@ -937,14 +912,6 @@ static void DisplayUsage()
   exit(1);
 }
 
-static void DisplayHelp()
-{
-  fprintf(stderr, "\n--- WLN Compression ---\n");
-  fprintf(stderr, "This exec writes a wln file into a 6 bit representation, and can perform\n"
-                  "various compression schemes which are selected in options.\n"
-                  "This is part of michaels PhD investigations into compressing chemical strings.\n\n");
-  DisplayUsage();
-}
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
@@ -972,9 +939,6 @@ static void ProcessCommandLine(int argc, char *argv[])
         case 'v':
           opt_verbose = true;
           break;
-
-        case 'h':
-          DisplayHelp();
 
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
