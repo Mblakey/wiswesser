@@ -19,8 +19,9 @@ add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
 add_executable(writemwln ${PROJECT_SOURCE_DIR}/src/mwln/writemwln.cpp)
 
-add_executable(wlncompress ${PROJECT_SOURCE_DIR}/src/wlncompress/wlncompress.cpp)
 add_executable(wlntrain ${PROJECT_SOURCE_DIR}/src/wlncompress/wlntrain.cpp)
+add_executable(wlncompress ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnarithmetic.cpp)
+add_executable(wlncompress2 ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnhuffman.cpp)
 
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")

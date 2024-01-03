@@ -6,7 +6,6 @@ DFA, NFA and eNFA simultion.
 ###############################################################*/
 
 
-
 #ifndef REG_MATCH_H
 #define REG_MATCH_H
 
