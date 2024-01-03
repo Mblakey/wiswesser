@@ -11,10 +11,11 @@
 #include "rconvert.h"
 #include "wlnmatch.h"
 
-unsigned saved_bytes = 0;
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
+
 const char *input;
+const char *trainfile; 
 
 /* for ease of building, this will build an NFA, which will subset down to a DFA */
 void BuildWLNFSM(FSMAutomata *wlnNFA){
@@ -675,20 +676,20 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
     unsigned int T = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt)
-      T += (unsigned int)(edge->p * 100);
-
+      T += edge->c;
+    
     bool found = 0;
     unsigned int Cc = 0;
     unsigned int Cn = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt){
       if(edge->ch == ch){
-        Cn += (unsigned int)(edge->p * 100);
+        Cn += edge->c;
         found = 1;
         curr = edge->dwn;
         break; 
       }
       else
-        Cc += (unsigned int)(edge->p * 100);
+        Cc += edge->c;
     }
     Cn += Cc; 
 
@@ -797,7 +798,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     uint64_t Cc = 0;
     uint64_t Cn = 0;
     for(edge=curr->transitions;edge;edge=edge->nxt)
-      T += (unsigned int)(edge->p * 100);
+      T += edge->c;
     
   
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
@@ -805,7 +806,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 
     for(edge=curr->transitions;edge;edge=edge->nxt){
-      Cn += (unsigned int)(edge->p * 100);
+      Cn += edge->c;
       if(scaled_sym >= Cc && scaled_sym < Cn){
         if(!edge->ch)
           return true; 
@@ -908,6 +909,7 @@ static void DisplayUsage()
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c          compress input\n");
   fprintf(stderr, "  -d          decompress input\n");
+  fprintf(stderr, "  -t          add an optional train file for edge frequencies (see wlntrain)\n");
   fprintf(stderr, "  -v          verbose debugging statements on\n");
   exit(1);
 }
@@ -919,6 +921,7 @@ static void ProcessCommandLine(int argc, char *argv[])
   int i,j;
 
   input = (const char *)0;
+  trainfile = (const char *)0;
 
   j = 0;
   for (i = 1; i < argc; i++)
@@ -938,6 +941,17 @@ static void ProcessCommandLine(int argc, char *argv[])
 
         case 'v':
           opt_verbose = true;
+          break;
+
+        case 't':
+          if(i < argc - 1){
+            i++;
+            trainfile = argv[i];
+          }
+          else{
+            fprintf(stderr,"Error: -t must be followed with a file\n");
+            DisplayUsage();
+          }
           break;
 
         default:
@@ -975,13 +989,7 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -/&";
-
   FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
-
-
-
-  // make the root an accept and EOF 
   wlnmodel->MakeAccept(wlnmodel->root);
   wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');
 
@@ -991,8 +999,38 @@ int main(int argc, char *argv[])
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
-  wlnmodel->AssignEqualProbs();
 
+  if(!trainfile){
+    if(opt_verbose)
+      fprintf(stderr,"Warning: using order-0 probabilities\n");
+
+    wlnmodel->AssignEqualProbs();
+  }
+  else{
+    FILE *tfp = 0; 
+    tfp = fopen(trainfile,"rb");
+    if(!tfp){
+      fprintf(stderr,"Error: cannot open train file\n");
+      return 1;
+    }
+
+    unsigned int i=0;
+    unsigned int freq = 0; 
+    while(fread(&freq,sizeof(unsigned int),1,tfp))
+      wlnmodel->edges[i++]->c = freq;
+    
+    for(unsigned int i=0;i<wlnmodel->num_edges;i++){
+      if(!wlnmodel->edges[i]->c){
+        fprintf(stderr,"Warning - null count for edge %d, using 1\n",i);
+        wlnmodel->edges[i]->c = 1;
+      }
+    }
+
+    if(opt_verbose)
+      fprintf(stderr,"Warning: train file read, using probabilities\n");
+
+    fclose(tfp);
+  }
 
   FILE *fp = 0; 
   fp = fopen(input,"rb");

@@ -19,7 +19,7 @@ of regular languages, handles DFA, NFA, eNFA
 #include <map>
 
 #define REALLOC 512  // reallocate 512 more states or edges at a time
-#define REASONABLE 1024 // basic init 
+#define REASONABLE 2048 // basic init 
 
 enum FSMType{DFA=0,NFA=1,eNFA=2};
 
@@ -156,14 +156,18 @@ struct FSMAutomata{
   void AssignEqualProbs(){
     for(unsigned int i=0;i<num_states;i++){
       FSMState *s = states[i];
-
       unsigned int count = 0;
       FSMEdge *e = 0; 
       for(e=s->transitions;e;e=e->nxt)
         count++;
-      
-      for(e=s->transitions;e;e=e->nxt)
-        e->p = (double)1/(double)count; 
+    
+      for(e=s->transitions;e;e=e->nxt){
+        e->p = (double)1/(double)count;
+        if(e->p)
+          e->c = (unsigned int)(e->p*100);
+        else 
+          e->c = 1;
+      } 
     }
   }
 

@@ -606,19 +606,10 @@ FSMAutomata * CreateWLNDFA(){
 bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
   
   unsigned char ch = 0;
-  fseek(ifp,0,SEEK_END);
-  unsigned int file_len = ftell(ifp); // bytes
-  fseek(ifp,0,SEEK_SET);
-
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
-
-  // add 1 to avoid the zero frequency problem
-  for(unsigned int i=0;i< wlnmodel->num_edges;i++)
-    wlnmodel->edges[i]->c = 1;
   
-  for(unsigned int i=0;i<file_len;i++){
-    fread(&ch, sizeof(unsigned char), 1, ifp);
+  while(fread(&ch, sizeof(unsigned char), 1, ifp)){
     for(edge=curr->transitions;edge;edge=edge->nxt){
       if(edge->ch == ch){
         edge->c++; 
@@ -632,8 +623,10 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
   for(unsigned int i=0;i< wlnmodel->num_edges;i++){
     unsigned int edge_freq = wlnmodel->edges[i]->c;
     fwrite(&edge_freq,sizeof(unsigned int),1,stdout);
+    if(!edge_freq){
+      fprintf(stderr,"something sketch\n");
+    }
   }
-
 
   return true;
 }
@@ -641,9 +634,7 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "wlntrain <options> <input> > <out>\n");
-  fprintf(stderr, "<options>\n");
-  fprintf(stderr, "  -v          verbose debugging statements on\n");
+  fprintf(stderr, "wlntrain <input> > <out>\n");
   exit(1);
 }
 
@@ -663,12 +654,6 @@ static void ProcessCommandLine(int argc, char *argv[])
     if (ptr[0] == '-' && ptr[1]){
       switch (ptr[1]){
         
-
-        case 'v':
-          opt_verbose = true;
-          break;
-
-
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
@@ -713,7 +698,11 @@ int main(int argc, char *argv[])
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
- 
+  // add 1 to avoid the zero frequency problem
+  for(unsigned int i=0;i< wlnmodel->num_edges;i++)
+    wlnmodel->edges[i]->c = 1;
+
+
   FILE *fp = 0; 
   fp = fopen(input,"rb");
   if(fp){
