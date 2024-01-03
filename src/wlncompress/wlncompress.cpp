@@ -624,7 +624,7 @@ void stream_to_bytes(std::string &stream){
   
     if(char_pos == 7){
       char_pos = 0;
-      fprintf(stdout,"%c",out);
+      fwrite(&out,sizeof(unsigned char),1,stdout);
       out = 0;
     }
     else
@@ -639,11 +639,11 @@ void stream_to_bytes(std::string &stream){
     zero_added = 1;
     char_pos++; 
   }
-  fprintf(stdout,"%c",out); // can read just 111..s in decode
+  fwrite(&out,sizeof(unsigned char),1,stdout);
 
-  if(!zero_added){
-    fprintf(stdout,"%c",128);
-  }
+  out = 128; // 0111...
+  if(!zero_added)
+   fwrite(&out,sizeof(unsigned char),1,stdout);
 }
 
 
@@ -810,7 +810,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         if(!edge->ch)
           return true; 
         else
-          fprintf(stdout,"%c",edge->ch);
+          fwrite(&edge->ch,sizeof(unsigned char),1,stdout);
 
         curr = edge->dwn;
         break;

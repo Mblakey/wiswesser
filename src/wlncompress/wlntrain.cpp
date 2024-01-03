@@ -613,11 +613,10 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
-  unsigned int low = 0; 
-  unsigned int high = UINT32_MAX;
-  unsigned int underflow_bits = 0;
-
-
+  // add 1 to avoid the zero frequency problem
+  for(unsigned int i=0;i< wlnmodel->num_edges;i++)
+    wlnmodel->edges[i]->c = 1;
+  
   for(unsigned int i=0;i<file_len;i++){
     fread(&ch, sizeof(unsigned char), 1, ifp);
     for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -629,12 +628,12 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
     }
   }
 
-  // add 1 for EOF
-  for(edge=wlnmodel->root->transitions;edge;edge=edge->nxt){
-    if(!edge->ch)
-      edge->c = 1; 
+  // write 32 bit numbers in index order 
+  for(unsigned int i=0;i< wlnmodel->num_edges;i++){
+    unsigned int edge_freq = wlnmodel->edges[i]->c;
+    fwrite(&edge_freq,sizeof(unsigned int),1,stdout);
   }
-  
+
 
   return true;
 }
