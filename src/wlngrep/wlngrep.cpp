@@ -10,7 +10,6 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
-
 const char *filename;
 unsigned int lines_parsed = 0; 
 

@@ -584,31 +584,14 @@ FSMAutomata * CreateWLNDFA(){
 
   wlnDFA = ConvertToDFA(wln);
 
-  if(opt_minimise){
-    wlnMinimal = MinimiseDFA(wlnDFA);
-    
-    if(wlnMinimal){
-      wlnMinimal->InitJumpTable();
-      if(opt_dump)
-        wlnMinimal->DumpFSM("wln-minimal.dot");
-    }
-      
-    delete wln;
-    delete wlnDFA;
-    return wlnMinimal;
-  }
-  else{
+  wlnMinimal = MinimiseDFA(wlnDFA);
+  
+  if(wlnMinimal)
+    wlnMinimal->InitJumpTable();
 
-    if(wlnDFA){
-      wlnDFA->InitJumpTable();
-      if(opt_dump)
-        wlnDFA->DumpFSM("wln-dfa.dot");
-    }
-
-    delete wln;
-    return wlnDFA;
-  }
-
+  delete wln;
+  delete wlnDFA;
+  return wlnMinimal;
 }
 
 

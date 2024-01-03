@@ -37,9 +37,6 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
   for(unsigned int i=0;i< wlnmodel->num_edges;i++){
     unsigned int edge_freq = wlnmodel->edges[i]->c;
     fwrite(&edge_freq,sizeof(unsigned int),1,stdout);
-    if(!edge_freq){
-      fprintf(stderr,"something sketch\n");
-    }
   }
 
   return true;
@@ -99,7 +96,6 @@ static void ProcessCommandLine(int argc, char *argv[])
     DisplayUsage();
   }
 
-
   if(!opt_mode){
     fprintf(stderr,"Error: no choice for type of training file selected\n");
     DisplayUsage();
@@ -115,10 +111,11 @@ int main(int argc, char *argv[])
 
   FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
 
+  // make the root an EOF 
+  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');
 
   if(opt_mode == 1){
-    // make the root an EOF 
-    wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');
+  
     // to every accept add the newline character pointing back to the root
     for(unsigned int i=0;i<wlnmodel->num_states;i++){
       if(wlnmodel->states[i]->accept)
@@ -137,7 +134,6 @@ int main(int argc, char *argv[])
   for(unsigned int i=0;i< wlnmodel->num_edges;i++)
     wlnmodel->edges[i]->c = 1;
 
-  
 
   FILE *fp = 0; 
   fp = fopen(input,"rb");

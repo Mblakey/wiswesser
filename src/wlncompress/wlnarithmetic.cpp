@@ -37,7 +37,7 @@ void stream_to_bytes(std::string &stream){
   unsigned char out = 0;
   for(unsigned int i=0;i<stream.size();i++){
     if(stream[i])
-      out ^= (1 << 7-char_pos);
+      out ^= (1 << (7-char_pos) );
   
     if(char_pos == 7){
       char_pos = 0;
@@ -51,7 +51,7 @@ void stream_to_bytes(std::string &stream){
   unsigned int zero_added = 0; 
   while(char_pos < 8){
     if(zero_added)
-      out ^= (1 << 7-char_pos);
+      out ^= (1 << (7-char_pos) );
     
     zero_added = 1;
     char_pos++; 
