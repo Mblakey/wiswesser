@@ -163,10 +163,7 @@ struct FSMAutomata{
     
       for(e=s->transitions;e;e=e->nxt){
         e->p = (double)1/(double)count;
-        if(e->p)
-          e->c = (unsigned int)(e->p*100);
-        else 
-          e->c = 1;
+        e->c = 1;
       } 
     }
   }
@@ -177,7 +174,6 @@ struct FSMAutomata{
     if(num_states == max_states && !ReallocateStateSpace())
       return 0;
     
-
     state = new FSMState;
     if(!root)
       root = state; 

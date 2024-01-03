@@ -17,8 +17,6 @@ unsigned int opt_verbose = false;
 const char *input;
 const char *trainfile; 
 
-
-
 void print_bits(void *ptr, int size, int offset=0) 
 {
   if(size>8){
@@ -41,7 +39,7 @@ void stream_to_bytes(std::string &stream){
   
     if(char_pos == 7){
       char_pos = 0;
-      fwrite(&out,sizeof(unsigned char),1,stdout);
+      fputc(out,stdout);
       out = 0;
     }
     else
@@ -56,21 +54,19 @@ void stream_to_bytes(std::string &stream){
     zero_added = 1;
     char_pos++; 
   }
-  fwrite(&out,sizeof(unsigned char),1,stdout);
+  fputc(out,stdout);
 
-  out = 128; // 0111...
+  // 0111...
   if(!zero_added)
-   fwrite(&out,sizeof(unsigned char),1,stdout);
+   fputc(127,stdout);
 }
 
 
 bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
   
+  unsigned int bytes_read = 0;
   unsigned int lines = 1;
   unsigned char ch = 0;
-  fseek(ifp,0,SEEK_END);
-  unsigned int file_len = ftell(ifp); // bytes
-  fseek(ifp,0,SEEK_SET);
 
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
@@ -81,12 +77,14 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
   std::string cstream;
 
-  for(unsigned int i=0;i<file_len+1;i++){
-    if(i<file_len)
-      fread(&ch, sizeof(unsigned char), 1, ifp);
-    else 
-      ch = 0;
-    
+  bool working = true;
+  while(working){
+    bytes_read++;
+    if(!fread(&ch, sizeof(unsigned char), 1, ifp)){
+      ch = '\0';
+      working = false;
+    }
+
     if(ch == '\n')
       lines++;
 
@@ -102,11 +100,16 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
         Cn += edge->c;
         found = 1;
         curr = edge->dwn;
+
+        // if(edge->c < UINT32_MAX)
+        //   edge->c++; // adaptive?
+        
         break; 
       }
       else
         Cc += edge->c;
     }
+    
     Cn += Cc; 
 
     if(!found){
@@ -158,8 +161,8 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
   if(opt_verbose){
     fprintf(stderr,"%d to %d bits: %f compression ratio\n",
-            file_len*8,cstream.size(),
-            (double)(file_len*8)/(double)cstream.size() );
+            bytes_read*8,cstream.size(),
+            (double)(bytes_read*8)/(double)cstream.size() );
   }
 
   stream_to_bytes(cstream);
@@ -204,11 +207,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
   i++;
 
   enc_pos = 0;
-  unsigned int safety = 0;
   for(;;){
-    // safety++;
-    // if(safety == 1000)
-    //   return true;
 
     uint64_t T = 0;
     uint64_t Cc = 0;
@@ -220,22 +219,23 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
     uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range); // potential -1 here
 
-
     for(edge=curr->transitions;edge;edge=edge->nxt){
       Cn += edge->c;
       if(scaled_sym >= Cc && scaled_sym < Cn){
         if(!edge->ch)
           return true; 
         else
-          fwrite(&edge->ch,sizeof(unsigned char),1,stdout);
+          fputc(edge->ch,stdout);
 
+        // if(edge->c < UINT32_MAX)
+        //   edge->c++; // adaptive hack for now
+        
         curr = edge->dwn;
         break;
       }
       else
-        Cc = Cn;
+        Cc += edge->c;
     }
-
 
     uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
     uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T);  // should there be a minus 1 here?
@@ -263,9 +263,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         enc_pos++;
 
         if(enc_pos == 8){ // read the next block
-          if(i<file_len)
-            fread(&ch, sizeof(unsigned char), 1, ifp);
-          else
+          if(!fread(&ch, sizeof(unsigned char), 1, ifp))
             ch = UINT8_MAX;
           
           i++;
@@ -294,9 +292,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
       enc_pos++;
 
       if(enc_pos == 8){ // read the next block
-        if(i<file_len)
-          fread(&ch, sizeof(unsigned char), 1, ifp);
-        else
+        if(!fread(&ch, sizeof(unsigned char), 1, ifp))
           ch = UINT8_MAX;
 
         i++;
@@ -406,22 +402,17 @@ int main(int argc, char *argv[])
   ProcessCommandLine(argc, argv);
 
   FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
-  wlnmodel->MakeAccept(wlnmodel->root);
-  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');
 
-  // to every accept, add the null character, and the newline character pointing back to the root
+  // to every accept,add the newline character pointing back to the root
+  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');  
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     if(wlnmodel->states[i]->accept)
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
 
-  if(!trainfile){
-    if(opt_verbose)
-      fprintf(stderr,"Warning: using order-0 probabilities\n");
-
+  if(!trainfile)
     wlnmodel->AssignEqualProbs();
-  }
   else{
     FILE *tfp = 0; 
     tfp = fopen(trainfile,"rb");
