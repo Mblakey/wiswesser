@@ -24,6 +24,7 @@ using namespace OpenBabel;
 const char *cli_inp;
 const char *format; 
 
+bool opt_modern = false;
 
 static void DisplayUsage()
 {
@@ -31,6 +32,7 @@ static void DisplayUsage()
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -h                    show the help for executable usage\n");
   fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
+  fprintf(stderr, "  -m                    write mwln (modern) strings (part of michaels PhD work\n");
   exit(1);
 }
 
@@ -96,6 +98,10 @@ static void ProcessCommandLine(int argc, char *argv[])
           }
           break;
 
+        case 'm':
+          opt_modern = true;
+          break;
+
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
@@ -113,6 +119,10 @@ static void ProcessCommandLine(int argc, char *argv[])
     DisplayUsage();
   }
 
+
+  if(opt_modern)
+    fprintf(stderr,"Warning: modern wln functions not fully functional\n");
+
   return;
 }
 
@@ -129,10 +139,14 @@ int main(int argc, char *argv[])
 
   std::string buffer;
   buffer.reserve(1000);
-  if(!WriteWLN(buffer,&mol))
+
+  if(opt_modern){
+    if(!WriteModernWLN(buffer,&mol))
+      return 1; 
+  }
+  else if(!WriteWLN(buffer,&mol))
     return 1;
   
   std::cout << buffer << std::endl;
-
   return 0;
 }
