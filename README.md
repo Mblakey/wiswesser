@@ -6,9 +6,6 @@ To extract WLN from documents, Finite State Machine (FSM) parser is built from t
 
 This is Linux and MacOS software only. <br>
 
-[READER RELEASE NOTES](./notes/reader_release.md) <br>
-[WRITER RELEASE NOTES](./notes/writer_release.md)
-
 <img src="./notes/intro_wln.png" width="800">
 
 

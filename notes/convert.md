@@ -41,48 +41,25 @@ The following are sections from Elbert G. Smiths rule book that were used to cre
 
 | Rule | Read | Write |
 | ---- | ---- | ---- |
-|Unbranched and Branched Chains | :heavy_check_mark: | | 
-|Systematic Contractions | | |
-|Organic Salts | | |
-|Benzene Derivatives | | |
-|Multisubstituted Benzene Rings | | |
-|Benzene Rings in Branching Chains | | |
-|Monocyclic Rings | | |
-|Bicyclic Rings | | |
-|Polycyclic Rings | | |
-|Perifused Rings | | |
-|Chains of Rings other than Benzene | | |
-|Sprio Rings | | |
-|Bicyclic Bridged Rings | | |
-|Rings with Pseudo Bridges | | |  
-|Ring Structures with Crossed Bonds and Unbranched Bridges | | |
-|Rings of Rings Contraction | | | 
-|Metallocenes and Catanenes | | |
-|Chelete Compounds | | |
-|Ionic Charges, Free Radicals and Isotopes | | |
+|Unbranched and Branched Chains | :heavy_check_mark: | :heavy_check_mark: | 
+|Systematic Contractions | :heavy_check_mark: | :heavy_check_mark: |
+|Organic Salts | :heavy_check_mark: | :heavy_check_mark: |
+|Benzene Derivatives | :heavy_check_mark: | :heavy_check_mark: |
+|Multisubstituted Benzene Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Benzene Rings in Branching Chains | :heavy_check_mark: | :heavy_check_mark: |
+|Monocyclic Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Bicyclic Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Polycyclic Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Perifused Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Chains of Rings other than Benzene | :heavy_check_mark: | :heavy_check_mark: |
+|Sprio Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Bicyclic Bridged Rings |:heavy_check_mark: | :heavy_check_mark: |
+|Rings with Pseudo Bridges | :heavy_check_mark: | :heavy_check_mark: |  
+|Ring Structures with Crossed Bonds and Unbranched Bridges | :heavy_check_mark: | :heavy_check_mark: |
+|Rings of Rings Contraction | :heavy_check_mark: |  | 
+|Metallocenes and Catanenes | :heavy_check_mark: | :heavy_check_mark: |
+|Chelete Compounds | :heavy_check_mark: | :heavy_check_mark: |
+|Ionic Charges, Free Radicals and Isotopes | :heavy_check_mark: | :heavy_check_mark: |
 |Multipliers | | |
 |Ring Contractions and Multipliers | | |
 |All Special Problems Rules | | |
-
-
-
-## Rules fully supported
-* Unbranched and Branched Chains
-* Systematic Contractions
-* Organic Salts
-* Benzene Derivatives
-* Multisubstituted Benzene Rings
-* Benzene Rings in Branching Chains
-* Monocyclic Rings
-* Bicyclic Rings
-* Polycyclic Rings
-* Perifused Rings
-* Chains of Rings other than Benzene
-* Sprio Rings
-* Bicyclic Bridged Rings
-* Rings with Pseudo Bridges
-* Ring Structures with Crossed Bonds and Unbranched Bridges
-* Chelete Compounds
-* Metallocenes and Catanenes 
-* Ionic Charges, Free Radicals and Isotopes
-
