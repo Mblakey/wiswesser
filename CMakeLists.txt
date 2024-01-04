@@ -22,6 +22,7 @@ add_executable(writemwln ${PROJECT_SOURCE_DIR}/src/mwln/writemwln.cpp)
 
 add_executable(wlncompress ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnarithmetic.cpp)
 
+add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlngen.cpp)
 add_executable(wlntrain ${PROJECT_SOURCE_DIR}/src/wlngen/wlntrain.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")
