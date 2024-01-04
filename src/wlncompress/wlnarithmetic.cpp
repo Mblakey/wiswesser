@@ -15,7 +15,6 @@ unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 
 const char *input;
-const char *trainfile; 
 
 void print_bits(void *ptr, int size, int offset=0) 
 {
@@ -62,6 +61,97 @@ void stream_to_bytes(std::string &stream){
 }
 
 
+
+bool encode_string(const char *str, FSMAutomata *wlnmodel){
+  FSMState *curr = wlnmodel->root;
+  FSMEdge *edge = 0;
+
+  unsigned int low = 0; 
+  unsigned int high = UINT32_MAX;
+  unsigned int underflow_bits = 0;
+  std::string cstream;
+
+  unsigned char ch = *str; 
+  while(ch){
+    
+    unsigned int T = 0;
+    for(edge=curr->transitions;edge;edge=edge->nxt)
+      T += edge->c;
+    
+    bool found = 0;
+    unsigned int Cc = 0;
+    unsigned int Cn = 0;
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      if(edge->ch == ch){
+        Cn += edge->c;
+        found = 1;
+        curr = edge->dwn;
+
+        if(edge->c < 512)
+          edge->c++; // adaptive?
+
+        break; 
+      }
+      else
+        Cc += edge->c;
+    }
+    Cn += Cc; 
+
+    if(!found){
+      fprintf(stderr,"Error: invalid wln syntax - please check string\n");
+      return false;
+    }
+
+    uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
+    uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
+    uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T); // potentially off by -1 here
+
+    low = new_low; 
+    high = new_high; // truncate
+
+    unsigned char lb = low & (1 << 31) ? 1:0;
+    unsigned char hb = high & (1 << 31) ? 1:0;
+    unsigned char lb2 = low & (1 << 30) ? 1:0;
+    unsigned char hb2 = high & (1 << 30) ? 1:0;
+    unsigned char ubit = lb ? 0:1;
+
+    if(lb == hb){
+      while(lb == hb){
+        cstream += lb; 
+  
+        low <<= 1; // shift in the zero 
+        high <<= 1; // shift in zero then set to 1.
+        high ^= 1;
+        lb = low & (1 << 31) ? 1:0;
+        hb = high & (1 << 31) ? 1:0;
+
+        if(underflow_bits){
+          for(unsigned int i=0;i<underflow_bits;i++)
+            cstream += ubit;
+          underflow_bits = 0;
+        }
+      }
+    }
+    else if (lb2 && !hb2){      
+      low <<= 1;
+      high <<= 1; 
+
+      low ^= (1 << 31);
+      high ^= (1 << 31);
+      high ^= 1;
+      
+      underflow_bits++;
+    }
+  
+
+    ch = *(++str);
+  }
+
+  stream_to_bytes(cstream);
+  return true;
+}
+
+
 bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
   
   unsigned int bytes_read = 0;
@@ -87,12 +177,9 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
     if(ch == '\n')
       lines++;
 
-    unsigned int syms = 0;
     unsigned int T = 0;
-    for(edge=curr->transitions;edge;edge=edge->nxt){
+    for(edge=curr->transitions;edge;edge=edge->nxt)
       T += edge->c;
-      syms++;
-    }
 
 
     bool found = 0;
@@ -104,7 +191,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
         found = 1;
         curr = edge->dwn;
 
-        if(edge->c < 512)
+        if(edge->c < 2048)
           edge->c++; // adaptive?
 
         bytes_read++;
@@ -212,12 +299,9 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int Cc = 0;
     unsigned int Cn = 0;
 
-    unsigned int syms = 0;
-    for(edge=curr->transitions;edge;edge=edge->nxt){
+    for(edge=curr->transitions;edge;edge=edge->nxt)
       T += edge->c;
-      syms++;
-    }
-    
+
   
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
     uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range); // potential -1 here
@@ -230,7 +314,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         else
           fputc(edge->ch,stdout);
 
-        if(edge->c < 512)
+        if(edge->c < 2048)
           edge->c++; // adaptive hack for now
           
         bytes_read++;
@@ -322,8 +406,8 @@ static void DisplayUsage()
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c          compress input\n");
   fprintf(stderr, "  -d          decompress input\n");
-  fprintf(stderr, "  -t          add an optional train file for edge frequencies (see wlntrain)\n");
-  fprintf(stderr, "  -v          verbose debugging statements on\n");
+  fprintf(stderr, "  -s          interpret <input> as string\n");
+  fprintf(stderr, "  -v          print verbose statements\n");
   exit(1);
 }
 
@@ -334,7 +418,6 @@ static void ProcessCommandLine(int argc, char *argv[])
   int i,j;
 
   input = (const char *)0;
-  trainfile = (const char *)0;
 
   j = 0;
   for (i = 1; i < argc; i++)
@@ -349,6 +432,10 @@ static void ProcessCommandLine(int argc, char *argv[])
           break;
 
         case 'd':
+          if(opt_mode == 3)
+            fprintf(stderr,"Warning: string input invalid for decoding\n");
+          
+
           opt_mode = 2; 
           break;
 
@@ -356,15 +443,11 @@ static void ProcessCommandLine(int argc, char *argv[])
           opt_verbose = true;
           break;
 
-        case 't':
-          if(i < argc - 1){
-            i++;
-            trainfile = argv[i];
-          }
-          else{
-            fprintf(stderr,"Error: -t must be followed with a file\n");
-            DisplayUsage();
-          }
+        case 's':
+          if(opt_mode == 2)
+            fprintf(stderr,"Warning: string input invalid for decoding\n");
+          
+          opt_mode = 3;
           break;
 
         default:
@@ -411,49 +494,27 @@ int main(int argc, char *argv[])
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
+  wlnmodel->AssignEqualProbs();
 
-  if(!trainfile)
-    wlnmodel->AssignEqualProbs();
-  else{
-    FILE *tfp = 0; 
-    tfp = fopen(trainfile,"rb");
-    if(!tfp){
-      fprintf(stderr,"Error: cannot open train file\n");
+  if(opt_mode < 3){
+    FILE *fp = 0; 
+    fp = fopen(input,"rb");
+    if(fp){
+      if(opt_mode == 1)
+        encode_file(fp,wlnmodel);
+      else if (opt_mode == 2)
+        decode_file(fp,wlnmodel);
+
+      fclose(fp);
+    }
+    else{
+      fprintf(stderr,"Error: could not open file at %s\n",input);
       return 1;
     }
-
-    unsigned int i=0;
-    unsigned int freq = 0; 
-    while(fread(&freq,sizeof(unsigned int),1,tfp))
-      wlnmodel->edges[i++]->c = freq;
-    
-    for(unsigned int i=0;i<wlnmodel->num_edges;i++){
-      if(!wlnmodel->edges[i]->c){
-        fprintf(stderr,"Warning - null count for edge %d, using 1\n",i);
-        wlnmodel->edges[i]->c = 1;
-      }
-    }
-
-    if(opt_verbose)
-      fprintf(stderr,"Warning: train file read, using probabilities\n");
-
-    fclose(tfp);
   }
-
-  FILE *fp = 0; 
-  fp = fopen(input,"rb");
-  if(fp){
-    if(opt_mode == 1)
-      encode_file(fp,wlnmodel);
-    else if (opt_mode == 2)
-      decode_file(fp,wlnmodel);
-
-    fclose(fp);
-  }
-  else{
-    fprintf(stderr,"Error: could not open file at %s\n",input);
-    return 1;
-  }
+  else
+    encode_string(input,wlnmodel);
+  
 
 
   delete wlnmodel;
