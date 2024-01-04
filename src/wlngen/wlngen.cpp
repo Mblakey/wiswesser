@@ -2,16 +2,31 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 #include <iostream>
 #include <string>
 #include <map>
 #include <vector>
 #include <random>
+#include <chrono>
+
+
+#include <openbabel/mol.h>
+#include <openbabel/plugin.h>
+#include <openbabel/atom.h>
+#include <openbabel/bond.h>
+#include <openbabel/obconversion.h>
+#include <openbabel/obiter.h>
+#include <openbabel/kekulize.h>
+#include <openbabel/ring.h>
+#include <openbabel/babelconfig.h>
+#include <openbabel/obmolecformat.h>
 
 #include "rfsm.h"
 #include "wlnmatch.h"
 #include "wlndfa.h"
+#include "parser.h"
 
 unsigned int gen_length = 5;
 unsigned int gen_count = 10; 
@@ -51,6 +66,10 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
   return true;
 }
 
+double RewardFunction(){
+  ReadWLN("hello",(OBMol*)0);
+};
+
 bool StatisticalGenerate(FSMAutomata *wlnmodel){
   unsigned int count; 
   unsigned int length; 
@@ -61,6 +80,7 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
 
+  std::vector<FSMEdge*> path;
   while(count < gen_count){
 
     std::vector<FSMEdge*> e = {};
@@ -79,6 +99,8 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
         count++;
         length = 0;
         state = wlnmodel->root;
+
+        path.clear(); // can assign learning here
       }
       else{
         // choose something else
@@ -86,9 +108,12 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
           chosen = d(gen); 
       }
     }
-
-    fputc(e[chosen]->ch,stdout);
-    length++;
+    else{
+      path.push_back(e[chosen]);
+      fputc(e[chosen]->ch,stdout);
+      length++;
+    }
+   
 
     state = e[chosen]->dwn;
   }
@@ -104,6 +129,7 @@ static void DisplayUsage()
   fprintf(stderr,"options:\n");
   fprintf(stderr,"-l <int>    set length for generation (default 5)\n");
   fprintf(stderr,"-n <int>    set target count for generation (default 10)\n");
+  fprintf(stderr,"-v          timing and debugging statements to console\n");
   exit(1);
 }
 
@@ -145,6 +171,10 @@ static void ProcessCommandLine(int argc, char *argv[])
           i++;
           break;
         
+        case 'v':
+          opt_verbose = true;
+          break;
+
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
@@ -193,9 +223,27 @@ int main(int argc, char *argv[])
     fclose(tfp);
   }
 
+  // use for timing only
+  if(opt_verbose){
+    using std::chrono::high_resolution_clock;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+    using std::chrono::milliseconds;
 
-  StatisticalGenerate(wlnmodel);
+    auto start = high_resolution_clock::now();
+    StatisticalGenerate(wlnmodel);
+    auto stop = high_resolution_clock::now();
+  
+      // Get duration. Substart timepoints to 
+      // get duration. To cast it to proper unit
+      // use duration cast method
+    auto ms_int = duration_cast<milliseconds>(stop - start);
 
+    fprintf(stderr,"\n%d molecules generated in %d ms\n",gen_count,ms_int.count());
+  }
+  else
+    StatisticalGenerate(wlnmodel);
+  
   delete wlnmodel;
   return 0;
 }
