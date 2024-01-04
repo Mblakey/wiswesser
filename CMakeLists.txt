@@ -15,15 +15,10 @@ add_executable(readwln ${PROJECT_SOURCE_DIR}/src/parser/reader.cpp ${PROJECT_SOU
 add_executable(OLD_readwln ${PROJECT_SOURCE_DIR}/src/parser/wln-nextmove.cpp)
 add_executable(writewln ${PROJECT_SOURCE_DIR}/src/parser/writer.cpp ${PROJECT_SOURCE_DIR}/src/parser/writewln2.cpp)
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/parser/obcomp.cpp)
-
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
-
 add_executable(writemwln ${PROJECT_SOURCE_DIR}/src/mwln/writemwln.cpp)
-
 add_executable(wlncompress ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnarithmetic.cpp)
-
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlngen.cpp ${PROJECT_SOURCE_DIR}/src/parser/readwln2.cpp)
-add_executable(wlntrain ${PROJECT_SOURCE_DIR}/src/wlngen/wlntrain.cpp)
 
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")

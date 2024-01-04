@@ -22,6 +22,7 @@
 #include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
+#include <openbabel/groupcontrib.h>
 
 #include "rfsm.h"
 #include "wlnmatch.h"
@@ -33,6 +34,8 @@ unsigned int gen_count = 10;
 unsigned int opt_verbose = false;
 
 const char *trainfile;
+
+using namespace OpenBabel;
 
 
 bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
@@ -66,8 +69,16 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
   return true;
 }
 
-double RewardFunction(){
-  ReadWLN("hello",(OBMol*)0);
+
+double RewardFunction(const char *wln_str){
+  OBMol mol;
+  ReadWLN(wln_str,&mol);
+  
+  OBDescriptor* pDesc = OBDescriptor::FindType("logP");
+  if(pDesc)
+    std::cout << "logP  " << pDesc->Predict(&mol) << std::endl;
+
+  return 0.0;
 };
 
 bool StatisticalGenerate(FSMAutomata *wlnmodel){
@@ -80,6 +91,7 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
 
+  std::string wlnstr; 
   std::vector<FSMEdge*> path;
   while(count < gen_count){
 
@@ -95,11 +107,17 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
     if(e[chosen]->ch == '\n'){
 
       if(gen_length <= length){ // only accepts will have new line, ensures proper molecule
-        fputc('\n',stdout);
         count++;
         length = 0;
         state = wlnmodel->root;
 
+        std::cout << wlnstr << std::endl;
+        
+        // in beta, the faster i make readWLN the better this is
+        RewardFunction(wlnstr.c_str());
+        
+        
+        wlnstr.clear();
         path.clear(); // can assign learning here
       }
       else{
@@ -110,7 +128,7 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
     }
     else{
       path.push_back(e[chosen]);
-      fputc(e[chosen]->ch,stdout);
+      wlnstr += e[chosen]->ch;
       length++;
     }
    
