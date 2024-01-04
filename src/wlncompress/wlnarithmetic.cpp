@@ -79,7 +79,6 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
   bool working = true;
   while(working){
-    bytes_read++;
     if(!fread(&ch, sizeof(unsigned char), 1, ifp)){
       ch = '\0';
       working = false;
@@ -88,9 +87,12 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
     if(ch == '\n')
       lines++;
 
+    unsigned int syms = 0;
     unsigned int T = 0;
-    for(edge=curr->transitions;edge;edge=edge->nxt)
+    for(edge=curr->transitions;edge;edge=edge->nxt){
       T += edge->c;
+      syms++;
+    }
 
 
     bool found = 0;
@@ -102,9 +104,10 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
         found = 1;
         curr = edge->dwn;
 
-        if(edge->c < 256)
+        if(edge->c < 512)
           edge->c++; // adaptive?
-        
+
+        bytes_read++;
         break; 
       }
       else
@@ -172,7 +175,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 
 bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
-  
+  unsigned int bytes_read = 0;
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
@@ -208,8 +211,12 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int T = 0;
     unsigned int Cc = 0;
     unsigned int Cn = 0;
-    for(edge=curr->transitions;edge;edge=edge->nxt)
+
+    unsigned int syms = 0;
+    for(edge=curr->transitions;edge;edge=edge->nxt){
       T += edge->c;
+      syms++;
+    }
     
   
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
@@ -223,9 +230,10 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         else
           fputc(edge->ch,stdout);
 
-        if(edge->c < 256)
+        if(edge->c < 512)
           edge->c++; // adaptive hack for now
-        
+          
+        bytes_read++;
         curr = edge->dwn;
         break;
       }
