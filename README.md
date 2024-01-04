@@ -1,10 +1,12 @@
-# Wiswesser Line Notation (WLN) Project 
+# The Wiswesser Line Notation (WLN) Project 
 
 Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files and other chemical line notation (CLN) formats. This uses the OpenBabel chemical library, with the hope the code will be merged in. 
 
 To extract WLN from documents, Finite State Machine (FSM) parser is built from the WLN rules, this machine uses greedy matching to return matched WLN sequences from documents. 
 
 This is Linux and MacOS software only. <br>
+
+Note: This project is solely created by Michael as part of his PhD work, if you are interested using the project, or find any bugs or issues, reporting them would be extremely helpful. 
 
 <img src="./notes/intro_wln.png" width="800">
 
