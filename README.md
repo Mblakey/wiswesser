@@ -24,52 +24,15 @@ This is Linux and MacOS software only. <br>
 Run `./build.sh` from the project directory, this will clone and build openbabel as well as linking
 the library to the parser in cmake. Babel files will be installed to `external`. Building the projects places all executables into `bin/`. <br>
 
+## Project Structure 
 
-## Converting between WLN and CLN Formats
+This repository contains a broad range of functionality using WLN notation for various operations. As such, please read the individual `README.txt` files for the required area. <br>
 
-`readwln` - This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and returns the desired output format. 
+* [WLN Conversion - Read and Write](./notes/convert.md) <br>
+* [WLN Compression - Lossless Compress/Decompress](./notes/compress.md)<br>
+* [WLN Extract - FSM wlngrep](./notes/extract.md) <br>
+* [WLN Generation - AI-less reinforcement generation](./notes/generate.md) <br>
 
-```
-readwln <options> -o<format> -s 'string'
-```
-
-#### Flags
-
-`-c` - enable run-time string correction, this allows correction of branching symbols and spaces where a valid WLN string can be seen <br>
-`-d` - enable all debugging logs to stderr<br>
-`-h` - display the help menu <br>
-`-o` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
-<br>
-
-`writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string. 
-
-
-```
-writewln <options> -i<format> -s 'string'
-```
-
-#### Flags 
-
-`-d` - enable all debugging logs to stderr<br>
-`-h` - display the help menu <br>
-`-i` - choose input format for string, options are `-ismi`, `-iinchi` and `-ican` following OpenBabels format conventions <br>
-
-
-## WLN Extraction 
-
-Command line utility `wlngrep`. This either takes a filename, or an escaped single sequence if using the `-s` flag. With some exceptions, flags are kept inline with standard grep usage.
-
-```
-wlngrep <options> <filename>
-```
-
-#### Flags 
-
-`-c` - return number of matches instead of string <br>
-`-o` - print only the matched parts of line <br>
-`-m` - do not minimise DFA (debugging only) <br>
-`-s` - interpret `<filename>` as a string to match <br>
-`-x` - return string if whole line matches <br>
 
 ## Unit Testing
 
