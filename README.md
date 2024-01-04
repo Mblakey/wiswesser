@@ -1,4 +1,4 @@
-# Extraction and Conversion of Wiswesser Line Notation (WLN) 
+# Wiswesser Line Notation (WLN) Project 
 
 Wiswesser Line Notation Parser, covert WLN to smiles, inchi, mol files and other chemical line notation (CLN) formats. This uses the OpenBabel chemical library, with the hope the code will be merged in. 
 
