@@ -82,8 +82,8 @@ double RewardFunction(const char *wln_str){
 };
 
 bool StatisticalGenerate(FSMAutomata *wlnmodel){
-  unsigned int count; 
-  unsigned int length; 
+  unsigned int count = 0; 
+  unsigned int length = 0; 
 
   std::random_device rd;
   std::mt19937 gen(rd());

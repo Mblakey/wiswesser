@@ -19,7 +19,7 @@ of regular languages, handles DFA, NFA, eNFA
 #include <map>
 
 #define REALLOC 512  // reallocate 512 more states or edges at a time
-#define REASONABLE 4096
+#define REASONABLE 8192
 
 enum FSMType{DFA=0,NFA=1,eNFA=2};
 
@@ -113,46 +113,6 @@ struct FSMAutomata{
     return true;
   }
 
-  bool ReallocateStateSpace(){
-
-    unsigned int old_max = max_states;
-    max_states += REALLOC; // add 512
-    FSMState **new_space = (FSMState**)realloc(states,sizeof(FSMState*) *max_states);
-    if(!new_space){
-      fprintf(stderr,"Error: reallocation of states memory failed\n");
-      return false;
-    }
-    else if(new_space != states) // if the memory chunk has moved
-      states = new_space;
-
-    // null the new space - safety
-    for(unsigned int i = old_max+1;i<max_states;i++)
-      states[i] = 0;
-
-    return true;
-  }
-
-  bool ReallocateEdgeSpace(){
-    unsigned int old_max = max_edges;
-    max_edges += REALLOC; // add 512
-    FSMEdge** new_space = (FSMEdge**)realloc(edges,sizeof(FSMEdge*) *max_edges);
-    if(!new_space){
-      fprintf(stderr,"Error: reallocation of edge memory failed\n");
-      return false;
-    }
-    else if(new_space != edges) // if the memory chunk has moved
-      edges = new_space;
-
-    // null the new space - safety
-    for(unsigned int i =old_max+1;i<max_edges;i++)
-      edges[i] = 0;
-
-    if(!edges)
-      return false;
-    else
-      return true;
-  }
-
   void AssignEqualProbs(){
     for(unsigned int i=0;i<num_states;i++){
       FSMState *s = states[i];
@@ -171,8 +131,10 @@ struct FSMAutomata{
 	FSMState* AddState(bool accept=false){
     		
     FSMState *state = 0;
-    if(num_states == max_states && !ReallocateStateSpace())
+    if(num_states == max_states){
+      fprintf(stderr,"Error: overflowing state memory! allocate more space\n");
       return 0;
+    }
     
     state = new FSMState;
     if(!root)
@@ -253,8 +215,10 @@ struct FSMAutomata{
 
     FSMEdge *edge = 0; 
    
-    if(num_edges == max_edges && !ReallocateEdgeSpace())
+    if(num_edges == max_edges){
+      fprintf(stderr,"Error: overflowing edge memory! allocate more space\n");
       return 0;
+    }
     
     edge = new FSMEdge;
     edge->id = num_edges++; 
