@@ -71,6 +71,9 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 
 double RewardFunction(const char *wln_str){
+  
+  return 0.0;
+  
   OBMol mol;
   ReadWLN(wln_str,&mol);
   

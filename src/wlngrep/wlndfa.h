@@ -121,6 +121,8 @@ FSMState * InsertAcyclic(FSMAutomata *acyclic){
 
     acyclic->AddTransition(branch,digits,ch);
   }
+
+  acyclic->AddTransition(branch,double_bond,'U');
    
   return root;
 }
@@ -389,7 +391,9 @@ FSMAutomata *BuildWLNFSM2(){
   // handle locants, spiro and inline rings
   FSMState *locant_open = wln->AddState(false); 
   FSMState *locant_char = wln->AddState(false); 
-  
+
+  wln->AddTransition(locant_char,locant_char,'&'); // expansion
+
   FSMState *acyclic_ring_root = InsertAcyclic(wln);
 
   FSMState *inline_open = wln->AddState(false); 
@@ -401,21 +405,31 @@ FSMAutomata *BuildWLNFSM2(){
   FSMState *spiro_confirm = wln->AddState(false); 
   FSMState *spiro_locant = wln->AddState(false); 
 
+  // out of line U- bonding 
+  FSMState *out_double = wln->AddState(false); 
+
   FSMState *benzene = wln->AddState(true);
+
   for(unsigned int i=0;i<wln->num_states;i++){
     if(wln->states[i]->accept){
       wln->AddTransition(wln->states[i],locant_open,' ');
   
-      if(wln->states[i] != cycle_accept)
+      if(wln->states[i] != cycle_accept){
         wln->AddTransition(wln->states[i],inline_open,'-');
+        wln->AddTransition(wln->states[i],out_double,'U');
+      }
     }
   }
+
+  wln->AddTransition(out_double,inline_open,'-');
   
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     wln->AddTransition(locant_open,locant_char,ch);
     wln->AddTransition(inline_locant,cyclic_root,ch); 
     wln->AddTransition(spiro_locant,cyclic_root,ch); 
   }
+
+  
 
   // pi bonding
   wln->AddTransition(locant_open,locant_char,'0');
@@ -425,6 +439,7 @@ FSMAutomata *BuildWLNFSM2(){
   // make use of the epsilons here
   wln->AddTransition(locant_char,cyclic_root,0); 
   wln->AddTransition(locant_char,cyclic_root,'U');
+  wln->AddTransition(locant_char,out_double,'U');
   wln->AddTransition(locant_char,acyclic_ring_root,0); 
   wln->AddTransition(locant_char,acyclic_ring_root,'U'); 
   
