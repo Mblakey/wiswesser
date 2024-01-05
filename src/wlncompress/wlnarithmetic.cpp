@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 
+#include <utility>
 #include <iostream>
 #include <string>
 #include <map>
@@ -61,8 +62,22 @@ void stream_to_bytes(std::string &stream){
 }
 
 
+/* maximise but avoid overflow, sum has to be less than UINT32 MAX */
+void update_frequencies(FSMEdge *update, FSMState *state){
+  FSMEdge *edge = 0; 
+  unsigned int num_edges = 0;
+  for(edge = state->transitions;edge;edge=edge->nxt)
+    num_edges++;
+  
+  unsigned int ceiling = 512; // should be a safe value
+  if (update->c < ceiling)
+    update->c++;
+}
 
+
+/* STRING METHOD */
 bool encode_string(const char *str, FSMAutomata *wlnmodel){
+  
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
@@ -85,11 +100,8 @@ bool encode_string(const char *str, FSMAutomata *wlnmodel){
       if(edge->ch == ch){
         Cn += edge->c;
         found = 1;
+        update_frequencies(edge,curr);
         curr = edge->dwn;
-
-        if(edge->c < 512)
-          edge->c++; // adaptive?
-
         break; 
       }
       else
@@ -189,11 +201,8 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel){
       if(edge->ch == ch){
         Cn += edge->c;
         found = 1;
+        update_frequencies(edge,curr);
         curr = edge->dwn;
-
-        if(edge->c < 2048)
-          edge->c++; // adaptive?
-
         bytes_read++;
         break; 
       }
@@ -302,7 +311,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
     for(edge=curr->transitions;edge;edge=edge->nxt)
       T += edge->c;
 
-  
+    // the multiply is absolutely killer here, really limites edge->c's value
     uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
     uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range); // potential -1 here
 
@@ -314,9 +323,7 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel){
         else
           fputc(edge->ch,stdout);
 
-        if(edge->c < 2048)
-          edge->c++; // adaptive hack for now
-          
+        update_frequencies(edge,curr);
         bytes_read++;
         curr = edge->dwn;
         break;

@@ -75,7 +75,6 @@ void display_match(char *line, unsigned int spos, unsigned int epos){
 /* matches the longest possible word using DFA
 - 1 matches only, 2 - exact match only, 3- return all matches */
 unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highlight, unsigned int opt_match_option=0, bool count=false){
-  
   char line[BUFF_SIZE] = {0};
   strcpy(line,inp);
   unsigned int len = strlen(line);

@@ -4,6 +4,131 @@
 #include "rfsm.h"
 #include "rconvert.h"
 
+/* will purge and delete to merge into the main fsm */
+FSMAutomata *CreateAcyclic(){
+  FSMAutomata *acyclic = new FSMAutomata(REASONABLE,REASONABLE); 
+
+  FSMState *root = acyclic->AddState(true);
+
+  FSMState *func_group = acyclic->AddState(true); 
+  FSMState *digits = acyclic->AddState(true);
+  
+  FSMState *branch = acyclic->AddState(true); // '&' characters
+  FSMState *double_bond = acyclic->AddState(false); // 'U'
+  FSMState *triple_bond = acyclic->AddState(false);  // 'UU'
+
+  FSMState *open_dash = acyclic->AddState(false); // 
+  FSMState *close_dash = acyclic->AddState(true);
+
+  FSMState *element_a = acyclic->AddState(false);
+  FSMState *element_b = acyclic->AddState(false);
+  FSMState *hypervalent = acyclic->AddState(false);
+
+  // set up digits state, cant be zero on entrance
+  for(unsigned char ch = '0';ch <= '9';ch++)
+    acyclic->AddTransition(digits,digits,ch);
+
+  // set up special elements 
+  acyclic->AddTransition(root,open_dash,'-');
+  acyclic->AddTransition(func_group,open_dash,'-');
+  acyclic->AddTransition(digits,open_dash,'-');
+
+  // allow any combo for element definition, at the moment
+  for(unsigned char ch = 'A';ch <= 'Z';ch++){
+    acyclic->AddTransition(open_dash,element_a,ch);
+    acyclic->AddTransition(element_a,element_b,ch);
+  }
+
+  // add in single char hypervalence 
+  acyclic->AddTransition(open_dash,hypervalent,'P');
+  acyclic->AddTransition(open_dash,hypervalent,'S');
+  acyclic->AddTransition(open_dash,hypervalent,'E');
+  acyclic->AddTransition(open_dash,hypervalent,'F');
+  acyclic->AddTransition(open_dash,hypervalent,'G');
+  acyclic->AddTransition(open_dash,hypervalent,'I');
+  acyclic->AddTransition(open_dash,hypervalent,'E');
+
+  // close both dash blocks
+  acyclic->AddTransition(hypervalent,close_dash,'-');
+  acyclic->AddTransition(element_b,close_dash,'-');
+
+  // could be element followed by element
+  acyclic->AddTransition(close_dash,open_dash,'-');
+
+
+  // link double and triple bonds
+  acyclic->AddTransition(double_bond,triple_bond,'U');
+
+
+  // same for open dash
+  acyclic->AddTransition(double_bond,open_dash,'-');
+  acyclic->AddTransition(triple_bond,open_dash,'-');
+
+  // allow the double start to come from symbols
+  acyclic->AddTransition(func_group,double_bond,'U');
+  acyclic->AddTransition(digits,double_bond,'U');
+  acyclic->AddTransition(close_dash,double_bond,'U');
+
+  
+  // add unlimited branching to and from any symbol 
+  acyclic->AddTransition(func_group,branch,'&');
+  acyclic->AddTransition(digits,branch,'&');
+  acyclic->AddTransition(close_dash,branch,'&');
+  
+  // allow repeats
+  acyclic->AddTransition(branch,branch,'&');
+  acyclic->AddTransition(branch,open_dash,'&');
+
+  for(unsigned char ch = 'A';ch <= 'Z';ch++){
+    switch(ch){
+      case 'L':
+      case 'T':
+      case 'D':
+      case 'J':
+      case 'A':
+      case ' ':
+      case '-':
+      case '&':
+      case '/':
+      case 'U':
+      //case 'H': 
+      case 'R': // seperate out benzene here
+        break;
+      
+      default:
+        acyclic->AddTransition(root,func_group,ch);
+        acyclic->AddTransition(func_group,func_group,ch);
+        acyclic->AddTransition(digits,func_group,ch);
+
+        acyclic->AddTransition(close_dash,func_group,ch);
+
+        acyclic->AddTransition(double_bond,func_group,ch);
+        acyclic->AddTransition(triple_bond,func_group,ch);
+
+        acyclic->AddTransition(branch,func_group,ch);
+        break;
+    }
+  }
+
+  // same for digits
+  for(unsigned char ch = '1';ch <= '9';ch++){
+    acyclic->AddTransition(root,digits,ch);
+
+    acyclic->AddTransition(func_group,digits,ch);
+
+    acyclic->AddTransition(close_dash,digits,ch);
+
+    acyclic->AddTransition(double_bond,digits,ch);
+    acyclic->AddTransition(triple_bond,digits,ch);
+
+    acyclic->AddTransition(branch,digits,ch);
+  }
+   
+
+  
+  return acyclic;
+}
+
 /* for ease of building, this will build an NFA, which will subset down to a DFA */
 void BuildWLNFSM(FSMAutomata *wlnNFA){
 
@@ -26,7 +151,7 @@ void BuildWLNFSM(FSMAutomata *wlnNFA){
   for(unsigned char ch = '0';ch <= '9';ch++)
     wlnNFA->AddTransition(digits,digits,ch);
 
-    // set up first set of transitions 
+  // set up first set of transitions 
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     switch(ch){
       case 'L':
@@ -588,6 +713,14 @@ FSMAutomata * CreateWLNDFA(){
   
   if(wlnMinimal)
     wlnMinimal->InitJumpTable();
+
+
+  FSMAutomata *test = CreateAcyclic();
+  FSMAutomata *testDFA = ConvertToDFA(test);
+  FSMAutomata *testMinimal = MinimiseDFA(testDFA);
+
+  testMinimal->InitJumpTable();
+  return testMinimal;
 
   delete wln;
   delete wlnDFA;

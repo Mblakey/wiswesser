@@ -19,7 +19,7 @@ of regular languages, handles DFA, NFA, eNFA
 #include <map>
 
 #define REALLOC 512  // reallocate 512 more states or edges at a time
-#define REASONABLE 2048 // basic init 
+#define REASONABLE 4096
 
 enum FSMType{DFA=0,NFA=1,eNFA=2};
 
