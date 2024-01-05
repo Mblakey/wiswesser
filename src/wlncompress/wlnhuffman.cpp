@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <stack>
+#include <deque>
 #include <map>
 
 #include "rfsm.h"
@@ -16,7 +17,6 @@ unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 
 const char *input;
-const char *trainfile; 
 
 /* priority queue and huffman tree code */
 struct Node;
@@ -250,6 +250,57 @@ void WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
 }
 
 
+unsigned int count_bytes(char *buffer, unsigned int n){
+  for(unsigned int i=0;i<n;i++){
+    if(!buffer[i])
+      return i;
+  }
+  return n;
+}
+
+bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
+  char *end = buffer+n;
+  char *ptr;
+  int ch;
+
+  ptr = buffer;
+  do {
+    ch = getc_unlocked(fp); // this increments fp
+    if (ch == '\n') {
+      if (add_nl)
+        *ptr++ = '\n'; // if i want the newline or not
+      *ptr = '\0';
+      return true;
+    }
+    if (ch == '\f') {
+      *ptr++ = '\n';
+      *ptr = '\0';
+      return true;
+    }
+    if (ch == '\r') {
+      *ptr++ = '\n';
+      *ptr = '\0';
+      ch = getc_unlocked(fp);
+      if (ch != '\n') {
+        if (ch == -1)
+          return false;
+        ungetc(ch,fp);
+      }
+      return true;
+    }
+    if (ch == -1) {
+      *ptr++ = '\n';
+      *ptr = '\0';
+      return ptr-buffer > 1;
+    }
+    *ptr++ = ch;
+  } while (ptr < end);
+  *ptr = 0;
+  
+  fprintf(stderr, "Warning: line too long!\n");
+  return false;
+}
+
 /* huffman style */
 void stream_to_bytes(std::string &stream){
   unsigned int char_pos = 0;
@@ -269,6 +320,9 @@ void stream_to_bytes(std::string &stream){
 }
 
 
+/* idea can we look back 5 states e.g 5 characters from an accept, and get back to an accept 
+accept restriction is to eliminate weird half locant */
+
 bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &queue_lookup){
   
   unsigned char ch = 0;
@@ -281,33 +335,149 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
 
   std::string cstream;
 
-  while(fread(&ch,sizeof(unsigned char),1,ifp)){
-    bytes_read++;
-    // construct tree based on C values
-    priority_queue = queue_lookup[curr]; 
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      Node *n = AllocateNode(edge->ch,edge->c);
-      insert_term(n,priority_queue);
-    }
 
-    htree = ConstructHuffmanTree(priority_queue);
-    if(!htree){
-      fprintf(stderr,"Huffman tree allocation fault\n");
-      return false;
-    }
+  unsigned int link_size = 0;
+  std::string test;
+  std::deque<FSMState*> accept_links; 
 
-    WriteHuffmanCode(htree,ch,cstream);
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      if(edge->ch == ch){
-        curr = edge->dwn;
-        edge->c++;
+  unsigned char pattern = 91; // 1 above Z
+  std::map<std::string,unsigned char> pattern_map;
+  std::map<unsigned char,std::string> get_pattern;
+  
+  // read line allows the look ahead
+  unsigned char buffer[BUFF_SIZE] = {0};
+  while(ReadLineFromFile(ifp,(char*)buffer,BUFF_SIZE,true)){
+    
+    if(opt_verbose)
+      bytes_read += count_bytes((char*)buffer,BUFF_SIZE);
+
+
+    for(unsigned int i=0;i<BUFF_SIZE;i++){
+      ch = buffer[i];
+      if(!ch){
+        memset(buffer,0,BUFF_SIZE);
         break;
       }
+
+      if(link_size == 5){
+        if(curr->accept && (accept_links[0]->accept || accept_links[0] == wlnmodel->root) ){
+          //fprintf(stderr,"%s could be a pattern\n",test.c_str());
+
+          unsigned char pattern_ch = pattern_map[test];
+          if(!pattern_ch){
+            pattern_ch = pattern;
+            get_pattern[pattern] = test;
+            pattern_map[test] = pattern++;
+          }
+
+#define TEST 1
+#if TEST
+          // duplicate edges ignored
+          FSMEdge *dict_edge = wlnmodel->AddTransition(accept_links.front(),accept_links.back(),pattern_ch);
+          dict_edge->c = 1;
+#endif
+        }
+
+
+  #if TEST
+        for(unsigned int i=0;i<accept_links.size()-1;i++){
+          FSMState *s = accept_links[i];
+          FSMEdge *e = s->transitions;
+          for(e=s->transitions;e;e=e->nxt){
+            if(e->ch == test[i]){
+              if(accept_links[i+1] != e->dwn){
+                fprintf(stderr,"no go! failing on %c(%d)\n",test[i],test[i]);
+                return false;
+              }
+            }
+          }
+        }
+  #endif
+
+        test.clear();
+        accept_links.clear();
+        link_size = 0;
+      }
+      else if (ch == '\n'){
+        test.clear();
+        accept_links.clear();
+        link_size = 0;
+      }
+      else{
+        accept_links.push_back(curr);
+        test+=ch;
+        link_size++;
+      }
+
+      // construct tree based on C values
+      priority_queue = queue_lookup[curr]; 
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+        Node *n = AllocateNode(edge->ch,edge->c);
+        insert_term(n,priority_queue);
+      }
+
+      htree = ConstructHuffmanTree(priority_queue);
+      if(!htree){
+        fprintf(stderr,"Huffman tree allocation fault\n");
+        return false;
+      }
+
+      FSMEdge *standard = 0;
+      FSMEdge *jump = 0;
+      unsigned int j = i;
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+      
+        if(edge->ch == ch)
+          standard = edge;
+        else if(edge->ch > 'Z'){
+
+          std::string dict_str = get_pattern[edge->ch];
+
+          fprintf(stderr,"potentially looking for %s\n",dict_str.c_str());
+          fprintf(stderr,"buffer: %s",(buffer) );
+          fprintf(stderr,"remaining: %s\n",(buffer+i) );
+          
+          unsigned int search = 0;
+          for(j=i;j<BUFF_SIZE;j++){
+            if(!buffer[j] || (dict_str[search] != buffer[j]) )
+              break;
+            
+          
+            search++;
+            if(search == 5)
+              break;
+          }
+
+          if(search==5){
+            ch = edge->ch;
+            jump = edge;
+          }
+        
+        }
+      }
+
+      if(jump){
+        curr = jump->dwn;
+        jump->c++;
+        
+        i = j; 
+        test.clear();
+        accept_links.clear();
+        link_size = 0;
+      }
+      else if(standard){
+        curr = standard->dwn;
+        standard->c++;
+      }
+
+
+      WriteHuffmanCode(htree,ch,cstream);
+      DeleteHuffmanTree(htree); 
     }
-    
-    DeleteHuffmanTree(htree); 
   }
 
+
+  fprintf(stderr,"%d patterns\n",pattern-'Z');
   // // write a byte from the root of the machine indicating EOF
   priority_queue = queue_lookup[wlnmodel->root];
   for(edge=wlnmodel->root->transitions;edge;edge=edge->nxt){
@@ -427,7 +597,6 @@ static void DisplayUsage()
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c          compress input\n");
   fprintf(stderr, "  -d          decompress input\n");
-  fprintf(stderr, "  -t          add an optional train file for edge frequencies (see wlntrain)\n");
   fprintf(stderr, "  -v          verbose debugging statements on\n");
   exit(1);
 }
@@ -439,7 +608,6 @@ static void ProcessCommandLine(int argc, char *argv[])
   int i,j;
 
   input = (const char *)0;
-  trainfile = (const char *)0;
 
   j = 0;
   for (i = 1; i < argc; i++)
@@ -459,17 +627,6 @@ static void ProcessCommandLine(int argc, char *argv[])
 
         case 'v':
           opt_verbose = true;
-          break;
-
-        case 't':
-          if(i < argc - 1){
-            i++;
-            trainfile = argv[i];
-          }
-          else{
-            fprintf(stderr,"Error: -t must be followed with a file\n");
-            DisplayUsage();
-          }
           break;
 
         default:
