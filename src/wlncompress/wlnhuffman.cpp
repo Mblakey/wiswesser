@@ -359,56 +359,6 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         break;
       }
 
-      if(link_size == 5){
-        if(curr->accept && (accept_links[0]->accept || accept_links[0] == wlnmodel->root) ){
-          //fprintf(stderr,"%s could be a pattern\n",test.c_str());
-
-          unsigned char pattern_ch = pattern_map[test];
-          if(!pattern_ch){
-            pattern_ch = pattern;
-            get_pattern[pattern] = test;
-            pattern_map[test] = pattern++;
-          }
-
-#define TEST 1
-#if TEST
-          // duplicate edges ignored
-          FSMEdge *dict_edge = wlnmodel->AddTransition(accept_links.front(),accept_links.back(),pattern_ch);
-          dict_edge->c = 1;
-#endif
-        }
-
-
-  #if TEST
-        for(unsigned int i=0;i<accept_links.size()-1;i++){
-          FSMState *s = accept_links[i];
-          FSMEdge *e = s->transitions;
-          for(e=s->transitions;e;e=e->nxt){
-            if(e->ch == test[i]){
-              if(accept_links[i+1] != e->dwn){
-                fprintf(stderr,"no go! failing on %c(%d)\n",test[i],test[i]);
-                return false;
-              }
-            }
-          }
-        }
-  #endif
-
-        test.clear();
-        accept_links.clear();
-        link_size = 0;
-      }
-      else if (ch == '\n'){
-        test.clear();
-        accept_links.clear();
-        link_size = 0;
-      }
-      else{
-        accept_links.push_back(curr);
-        test+=ch;
-        link_size++;
-      }
-
       // construct tree based on C values
       priority_queue = queue_lookup[curr]; 
       for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -423,53 +373,14 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
       }
 
       FSMEdge *standard = 0;
-      FSMEdge *jump = 0;
       unsigned int j = i;
       for(edge=curr->transitions;edge;edge=edge->nxt){
-      
-        if(edge->ch == ch)
+        if(edge->ch == ch){
           standard = edge;
-        else if(edge->ch > 'Z'){
-
-          std::string dict_str = get_pattern[edge->ch];
-
-          fprintf(stderr,"potentially looking for %s\n",dict_str.c_str());
-          fprintf(stderr,"buffer: %s",(buffer) );
-          fprintf(stderr,"remaining: %s\n",(buffer+i) );
-          
-          unsigned int search = 0;
-          for(j=i;j<BUFF_SIZE;j++){
-            if(!buffer[j] || (dict_str[search] != buffer[j]) )
-              break;
-            
-          
-            search++;
-            if(search == 5)
-              break;
-          }
-
-          if(search==5){
-            ch = edge->ch;
-            jump = edge;
-          }
-        
+          curr = standard->dwn;
+          standard->c++;
         }
       }
-
-      if(jump){
-        curr = jump->dwn;
-        jump->c++;
-        
-        i = j; 
-        test.clear();
-        accept_links.clear();
-        link_size = 0;
-      }
-      else if(standard){
-        curr = standard->dwn;
-        standard->c++;
-      }
-
 
       WriteHuffmanCode(htree,ch,cstream);
       DeleteHuffmanTree(htree); 
