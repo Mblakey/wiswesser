@@ -319,12 +319,37 @@ void stream_to_bytes(std::string &stream){
   }
 }
 
+// lets add a DEFLATE sliding window scheme, 5 is a good number for WLN strings
 
-/* idea can we look back 5 states e.g 5 characters from an accept, and get back to an accept 
-accept restriction is to eliminate weird half locant */
+// the only larger window is for ring systems
+
+
+// convert the table number into the characters needed in the fsm
+void uint_to_chars(unsigned int val, unsigned char *buffer){
+  unsigned int char_pos = 0;
+  unsigned int char_bit = 7;
+
+  unsigned char ch = 0;
+  for(int i=31;i>=0;i--){
+    bool bit = val & (1 << i) ? 1:0;
+    if(bit)
+      ch ^= (1 << char_bit);
+    
+    char_bit--;
+    if(i % 8==0 || i==0){
+      if(ch)
+        buffer[char_pos++] = ch;
+      
+      ch = 0;    
+      char_bit = 7;
+    }
+  }
+}
 
 bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &queue_lookup){
-  
+
+  std::map<std::string,bool> seen_before;
+
   unsigned char ch = 0;
   unsigned int bytes_read = 0;
 
@@ -335,23 +360,38 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
 
   std::string cstream;
 
+  // assign the ring close; 
+  FSMState *ring_close = 0;
+  const char *find_close = "L6J";
+  while( (*find_close) ){
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      if(edge->ch == *find_close)
+        curr = edge->dwn; 
+    }
+    find_close++;
+  }
+  ring_close = curr; 
 
-  unsigned int link_size = 0;
-  std::string test;
-  std::deque<FSMState*> accept_links; 
+  unsigned char table_code[5] = {0};
+  uint_to_chars(UINT32_MAX, table_code);
+  for(unsigned int i=0;i<4;i++)
+    fprintf(stderr,"%d ", table_code[i]);
 
-  unsigned char pattern = 91; // 1 above Z
-  std::map<std::string,unsigned char> pattern_map;
-  std::map<unsigned char,std::string> get_pattern;
-  
-  // read line allows the look ahead
+  exit(1);
+  curr = wlnmodel->root;
+
+  bool reading_ring = false;
+  std::string ring_fragment; 
+
+  unsigned int table_size = 0; // 32 bit should give a realistic ceiling for combos
+  std::map<std::string,unsigned int> ring_table; // these can get insanely big, be careful
+
   unsigned char buffer[BUFF_SIZE] = {0};
   while(ReadLineFromFile(ifp,(char*)buffer,BUFF_SIZE,true)){
-    
     if(opt_verbose)
       bytes_read += count_bytes((char*)buffer,BUFF_SIZE);
 
-
+    reading_ring = false;
     for(unsigned int i=0;i<BUFF_SIZE;i++){
       ch = buffer[i];
       if(!ch){
@@ -359,6 +399,13 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         break;
       }
 
+      if(curr == wlnmodel->root && (ch == 'L' || ch == 'T'))
+        reading_ring = true;
+
+      if(reading_ring)
+        ring_fragment += ch;
+
+  
       // construct tree based on C values
       priority_queue = queue_lookup[curr]; 
       for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -382,13 +429,33 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         }
       }
 
+      if(curr == ring_close && reading_ring){
+        
+        if(!ring_table[ring_fragment])
+          table_size++;
+        
+        ring_table[ring_fragment]++;
+        ring_fragment.clear();
+        reading_ring = false;
+      }
+
       WriteHuffmanCode(htree,ch,cstream);
       DeleteHuffmanTree(htree); 
+
+      // keep the memory in check, every 32 bytes clear and start again
+      if(cstream.size() == 256){
+        stream_to_bytes(cstream);
+        cstream.clear();
+      }
+
     }
   }
 
+  for(std::map<std::string,unsigned int>::iterator iter = ring_table.begin(); iter != ring_table.end();iter++){
+    fprintf(stderr,"%s - %d\n",(*iter).first.c_str(),(*iter).second);
+  }
+  fprintf(stderr,"table size: %d\n",table_size);
 
-  fprintf(stderr,"%d patterns\n",pattern-'Z');
   // // write a byte from the root of the machine indicating EOF
   priority_queue = queue_lookup[wlnmodel->root];
   for(edge=wlnmodel->root->transitions;edge;edge=edge->nxt){
