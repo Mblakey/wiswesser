@@ -331,7 +331,7 @@ void stream_to_bytes(std::string &stream){
     char_pos++;
     if(char_pos == 8){
       char_pos = 0;
-      fwrite(&out,sizeof(unsigned char),1,stdout);
+      fputc(out,stdout);
       out = 0;
     }
 
@@ -412,7 +412,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         break;
       }
 
-#define RING_DICT 1
+#define RING_DICT 0
 #if RING_DICT 
       if(curr == wlnmodel->root && (ch == 'L' || ch == 'T')){
         // we either jump through a table entry already made, or we create a transition to be encoded
@@ -578,7 +578,6 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
   stream_bits+=cstream.size();
 
   if(opt_verbose){
-    fprintf(stderr,"ring table size: %d\n",ring_tsize);
     fprintf(stderr,"%d to %d bits: %f compression ratio\n",
             bytes_read*8,stream_bits,
             (double)(bytes_read*8)/stream_bits);
@@ -596,10 +595,35 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
+  // get the ring close, little forced but works quickly
+  FSMState *ring_close = 0;
+  const char *find_close = "L6J";
+  while( (*find_close) ){
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      if(edge->ch == *find_close)
+        curr = edge->dwn; 
+    }
+    find_close++;
+  }
+  ring_close = curr; 
+  curr = wlnmodel->root;
+
+  FSMState *ring_dict_entry = 0;
+   
+  unsigned int ring_tsize = 256;        
+  std::vector<std::string> ring_table; // this can get very big, so use ring_tsize to limit
+  ring_table.reserve(UINT16_MAX); // -1 as we never want 0 0 0 0
+  
+  // need these to be global
+  std::string ring_fragment;
+  unsigned char ring_code[RCODE_BYTES] = {0}; // 2 byte codes + entery 'r'
+
   unsigned char bit_char = 0;
   unsigned int bit_pos = 0;
   fread(&bit_char,sizeof(unsigned char),1,ifp); // read first bit
 
+  unsigned int buff_pos = 0;
+  unsigned char buffer[BUFF_SIZE] = {0};
   for(;;){
 
     unsigned char ch_read = 0;
@@ -623,6 +647,8 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
       // fetch next char from stream
       if (bit_pos == 8){
         if(!fread(&bit_char,sizeof(unsigned char),1,ifp)){
+          fprintf(stdout,"%s",buffer);
+          buff_pos = 0;
           DeleteHuffmanTree(tree_root);
           return true;
         }
@@ -655,7 +681,13 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
           }
         }
         else{
-          fputc(ch_read,stdout);
+          buffer[buff_pos++] = ch_read;
+          if(ch_read == '\n'){
+            fprintf(stdout,"%s",buffer);
+            memset(buffer,0,BUFF_SIZE);
+            buff_pos = 0;
+          }
+
           for(edge=curr->transitions;edge;edge=edge->nxt){
             if(edge->ch == ch_read){
               curr = edge->dwn;
