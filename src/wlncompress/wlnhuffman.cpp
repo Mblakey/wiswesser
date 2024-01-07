@@ -375,7 +375,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
   
   bool reading_ring = false;
   std::string ring_fragment; 
-  unsigned int table_size = 0;        // 32 bit should give a realistic ceiling for combos
+  unsigned int ring_tsize = 0;        // 32 bit should give a realistic ceiling for combos
   unsigned char table_code[4] = {0};
   std::map<std::string,unsigned int> ring_table; // these can get insanely big, be careful
 
@@ -425,12 +425,12 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
       if(curr == ring_close && reading_ring){
         
         if(!ring_table[ring_fragment]){
-          uint_to_chars(table_size, table_code);
+          uint_to_chars(ring_tsize, table_code);
           for(unsigned int i=0;i<4;i++)
             fprintf(stderr,"%d ", table_code[i]);
           fprintf(stderr,"\n");
           memset(table_code,0,4);
-          table_size++;
+          ring_tsize++;
         }
           
         
@@ -451,10 +451,8 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
     }
   }
 
-  // for(std::map<std::string,unsigned int>::iterator iter = ring_table.begin(); iter != ring_table.end();iter++){
-  //   fprintf(stderr,"%s - %d\n",(*iter).first.c_str(),(*iter).second);
-  // }
-  fprintf(stderr,"table size: %d\n",table_size);
+
+
 
   // // write a byte from the root of the machine indicating EOF
   priority_queue = queue_lookup[wlnmodel->root];
@@ -468,6 +466,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
   DeleteHuffmanTree(htree); 
 
   if(opt_verbose){
+    fprintf(stderr,"ring table size: %d\n",ring_tsize);
     fprintf(stderr,"%d to %d bits: %f compression ratio\n",
             bytes_read*8,(unsigned int)cstream.size(),
             (double)(bytes_read*8)/(double)cstream.size() );
