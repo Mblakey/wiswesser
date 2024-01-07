@@ -371,19 +371,12 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
     find_close++;
   }
   ring_close = curr; 
-
-  unsigned char table_code[5] = {0};
-  uint_to_chars(UINT32_MAX, table_code);
-  for(unsigned int i=0;i<4;i++)
-    fprintf(stderr,"%d ", table_code[i]);
-
-  exit(1);
   curr = wlnmodel->root;
-
+  
   bool reading_ring = false;
   std::string ring_fragment; 
-
-  unsigned int table_size = 0; // 32 bit should give a realistic ceiling for combos
+  unsigned int table_size = 0;        // 32 bit should give a realistic ceiling for combos
+  unsigned char table_code[4] = {0};
   std::map<std::string,unsigned int> ring_table; // these can get insanely big, be careful
 
   unsigned char buffer[BUFF_SIZE] = {0};
@@ -431,8 +424,15 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
 
       if(curr == ring_close && reading_ring){
         
-        if(!ring_table[ring_fragment])
+        if(!ring_table[ring_fragment]){
+          uint_to_chars(table_size, table_code);
+          for(unsigned int i=0;i<4;i++)
+            fprintf(stderr,"%d ", table_code[i]);
+          fprintf(stderr,"\n");
+          memset(table_code,0,4);
           table_size++;
+        }
+          
         
         ring_table[ring_fragment]++;
         ring_fragment.clear();
@@ -451,9 +451,9 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
     }
   }
 
-  for(std::map<std::string,unsigned int>::iterator iter = ring_table.begin(); iter != ring_table.end();iter++){
-    fprintf(stderr,"%s - %d\n",(*iter).first.c_str(),(*iter).second);
-  }
+  // for(std::map<std::string,unsigned int>::iterator iter = ring_table.begin(); iter != ring_table.end();iter++){
+  //   fprintf(stderr,"%s - %d\n",(*iter).first.c_str(),(*iter).second);
+  // }
   fprintf(stderr,"table size: %d\n",table_size);
 
   // // write a byte from the root of the machine indicating EOF
