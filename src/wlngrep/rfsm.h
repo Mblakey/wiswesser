@@ -225,6 +225,7 @@ struct FSMAutomata{
     edges[edge->id] = edge;
 		edge->ch = ch;
     edge->dwn = trg; 
+    edge->c = 1;
     alphabet[ch] = true; // store for look up on transitions
 
     e = src->transitions;

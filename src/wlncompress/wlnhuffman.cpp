@@ -6,12 +6,14 @@
 #include <iostream>
 #include <string>
 #include <stack>
-#include <deque>
+#include <vector>
 #include <map>
 
 #include "rfsm.h"
 #include "wlnmatch.h"
 #include "wlndfa.h"
+
+#define RCODE_BYTES 2
 
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
@@ -152,34 +154,38 @@ Node *pop_front(PQueue *priority_queue){
 
 
 Node *ConstructHuffmanTree(PQueue *priority_queue){
-  if(priority_queue->size == 1){
+  if(!priority_queue->size){
+    fprintf(stderr,"Error: constructing huffman tree from empty queue\n");
+    return 0;
+  }
+  else if(priority_queue->size == 1){
     Node *root = AllocateNode('*',0);
     Node *f = pop_front(priority_queue);
     f->p = root; 
     root->l = f;
     return root;
   }
+  else{
+    while(priority_queue->size > 1){
+      // get the first 2 and remove
+      Node *f = pop_front(priority_queue);
+      Node *s = pop_front(priority_queue);
+
+      Node *sum = AllocateNode('*',f->freq + s->freq);
+      sum->l = f; 
+      sum->r = s; 
+
+      f->p = sum;
+      s->p = sum;
+      insert_term(sum,priority_queue);
+    }
+
+    Node *root = pop_front(priority_queue);
+    if(root && root->ch != '*')
+      fprintf(stderr,"Error: building huffman trees, root has ch - %c(%d)\n",root->ch,root->ch);
   
-
-  while(priority_queue->size > 1){
-    // get the first 2 and remove
-    Node *f = pop_front(priority_queue);
-    Node *s = pop_front(priority_queue);
-
-    Node *sum = AllocateNode('*',f->freq + s->freq);
-    sum->l = f; 
-    sum->r = s; 
-
-    f->p = sum;
-    s->p = sum;
-    insert_term(sum,priority_queue);
+    return root; 
   }
-
-  Node *root = pop_front(priority_queue);
-  if(root && root->ch != '*')
-    fprintf(stderr,"Error: building huffman trees, root has ch - %c(%d)\n",root->ch,root->ch);
-  
-  return root; 
 }
 
 void DeleteHuffmanTree(Node *root){
@@ -203,7 +209,7 @@ void DeleteHuffmanTree(Node *root){
 }
 
 /* builds the code in reverse and writes to stream */
-void WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
+bool WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
   
   Node *ch_node = 0;
   Node *top = 0;
@@ -226,8 +232,8 @@ void WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
   }
 
   if(!ch_node){
-    fprintf(stderr,"Error: could not find %c in states huffman tree\n",ch);
-    return;
+    fprintf(stderr,"Error: could not find %c (%d) in states huffman tree\n",ch,ch);
+    return false;
   }
 
   unsigned int clen = 0;
@@ -247,6 +253,8 @@ void WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
 
   for(int i=clen-1;i>=0;i--)
     cstream += code[i];
+
+  return true;
 }
 
 
@@ -301,6 +309,17 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
   return false;
 }
 
+
+void debug_buffer(unsigned char*buffer){
+  for(unsigned int i=0;i<BUFF_SIZE;i++){
+    if(!buffer[i])
+      break;
+    fprintf(stderr,"%d,",buffer[i]);
+  }
+
+  fprintf(stderr,"\n");
+}
+
 /* huffman style */
 void stream_to_bytes(std::string &stream){
   unsigned int char_pos = 0;
@@ -319,12 +338,8 @@ void stream_to_bytes(std::string &stream){
   }
 }
 
-// lets add a DEFLATE sliding window scheme, 5 is a good number for WLN strings
-
-// the only larger window is for ring systems
-
-
-// convert the table number into the characters needed in the fsm
+// convert the table number into the characters needed in the fsm, using a 2-byte scheme
+// as the minimum ring entry needed is 3 chars, does a lot of work in string manipulation
 void uint_to_chars(unsigned int val, unsigned char *buffer){
   unsigned int char_pos = 0;
   unsigned int char_bit = 7;
@@ -359,8 +374,9 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
   FSMEdge *edge = 0;
 
   std::string cstream;
+  unsigned int stream_bits = 0;
 
-  // assign the ring close; 
+  // get the ring close, little forced but works quickly
   FSMState *ring_close = 0;
   const char *find_close = "L6J";
   while( (*find_close) ){
@@ -371,20 +387,24 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
     find_close++;
   }
   ring_close = curr; 
-  curr = wlnmodel->root;
-  
-  bool reading_ring = false;
-  std::string ring_fragment; 
-  unsigned int ring_tsize = 0;        // 32 bit should give a realistic ceiling for combos
-  unsigned char table_code[4] = {0};
-  std::map<std::string,unsigned int> ring_table; // these can get insanely big, be careful
 
+
+  FSMState *ring_dict_entry = 0;
+   
+  unsigned int ring_tsize = 256;        
+  std::vector<std::string> ring_table; // this can get very big, so use ring_tsize to limit
+  ring_table.reserve(UINT16_MAX); // -1 as we never want 0 0 0 0
+  
+  // need these to be global
+  std::string ring_fragment;
+  unsigned char ring_code[RCODE_BYTES] = {0}; // 2 byte codes + entery 'r'
+  
+  curr = wlnmodel->root;
   unsigned char buffer[BUFF_SIZE] = {0};
   while(ReadLineFromFile(ifp,(char*)buffer,BUFF_SIZE,true)){
     if(opt_verbose)
       bytes_read += count_bytes((char*)buffer,BUFF_SIZE);
 
-    reading_ring = false;
     for(unsigned int i=0;i<BUFF_SIZE;i++){
       ch = buffer[i];
       if(!ch){
@@ -392,13 +412,120 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         break;
       }
 
-      if(curr == wlnmodel->root && (ch == 'L' || ch == 'T'))
-        reading_ring = true;
+#define RING_DICT 1
+#if RING_DICT 
+      if(curr == wlnmodel->root && (ch == 'L' || ch == 'T')){
+        // we either jump through a table entry already made, or we create a transition to be encoded
+        
+        // letter r for rings, 'f' for fragments
+        if(!ring_dict_entry){
+          ring_dict_entry = wlnmodel->AddState(false);
+          edge = wlnmodel->AddTransition(wlnmodel->root,ring_dict_entry,'r'); 
 
-      if(reading_ring)
-        ring_fragment += ch;
+          // add a priority queue pointer here
+          if(!queue_lookup[ring_dict_entry]){
+            PQueue *nqueue = (PQueue*)malloc(sizeof(PQueue)); 
+            init_heap(nqueue,256); // safe value for alphabet 
+            queue_lookup[ring_dict_entry] = nqueue;
+          }
 
-  
+        }
+        
+        // yank out the ring fragment
+        FSMState *rsearch = curr;
+        FSMEdge *redge = 0; 
+
+        unsigned int j = i;
+        while(rsearch != ring_close){
+          for(redge = rsearch->transitions;redge;redge=redge->nxt){
+            if(redge->ch == buffer[j]){
+              rsearch = redge->dwn;
+              ring_fragment += redge->ch;
+              j++;
+              break;
+            }
+          }
+        }
+
+        // if found, replace section with dictionary char
+        unsigned int tpos = 0;
+        bool found = false; // just to keep the code readable.
+        for(tpos=0;tpos<ring_tsize;tpos++){
+          if(ring_fragment == ring_table[tpos]){
+            found = true;    
+            break;
+          }
+        }
+
+        if(found){
+
+          // now that the minimum len we get is 3 bytes, ('r' + code) 
+          //we can simply overwrite, mark and sweep
+
+          uint_to_chars(tpos,ring_code);
+          for(unsigned int p=i;p<j;p++)
+            buffer[p] = 0; // null while yanked section
+          
+          buffer[i] = 'r'; // r opener
+
+          for(unsigned int k=0;k<RCODE_BYTES;k++) // write the code into the stream
+            buffer[i+k+1] = ring_code[k];
+
+          // mark sweep any nulls out of the string
+          unsigned int idx = 0;
+          for(unsigned int k=0;k<BUFF_SIZE;k++){
+            unsigned char bchar = buffer[k];
+            buffer[k] = 0;
+            if(bchar)
+              buffer[idx++] = bchar;
+          }
+
+          FSMState *cstate = ring_dict_entry; // pass the 'r', already made
+          FSMEdge *cedge = 0;
+
+          // have to use full 2 byte codes, to keep dfa property. 
+          // * need to point the last one at the ring closure
+
+          for(cedge=cstate->transitions;cedge;cedge=cedge->nxt){
+            if(cedge->ch == ring_code[0]){
+              cstate = cedge->dwn;
+              break;
+            }
+          }
+
+          // create the jump state
+          if(cstate == ring_dict_entry){
+            cstate = wlnmodel->AddState();
+            cedge = wlnmodel->AddTransition(ring_dict_entry,cstate,ring_code[0]);
+
+            PQueue *nqueue = (PQueue*)malloc(sizeof(PQueue)); 
+            init_heap(nqueue,256); // safe value for alphabet 
+            queue_lookup[cstate] = nqueue; 
+          }
+          
+          // add the last code back to the ring closure. 
+          cedge = wlnmodel->AddTransition(cstate,ring_close,ring_code[1]);
+      
+          ring_fragment.clear();
+          ch = buffer[i]; // set the buffer to the first code letter, should be 'r' if code
+        }
+     
+        // if not found means not in table, yet, 
+        // decompresser needs this to transition once before adding        
+      }
+      else if((ring_tsize < UINT16_MAX) &&  curr == ring_close && ring_fragment.size() > 1){
+        
+        // if we dont create transitions here, any single seen fragments only take up table space, not transitions 
+        // create the code in the FSM, post read, decompresser is lock step
+        uint_to_chars(ring_tsize,ring_code);
+        while(!ring_code[0] || !ring_code[1])
+          uint_to_chars(ring_tsize++,ring_code);
+        
+        ring_table[ring_tsize++] = ring_fragment;
+        ring_fragment.clear();
+      }
+#endif
+
       // construct tree based on C values
       priority_queue = queue_lookup[curr]; 
       for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -412,46 +539,28 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         return false;
       }
 
-      FSMEdge *standard = 0;
-      unsigned int j = i;
       for(edge=curr->transitions;edge;edge=edge->nxt){
         if(edge->ch == ch){
-          standard = edge;
-          curr = standard->dwn;
-          standard->c++;
+          curr = edge->dwn;
+          edge->c++;
+          break;
         }
       }
 
-      if(curr == ring_close && reading_ring){
-        
-        if(!ring_table[ring_fragment]){
-          uint_to_chars(ring_tsize, table_code);
-          for(unsigned int i=0;i<4;i++)
-            fprintf(stderr,"%d ", table_code[i]);
-          fprintf(stderr,"\n");
-          memset(table_code,0,4);
-          ring_tsize++;
-        }
-          
-        
-        ring_table[ring_fragment]++;
-        ring_fragment.clear();
-        reading_ring = false;
-      }
+      if(!WriteHuffmanCode(htree,ch,cstream))
+        return false;
+      
 
-      WriteHuffmanCode(htree,ch,cstream);
       DeleteHuffmanTree(htree); 
 
       // keep the memory in check, every 32 bytes clear and start again
       if(cstream.size() == 256){
         stream_to_bytes(cstream);
         cstream.clear();
+        stream_bits+=256;
       }
-
     }
   }
-
-
 
 
   // // write a byte from the root of the machine indicating EOF
@@ -463,16 +572,18 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
 
   htree = ConstructHuffmanTree(priority_queue);
   WriteHuffmanCode(htree,0,cstream);
-  DeleteHuffmanTree(htree); 
+  DeleteHuffmanTree(htree);
+
+  stream_to_bytes(cstream);
+  stream_bits+=cstream.size();
 
   if(opt_verbose){
     fprintf(stderr,"ring table size: %d\n",ring_tsize);
     fprintf(stderr,"%d to %d bits: %f compression ratio\n",
-            bytes_read*8,(unsigned int)cstream.size(),
-            (double)(bytes_read*8)/(double)cstream.size() );
+            bytes_read*8,stream_bits,
+            (double)(bytes_read*8)/stream_bits);
   }
 
-  stream_to_bytes(cstream);
   return true;
 }
 
@@ -657,7 +768,7 @@ int main(int argc, char *argv[])
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     FSMState *s = wlnmodel->states[i];
     PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
-    init_heap(priority_queue,256); // safe value for alphabet 
+    init_heap(priority_queue,256); // safe value for ASCII values
     queue_lookup[s] = priority_queue;
   }
 
@@ -682,15 +793,16 @@ int main(int argc, char *argv[])
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     FSMState *s = wlnmodel->states[i];
     PQueue *priority_queue = queue_lookup[s];
+    if(priority_queue){
+      while(priority_queue->size){
+        free(priority_queue->arr[priority_queue->size-1]);
+        priority_queue->size--;
+      }
 
-    while(priority_queue->size){
-      free(priority_queue->arr[priority_queue->size-1]);
-      priority_queue->size--;
+      free(priority_queue->arr);
+      free(priority_queue);
+      priority_queue = 0;
     }
-
-    free(priority_queue->arr);
-    free(priority_queue);
-    priority_queue = 0;
   }
 
   delete wlnmodel;
