@@ -642,7 +642,7 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
-  FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
+  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
 
   // minic arithmetic 
   wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');  

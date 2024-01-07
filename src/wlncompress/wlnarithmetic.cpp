@@ -492,7 +492,7 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
-  FSMAutomata *wlnmodel = CreateWLNDFA(); // build the model 
+  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE,REASONABLE); // build the model 
 
   // to every accept,add the newline character pointing back to the root
   wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');  

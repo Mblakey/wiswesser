@@ -370,10 +370,8 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 }
 
 /* uses merges to be more specific on ring locant block */
-FSMAutomata *BuildWLNFSM2(){
+void BuildWLNFSM2(FSMAutomata *wln){
 
-  // overarching wln structure
-  FSMAutomata *wln = new FSMAutomata(REASONABLE,REASONABLE); 
   wln->AddState(); // create a root that points with epsiolon transitions to each block
 
   
@@ -473,18 +471,17 @@ FSMAutomata *BuildWLNFSM2(){
     }
   }
   wln->AddTransition(ion,wln->root,'&'); 
-
-  return wln;
+  
+  return;
 }
 
 
-FSMAutomata * CreateWLNDFA(){
-  FSMAutomata *wln = 0;
+FSMAutomata * CreateWLNDFA(unsigned int node_size, unsigned int edge_size){
+  FSMAutomata *wln = new FSMAutomata(node_size,edge_size);
   FSMAutomata *wlnDFA = 0;
   FSMAutomata *wlnMinimal = 0;
 
-
-  wln = BuildWLNFSM2();
+  BuildWLNFSM2(wln);
   wlnDFA = ConvertToDFA(wln);
   wlnMinimal = MinimiseDFA(wlnDFA);
   

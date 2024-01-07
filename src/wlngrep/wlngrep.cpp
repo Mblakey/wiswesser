@@ -171,7 +171,7 @@ int main(int argc, char* argv[])
 {
   ProcessCommandLine(argc,argv); 
 
-  FSMAutomata *wlnDFA = CreateWLNDFA();
+  FSMAutomata *wlnDFA = CreateWLNDFA(REASONABLE,REASONABLE);
   if(!wlnDFA || wlnDFA->type != DFA)
     return 1;
 
