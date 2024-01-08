@@ -412,7 +412,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         break;
       }
 
-#define RING_DICT 0
+#define RING_DICT 1
 #if RING_DICT 
       if(curr == wlnmodel->root && (ch == 'L' || ch == 'T')){
         // we either jump through a table entry already made, or we create a transition to be encoded
@@ -513,15 +513,17 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
         // if not found means not in table, yet, 
         // decompresser needs this to transition once before adding        
       }
-      else if((ring_tsize < UINT16_MAX) &&  curr == ring_close && ring_fragment.size() > 1){
+      else if((ring_tsize < UINT16_MAX) &&  curr == ring_close){
+         // if we dont create transitions here, any single seen fragments only take up table space, not transitions 
+        // create the code in the FSM, post read, decompresser is lock step 
         
-        // if we dont create transitions here, any single seen fragments only take up table space, not transitions 
-        // create the code in the FSM, post read, decompresser is lock step
-        uint_to_chars(ring_tsize,ring_code);
-        while(!ring_code[0] || !ring_code[1])
-          uint_to_chars(ring_tsize++,ring_code);
-        
-        ring_table[ring_tsize++] = ring_fragment;
+        if(ring_fragment.size() > 1){ // keeping this here to experiment with fragment size
+          uint_to_chars(ring_tsize,ring_code);
+          while(!ring_code[0] || !ring_code[1])
+            uint_to_chars(ring_tsize++,ring_code);
+          
+          ring_table[ring_tsize++] = ring_fragment;
+        }
         ring_fragment.clear();
       }
 #endif

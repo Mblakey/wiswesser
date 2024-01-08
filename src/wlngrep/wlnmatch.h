@@ -110,6 +110,16 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
             display_line(line);
         }
       }
+      else if(opt_match_option == 3){
+        if(spos != 0 && (!inp_char || inp_char == '\n')){
+          if(count)
+            match++;
+          else if(highlight)
+            display_highlighted_line(line,spos,n);
+          else
+            display_line(line);
+        }
+      }
       else if(apos >= 0 && spos >= 0 && spos <= apos){ // turn off single letter match here
         // failed in non_accepting state, what was the last accept state we saw
         if(count)

@@ -14,7 +14,7 @@ const char *filename;
 unsigned int lines_parsed = 0; 
 
 unsigned int opt_dump         = 0;
-unsigned int opt_match_option = 0; // 0 - return whole line, 1 - return matches only, 2 - exact match only, 
+unsigned int opt_match_option = 0; // 0 - return whole line, 1 - return matches only, 2 - exact match only, 3- invert exact match
 unsigned int opt_count        = 0;
 unsigned int opt_string_file  = 0;
 
@@ -87,9 +87,10 @@ static void DisplayUsage()
   fprintf(stderr, "options:\n");
   fprintf(stderr, "-c|--only-count        return number of matches instead of string\n");
   fprintf(stderr, "-d|--dump              dump resultant machine to dot file\n");
-  fprintf(stderr, "-o|--only-matching     print only the matched parts of line\n");
+  fprintf(stderr, "-o|--only-match        print only the matched parts of line\n");
   fprintf(stderr, "-s|--string            interpret <file> as a string to match\n");
-  fprintf(stderr, "-x|--exact-matching    return string if whole line matches\n");
+  fprintf(stderr, "-x|--exact-match       return string if whole line matches\n");
+  fprintf(stderr, "-v|--invert-match      return string if whole line does not match\n");
   exit(1);
 }
 
@@ -131,14 +132,20 @@ static void ProcessCommandLine(int argc, char *argv[])
           opt_match_option = 2;
           break;
 
+        case 'v':
+          opt_match_option = 3;
+          break;
+
         case '-':
           if(!strcmp(ptr,"--only-count"))
             opt_count = 1;
           else if(!strcmp(ptr,"--dump"))
             opt_dump = 1;
-          else if(!strcmp(ptr,"--only-matching"))
+          else if(!strcmp(ptr,"--only-match"))
             opt_match_option = 1;
-          else if(!strcmp(ptr,"--exact-matching"))
+          else if(!strcmp(ptr,"--exact-match"))
+            opt_match_option = 2;
+          else if(!strcmp(ptr,"--invert-match"))
             opt_match_option = 2;
           else if(!strcmp(ptr,"--string"))
             opt_string_file = 1;
