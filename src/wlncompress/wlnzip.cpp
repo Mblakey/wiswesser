@@ -341,7 +341,7 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
   if(!fread(ahead,sizeof(unsigned char),BUFF_SIZE,ifp))
     fprintf(stderr,"Error: no data to fill buffer\n");
 
-  // keep this constant with 
+  
 
  
 

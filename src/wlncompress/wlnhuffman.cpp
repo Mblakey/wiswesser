@@ -213,20 +213,30 @@ void DeleteHuffmanTree(Node *root){
 void ReserveCode(const char*code,Node* tree_root){
   unsigned char ch = *code; 
   Node *htree = tree_root;
-  
+
   unsigned int clen = 0;
   while(ch){
 
-    if(ch == '0')
+    if(ch == '0'){
+      if(!htree->l){
+        htree->l = AllocateNode(htree->ch,0);
+        htree->l->p = htree;
+        htree->ch = 0;
+      }
+      
       htree = htree->l;
-    else if (ch == '1')
-      htree = htree->r; 
-
-    if(!htree){
-      //fprintf(stderr,"Error: dead huffman traversal\n");
-      return;
     }
+      
+    else if (ch == '1'){
+      if(!htree->r){
+        htree->r = AllocateNode(htree->ch,0);
+        htree->r->p = htree;
+        htree->ch = 0;
+      }
 
+      htree = htree->r;
+    }
+    
     clen++;
     ch = *(++code);
   }
@@ -237,15 +247,28 @@ void ReserveCode(const char*code,Node* tree_root){
 
   // now there are some splicing conditions
   Node *splice_parent = htree->p; 
+
+  unsigned int p = 0;
+  if(htree == splice_parent->l){
+    p = 1;
+    if(!splice_parent->r){
+      splice_parent->r = htree;
+      splice_parent->l = 0;
+      return;
+    }
+  }
+  else if(htree == splice_parent->r){
+    p = 2;
+    if(!splice_parent->l){
+      splice_parent->l = htree;
+      splice_parent->r = 0;
+      return;
+    }
+  }
+   
   Node *branch = AllocateNode(0,0);
   htree->p = 0;
 
-  unsigned int p = 0;
-  if(htree == splice_parent->l)
-    p = 1;
-  else
-    p = 2;
-  
   // move the splice locations to the new node
   branch->l = splice_parent->l;
   branch->r = splice_parent->r; 
@@ -265,7 +288,7 @@ void ReserveCode(const char*code,Node* tree_root){
   branch->p = splice_parent;
   if(p==1)
     splice_parent->r = branch;
-  else
+  else if(p==2)
     splice_parent->l = branch;  
 
   return;
@@ -335,7 +358,12 @@ unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
 
 /* builds the code in reverse and writes to stream */
 bool DumpHuffmanCodes(Node *root){
-  
+
+  if(!root || (!root->l && !root->r)){
+    fprintf(stderr,"Error: dumping null huffman tree\n");
+    return false;
+  }
+
   Node *top = 0;
   std::stack<Node*> stack; 
   stack.push(root);
@@ -361,13 +389,8 @@ bool DumpHuffmanCodes(Node *root){
       }
 
       for(int i=clen-1;i>=0;i--)
-      //   fprintf(stderr,"%d",code[i]?1:0);
-      // fprintf(stderr,"\n");
-
-      if(clen > 1 && !code[clen-2] && !code[clen-1]){
-        fprintf(stderr,"breaking\n");
-        exit(1);
-      }
+        fprintf(stderr,"%d",code[i]?1:0);
+      fprintf(stderr,"\n");
 
     }
 
@@ -379,11 +402,16 @@ bool DumpHuffmanCodes(Node *root){
   }
 
 
-  //fprintf(stderr,"\n");
+  fprintf(stderr,"\n");
   return true;
 }
 
 
+void print_bits(unsigned char val) {
+  for (int i = 7; i >= 0; i--)
+    fprintf(stderr,"%d", (val & (1 << i)) ? 1:0);
+  fprintf(stderr,"\n");
+}
 
 unsigned int count_bytes(char *buffer, unsigned int n){
   for(unsigned int i=0;i<n;i++){
@@ -488,7 +516,9 @@ void uint_to_chars(unsigned int val, unsigned char *buffer){
   }
 }
 
-bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &queue_lookup){
+bool encode_file( FILE *ifp, FSMAutomata *wlnmodel, 
+                  std::map<FSMState*,PQueue*> &queue_lookup,
+                  std::map<unsigned char,unsigned int> &encode){
 
   std::map<std::string,bool> seen_before;
 
@@ -536,18 +566,30 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
       // need to do a tree splice if '00' code is spotted
       ReserveCode("00",htree); // use this as a special stream
       unsigned int clen = WriteHuffmanCode(htree,ch,code);
+      
       if(!clen){
         fprintf(stderr,"Error: huffman code creation failure\n");
         return false;
       }
-        
+      else if(clen > 8){
+        /*  as a test - precurser to DEFLATE SCHEME, if the code is longer than 8 bits, 
+            just encode the character to the bit stream - will always start 00.
+            here this means expansion is impossible - WOOHOO
+        */
 
-      for(unsigned int j=0;j<clen;j++)
-        cstream += code[j];
-      
+        unsigned char sixbencoded = encode[ch]; 
+        for(int j=7;j>=0;j--)
+          cstream += (sixbencoded & (1 << j))?1:0;
+      }
+      else{
+        for(unsigned int j=0;j<clen;j++)
+          cstream += code[j];
+      }
+
+    
       memset(code,0,CSIZE);
-
       DeleteHuffmanTree(htree); 
+
       for(edge=curr->transitions;edge;edge=edge->nxt){
         if(edge->ch == ch){
           curr = edge->dwn;
@@ -579,7 +621,9 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
 }
 
 
-bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &queue_lookup){
+bool decode_file( FILE *ifp, FSMAutomata *wlnmodel,
+                  std::map<FSMState*,PQueue*> &queue_lookup,
+                  std::map<unsigned int, unsigned char> &decode){
   
   Node *tree_root = 0;
   Node *htree = 0; 
@@ -611,47 +655,45 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
       return false;
     }
 
+    enum bitflag {UNUSED=2,USED=3};
+    
+    
+    unsigned char prev = UNUSED;
+    unsigned char prev2 = UNUSED;
+    unsigned char uncompressed = 0;
+    unsigned int waiting_bits = 0;
+
     while(!ch_read){
-      unsigned char bit = bit_char & (1 << (7 - bit_pos) ) ? 1:0;
+      unsigned char bit = (bit_char & (1 << (7 - bit_pos) )) ? 1:0;
       bit_pos++; 
 
-      // fetch next char from stream
+      // fetch next char from stream if needed
       if (bit_pos == 8){
         if(!fread(&bit_char,sizeof(unsigned char),1,ifp)){
           fprintf(stdout,"%s",buffer);
           buff_pos = 0;
-          DeleteHuffmanTree(tree_root);
+          //DeleteHuffmanTree(tree_root);
           return true;
         }
-          
+
         bit_pos = 0;
       } 
 
-      if(bit)
-        htree = htree->r;
-      else
-        htree = htree->l;
+      // keeps track of the last bits used per chunk
+      if(prev == UNUSED)
+        prev = bit;
+      else if (prev2 == UNUSED)
+        prev2 = bit; 
 
-      if(!htree){
-        fprintf(stderr,"Error: dead traversal\n");
-        return false;
-      }
-    
-      if(htree->ch != 0){
-        ch_read = htree->ch; 
 
-        if(!ch_read){
-          if(curr == wlnmodel->root){
-            DeleteHuffmanTree(tree_root);
-            return true; 
-          }
-          else{
-            fprintf(stderr,"Error: reading null byte not at fsm root\n");
-            DeleteHuffmanTree(tree_root);
-            return false;
-          }
-        }
-        else{
+      if(waiting_bits > 0){
+        
+        if(bit)
+          uncompressed ^= (1 << (waiting_bits-1));
+
+        waiting_bits--;
+        if(waiting_bits == 0){
+          ch_read = decode[uncompressed];
           buffer[buff_pos++] = ch_read;
           if(ch_read == '\n'){
             fprintf(stdout,"%s",buffer);
@@ -659,21 +701,84 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
             buff_pos = 0;
           }
 
-          // transition
+          bool f = false;
           for(edge=curr->transitions;edge;edge=edge->nxt){
             if(edge->ch == ch_read){
               curr = edge->dwn;
               edge->c++;
+              f = true;
               break; 
             }
           }
+
+          if(!f){
+            fprintf(stderr,"Error: bad read! attempting transition on %c(%d)\n",ch_read,ch_read);
+            return false;
+          }
         }
-         // should free all?
+      }
+
+      if(!prev2 && !prev && !ch_read){
+        waiting_bits = 6;// next 6 bits will be a encoded character
+        prev  = USED;
+        prev2 = USED; // stops this overlapping
+
+        // do not need the tree for this
         DeleteHuffmanTree(tree_root);
         tree_root = 0;
       }
+        
+      // standard huffman stuff
+      if(!waiting_bits && !ch_read){
 
-     
+        if(bit)
+          htree = htree->r;
+        else
+          htree = htree->l;
+
+        if(!htree){
+          fprintf(stderr,"Error: dead traversal\n");
+          return false;
+        }
+      
+        if(htree->ch){
+          ch_read = htree->ch;
+
+          if(!ch_read){
+            if(curr == wlnmodel->root){
+              DeleteHuffmanTree(tree_root);
+              return true; 
+            }
+            else{
+              fprintf(stderr,"Error: reading null byte not at fsm root\n");
+              DeleteHuffmanTree(tree_root);
+              return false;
+            }
+          }
+          else{
+            buffer[buff_pos++] = ch_read;
+            if(ch_read == '\n'){
+              fprintf(stdout,"%s",buffer);
+              memset(buffer,0,BUFF_SIZE);
+              buff_pos = 0;
+            }
+
+            // transition adaptive update
+            for(edge=curr->transitions;edge;edge=edge->nxt){
+              if(edge->ch == ch_read){
+                curr = edge->dwn;
+                edge->c++;
+                break; 
+              }
+            }
+
+          }
+          // should free all?
+          DeleteHuffmanTree(tree_root);
+          tree_root = 0;
+        }
+      }
+
     }
   }
 
@@ -765,8 +870,9 @@ int main(int argc, char *argv[])
 
   wlnmodel->AssignEqualProbs();
 
-  std::map<FSMState*,PQueue*> queue_lookup;   
+
   // create a queue for each state, and adaptively build as we go. 
+  std::map<FSMState*,PQueue*> queue_lookup;   
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     FSMState *s = wlnmodel->states[i];
     PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
@@ -775,13 +881,29 @@ int main(int argc, char *argv[])
   }
 
 
+  // set up a table for encoding 6 bit wln strings
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789- /&\n";
+
+  std::map<unsigned char,unsigned int> sixb_encode;
+  std::map<unsigned int, unsigned char> sixb_decode;
+
+  unsigned ch = *wln;
+  unsigned char j=1;
+  while(ch){
+    sixb_encode[ch] = j;
+    sixb_decode[j] = ch;
+    j++;
+    ch = *(++wln);
+  }
+
+
   FILE *fp = 0; 
   fp = fopen(input,"rb");
   if(fp){
     if(opt_mode == 1)
-      encode_file(fp,wlnmodel,queue_lookup);
+      encode_file(fp,wlnmodel,queue_lookup,sixb_encode);
     else if (opt_mode == 2)
-      decode_file(fp,wlnmodel,queue_lookup);
+      decode_file(fp,wlnmodel,queue_lookup,sixb_decode);
 
     fclose(fp);
   }
@@ -807,7 +929,6 @@ int main(int argc, char *argv[])
     }
   }
 
-  fprintf(stderr,"expansion bits: %d\n",expansion_bits);
 
   delete wlnmodel;
   return 0;
