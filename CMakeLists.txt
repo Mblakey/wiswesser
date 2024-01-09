@@ -17,8 +17,11 @@ add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/parser/obcomp.cpp)
 
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
-add_executable(wlncompress ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnarithmetic.cpp)
+# old execs
+add_executable(wlnarithmetic ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnarithmetic.cpp)
 add_executable(wlnhuffman ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnhuffman.cpp) # will remove, just for testing
+
+add_executable(wlnzip ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp)
 
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlngen.cpp ${PROJECT_SOURCE_DIR}/src/parser/readwln2.cpp)
 

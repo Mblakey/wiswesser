@@ -13,8 +13,6 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
-unsigned int expansion_bits = 0;
-
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 
@@ -208,72 +206,8 @@ void DeleteHuffmanTree(Node *root){
   }
 }
 
-// RESERVE CODE HERE
-/* uses tree splicing to reverse a specific pattern */
-void ReserveCode(const char*code,Node* tree_root){
-  unsigned char ch = *code; 
-  Node *htree = tree_root;
-  
-  unsigned int clen = 0;
-  while(ch){
-
-    if(ch == '0')
-      htree = htree->l;
-    else if (ch == '1')
-      htree = htree->r; 
-
-    if(!htree){
-      //fprintf(stderr,"Error: dead huffman traversal\n");
-      return;
-    }
-
-    clen++;
-    ch = *(++code);
-  }
-
-  if(clen<1)
-    fprintf(stderr,"Error: reserving single bit code undefined\n");
-  
-
-  // now there are some splicing conditions
-  Node *splice_parent = htree->p; 
-  Node *branch = AllocateNode(0,0);
-  htree->p = 0;
-
-  unsigned int p = 0;
-  if(htree == splice_parent->l)
-    p = 1;
-  else
-    p = 2;
-  
-  // move the splice locations to the new node
-  branch->l = splice_parent->l;
-  branch->r = splice_parent->r; 
-
-  // remove from the parent
-  splice_parent->l = 0;
-  splice_parent->r = 0;
-
-  // if they exist, add their parents 
-  if(branch->l)
-    branch->l->p = branch;
-    
-  if(branch->r)
-    branch->r->p = branch;
-
-  // add branches parent as the splice node.
-  branch->p = splice_parent;
-  if(p==1)
-    splice_parent->r = branch;
-  else
-    splice_parent->l = branch;  
-
-  return;
-}
-
-/* builds the code in reverse and writes to stream
-return clen, 0 if fail, take in buffer at least 64 bytes */
-unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
+/* builds the code in reverse and writes to stream */
+bool WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
   
   Node *ch_node = 0;
   Node *top = 0;
@@ -297,10 +231,11 @@ unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
 
   if(!ch_node){
     fprintf(stderr,"Error: could not find %c (%d) in states huffman tree\n",ch,ch);
-    return 0;
+    return false;
   }
 
   unsigned int clen = 0;
+  char code[128] = {0};
 
   Node *curr = ch_node; 
   Node *prev = ch_node; 
@@ -314,75 +249,11 @@ unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
       code[clen++] = 1; 
   }
 
-  // reverse the code
-  if(clen > 1){
-    unsigned char *ptr1, *ptr2, temp; 
-    ptr1 = code; 
-    ptr2 = code+(clen-1); // point to last element off set
+  for(int i=clen-1;i>=0;i--)
+    cstream += code[i];
 
-    while(ptr1 < ptr2){
-      temp = *ptr1;
-      *ptr1 = *ptr2; 
-      *ptr2 = temp;
-      
-      ptr1++;
-      ptr2--;
-    }
-  }  
-
-  return clen;
-}
-
-/* builds the code in reverse and writes to stream */
-bool DumpHuffmanCodes(Node *root){
-  
-  Node *top = 0;
-  std::stack<Node*> stack; 
-  stack.push(root);
-  while(!stack.empty()){
-    top = stack.top();
-    stack.pop();
-
-    if(top->ch){
-      unsigned int clen = 0;
-      char code[128] = {0};
-
-      Node *curr = top; 
-      Node *prev = top;
-
-      while(curr->p){
-        prev = curr;
-        curr = curr->p; 
-
-        if(prev == curr->l)
-          code[clen++] = 0;
-        else if (prev == curr->r)
-          code[clen++] = 1; 
-      }
-
-      for(int i=clen-1;i>=0;i--)
-      //   fprintf(stderr,"%d",code[i]?1:0);
-      // fprintf(stderr,"\n");
-
-      if(clen > 1 && !code[clen-2] && !code[clen-1]){
-        fprintf(stderr,"breaking\n");
-        exit(1);
-      }
-
-    }
-
-    if(top->l)
-      stack.push(top->l);
-    
-    if(top->r)
-      stack.push(top->r);
-  }
-
-
-  //fprintf(stderr,"\n");
   return true;
 }
-
 
 
 unsigned int count_bytes(char *buffer, unsigned int n){
@@ -392,50 +263,6 @@ unsigned int count_bytes(char *buffer, unsigned int n){
   }
   return n;
 }
-
-bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
-  char *end = buffer+n;
-  char *ptr;
-  int ch;
-
-  ptr = buffer;
-  do {
-    ch = getc_unlocked(fp); // this increments fp
-    if (ch == '\n') {
-      if (add_nl)
-        *ptr++ = '\n'; // if i want the newline or not
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\f') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\r') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      ch = getc_unlocked(fp);
-      if (ch != '\n') {
-        if (ch == -1)
-          return false;
-        ungetc(ch,fp);
-      }
-      return true;
-    }
-    if (ch == -1) {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return ptr-buffer > 1;
-    }
-    *ptr++ = ch;
-  } while (ptr < end);
-  *ptr = 0;
-  
-  fprintf(stderr, "Warning: line too long!\n");
-  return false;
-}
-
 
 void debug_buffer(unsigned char*buffer){
   for(unsigned int i=0;i<BUFF_SIZE;i++){
@@ -502,69 +329,33 @@ bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &
 
   std::string cstream;
   unsigned int stream_bits = 0;
-  unsigned int CSIZE = 128;
 
-  curr = wlnmodel->root;
-  unsigned char buffer[BUFF_SIZE] = {0};
-  unsigned char code[CSIZE] = {0};
+  unsigned int look_ahead = 256;
+  unsigned int look_behind = 1024;  
+
+  unsigned char ahead[BUFF_SIZE] = {0};
+  unsigned char behind[BUFF_SIZE] = {0};
+  unsigned char store[look_ahead] = {0}; // handle data overlaps
   
-  while(ReadLineFromFile(ifp,(char*)buffer,BUFF_SIZE,true)){
-    if(opt_verbose)
-      bytes_read += count_bytes((char*)buffer,BUFF_SIZE);
+  // read in big chunks for a good look ahead
+  if(!fread(ahead,sizeof(unsigned char),BUFF_SIZE,ifp))
+    fprintf(stderr,"Error: no data to fill buffer\n");
 
-    for(unsigned int i=0;i<BUFF_SIZE;i++){
-      ch = buffer[i];
-      if(!ch){
-        memset(buffer,0,BUFF_SIZE);
-        break;
-      }
+  // keep this constant with 
+
+ 
 
 
-      // construct tree based on C values
-      priority_queue = queue_lookup[curr]; 
-      for(edge=curr->transitions;edge;edge=edge->nxt){
-        Node *n = AllocateNode(edge->ch,edge->c);
-        insert_term(n,priority_queue);
-      }
-
-      htree = ConstructHuffmanTree(priority_queue);
-      if(!htree){
-        fprintf(stderr,"Huffman tree allocation fault\n");
-        return false;
-      }
-
-      // need to do a tree splice if '00' code is spotted
-      ReserveCode("00",htree); // use this as a special stream
-      unsigned int clen = WriteHuffmanCode(htree,ch,code);
-      if(!clen){
-        fprintf(stderr,"Error: huffman code creation failure\n");
-        return false;
-      }
-        
-
-      for(unsigned int j=0;j<clen;j++)
-        cstream += code[j];
-      
-      memset(code,0,CSIZE);
-
-      DeleteHuffmanTree(htree); 
-      for(edge=curr->transitions;edge;edge=edge->nxt){
-        if(edge->ch == ch){
-          curr = edge->dwn;
-          edge->c++;
-          break;
-        }
-      }
-
-      // keep the memory in check, every 32 bytes clear and start again
-      if(cstream.size() == 256){
-        stream_to_bytes(cstream);
-        cstream.clear();
-        stream_bits+=256;
-      }
-
-    }
+  // // write a byte from the root of the machine indicating EOF
+  priority_queue = queue_lookup[wlnmodel->root];
+  for(edge=wlnmodel->root->transitions;edge;edge=edge->nxt){
+    Node *n = AllocateNode(edge->ch,edge->c);
+    insert_term(n,priority_queue);
   }
+
+  htree = ConstructHuffmanTree(priority_queue);
+  WriteHuffmanCode(htree,0,cstream);
+  DeleteHuffmanTree(htree);
 
   stream_to_bytes(cstream);
   stream_bits+=cstream.size();
@@ -587,10 +378,10 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
+
   unsigned char bit_char = 0;
   unsigned int bit_pos = 0;
   fread(&bit_char,sizeof(unsigned char),1,ifp); // read first bit
-
 
   unsigned int buff_pos = 0;
   unsigned char buffer[BUFF_SIZE] = {0};
@@ -604,7 +395,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
     }
 
     tree_root = ConstructHuffmanTree(priority_queue);
-    ReserveCode("00",tree_root); // use this as a special stream
     htree = tree_root;
     if(!htree){
       fprintf(stderr,"Huffman tree allocation fault\n");
@@ -673,7 +463,6 @@ bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &q
         tree_root = 0;
       }
 
-     
     }
   }
 
@@ -757,7 +546,8 @@ int main(int argc, char *argv[])
 
   FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
 
-  // mimic arithmetic 
+  // minic arithmetic 
+  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');  
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     if(wlnmodel->states[i]->accept)
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
@@ -806,8 +596,6 @@ int main(int argc, char *argv[])
       priority_queue = 0;
     }
   }
-
-  fprintf(stderr,"expansion bits: %d\n",expansion_bits);
 
   delete wlnmodel;
   return 0;
