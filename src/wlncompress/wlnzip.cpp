@@ -1,18 +1,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 
-#include <iostream>
 #include <stack>
 #include <vector>
-#include <map>
 
 #include "rfsm.h"
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
 #define CSIZE 64
+#define LZBUCKETS 30
 
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
@@ -23,14 +21,7 @@ const unsigned int buff_size = window+backreference;
 
 const char *input;
 
-// general functions
-void LeftShift(unsigned char *arr, unsigned int len, unsigned int n)   
-{
-  memmove(&arr[0], &arr[n], (len-n)*sizeof(unsigned char));
-  memset(&arr[len-n], 0, n * sizeof(unsigned char));
-}
-
-
+/* ######################################################################################### */
 
 /* priority queue and huffman tree code */
 struct Node;
@@ -292,26 +283,109 @@ unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
   return clen;
 }
 
+/* ######################################################################################### */
 
-unsigned int count_bytes(char *buffer, unsigned int n){
-  for(unsigned int i=0;i<n;i++){
-    if(!buffer[i])
-      return i;
-  }
-  return n;
+
+/* ######################################################################################### */
+
+// again not the most efficient but means we wont get lost
+typedef struct{
+  unsigned int lstart;
+  unsigned int dstart; 
+
+  unsigned int lbits;
+  unsigned int dbits;
+} LLBucket; 
+
+
+
+/* we can keep the original DEFLATE specification for distances, but for lengths we choose our own */
+LLBucket ** init_buckets(){
+  LLBucket **buckets = (LLBucket**)malloc(sizeof(LLBucket*)*LZBUCKETS); // use for instant look up
+  memset(buckets,0,sizeof(LLBucket*));
+
+  for(unsigned int i=0;i<LZBUCKETS;i++)
+    buckets[i] = (LLBucket*)malloc(sizeof(LLBucket));
+
+  buckets[0]->dstart = 1;
+  buckets[0]->dbits = 0;
+
+  buckets[1]->dstart = 2;
+  buckets[1]->dbits = 0;
+
+  buckets[2]->dstart = 3;
+  buckets[2]->dbits = 0;
+
+  buckets[3]->dstart = 4;
+  buckets[3]->dbits = 0;
+
+  buckets[4]->dstart = 5;
+  buckets[4]->dbits = 1;
+
+  buckets[5]->dstart = 7;
+  buckets[5]->dbits = 1;
+
+  buckets[6]->dstart = 9;
+  buckets[6]->dbits = 2;
+  
+  buckets[7]->dstart = 13;
+  buckets[7]->dbits = 2;
+
+  buckets[8]->dstart = 17;
+  buckets[8]->dbits = 3;
+
+  buckets[9]->dstart = 25;
+  buckets[9]->dbits = 3;
+
+
+  buckets[10]->dstart = 33;
+  buckets[11]->dstart = 49;
+  buckets[12]->dstart = 65;
+  buckets[13]->dstart = 97;
+  buckets[14]->dstart = 129;
+  buckets[15]->dstart = 193;
+  buckets[16]->dstart = 257;
+  buckets[17]->dstart = 385;
+  buckets[18]->dstart = 513;
+  buckets[19]->dstart = 769;
+  buckets[20]->dstart = 1025;
+  buckets[21]->dstart = 1537;
+  buckets[22]->dstart = 2049;
+  buckets[23]->dstart = 3073;
+  buckets[24]->dstart = 4097;
+  buckets[25]->dstart = 6145;
+  buckets[26]->dstart = 8193;
+  buckets[27]->dstart = 12289;
+  buckets[28]->dstart = 16385;
+  buckets[29]->dstart = 24577;
+
+  return buckets;
 }
 
-void debug_buffer(unsigned char*buffer){
-  for(unsigned int i=0;i<BUFF_SIZE;i++){
-    if(!buffer[i])
-      break;
-    fprintf(stderr,"%d,",buffer[i]);
+void PurgeBuckets(LLBucket **buckets){
+  for(unsigned int i=0;i<LZBUCKETS;i++){
+    if(buckets[i])
+      free(buckets[i]);
   }
-
-  fprintf(stderr,"\n");
+  free(buckets);
 }
 
-/* huffman style */
+
+/* ######################################################################################### */
+
+
+
+/* ######################################################################################### */
+
+
+// general functions
+void LeftShift(unsigned char *arr, unsigned int len, unsigned int n)   
+{
+  memmove(&arr[0], &arr[n], (len-n)*sizeof(unsigned char));
+  memset(&arr[len-n], 0, n * sizeof(unsigned char));
+}
+
+/* there will be some optimisations here, specially to get rid of vectors */
 void stream_to_bytes(std::vector<unsigned char> &stream){
   unsigned int char_pos = 0;
   unsigned char out = 0;
@@ -334,32 +408,16 @@ void stream_to_bytes(std::vector<unsigned char> &stream){
     fputc(out,stdout);
 }
 
+/* ######################################################################################### */
 
 
-#if BYTESAVE
-// convert the table number into the characters needed in the fsm, using a 2-byte scheme
-// as the minimum ring entry needed is 3 chars, does a lot of work in string manipulation
-void uint_to_chars(unsigned int val, unsigned char *buffer){
-  unsigned int char_pos = 0;
-  unsigned int char_bit = 7;
+/* run the virtual FSM and score how many bits a backreference will save, take the highest */
+unsigned int ScoreBackReference(unsigned int length, unsigned int distance, FSMState*curr){
 
-  unsigned char ch = 0;
-  for(int i=31;i>=0;i--){
-    bool bit = val & (1 << i) ? 1:0;
-    if(bit)
-      ch ^= (1 << char_bit);
-    
-    char_bit--;
-    if(i % 8==0 || i==0){
-      if(ch)
-        buffer[char_pos++] = ch;
-      
-      ch = 0;    
-      char_bit = 7;
-    }
-  }
+
+
+
 }
-#endif
 
 bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
@@ -438,6 +496,10 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
     if(reference){
 
+    
+      
+    
+    
     }
     else{
 
@@ -496,11 +558,7 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
   // get the last ones still in the stream
   stream_to_bytes(bitstream);
 
-  // if(opt_verbose){
-  //   fprintf(stderr,"%d to %d bits: %f compression ratio\n",
-  //           bytes_read*8,stream_bits,
-  //           (double)(bytes_read*8)/stream_bits);
-  // }  
+  // need to add a end of file marker. 
 
   delete_heap(priority_queue);
   free(buffer);
@@ -520,7 +578,6 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 
   unsigned int offset = 0;
   unsigned int offpos = 0;
-
   
   Node *htree = 0; 
   Node *tree_root = 0;
@@ -610,6 +667,9 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   free(buffer);
   return true;
 }
+
+
+/* ######################################################################################### */
 
 
 static void DisplayUsage()
@@ -717,3 +777,5 @@ int main(int argc, char *argv[])
   delete wlnmodel;
   return 0;
 }
+
+/* ######################################################################################### */
