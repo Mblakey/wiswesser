@@ -294,6 +294,8 @@ void ReserveCode(const char*code,Node* tree_root){
   return;
 }
 
+// 10K to ensure that no expansion, plus now reading for DEFLATEz. 
+
 /* builds the code in reverse and writes to stream
 return clen, 0 if fail, take in buffer at least 64 bytes */
 unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
@@ -578,12 +580,27 @@ bool encode_file( FILE *ifp, FSMAutomata *wlnmodel,
         */
 
         unsigned char sixbencoded = encode[ch]; 
-        for(int j=7;j>=0;j--)
+        for(int j=7;j>=0;j--){
           cstream += (sixbencoded & (1 << j))?1:0;
+          
+          // keep the memory in check, every 32 bytes clear and start again
+          if(cstream.size() == 256){
+            stream_to_bytes(cstream);
+            cstream.clear();
+            stream_bits+=256;
+          }
+        }
       }
       else{
-        for(unsigned int j=0;j<clen;j++)
+        for(unsigned int j=0;j<clen;j++){
           cstream += code[j];
+          // keep the memory in check, every 32 bytes clear and start again
+          if(cstream.size() == 256){
+            stream_to_bytes(cstream);
+            cstream.clear();
+            stream_bits+=256;
+          }
+        }
       }
 
     
@@ -596,13 +613,6 @@ bool encode_file( FILE *ifp, FSMAutomata *wlnmodel,
           edge->c++;
           break;
         }
-      }
-
-      // keep the memory in check, every 32 bytes clear and start again
-      if(cstream.size() == 256){
-        stream_to_bytes(cstream);
-        cstream.clear();
-        stream_bits+=256;
       }
 
     }

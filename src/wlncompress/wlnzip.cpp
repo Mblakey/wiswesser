@@ -4,7 +4,6 @@
 #include <math.h>
 
 #include <iostream>
-#include <string>
 #include <stack>
 #include <vector>
 #include <map>
@@ -13,10 +12,25 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
+#define CSIZE 64
+
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 
+const unsigned int window = 258;
+const unsigned int backreference = 32768;
+const unsigned int buff_size = window+backreference;
+
 const char *input;
+
+// general functions
+void LeftShift(unsigned char *arr, unsigned int len, unsigned int n)   
+{
+  memmove(&arr[0], &arr[n], (len-n)*sizeof(unsigned char));
+  memset(&arr[len-n], 0, n * sizeof(unsigned char));
+}
+
+
 
 /* priority queue and huffman tree code */
 struct Node;
@@ -61,6 +75,17 @@ bool init_heap(PQueue *heap, unsigned int cap){
   return true;   
 }
 
+
+void delete_heap(PQueue *priority_queue){
+  while(priority_queue->size){
+    free(priority_queue->arr[priority_queue->size-1]);
+    priority_queue->size--;
+  }
+    
+  free(priority_queue->arr);
+  free(priority_queue);
+  priority_queue = 0;
+}
 
 void shift_right(unsigned int low,unsigned int high, PQueue *heap){
   unsigned int root = low; 
@@ -207,7 +232,7 @@ void DeleteHuffmanTree(Node *root){
 }
 
 /* builds the code in reverse and writes to stream */
-bool WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
+unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
   
   Node *ch_node = 0;
   Node *top = 0;
@@ -231,11 +256,10 @@ bool WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
 
   if(!ch_node){
     fprintf(stderr,"Error: could not find %c (%d) in states huffman tree\n",ch,ch);
-    return false;
+    return 0;
   }
 
   unsigned int clen = 0;
-  char code[128] = {0};
 
   Node *curr = ch_node; 
   Node *prev = ch_node; 
@@ -249,10 +273,23 @@ bool WriteHuffmanCode(Node *root,unsigned char ch, std::string &cstream){
       code[clen++] = 1; 
   }
 
-  for(int i=clen-1;i>=0;i--)
-    cstream += code[i];
+  // reverse the code
+  if(clen > 1){
+    unsigned char *ptr1, *ptr2, temp; 
+    ptr1 = code; 
+    ptr2 = code+(clen-1); // point to last element off set
 
-  return true;
+    while(ptr1 < ptr2){
+      temp = *ptr1;
+      *ptr1 = *ptr2; 
+      *ptr2 = temp;
+      
+      ptr1++;
+      ptr2--;
+    }
+  }  
+
+  return clen;
 }
 
 
@@ -275,9 +312,11 @@ void debug_buffer(unsigned char*buffer){
 }
 
 /* huffman style */
-void stream_to_bytes(std::string &stream){
+void stream_to_bytes(std::vector<unsigned char> &stream){
   unsigned int char_pos = 0;
   unsigned char out = 0;
+  unsigned int bits = 0;
+
   for(unsigned int i=0;i<stream.size();i++){
     if(stream[i])
       out ^= (1 << (7-char_pos) );
@@ -288,10 +327,16 @@ void stream_to_bytes(std::string &stream){
       fputc(out,stdout);
       out = 0;
     }
-
   }
+
+  // always get the last one
+  if(char_pos && out)
+    fputc(out,stdout);
 }
 
+
+
+#if BYTESAVE
 // convert the table number into the characters needed in the fsm, using a 2-byte scheme
 // as the minimum ring entry needed is 3 chars, does a lot of work in string manipulation
 void uint_to_chars(unsigned int val, unsigned char *buffer){
@@ -314,159 +359,255 @@ void uint_to_chars(unsigned int val, unsigned char *buffer){
     }
   }
 }
+#endif
 
-bool encode_file(FILE *ifp, FSMAutomata *wlnmodel, std::map<FSMState*,PQueue*> &queue_lookup){
+bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
-  std::map<std::string,bool> seen_before;
+  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*buff_size); 
+  memset(buffer,0,buff_size);
 
+  bool reading_data = true;
+  bool reference = false;
   unsigned char ch = 0;
   unsigned int bytes_read = 0;
-
+  unsigned int fpos = backreference;
+  unsigned int best_length = 0;
+  unsigned int best_distance = 0;
+  
   Node *htree = 0;
-  PQueue *priority_queue = 0;
+  PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
+  init_heap(priority_queue,512); // safe value for WLN
+
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
-  std::string cstream;
-  unsigned int stream_bits = 0;
-
-  unsigned int look_ahead = 256;
-  unsigned int look_behind = 1024;  
-
-  unsigned char ahead[BUFF_SIZE] = {0};
-  unsigned char behind[BUFF_SIZE] = {0};
-  unsigned char store[look_ahead] = {0}; // handle data overlaps
+  unsigned char code[CSIZE] = {0};
+  std::vector<unsigned char> bitstream;
   
-  // read in big chunks for a good look ahead
-  if(!fread(ahead,sizeof(unsigned char),BUFF_SIZE,ifp))
-    fprintf(stderr,"Error: no data to fill buffer\n");
+  // fill up the forward window
+  while(fpos < buff_size){
+    if(!fread(&ch,sizeof(unsigned char),1,ifp))
+      reading_data = 0;
 
-  
+    buffer[fpos++] = ch;
+    if(!reading_data)
+      break;
+  } 
 
- 
-
-
-  // // write a byte from the root of the machine indicating EOF
-  priority_queue = queue_lookup[wlnmodel->root];
-  for(edge=wlnmodel->root->transitions;edge;edge=edge->nxt){
-    Node *n = AllocateNode(edge->ch,edge->c);
-    insert_term(n,priority_queue);
+  if(!buffer[backreference]){
+    fprintf(stderr,"Error: no data!\n");
+    free(buffer);
+    return false;
   }
 
-  htree = ConstructHuffmanTree(priority_queue);
-  WriteHuffmanCode(htree,0,cstream);
-  DeleteHuffmanTree(htree);
 
-  stream_to_bytes(cstream);
-  stream_bits+=cstream.size();
+  while(buffer[backreference]){
+    reference = false;
+    unsigned int distance = 0;
+    unsigned int length   = 0;
 
-  if(opt_verbose){
-    fprintf(stderr,"%d to %d bits: %f compression ratio\n",
-            bytes_read*8,stream_bits,
-            (double)(bytes_read*8)/stream_bits);
+    for(unsigned int i=0;i<buff_size;i++){
+      if(i >= backreference && !length)
+        break;
+      
+      if(buffer[i] == buffer[backreference+length]){
+        length++;
+        if(!distance)
+          distance = backreference - i;
+      }
+      else if(length > 2){
+        //reference = true;
+
+        // // if good backreference, break here
+
+
+      
+
+        best_distance = distance;
+        best_length = length; 
+
+        distance = 0;
+        length = 0;
+      }
+      else{
+        // reset
+        distance = 0;
+        length = 0;
+      }
+    }
+
+    if(reference){
+
+    }
+    else{
+
+      // write the character code
+      // construct tree based on C values
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+        Node *n = AllocateNode(edge->ch,edge->c);
+        insert_term(n,priority_queue);
+      }
+
+      htree = ConstructHuffmanTree(priority_queue);
+      if(!htree){
+        fprintf(stderr,"Huffman tree allocation fault\n");
+        return false;
+      }
+
+      if(priority_queue->size){
+        fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
+        return false;
+      }
+
+      unsigned int clen = WriteHuffmanCode(htree,buffer[backreference],code);
+      
+      for(unsigned int c = 0;c<clen;c++){
+        bitstream.push_back(code[c]);
+        
+        // if(bitstream.size() == 258){
+        //   stream_to_bytes(bitstream);
+        //   bitstream.clear();
+        // }
+
+      }
+      
+      memset(code,0,CSIZE);
+
+      DeleteHuffmanTree(htree); 
+
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+        if(edge->ch == buffer[backreference]){
+          curr = edge->dwn;
+          edge->c++;
+          break;
+        }
+      }
+
+      LeftShift(buffer,buff_size,1);
+      if(reading_data){
+        if(!fread(&ch,sizeof(unsigned char),1,ifp))
+          reading_data = 0;
+        else
+          buffer[buff_size-1] = ch;
+      }
+    }
   }
 
+  // get the last ones still in the stream
+  stream_to_bytes(bitstream);
+
+  // if(opt_verbose){
+  //   fprintf(stderr,"%d to %d bits: %f compression ratio\n",
+  //           bytes_read*8,stream_bits,
+  //           (double)(bytes_read*8)/stream_bits);
+  // }  
+
+  delete_heap(priority_queue);
+  free(buffer);
   return true;
 }
 
 
-bool decode_file(FILE *ifp, FSMAutomata *wlnmodel,std::map<FSMState*,PQueue*> &queue_lookup){
+bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   
-  Node *tree_root = 0;
+  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*buff_size); 
+  memset(buffer,0,buff_size);
+
+  unsigned char ch = 0; 
+  unsigned int reading_bits = 0;
+  unsigned int length = 0;
+  unsigned int distance = 0;
+
+  unsigned int offset = 0;
+  unsigned int offpos = 0;
+
+  
   Node *htree = 0; 
-  PQueue *priority_queue = 0;
+  Node *tree_root = 0;
+
+  PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
+  init_heap(priority_queue,512); // safe value for WLN
+
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
+  // init the first huffman tree for state, change on switch now
+  for(edge=curr->transitions;edge;edge=edge->nxt){
+    Node *n = AllocateNode(edge->ch,edge->c);
+    insert_term(n,priority_queue);
+  }
 
-  unsigned char bit_char = 0;
-  unsigned int bit_pos = 0;
-  fread(&bit_char,sizeof(unsigned char),1,ifp); // read first bit
+  tree_root = ConstructHuffmanTree(priority_queue);
+  htree = tree_root;
 
-  unsigned int buff_pos = 0;
-  unsigned char buffer[BUFF_SIZE] = {0};
-  for(;;){
+  while(fread(&ch,sizeof(unsigned char),1,ifp)){
+    for(int i=7;i>=0;i--){
+      unsigned char bit = (ch & (1 << i))?1:0;
 
-    unsigned char ch_read = 0;
-    priority_queue = queue_lookup[curr]; 
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      Node *n = AllocateNode(edge->ch,edge->c);
-      insert_term(n,priority_queue);
-    }
 
-    tree_root = ConstructHuffmanTree(priority_queue);
-    htree = tree_root;
-    if(!htree){
-      fprintf(stderr,"Huffman tree allocation fault\n");
-      return false;
-    }
+      if(reading_bits){
 
-    while(!ch_read){
-      unsigned char bit = bit_char & (1 << (7 - bit_pos) ) ? 1:0;
-      bit_pos++; 
 
-      // fetch next char from stream
-      if (bit_pos == 8){
-        if(!fread(&bit_char,sizeof(unsigned char),1,ifp)){
-          fprintf(stdout,"%s",buffer);
-          buff_pos = 0;
-          DeleteHuffmanTree(tree_root);
-          return true;
-        }
-          
-        bit_pos = 0;
-      } 
 
-      if(bit)
-        htree = htree->r;
-      else
-        htree = htree->l;
 
-      if(!htree){
-        fprintf(stderr,"Error: dead traversal\n");
-        return false;
       }
-    
-      if(htree->ch != 0){
-        ch_read = htree->ch; 
+      else{
 
-        if(!ch_read){
-          if(curr == wlnmodel->root){
-            DeleteHuffmanTree(tree_root);
-            return true; 
-          }
-          else{
-            fprintf(stderr,"Error: reading null byte not at fsm root\n");
-            DeleteHuffmanTree(tree_root);
-            return false;
-          }
+        if(bit)
+          htree = htree->r;
+        else
+          htree = htree->l;
+
+        if(!htree){
+          fprintf(stderr,"Error: dead traversal\n");
+          return false;
         }
-        else{
-          buffer[buff_pos++] = ch_read;
-          if(ch_read == '\n'){
-            fprintf(stdout,"%s",buffer);
-            memset(buffer,0,BUFF_SIZE);
-            buff_pos = 0;
-          }
+        else if(htree->ch){
+          
+          LeftShift(buffer,backreference,1);
+          fputc(htree->ch,stdout);
+          buffer[backreference-1] = htree->ch;
 
-          // transition
+          // move the machine to the next state
           for(edge=curr->transitions;edge;edge=edge->nxt){
-            if(edge->ch == ch_read){
+            if(edge->ch == htree->ch){
               curr = edge->dwn;
               edge->c++;
               break; 
             }
           }
+
+          // delete the huffman tree 
+          DeleteHuffmanTree(tree_root);
+
+          // create the new queue
+          for(edge=curr->transitions;edge;edge=edge->nxt){
+            Node *n = AllocateNode(edge->ch,edge->c);
+            insert_term(n,priority_queue);
+          }
+
+          // create the new tree
+          tree_root = ConstructHuffmanTree(priority_queue);
+          htree = tree_root;
+
+          if(!htree){
+            fprintf(stderr,"Huffman tree allocation fault\n");
+            return false;
+          }
+
+          if(priority_queue->size){
+            fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
+            return false;
+          }
         }
-         // should free all?
-        DeleteHuffmanTree(tree_root);
-        tree_root = 0;
+
       }
-
     }
+
   }
-
-
+  
+  delete_heap(priority_queue);
+  free(buffer);
   return true;
 }
 
@@ -555,46 +696,22 @@ int main(int argc, char *argv[])
 
   wlnmodel->AssignEqualProbs();
 
-  std::map<FSMState*,PQueue*> queue_lookup;   
-  // create a queue for each state, and adaptively build as we go. 
-  for(unsigned int i=0;i<wlnmodel->num_states;i++){
-    FSMState *s = wlnmodel->states[i];
-    PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
-    init_heap(priority_queue,256); // safe value for ASCII values
-    queue_lookup[s] = priority_queue;
-  }
+
 
 
   FILE *fp = 0; 
   fp = fopen(input,"rb");
   if(fp){
     if(opt_mode == 1)
-      encode_file(fp,wlnmodel,queue_lookup);
+      WLNENCODE(fp,wlnmodel);
     else if (opt_mode == 2)
-      decode_file(fp,wlnmodel,queue_lookup);
+      WLNDECODE(fp,wlnmodel);
 
     fclose(fp);
   }
   else{
     fprintf(stderr,"Error: could not open file at %s\n",input);
     return 1;
-  }
-
-
-  // safe with memory
-  for(unsigned int i=0;i<wlnmodel->num_states;i++){
-    FSMState *s = wlnmodel->states[i];
-    PQueue *priority_queue = queue_lookup[s];
-    if(priority_queue){
-      while(priority_queue->size){
-        free(priority_queue->arr[priority_queue->size-1]);
-        priority_queue->size--;
-      }
-
-      free(priority_queue->arr);
-      free(priority_queue);
-      priority_queue = 0;
-    }
   }
 
   delete wlnmodel;
