@@ -8,25 +8,19 @@
 
 #include <stack>
 
-/* ######################################################################################### */
-
-/* priority queue and huffman tree code */
-struct Node;
-struct PQueue;
-
-struct Node{
+typedef struct Node{
   unsigned int freq;
   unsigned char ch; 
-  Node *l; 
-  Node *r; 
-  Node *p;
-};
+  struct Node *l; 
+  struct Node *r; 
+  struct Node *p;
+} Node;
 
-struct PQueue{
+typedef struct{
   Node **arr; 
   unsigned int cap;
   unsigned int size;  
-}; 
+} PQueue; 
 
 Node *AllocateNode(unsigned char ch, unsigned int f){
   Node *n = (Node*)malloc(sizeof(Node)); 
