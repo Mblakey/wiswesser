@@ -195,11 +195,10 @@ void free_buckets(LLBucket **buckets){
   free(buckets);
 }
 
-
 LLBucket *length_bucket(unsigned int length, LLBucket **buckets){
   LLBucket *lb = 0;
   for(unsigned int i=0;i<LZBUCKETS-1;i++){
-    if(!lb && length <= buckets[i]->lstart)
+    if(!lb && (length >= buckets[i]->lstart && length < buckets[i+1]->lstart)  )
       lb = buckets[i];
   }
 
@@ -211,8 +210,8 @@ LLBucket *length_bucket(unsigned int length, LLBucket **buckets){
 
 LLBucket *distance_bucket(unsigned int distance, LLBucket **buckets){
   LLBucket *db = 0;
-  for(unsigned int i=0;i<LZBUCKETS;i++){
-    if(!db && distance <= buckets[i]->dstart)
+  for(unsigned int i=0;i<LZBUCKETS-1;i++){
+    if(!db && (distance >= buckets[i]->dstart && distance < buckets[i+1]->dstart))
       db = buckets[i];
   }
 

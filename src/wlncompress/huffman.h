@@ -264,9 +264,13 @@ unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
   return clen;
 }
 
-void ReserveCode(const char*code,Node* tree_root){
+/* uses tree splicing to reverse a specific pattern */
+void ReserveCode(const char*code,unsigned char sym,Node* tree_root){
   unsigned char ch = *code; 
   Node *htree = tree_root;
+
+  if(!htree)
+    return;
 
   unsigned int clen = 0;
   while(ch){
@@ -295,7 +299,7 @@ void ReserveCode(const char*code,Node* tree_root){
     ch = *(++code);
   }
 
-  if(clen<2)
+  if(clen<1)
     fprintf(stderr,"Error: reserving single bit code undefined\n");
   
 
@@ -307,7 +311,8 @@ void ReserveCode(const char*code,Node* tree_root){
     p = 1;
     if(!splice_parent->r){
       splice_parent->r = htree;
-      splice_parent->l = 0;
+      splice_parent->l = AllocateNode(sym,1);
+      splice_parent->l->p = splice_parent;
       return;
     }
   }
@@ -315,7 +320,8 @@ void ReserveCode(const char*code,Node* tree_root){
     p = 2;
     if(!splice_parent->l){
       splice_parent->l = htree;
-      splice_parent->r = 0;
+      splice_parent->r = AllocateNode(sym,1);
+      splice_parent->r->p = splice_parent;
       return;
     }
   }
@@ -340,13 +346,16 @@ void ReserveCode(const char*code,Node* tree_root){
 
   // add branches parent as the splice node.
   branch->p = splice_parent;
-  if(p==1)
+  if(p==1){
     splice_parent->r = branch;
-  else if(p==2)
-    splice_parent->l = branch;  
-
-
-  // add a special marker to htree
+    splice_parent->l = AllocateNode(sym,1);
+    splice_parent->l->p = splice_parent;
+  }
+  else if(p==2){
+    splice_parent->l = branch;
+    splice_parent->r = AllocateNode(sym,1);
+    splice_parent->r->p = splice_parent;  
+  }
   return;
 }
 

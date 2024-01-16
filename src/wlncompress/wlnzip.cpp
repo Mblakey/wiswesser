@@ -179,23 +179,21 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
       insert_term(n,priority_queue);
     }
 
-
     htree = ConstructHuffmanTree(priority_queue);
+    ReserveCode("00",'*',htree);
     if(!htree){
       fprintf(stderr,"Huffman tree allocation fault\n");
       return false;
     }
 
-    ReserveCode("00",htree);
-    
     if(priority_queue->size){
       fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
       return false;
     }
 
-    // best_distance = 0;
-    // best_length = 0;
     if(best_length && best_distance){
+      fprintf(stderr,"length: %d, distance: %d\n",best_length,best_distance);
+      
       // here i need to encode, best length, bits little endian, best distance, bits little endian
       // move the FSM through the shifts and increase the adaptive count for those edges
 
@@ -318,6 +316,15 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
   init_heap(priority_queue,512); // safe value for WLN
 
+  // set up the distance tree
+  for(unsigned int c = 0;c<LZBUCKETS;c++){
+    Node *n = AllocateNode(('a'+c),1); // use 'a' as offset, only adds 1-2 KB overhead
+    insert_term(n,priority_queue);
+  }
+
+  Node *lz_tree = ConstructHuffmanTree(priority_queue);
+  LLBucket **buckets = init_buckets();
+
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
 
@@ -328,6 +335,7 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   }
 
   tree_root = ConstructHuffmanTree(priority_queue);
+  ReserveCode("00",'*',tree_root);
   htree = tree_root;
 
   while(fread(&ch,sizeof(unsigned char),1,ifp)){
@@ -337,9 +345,59 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 
       if(reading_bits){
 
+        if(bit)
+          offset += (1 << offpos);
 
+        reading_bits--;
+        offpos++;
 
+        if(!reading_bits){
 
+          if(!distance)
+            length += offset;
+          else{
+            distance += offset; 
+
+            for(unsigned int i=0;i<length;i++)
+              buffer[i+BACKREFERENCE] = buffer[BACKREFERENCE-distance+i];
+             
+            while(buffer[BACKREFERENCE]){
+              for(edge=curr->transitions;edge;edge=edge->nxt){
+                if(edge->ch == buffer[BACKREFERENCE]){
+                  curr = edge->dwn;
+                  //edge->c++;
+                  break;
+                }
+              }
+
+              fputc(buffer[BACKREFERENCE],stdout);
+              LeftShift(buffer,BUFFSIZE,1);
+            }
+
+    
+            // create the new queue
+            for(edge=curr->transitions;edge;edge=edge->nxt){
+              Node *n = AllocateNode(edge->ch,edge->c);
+              insert_term(n,priority_queue);
+            }
+
+            // create the new tree
+            tree_root = ConstructHuffmanTree(priority_queue);
+            ReserveCode("00",'*',tree_root);
+            htree = tree_root;
+
+            if(!htree){
+              fprintf(stderr,"Huffman tree allocation fault\n");
+              return false;
+            }
+
+            distance = 0;
+            length = 0;
+          }
+
+          offpos = 0;
+          offset = 0;
+        }
       }
       else{
 
@@ -352,8 +410,65 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
           fprintf(stderr,"Error: dead traversal\n");
           return false;
         }
-        else if(htree->ch){
+        else if(htree->ch == '*'){
+          // tree swap marker
+          htree = lz_tree;
+        }
+        else if(htree->ch >= 'a' && htree->ch < ('a'+LZBUCKETS)){
           
+          if(!length){
+            length = buckets[htree->ch - 'a']->lstart;
+            reading_bits = buckets[htree->ch - 'a']->lbits;
+            htree = lz_tree;
+          }
+          else if (!distance){
+            distance = buckets[htree->ch - 'a']->dstart;
+            reading_bits = buckets[htree->ch - 'a']->dbits;
+
+            if(!reading_bits){
+
+             for(unsigned int i=0;i<length;i++)
+              buffer[i+BACKREFERENCE] = buffer[BACKREFERENCE-distance+i];
+             
+              while(buffer[BACKREFERENCE]){
+                for(edge=curr->transitions;edge;edge=edge->nxt){
+                  if(edge->ch == buffer[BACKREFERENCE]){
+                    curr = edge->dwn;
+                    //edge->c++;
+                    break;
+                  }
+                }
+
+                fputc(buffer[BACKREFERENCE],stdout);
+                LeftShift(buffer,BUFFSIZE,1);
+              }
+
+  
+              // create the new queue
+              for(edge=curr->transitions;edge;edge=edge->nxt){
+                Node *n = AllocateNode(edge->ch,edge->c);
+                insert_term(n,priority_queue);
+              }
+
+              // create the new tree
+              tree_root = ConstructHuffmanTree(priority_queue);
+              ReserveCode("00",'*',tree_root);
+              htree = tree_root;
+
+              if(!htree){
+                fprintf(stderr,"Huffman tree allocation fault\n");
+                return false;
+              }
+
+              length = 0;
+              distance = 0;
+              offset = 0;
+              offpos = 0;
+            }
+          }
+        }
+        else if (htree->ch){
+
           LeftShift(buffer,BACKREFERENCE,1);
           fputc(htree->ch,stdout);
           buffer[BACKREFERENCE-1] = htree->ch;
@@ -378,6 +493,7 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 
           // create the new tree
           tree_root = ConstructHuffmanTree(priority_queue);
+          ReserveCode("00",'*',tree_root);
           htree = tree_root;
 
           if(!htree){
@@ -385,10 +501,6 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
             return false;
           }
 
-          if(priority_queue->size){
-            fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
-            return false;
-          }
         }
 
       }
