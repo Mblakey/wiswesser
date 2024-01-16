@@ -48,7 +48,7 @@ bool init_heap(PQueue *heap, unsigned int cap){
 }
 
 
-void delete_heap(PQueue *priority_queue){
+void free_heap(PQueue *priority_queue){
   while(priority_queue->size){
     free(priority_queue->arr[priority_queue->size-1]);
     priority_queue->size--;
@@ -183,7 +183,7 @@ Node *ConstructHuffmanTree(PQueue *priority_queue){
   }
 }
 
-void DeleteHuffmanTree(Node *root){
+void free_huffmantree(Node *root){
   if(!root)
     return;
 
@@ -264,6 +264,90 @@ unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
   return clen;
 }
 
+void ReserveCode(const char*code,Node* tree_root){
+  unsigned char ch = *code; 
+  Node *htree = tree_root;
 
+  unsigned int clen = 0;
+  while(ch){
+
+    if(ch == '0'){
+      if(!htree->l){
+        htree->l = AllocateNode(htree->ch,0);
+        htree->l->p = htree;
+        htree->ch = 0;
+      }
+      
+      htree = htree->l;
+    }
+      
+    else if (ch == '1'){
+      if(!htree->r){
+        htree->r = AllocateNode(htree->ch,0);
+        htree->r->p = htree;
+        htree->ch = 0;
+      }
+
+      htree = htree->r;
+    }
+    
+    clen++;
+    ch = *(++code);
+  }
+
+  if(clen<2)
+    fprintf(stderr,"Error: reserving single bit code undefined\n");
+  
+
+  // now there are some splicing conditions
+  Node *splice_parent = htree->p; 
+
+  unsigned int p = 0;
+  if(htree == splice_parent->l){
+    p = 1;
+    if(!splice_parent->r){
+      splice_parent->r = htree;
+      splice_parent->l = 0;
+      return;
+    }
+  }
+  else if(htree == splice_parent->r){
+    p = 2;
+    if(!splice_parent->l){
+      splice_parent->l = htree;
+      splice_parent->r = 0;
+      return;
+    }
+  }
+   
+  Node *branch = AllocateNode(0,0);
+  htree->p = 0;
+
+  // move the splice locations to the new node
+  branch->l = splice_parent->l;
+  branch->r = splice_parent->r; 
+
+  // remove from the parent
+  splice_parent->l = 0;
+  splice_parent->r = 0;
+
+  // if they exist, add their parents 
+  if(branch->l)
+    branch->l->p = branch;
+    
+  if(branch->r)
+    branch->r->p = branch;
+
+  // add branches parent as the splice node.
+  branch->p = splice_parent;
+  if(p==1)
+    splice_parent->r = branch;
+  else if(p==2)
+    splice_parent->l = branch;  
+
+
+  // add a special marker to htree
+  return;
+}
 
 #endif

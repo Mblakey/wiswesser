@@ -2,380 +2,21 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <stack>
 #include <vector>
 
 #include "rfsm.h"
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
+#include "huffman.h"
+#include "lz.h"
+
 #define CSIZE 64
-#define LZBUCKETS 30
 
 unsigned int opt_mode = 0;
 unsigned int opt_verbose = false;
 
-const unsigned int window = 258;
-const unsigned int backreference = 32768;
-const unsigned int buff_size = window+backreference;
-
 const char *input;
-
-/* ######################################################################################### */
-
-/* priority queue and huffman tree code */
-struct Node;
-struct PQueue;
-
-struct Node{
-  unsigned int freq;
-  unsigned char ch; 
-  Node *l; 
-  Node *r; 
-  Node *p;
-};
-
-struct PQueue{
-  Node **arr; 
-  unsigned int cap;
-  unsigned int size;  
-}; 
-
-Node *AllocateNode(unsigned char ch, unsigned int f){
-  Node *n = (Node*)malloc(sizeof(Node)); 
-  n->freq = f;
-  n->ch = ch; 
-  n->l = 0; 
-  n->r = 0;
-  n->p = 0;
-  return n; 
-}
-
-bool init_heap(PQueue *heap, unsigned int cap){
-  heap->arr = (Node**)malloc(sizeof(Node*) * cap); 
-  if(!heap->arr){
-    fprintf(stderr,"Error: could not allocate memory\n");
-    return false;
-  }
-
-  for (unsigned int i=0;i<cap;i++)
-    heap->arr[i] = 0;
-  
-  heap->size = 0; 
-  heap->cap = cap;
-  return true;   
-}
-
-
-void delete_heap(PQueue *priority_queue){
-  while(priority_queue->size){
-    free(priority_queue->arr[priority_queue->size-1]);
-    priority_queue->size--;
-  }
-    
-  free(priority_queue->arr);
-  free(priority_queue);
-  priority_queue = 0;
-}
-
-void shift_right(unsigned int low,unsigned int high, PQueue *heap){
-  unsigned int root = low; 
-  while(2*root+1 <= high){
-    unsigned int leftIdx = 2*root+1;
-    unsigned int rightIdx = 2*root+2; 
-    unsigned int swapIdx = root;  
-
-    if (leftIdx <= high && heap->arr[leftIdx]->freq < heap->arr[swapIdx]->freq )
-      swapIdx = leftIdx;
-    if (rightIdx <= high && heap->arr[rightIdx]->freq < heap->arr[swapIdx]->freq)
-      swapIdx = rightIdx;
-
-    if(swapIdx != root){
-      Node* tmp = heap->arr[root];
-      heap->arr[root] = heap->arr[swapIdx];
-      heap->arr[swapIdx] = tmp;
-      root = swapIdx; 
-    }
-    else
-      break;
-  }
-}
-
-void heapify(unsigned int low, unsigned int high, PQueue *heap)
-{
-  if(!heap->size)
-    return;
-
-  int midIdx = 0;
-  if(!high)
-    midIdx = 0;
-  else
-    midIdx = (high - low -1)/2;
-
-  while (midIdx >= 0)
-  {
-    shift_right(midIdx, high,heap);
-    midIdx--;
-  }
-}
-
-bool blind_insert(Node *term, PQueue *heap){
-  if(heap->size+1 > heap->cap){
-    fprintf(stderr,"Error: maxing array capacity\n");
-    return false; 
-  }
-
-  heap->arr[heap->size++] = term;
-  return true; 
-}
-
-bool insert_term(Node *term, PQueue *heap){
-  if(!heap->size)
-    return blind_insert(term, heap); 
-  else{
-    if(blind_insert(term, heap)){
-      heapify(0,heap->size-1,heap);
-      return true;
-    }else
-      return false; 
-  }
-}
-
-
-Node *pop_front(PQueue *priority_queue){
-  if(!priority_queue->size){
-    fprintf(stderr,"Error: popping empty heap\n");
-    return 0;
-  }
-  
-  Node *f = priority_queue->arr[0];
-  priority_queue->arr[0] = 0; 
-
-  unsigned int pos = 0;
-  for(unsigned int i=0;i<priority_queue->size;i++){
-    Node *s = priority_queue->arr[i]; 
-    if(s){
-      priority_queue->arr[i] = NULL;
-      priority_queue->arr[pos++] = s;
-    }
-  }
-
-  priority_queue->size = pos;   
-  heapify(0,pos-1,priority_queue);
-
-  return f;
-}
-
-
-Node *ConstructHuffmanTree(PQueue *priority_queue){
-  if(!priority_queue->size){
-    fprintf(stderr,"Error: constructing huffman tree from empty queue\n");
-    return 0;
-  }
-  else if(priority_queue->size == 1){
-    Node *root = AllocateNode(0,0);
-    Node *f = pop_front(priority_queue);
-    f->p = root; 
-    root->l = f;
-    return root;
-  }
-  else{
-    while(priority_queue->size > 1){
-      // get the first 2 and remove
-      Node *f = pop_front(priority_queue);
-      Node *s = pop_front(priority_queue);
-
-      Node *sum = AllocateNode(0,f->freq + s->freq);
-      sum->l = f; 
-      sum->r = s; 
-
-      f->p = sum;
-      s->p = sum;
-      insert_term(sum,priority_queue);
-    }
-
-    Node *root = pop_front(priority_queue);
-    if(root && root->ch != 0)
-      fprintf(stderr,"Error: building huffman trees, root has ch - %c(%d)\n",root->ch,root->ch);
-  
-    return root; 
-  }
-}
-
-void DeleteHuffmanTree(Node *root){
-  if(!root)
-    return;
-
-  Node *top = 0; 
-  std::stack<Node*> stack;
-  stack.push(root); 
-  while(!stack.empty()){
-    top = stack.top();
-    stack.pop();
-    if(top->l)
-      stack.push(top->l);
-    if(top->r)
-      stack.push(top->r);
-
-    free(top);
-    top = 0;
-  }
-}
-
-/* builds the code in reverse and writes to stream */
-unsigned int WriteHuffmanCode(Node *root,unsigned char ch, unsigned char *code){
-  
-  Node *ch_node = 0;
-  Node *top = 0;
-  std::stack<Node*> stack; 
-  stack.push(root);
-  while(!stack.empty()){
-    top = stack.top();
-    stack.pop();
-
-    if(top->ch == ch){
-      ch_node = top;
-      break;
-    }
-
-    if(top->l)
-      stack.push(top->l);
-    
-    if(top->r)
-      stack.push(top->r);
-  }
-
-  if(!ch_node){
-    fprintf(stderr,"Error: could not find %c (%d) in states huffman tree\n",ch,ch);
-    return 0;
-  }
-
-  unsigned int clen = 0;
-
-  Node *curr = ch_node; 
-  Node *prev = ch_node; 
-  while(curr->p){
-    prev = curr;
-    curr = curr->p; 
-
-    if(prev == curr->l)
-      code[clen++] = 0;
-    else if (prev == curr->r)
-      code[clen++] = 1; 
-  }
-
-  // reverse the code
-  if(clen > 1){
-    unsigned char *ptr1, *ptr2, temp; 
-    ptr1 = code; 
-    ptr2 = code+(clen-1); // point to last element off set
-
-    while(ptr1 < ptr2){
-      temp = *ptr1;
-      *ptr1 = *ptr2; 
-      *ptr2 = temp;
-      
-      ptr1++;
-      ptr2--;
-    }
-  }  
-
-  return clen;
-}
-
-/* ######################################################################################### */
-
-
-/* ######################################################################################### */
-
-// again not the most efficient but means we wont get lost
-typedef struct{
-  unsigned int lstart;
-  unsigned int dstart; 
-
-  unsigned int lbits;
-  unsigned int dbits;
-} LLBucket; 
-
-
-
-/* we can keep the original DEFLATE specification for distances, but for lengths we choose our own */
-LLBucket ** init_buckets(){
-  LLBucket **buckets = (LLBucket**)malloc(sizeof(LLBucket*)*LZBUCKETS); // use for instant look up
-  memset(buckets,0,sizeof(LLBucket*));
-
-  for(unsigned int i=0;i<LZBUCKETS;i++)
-    buckets[i] = (LLBucket*)malloc(sizeof(LLBucket));
-
-  buckets[0]->dstart = 1;
-  buckets[0]->dbits = 0;
-
-  buckets[1]->dstart = 2;
-  buckets[1]->dbits = 0;
-
-  buckets[2]->dstart = 3;
-  buckets[2]->dbits = 0;
-
-  buckets[3]->dstart = 4;
-  buckets[3]->dbits = 0;
-
-  buckets[4]->dstart = 5;
-  buckets[4]->dbits = 1;
-
-  buckets[5]->dstart = 7;
-  buckets[5]->dbits = 1;
-
-  buckets[6]->dstart = 9;
-  buckets[6]->dbits = 2;
-  
-  buckets[7]->dstart = 13;
-  buckets[7]->dbits = 2;
-
-  buckets[8]->dstart = 17;
-  buckets[8]->dbits = 3;
-
-  buckets[9]->dstart = 25;
-  buckets[9]->dbits = 3;
-
-
-  buckets[10]->dstart = 33;
-  buckets[11]->dstart = 49;
-  buckets[12]->dstart = 65;
-  buckets[13]->dstart = 97;
-  buckets[14]->dstart = 129;
-  buckets[15]->dstart = 193;
-  buckets[16]->dstart = 257;
-  buckets[17]->dstart = 385;
-  buckets[18]->dstart = 513;
-  buckets[19]->dstart = 769;
-  buckets[20]->dstart = 1025;
-  buckets[21]->dstart = 1537;
-  buckets[22]->dstart = 2049;
-  buckets[23]->dstart = 3073;
-  buckets[24]->dstart = 4097;
-  buckets[25]->dstart = 6145;
-  buckets[26]->dstart = 8193;
-  buckets[27]->dstart = 12289;
-  buckets[28]->dstart = 16385;
-  buckets[29]->dstart = 24577;
-
-  return buckets;
-}
-
-void PurgeBuckets(LLBucket **buckets){
-  for(unsigned int i=0;i<LZBUCKETS;i++){
-    if(buckets[i])
-      free(buckets[i]);
-  }
-  free(buckets);
-}
-
-
-/* ######################################################################################### */
-
-
-
-/* ######################################################################################### */
 
 
 // general functions
@@ -411,30 +52,66 @@ void stream_to_bytes(std::vector<unsigned char> &stream){
 /* ######################################################################################### */
 
 
+void FlushMachine(FSMAutomata *wlnfsm){
+  for(unsigned int i=0;i<wlnfsm->num_edges;i++)
+    wlnfsm->edges[i]->c = 1;
+}
+
 /* run the virtual FSM and score how many bits a backreference will save, take the highest */
-unsigned int ScoreBackReference(unsigned int length, unsigned int distance, FSMState*curr){
+unsigned int ScoreBackReference(  unsigned int length, unsigned int distance, 
+                                  FSMState*curr, LLBucket **buckets)
+{
+  LLBucket *lb = 0;
+  LLBucket *db = 0;
 
+  for(unsigned int i=0;i<LZBUCKETS;i++){
+    if(!lb && length <= buckets[i]->lstart)
+      lb = buckets[i];
 
+    if(!db && distance <= buckets[i]->dstart)
+      db = buckets[i];
+  }
 
+  if(!lb)
+    lb = buckets[LZBUCKETS-1];
+  if(!db)
+    db = buckets[LZBUCKETS-1];
+  
+  // the bits saved would be the codes + offset, vs if just huffman coding them normally
+  // might be a good way to approximate this
 
+  // approximate that each code will be 6 in length for fast calcs 
+  unsigned int approx_lz = (lb->lbits + db->dbits) + 8 + 8;  
+  unsigned int approx_normal = length * 4;
+  
+  int saved = approx_normal - approx_lz;
+  if(saved < 0)
+    return 0;
+  else 
+    return saved;
 }
 
 bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
-  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*buff_size); 
-  memset(buffer,0,buff_size);
+  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE); 
+  memset(buffer,0,BUFFSIZE);
 
   bool reading_data = true;
-  bool reference = false;
   unsigned char ch = 0;
-  unsigned int bytes_read = 0;
-  unsigned int fpos = backreference;
-  unsigned int best_length = 0;
-  unsigned int best_distance = 0;
-  
+
   Node *htree = 0;
   PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
   init_heap(priority_queue,512); // safe value for WLN
+
+
+  // set up the distance tree
+  for(unsigned int c = 0;c<LZBUCKETS;c++){
+    Node *n = AllocateNode(('a'+c),1); // use 'a' as offset, only adds 1-2 KB overhead
+    insert_term(n,priority_queue);
+  }
+
+  Node *lz_tree = ConstructHuffmanTree(priority_queue);
+  LLBucket **buckets = init_buckets();
 
   FSMState *curr = wlnmodel->root;
   FSMEdge *edge = 0;
@@ -443,46 +120,48 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
   std::vector<unsigned char> bitstream;
   
   // fill up the forward window
-  while(fpos < buff_size){
+  for(unsigned int i=BACKREFERENCE;i<BUFFSIZE;i++){
     if(!fread(&ch,sizeof(unsigned char),1,ifp))
-      reading_data = 0;
-
-    buffer[fpos++] = ch;
+      reading_data = false;
+    else
+      buffer[i] = ch;
+    
     if(!reading_data)
       break;
   } 
 
-  if(!buffer[backreference]){
+  if(!buffer[BACKREFERENCE]){
     fprintf(stderr,"Error: no data!\n");
     free(buffer);
     return false;
   }
 
 
-  while(buffer[backreference]){
-    reference = false;
+  while(buffer[BACKREFERENCE]){
     unsigned int distance = 0;
     unsigned int length   = 0;
+    unsigned int best_length = 0;
+    unsigned int best_distance = 0;
+    unsigned int saved = 0; // potential for overflow here, another optimisation point
 
-    for(unsigned int i=0;i<buff_size;i++){
-      if(i >= backreference && !length)
+    for(unsigned int i=0;i<BUFFSIZE;i++){
+      if(i >= BACKREFERENCE && !length)
         break;
       
-      if(buffer[i] == buffer[backreference+length]){
+      if(buffer[i] == buffer[BACKREFERENCE+length]){
         length++;
         if(!distance)
-          distance = backreference - i;
+          distance = BACKREFERENCE - i;
       }
       else if(length > 2){
-        //reference = true;
-
-        // // if good backreference, break here
-
-
-      
-
-        best_distance = distance;
-        best_length = length; 
+        
+        // if good backreference, store the positions in best, this is an approximation
+        unsigned int lsaved = ScoreBackReference(length,distance,curr,buckets);
+        if(lsaved > saved){
+          best_distance = distance;
+          best_length = length;
+          saved = lsaved; 
+        }
 
         distance = 0;
         length = 0;
@@ -494,82 +173,136 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
       }
     }
 
-    if(reference){
+    /* huffman tree gets made no matter what */
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      Node *n = AllocateNode(edge->ch,edge->c);
+      insert_term(n,priority_queue);
+    }
 
+
+    htree = ConstructHuffmanTree(priority_queue);
+    if(!htree){
+      fprintf(stderr,"Huffman tree allocation fault\n");
+      return false;
+    }
+
+    ReserveCode("00",htree);
     
+    if(priority_queue->size){
+      fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
+      return false;
+    }
+
+    // best_distance = 0;
+    // best_length = 0;
+    if(best_length && best_distance){
+      // here i need to encode, best length, bits little endian, best distance, bits little endian
+      // move the FSM through the shifts and increase the adaptive count for those edges
+
+      // potential increase the adaptive count per special symbol - optimisation once working
+      bitstream.push_back(0);
+      bitstream.push_back(0);
+
+      LLBucket *lb = length_bucket(best_length,buckets);
+      LLBucket *db = distance_bucket(best_distance,buckets);
       
-    
-    
+      unsigned int loffset = best_length - lb->lstart;
+      unsigned int doffset = best_distance - db->dstart;
+      
+      // write code for length bucket
+      unsigned int clen = WriteHuffmanCode(lz_tree,lb->symbol,code);
+      for(unsigned int c = 0;c<clen;c++)
+        bitstream.push_back(code[c]);
+      memset(code,0,CSIZE);
+
+      // write the bits expected for the length offset in little endian order 
+      for(unsigned int j=0;j<lb->lbits;j++){
+        if( loffset & (1 << j) )
+          bitstream.push_back(1); 
+        else
+          bitstream.push_back(0);
+      }
+
+      // repeat for the distance symbol
+      clen = WriteHuffmanCode(lz_tree,db->symbol,code);
+      for(unsigned int c = 0;c<clen;c++)
+        bitstream.push_back(code[c]);
+      memset(code,0,CSIZE);
+
+      // write the bits expected for the length offset in little endian order 
+      for(unsigned int j=0;j<db->dbits;j++){
+        if( doffset & (1 << j) )
+          bitstream.push_back(1); 
+        else
+          bitstream.push_back(0);
+      }
+
+      // shift everything down and move the machine in lockstep
+      for(unsigned int j=0;j<best_length;j++){
+        for(edge=curr->transitions;edge;edge=edge->nxt){
+          if(edge->ch == buffer[BACKREFERENCE]){
+            curr = edge->dwn;
+            //edge->c++;
+            break;
+          }
+        }        
+
+        LeftShift(buffer,BUFFSIZE,1);
+        if(reading_data){
+          if(!fread(&ch,sizeof(unsigned char),1,ifp))
+            reading_data = 0;
+          else
+            buffer[BUFFSIZE-1] = ch;
+        }
+      }
     }
     else{
 
-      // write the character code
-      // construct tree based on C values
-      for(edge=curr->transitions;edge;edge=edge->nxt){
-        Node *n = AllocateNode(edge->ch,edge->c);
-        insert_term(n,priority_queue);
-      }
-
-      htree = ConstructHuffmanTree(priority_queue);
-      if(!htree){
-        fprintf(stderr,"Huffman tree allocation fault\n");
-        return false;
-      }
-
-      if(priority_queue->size){
-        fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
-        return false;
-      }
-
-      unsigned int clen = WriteHuffmanCode(htree,buffer[backreference],code);
-      
-      for(unsigned int c = 0;c<clen;c++){
+      unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
+      for(unsigned int c = 0;c<clen;c++)
         bitstream.push_back(code[c]);
-        
-        // if(bitstream.size() == 258){
-        //   stream_to_bytes(bitstream);
-        //   bitstream.clear();
-        // }
-
-      }
       
       memset(code,0,CSIZE);
 
-      DeleteHuffmanTree(htree); 
-
       for(edge=curr->transitions;edge;edge=edge->nxt){
-        if(edge->ch == buffer[backreference]){
+        if(edge->ch == buffer[BACKREFERENCE]){
           curr = edge->dwn;
           edge->c++;
           break;
         }
       }
 
-      LeftShift(buffer,buff_size,1);
+      LeftShift(buffer,BUFFSIZE,1);
       if(reading_data){
         if(!fread(&ch,sizeof(unsigned char),1,ifp))
           reading_data = 0;
         else
-          buffer[buff_size-1] = ch;
+          buffer[BUFFSIZE-1] = ch;
       }
+
     }
+
+    // gets deleted no matter what as well
+    free_huffmantree(htree); 
   }
+
 
   // get the last ones still in the stream
   stream_to_bytes(bitstream);
 
-  // need to add a end of file marker. 
-
-  delete_heap(priority_queue);
+  free_huffmantree(lz_tree);
+  free_buckets(buckets);
+  free_heap(priority_queue);
   free(buffer);
+
   return true;
 }
 
 
 bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   
-  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*buff_size); 
-  memset(buffer,0,buff_size);
+  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE); 
+  memset(buffer,0,BUFFSIZE);
 
   unsigned char ch = 0; 
   unsigned int reading_bits = 0;
@@ -621,9 +354,9 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
         }
         else if(htree->ch){
           
-          LeftShift(buffer,backreference,1);
+          LeftShift(buffer,BACKREFERENCE,1);
           fputc(htree->ch,stdout);
-          buffer[backreference-1] = htree->ch;
+          buffer[BACKREFERENCE-1] = htree->ch;
 
           // move the machine to the next state
           for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -635,7 +368,7 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
           }
 
           // delete the huffman tree 
-          DeleteHuffmanTree(tree_root);
+          free_huffmantree(tree_root);
 
           // create the new queue
           for(edge=curr->transitions;edge;edge=edge->nxt){
@@ -663,7 +396,7 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 
   }
   
-  delete_heap(priority_queue);
+  free_heap(priority_queue);
   free(buffer);
   return true;
 }
@@ -747,7 +480,6 @@ int main(int argc, char *argv[])
 
   FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
 
-  // minic arithmetic 
   wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');  
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     if(wlnmodel->states[i]->accept)

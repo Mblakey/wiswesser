@@ -7,11 +7,18 @@
 #include <stdio.h>
 
 #define LZBUCKETS 30
+#define WINDOW 290
+#define BACKREFERENCE 32768
+#define BUFFSIZE WINDOW+BACKREFERENCE
 
-/* ######################################################################################### */
 
-// again not the most efficient but means we wont get lost
+/* 
+we can keep the original DEFLATE specification for distances, but for lengths we,
+keep the original characters and compact. 
+*/
+
 typedef struct{
+  unsigned char symbol;
   unsigned int lstart;
   unsigned int dstart; 
 
@@ -20,18 +27,15 @@ typedef struct{
 } LLBucket; 
 
 
-
-/* 
-we can keep the original DEFLATE specification for distances, but for lengths we,
-keep the original characters and compact. 
-*/
 LLBucket ** init_buckets(){
   LLBucket **buckets = (LLBucket**)malloc(sizeof(LLBucket*)*LZBUCKETS); // use for instant look up
   memset(buckets,0,sizeof(LLBucket*));
 
-  for(unsigned int i=0;i<LZBUCKETS;i++)
+  for(unsigned int i=0;i<LZBUCKETS;i++){
     buckets[i] = (LLBucket*)malloc(sizeof(LLBucket));
-
+    buckets[i]->symbol = 'a' + i;
+  }
+  
   buckets[0]->dstart = 1;
   buckets[0]->dbits = 0;
   buckets[0]->lstart = 3;
@@ -174,26 +178,49 @@ LLBucket ** init_buckets(){
 
   buckets[28]->dstart = 16385;
   buckets[28]->dbits = 13;
-  buckets[28]->lstart = 258;
-  buckets[28]->lbits = 0;
+  buckets[28]->lstart = 259;
+  buckets[28]->lbits = 5;
 
   buckets[29]->dstart = 24577;
   buckets[29]->dbits = 13;
-  
-  buckets[29]->lstart = 0;
+  buckets[29]->lstart = 290;
   buckets[29]->lbits = 0;
 
   return buckets;
 }
 
-void PurgeBuckets(LLBucket **buckets){
-  for(unsigned int i=0;i<LZBUCKETS;i++){
-    if(buckets[i])
-      free(buckets[i]);
-  }
+void free_buckets(LLBucket **buckets){
+  for(unsigned int i=0;i<LZBUCKETS;i++)
+    free(buckets[i]);
   free(buckets);
 }
 
+
+LLBucket *length_bucket(unsigned int length, LLBucket **buckets){
+  LLBucket *lb = 0;
+  for(unsigned int i=0;i<LZBUCKETS-1;i++){
+    if(!lb && length <= buckets[i]->lstart)
+      lb = buckets[i];
+  }
+
+  if(!lb)
+    lb = buckets[LZBUCKETS-1];
+
+  return lb;
+}
+
+LLBucket *distance_bucket(unsigned int distance, LLBucket **buckets){
+  LLBucket *db = 0;
+  for(unsigned int i=0;i<LZBUCKETS;i++){
+    if(!db && distance <= buckets[i]->dstart)
+      db = buckets[i];
+  }
+
+  if(!db)
+    db = buckets[LZBUCKETS-1];
+
+  return db;
+}
 
 
 #endif

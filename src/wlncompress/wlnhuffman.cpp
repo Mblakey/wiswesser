@@ -188,7 +188,7 @@ Node *ConstructHuffmanTree(PQueue *priority_queue){
   }
 }
 
-void DeleteHuffmanTree(Node *root){
+void free_huffmantree(Node *root){
   if(!root)
     return;
 
@@ -605,7 +605,7 @@ bool encode_file( FILE *ifp, FSMAutomata *wlnmodel,
 
     
       memset(code,0,CSIZE);
-      DeleteHuffmanTree(htree); 
+      free_huffmantree(htree); 
 
       for(edge=curr->transitions;edge;edge=edge->nxt){
         if(edge->ch == ch){
@@ -734,7 +734,7 @@ bool decode_file( FILE *ifp, FSMAutomata *wlnmodel,
         prev2 = USED; // stops this overlapping
 
         // do not need the tree for this
-        DeleteHuffmanTree(tree_root);
+        free_huffmantree(tree_root);
         tree_root = 0;
       }
         
@@ -756,12 +756,12 @@ bool decode_file( FILE *ifp, FSMAutomata *wlnmodel,
 
           if(!ch_read){
             if(curr == wlnmodel->root){
-              DeleteHuffmanTree(tree_root);
+              free_huffmantree(tree_root);
               return true; 
             }
             else{
               fprintf(stderr,"Error: reading null byte not at fsm root\n");
-              DeleteHuffmanTree(tree_root);
+              free_huffmantree(tree_root);
               return false;
             }
           }
@@ -784,7 +784,7 @@ bool decode_file( FILE *ifp, FSMAutomata *wlnmodel,
 
           }
           // should free all?
-          DeleteHuffmanTree(tree_root);
+          free_huffmantree(tree_root);
           tree_root = 0;
         }
       }
