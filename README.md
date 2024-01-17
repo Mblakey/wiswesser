@@ -8,7 +8,7 @@ This is Linux and MacOS software only. <br>
 
 Note: This project is solely created by Michael as part of his PhD work, if you are interested using the project, or find any bugs or issues, reporting them would be extremely helpful. 
 
-<img src="./notes/intro_wln.png" width="800">
+<img src="./docs/intro_wln.png" width="800">
 
 
 ## Requirements
