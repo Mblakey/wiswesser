@@ -14,8 +14,6 @@
 #define CSIZE 64
 
 unsigned int opt_mode = 0;
-unsigned int opt_verbose = false;
-
 const char *input;
 
 
@@ -91,6 +89,8 @@ unsigned int ScoreBackReference(  unsigned int length, unsigned int distance,
     return saved;
 }
 
+
+
 bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
   unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE); 
@@ -98,6 +98,7 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
   bool reading_data = true;
   unsigned char ch = 0;
+  unsigned int molecules = 0;
 
   Node *htree = 0;
   PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
@@ -192,8 +193,9 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
     }
 
     if(best_length && best_distance){
+
       fprintf(stderr,"length: %d, distance: %d\n",best_length,best_distance);
-      
+
       // here i need to encode, best length, bits little endian, best distance, bits little endian
       // move the FSM through the shifts and increase the adaptive count for those edges
 
@@ -209,6 +211,11 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
       
       // write code for length bucket
       unsigned int clen = WriteHuffmanCode(lz_tree,lb->symbol,code);
+      if(!clen){
+        fprintf(stderr,"Error: length code generation\n");
+        return false;
+      }
+
       for(unsigned int c = 0;c<clen;c++)
         bitstream.push_back(code[c]);
       memset(code,0,CSIZE);
@@ -223,6 +230,12 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
       // repeat for the distance symbol
       clen = WriteHuffmanCode(lz_tree,db->symbol,code);
+      if(!clen){
+        fprintf(stderr,"Error: distance code generation\n");
+        return false;
+      }
+        
+
       for(unsigned int c = 0;c<clen;c++)
         bitstream.push_back(code[c]);
       memset(code,0,CSIZE);
@@ -243,7 +256,10 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
             //edge->c++;
             break;
           }
-        }        
+        }
+
+        if(buffer[BACKREFERENCE] == '\n')
+          molecules++;        
 
         LeftShift(buffer,BUFFSIZE,1);
         if(reading_data){
@@ -257,6 +273,11 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
     else{
 
       unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
+      if(!clen){
+        fprintf(stderr,"Error: literal code generation - line %d\n",molecules);
+        return false;
+      }
+
       for(unsigned int c = 0;c<clen;c++)
         bitstream.push_back(code[c]);
       
@@ -269,6 +290,9 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
           break;
         }
       }
+
+      if(buffer[BACKREFERENCE] == '\n')
+        molecules++;
 
       LeftShift(buffer,BUFFSIZE,1);
       if(reading_data){
@@ -293,6 +317,8 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
   free_heap(priority_queue);
   free(buffer);
 
+
+  fprintf(stderr,"%d molecules compressed\n",molecules);
   return true;
 }
 
@@ -519,11 +545,10 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "wlnhuffman <options> <input> > <out>\n");
+  fprintf(stderr, "wlnzip <options> <input> > <out>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c          compress input\n");
   fprintf(stderr, "  -d          decompress input\n");
-  fprintf(stderr, "  -v          verbose debugging statements on\n");
   exit(1);
 }
 
@@ -549,10 +574,6 @@ static void ProcessCommandLine(int argc, char *argv[])
 
         case 'd':
           opt_mode = 2; 
-          break;
-
-        case 'v':
-          opt_verbose = true;
           break;
 
         default:

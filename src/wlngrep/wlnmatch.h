@@ -75,6 +75,9 @@ void display_match(char *line, unsigned int spos, unsigned int epos){
 /* matches the longest possible word using DFA
 - 1 matches only, 2 - exact match only, 3- return all matches */
 unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highlight, unsigned int opt_match_option=0, bool count=false){
+  
+  enum match_mode {WHOLE_LINE=0,MATCH_ONLY=1,EXACT=2,INVERSE=3};
+  
   char line[BUFF_SIZE] = {0};
   strcpy(line,inp);
   unsigned int len = strlen(line);
@@ -100,8 +103,8 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
     }
     else{
 
-      if(opt_match_option == 2){
-        if(spos == 0 && (!inp_char || inp_char == '\n')){
+      if(opt_match_option == EXACT){
+        if(spos == 0 && (inp_char == '\n')){
           if(count)
             match++;
           else if(highlight)
@@ -110,8 +113,8 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
             display_line(line);
         }
       }
-      else if(opt_match_option == 3){
-        if(spos != 0 && (!inp_char || inp_char == '\n')){
+      else if(opt_match_option == INVERSE){
+        if(spos != 0 && (inp_char == '\n')){
           if(count)
             match++;
           else if(highlight)
@@ -131,7 +134,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
             display_highlighted_line(line,spos,apos+1);
         }
         else{
-          if(opt_match_option==1)
+          if(opt_match_option==MATCH_ONLY)
             display_match(line,spos,apos+1);
           else
             display_line(line);
