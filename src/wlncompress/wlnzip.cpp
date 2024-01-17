@@ -193,9 +193,6 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
     }
 
     if(best_length && best_distance){
-
-      fprintf(stderr,"length: %d, distance: %d\n",best_length,best_distance);
-
       // here i need to encode, best length, bits little endian, best distance, bits little endian
       // move the FSM through the shifts and increase the adaptive count for those edges
 
