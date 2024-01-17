@@ -93,7 +93,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
 
   while(n <= len){
 
-    if((inp_char && inp_char != '\n') && state->access[inp_char]){
+    if(inp_char && state->access[inp_char]){
       state = state->access[inp_char];
       if(spos == -1)
         spos = n;
@@ -104,7 +104,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
     else{
 
       if(opt_match_option == EXACT){
-        if(spos == 0 && (inp_char == '\n')){
+        if(spos == 0 && !inp_char && state->accept){
           if(count)
             match++;
           else if(highlight)
@@ -113,8 +113,8 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
             display_line(line);
         }
       }
-      else if(opt_match_option == INVERSE){
-        if(spos != 0 && (inp_char == '\n')){
+      else if(opt_match_option == INVERSE && state->accept){
+        if(spos != 0 && !inp_char){
           if(count)
             match++;
           else if(highlight)
