@@ -13,6 +13,8 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
+#define CSIZE 64
+
 unsigned int expansion_bits = 0;
 
 unsigned int opt_mode = 0;
@@ -534,7 +536,6 @@ bool encode_file( FILE *ifp, FSMAutomata *wlnmodel,
 
   std::string cstream;
   unsigned int stream_bits = 0;
-  unsigned int CSIZE = 128;
 
   curr = wlnmodel->root;
   unsigned char buffer[BUFF_SIZE] = {0};
