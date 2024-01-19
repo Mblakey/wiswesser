@@ -1,6 +1,6 @@
 # The Wiswesser Line Notation (WLN) Project 
 
-* WLN Parser               - covert WLN to smiles, inchi, mol files and other chemical line notation (CLN) formats. This uses the OpenBabel chemical library, with the hope the code will be merged in.  <br>
+* WLN Parser               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
 * WLN FSM                  - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
 * WLN Compresser      - compress WLN strings using markov decision processes. <br>
 * WLN Generator         - reinforcement learning approach for fast generation of target molecule descriptors. <br>
