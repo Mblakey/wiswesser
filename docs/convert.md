@@ -39,6 +39,8 @@ writewln <options> -i<format> -s 'string'
 
 The following are sections from Elbert G. Smiths rule book that were used to create the wln reader. Note that not all chapters are listed here, only the ones where compound types were introduced.
 
+Please note that the "MANTRAP" rules, are not officialy given in either volume of the offical Wiswesser manuals, as such, implementation is tricky at best. For this parser, they will not be supported. 
+
 | Rule | Read | Write |
 | ---- | ---- | ---- |
 |Unbranched and Branched Chains | :heavy_check_mark: | :heavy_check_mark: | 
