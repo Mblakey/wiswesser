@@ -29,10 +29,10 @@ the library to the parser in cmake. Babel files will be installed to `external`.
 
 This repository contains a broad range of functionality using WLN notation for various operations. As such, please read the individual `README.txt` files for the required area. <br>
 
-* [WLN Conversion - Read and Write](./notes/convert.md) <br>
-* [WLN Compression - Lossless Compress/Decompress](./notes/compress.md)<br>
-* [WLN Extract - FSM wlngrep](./notes/extract.md) <br>
-* [WLN Generation - AI-less reinforcement generation](./notes/generate.md) <br>
+* [WLN Conversion - Read and Write](./docs/convert.md) <br>
+* [WLN Compression - Lossless Compress/Decompress](./docs/compress.md)<br>
+* [WLN Extract - FSM wlngrep](./docs/extract.md) <br>
+* [WLN Generation - AI-less reinforcement generation](./docs/generate.md) <br>
 
 
 ## Unit Testing
