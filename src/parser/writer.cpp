@@ -130,12 +130,18 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
   
-  std::string res;
+  bool res;
   OBMol mol;
   OBConversion conv;
 
   conv.SetInFormat(format);
   res = conv.ReadString(&mol,cli_inp);
+
+  if(!res){
+    fprintf(stderr,"Error: failed to read incoming notation\n");
+    return 1; 
+  }
+
 
   std::string buffer;
   buffer.reserve(1000);
