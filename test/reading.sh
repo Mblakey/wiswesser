@@ -66,7 +66,7 @@ main(){
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
 
 
-    NEW_SMILES=$($PARSE -osmi -s "${WLN}" 2> /dev/null) 
+    NEW_SMILES=$($PARSE -osmi "${WLN}" 2> /dev/null) 
 
     if [ -z $NEW_SMILES ]; then
       ((MISSED++));

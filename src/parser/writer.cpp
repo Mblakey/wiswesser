@@ -28,7 +28,7 @@ bool opt_modern = false;
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "writewln <options> -i<format> -s <input (escaped)>\n");
+  fprintf(stderr, "writewln <options> -i<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -h                    show the help for executable usage\n");
   fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
@@ -49,6 +49,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 {
   const char *ptr = 0;
   int i;
+  unsigned int j = 0;
 
   cli_inp = (const char *)0;
   format = (const char *)0;
@@ -87,17 +88,6 @@ static void ProcessCommandLine(int argc, char *argv[])
             DisplayUsage();
           }
 
-        case 's':
-          if(i+1 >= argc){
-            fprintf(stderr,"Error: must add string after -s\n");
-            DisplayUsage();
-          }
-          else{
-            cli_inp = argv[i+1];
-            i++;
-          }
-          break;
-
         case 'm':
           opt_modern = true;
           break;
@@ -106,6 +96,19 @@ static void ProcessCommandLine(int argc, char *argv[])
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
       }
+    }
+    else{
+      switch (j)
+      {
+      case 0:
+        cli_inp = ptr;
+        break;
+      
+      default:
+        fprintf(stderr,"Error: wln string already set - %s\n",cli_inp);
+        DisplayUsage();
+      }
+      j++;
     }
   }
 

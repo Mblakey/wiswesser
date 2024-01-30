@@ -2,8 +2,7 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-NEW="${SCRIPT_DIR}/../bin/readwln"
-OLD="${SCRIPT_DIR}/../bin/OLD_readwln"
+PARSE="${SCRIPT_DIR}/../bin/readwln"
 EXTRACT="${SCRIPT_DIR}/../bin/wlngrep"
 COMP="${SCRIPT_DIR}/../bin/obcomp"
 MODE=""
@@ -77,15 +76,15 @@ main(){
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
 
     if [ $OPT_EXACT -eq 1 ]; then
-      pWLN=$($EXTRACT -x -s "${WLN}"  2> /dev/null)
+      pWLN=$($EXTRACT -x "${WLN}"  2> /dev/null)
       if [ -z "$pWLN" ]; then
         echo -ne "\r"
         continue
       fi;
     fi;
 
-    NEW_SMILES=$($NEW -osmi -c -s "${WLN}" 2> /dev/null)
-    OLD_SMILES=$($OLD -osmi -s "${WLN}" 2> /dev/null) 
+    NEW_SMILES=$($PARSE -osmi "${WLN}" 2> /dev/null)
+    OLD_SMILES=$($PARSE --old -osmi "${WLN}" 2> /dev/null) 
     
     SAME_NEW=""
     SAME_OLD=""

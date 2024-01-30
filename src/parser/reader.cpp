@@ -19,14 +19,15 @@
 
 const char *cli_inp;
 const char *format; 
-
+bool opt_old = false;
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "readwln <options> -o<format> -s <input (escaped)>\n");
+  fprintf(stderr, "readwln <options> -o<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
+  fprintf(stderr, " --old                use the old wln parser (nextmove software)\n");
   exit(1);
 }
 
@@ -46,6 +47,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 
   const char *ptr = 0;
   int i;
+  unsigned int j = 0;
 
   cli_inp = (const char *)0;
   format = (const char *)0;
@@ -59,48 +61,65 @@ static void ProcessCommandLine(int argc, char *argv[])
     ptr = argv[i];
 
     if (ptr[0] == '-' && ptr[1]){
-      switch (ptr[1])
+
+      if(ptr[1] >= 'A' && ptr[1] <= 'Z' && !j){
+        cli_inp = ptr;
+        j++; 
+      }
+    
+      else{
+        switch (ptr[1])
+        {
+
+        case 'h':
+          DisplayHelp();
+
+        case 'o':
+          if (!strcmp(ptr, "-osmi"))
+          {
+            format = "smi";
+            break;
+          }
+          else if (!strcmp(ptr, "-oinchi"))
+          {
+            format = "inchi";
+            break;
+          }
+          else if (!strcmp(ptr, "-ocan"))
+          {
+            format = "can";
+            break;
+          }
+          else{
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can']\n");
+            DisplayUsage();
+          } 
+        
+        case '-':
+          if(!strcmp(ptr, "--old")){
+            opt_old = true;
+            break;
+          }
+          
+
+        default:
+          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
+          DisplayUsage();
+        }
+      }
+    }
+    else{
+      switch (j)
       {
-
-      case 'h':
-        DisplayHelp();
-
-      case 'o':
-        if (!strcmp(ptr, "-osmi"))
-        {
-          format = "smi";
-          break;
-        }
-        else if (!strcmp(ptr, "-oinchi"))
-        {
-          format = "inchi";
-          break;
-        }
-        else if (!strcmp(ptr, "-ocan"))
-        {
-          format = "can";
-          break;
-        }
-        else{
-          fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can']\n");
-          DisplayUsage();
-        } 
-
-      case 's':
-        if(i+1 >= argc){
-          fprintf(stderr,"Error: must add string after -s\n");
-          DisplayUsage();
-        }
-        else{
-          cli_inp = argv[i+1];
-          i++;
-        }
+      case 0:
+        cli_inp = ptr;
         break;
-
+      
       default:
-        fprintf(stderr, "Error: unrecognised input %s\n", ptr);
+        fprintf(stderr,"Error: wln string already set - %s\n",cli_inp);
         DisplayUsage();
       }
+      j++;
     }
   }
 
@@ -123,8 +142,15 @@ int main(int argc, char *argv[])
   
   std::string res;
   OBMol mol;
-  if(!ReadWLN(cli_inp,&mol))
-    return 1;
+
+  if(opt_old){
+    if(!NMReadWLN(cli_inp,&mol))
+      return 1;
+  }
+  else{
+    if(!ReadWLN(cli_inp,&mol))
+      return 1;
+  }
   
   OBConversion conv;
   conv.AddOption("h",OBConversion::OUTOPTIONS);

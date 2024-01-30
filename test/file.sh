@@ -49,9 +49,9 @@ main(){
     ((LINE++));
     OUT=""
     if [ $MODE -eq 1 ]; then
-      OUT=$($READ -osmi -s "${ENTRY}" 2> /dev/null)
+      OUT=$($READ -osmi "${ENTRY}" 2> /dev/null)
     elif [ $MODE -eq 2 ]; then 
-      OUT=$($WRITE -ismi -s "${ENTRY}" 2> /dev/null)
+      OUT=$($WRITE -ismi "${ENTRY}" 2> /dev/null)
     fi; 
 
     if [ -n "$OUT" ]; then

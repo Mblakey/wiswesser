@@ -85,7 +85,7 @@ main(){
     SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
 
-    NEW_WLN=$($WRITER -ismi -s "${SMILES}" 2> /dev/null) # chembl is canonical smiles
+    NEW_WLN=$($WRITER -ismi "${SMILES}" 2> /dev/null) # chembl is canonical smiles
 
     if [ -z "$NEW_WLN" ]; then
       echo -ne "$WLN != any new WLN string\t${SMILES}\n$"
@@ -98,7 +98,7 @@ main(){
     fi;
 
     NEW_WLN="$(sed -e 's/[[:space:]]*$//' <<<${NEW_WLN})"
-    NEW_SMILES=$($READER -osmi -s "${NEW_WLN}" 2> /dev/null) 
+    NEW_SMILES=$($READER -osmi "${NEW_WLN}" 2> /dev/null) 
     
     if [ -z "$NEW_SMILES" ]; then
       echo "$NEW_WLN != anything $SMILES"

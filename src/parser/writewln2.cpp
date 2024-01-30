@@ -511,6 +511,14 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
       unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
       unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
 
+#define EXPERIMENT 1
+#if EXPERIMENT
+      fprintf(stderr,"%s - score: %d, fsum: %d\n",candidate_string.c_str(),score,fsum);
+#endif
+      
+      
+      
+
       if(score < lowest_score){
         lowest_sum = fsum;
         lowest_score = score; 
@@ -616,6 +624,10 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
             unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
            
+#if EXPERIMENT
+      fprintf(stderr,"%s - score: %d, fsum: %d\n",candidate_string.c_str(),score,fsum);
+#endif
+
             if(score < lowest_score){ // rule 30(d and e).
               lowest_score = score;
               lowest_fsum = fsum;
