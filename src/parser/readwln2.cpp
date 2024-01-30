@@ -326,9 +326,12 @@ struct WLNBlossom{
       int j = (A.size() % 2 == 1 ? std::find(b[z].begin(), b[z].end(), g[z][A.back()]) - b[z].begin() : 0);
       int k = b[z].size();
       int dif = (A.size() % 2 == 0 ? i % 2 == 1 : j % 2 == 0) ? 1 : k - 1;
-      while(i != j) {
+      
+      unsigned int safety = 10000;
+      while(i != j && safety > 0) {
         vx.push_back(b[z][i]);
         i = (i + dif) % k;
+        safety--;
       }
       vx.push_back(b[z][i]);
     }
@@ -1633,6 +1636,9 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   }
   else{
     binded_symbol = head->previous;
+    if(!binded_symbol)
+      return false;
+
     WLNEdge *e = 0; 
     for(e=binded_symbol->bonds;e;e=e->nxt){
       if(e->child == head)
@@ -3590,7 +3596,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           i++;
         }
 
-        curr = create_carbon_chain(curr,std::stoi(int_sequence),graph);
+        int carbon_len = isNumber(int_sequence);
+        if(carbon_len < 0){
+          fprintf(stderr,"Error: non-numeric value entered for carbon length\n");
+          Fatal(i);
+        }
+        else if (carbon_len > 100){
+          fprintf(stderr,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?\n");
+          Fatal(i);
+        }
+        else
+          curr = create_carbon_chain(curr,carbon_len,graph);
+        
         if(!curr){
           fprintf(stderr,"Error: error in creating carbon chain, raise algorithm issue\n");
           return Fatal(i);
@@ -4487,6 +4504,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
                 break;
               }
             }
+
+            if(!branch_stack.ring)
+              return Fatal(i);
+
             unsigned char next_loc = branch_stack.ring->locants_ch[shift]+1;
             if(!next_loc)
               next_loc = 'A'; // must of done the full loop
