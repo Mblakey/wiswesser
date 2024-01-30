@@ -231,7 +231,7 @@ int main(int argc, char *argv[])
 
 
 
-  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE,REASONABLE); // build the model 
+  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE,REASONABLE,false); // build the model 
 
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     if(wlnmodel->states[i]->accept)

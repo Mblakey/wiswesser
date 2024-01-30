@@ -441,7 +441,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 }
 
 /* uses merges to be more specific on ring locant block */
-void BuildWLNFSM2(FSMAutomata *wln){
+void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
 
   wln->AddState(); // create a root that points with epsiolon transitions to each block
 
@@ -561,23 +561,29 @@ void BuildWLNFSM2(FSMAutomata *wln){
   for(unsigned int i=0;i<wln->num_states;i++){
     if(wln->states[i]->accept){
       wln->AddTransition(wln->states[i],ion,' ');
-       wln->AddTransition(wln->states[i],charge,' ');
+    
+      if(charges_on)
+        wln->AddTransition(wln->states[i],charge,' ');
+    
       wln->AddTransition(wln->states[i],benzene,'R');// this will jump out of acyclic
     }
   }
   wln->AddTransition(ion,wln->root,'&'); 
-  wln->AddTransition(charge,charge_open,'&'); 
+  
+  if(charges_on){
+    wln->AddTransition(charge,charge_open,'&'); 
 
-  for(unsigned char i='0';i<='9';i++){
-    wln->AddTransition(charge_open,charge_positive,i); 
-    wln->AddTransition(charge_seperate,charge_negative,i); 
-    
-    wln->AddTransition(charge_positive,charge_positive,i); 
-    wln->AddTransition(charge_negative,charge_negative,i); 
+    for(unsigned char i='0';i<='9';i++){
+      wln->AddTransition(charge_open,charge_positive,i); 
+      wln->AddTransition(charge_seperate,charge_negative,i); 
+      
+      wln->AddTransition(charge_positive,charge_positive,i); 
+      wln->AddTransition(charge_negative,charge_negative,i); 
+    }
+
+    wln->AddTransition(charge_positive,charge_seperate,'/'); 
+    wln->AddTransition(charge_negative,charge,' '); 
   }
-
-  wln->AddTransition(charge_positive,charge_seperate,'/'); 
-  wln->AddTransition(charge_negative,charge,' '); 
 
   return;
 }
@@ -585,12 +591,12 @@ void BuildWLNFSM2(FSMAutomata *wln){
 // ion charge are chunks
 
 
-FSMAutomata * CreateWLNDFA(unsigned int node_size, unsigned int edge_size){
+FSMAutomata * CreateWLNDFA(unsigned int node_size, unsigned int edge_size, bool charges_on=true){
   FSMAutomata *wln = new FSMAutomata(node_size,edge_size);
   FSMAutomata *wlnDFA = 0;
   FSMAutomata *wlnMinimal = 0;
 
-  BuildWLNFSM2(wln);
+  BuildWLNFSM2(wln,charges_on);
   wlnDFA = ConvertToDFA(wln);
   wlnMinimal = MinimiseDFA(wlnDFA);
   

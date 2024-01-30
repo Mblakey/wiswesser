@@ -59,11 +59,14 @@ struct WLNRing;
 struct WLNGraph;
 struct ObjectStack;
 
-bool isNumber(const std::string& str)
+int isNumber(const std::string& str)
 {
   char* ptr;
-  strtol(str.c_str(), &ptr, 10);
-  return *ptr == '\0';
+  unsigned int val = strtol(str.c_str(), &ptr, 10);
+  if(*ptr != '\0')
+    return -1;
+  else
+    return val;
 }
 
 unsigned char static int_to_locant(unsigned int i){
@@ -2381,12 +2384,13 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 }
               }
 
-              if(!isNumber(str_buffer)){
+              int big_ring = isNumber(str_buffer);
+              if(big_ring < 0){
                 fprintf(stderr,"Error: non numeric value entered as ring size\n");
                 return Fatal(start+i);
               }
 
-              ring_components.push_back({std::stoi(str_buffer),positional_locant}); //big ring
+              ring_components.push_back({big_ring,positional_locant}); //big ring
               positional_locant = 'A';
               locant_attached = false;
             }
