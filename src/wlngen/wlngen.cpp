@@ -28,6 +28,7 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 #include "parser.h"
+#include "descriptor.h"
 
 unsigned int gen_length = 5;
 unsigned int gen_count = 10; 

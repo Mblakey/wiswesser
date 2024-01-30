@@ -1,0 +1,50 @@
+digraph WLNdigraph {
+  rankdir = LR;
+  0[shape=circle,label="O",color=green];
+  0 -> 11
+  1[shape=circle,label="C",color=green];
+  1 -> 2
+  1 -> 6
+  1 -> 10
+  1 -> 15
+  2[shape=circle,label="C",color=green];
+  2 -> 3 [color=red]
+  2 -> 11 [color=red]
+  3[shape=circle,label="C",color=green];
+  3 -> 4
+  3 -> 14 [color=red]
+  4[shape=circle,label="C",color=green];
+  4 -> 5
+  5[shape=circle,label="C",color=green];
+  5 -> 6
+  6[shape=circle,label="C",color=green];
+  6 -> 7
+  7[shape=circle,label="C",color=green];
+  7 -> 8
+  7 -> 8
+  8[shape=circle,label="C",color=green];
+  8 -> 9
+  9[shape=circle,label="C",color=green];
+  9 -> 10
+  9 -> 19
+  10[shape=circle,label="C",color=green];
+  10 -> 0
+  11[shape=circle,label="C",color=green];
+  11 -> 12 [color=red]
+  12[shape=circle,label="C",color=green];
+  12 -> 13 [color=red]
+  12 -> 20
+  13[shape=circle,label="C",color=green];
+  13 -> 14 [color=red]
+  14[shape=circle,label="C",color=green];
+  15[shape=circle,label="1"];
+  15 -> 16
+  16[shape=circle,label="1"];
+  16 -> 17
+  17[shape=circle,label="N"];
+  17 -> 18
+  17 -> 5
+  18[shape=circle,label="1"];
+  19[shape=circle,label="Q"];
+  20[shape=circle,label="Q"];
+}
