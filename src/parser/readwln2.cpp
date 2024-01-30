@@ -28,6 +28,7 @@ GNU General Public License for more details.
 #include <utility> // std::pair
 #include <iterator>
 #include <sstream>
+#include <stdexcept>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -48,7 +49,7 @@ using namespace OpenBabel;
 #define REASONABLE 1024
 
 // --- DEV OPTIONS  ---
-static bool opt_debug = true;
+static bool opt_debug = false;
 static bool opt_correct = false; 
 
 const char *wln_string;
@@ -58,6 +59,12 @@ struct WLNRing;
 struct WLNGraph;
 struct ObjectStack;
 
+bool isNumber(const std::string& str)
+{
+  char* ptr;
+  strtol(str.c_str(), &ptr, 10);
+  return *ptr == '\0';
+}
 
 unsigned char static int_to_locant(unsigned int i){
   return i + 64;
@@ -461,7 +468,7 @@ struct ObjectStack{
 
   bool peek(){
     if(!size){
-      fprintf(stderr,"Error: peeking empty ring stack\n");
+      fprintf(stderr,"Error: peeking empty stack\n");
       return false;
     }
     else{
@@ -472,6 +479,11 @@ struct ObjectStack{
   }
 
   bool pop(){
+    if(!size){
+      fprintf(stderr,"Error: popping empty stack\n");
+      return false;
+    }
+
     stack.pop_back();
     size--;
 
@@ -482,7 +494,6 @@ struct ObjectStack{
       return false;
     
     for (int i=size-1;i>-1;i--){
-      
       if(!ring && stack[i].first)
         ring = stack[i].first;
       
@@ -533,8 +544,11 @@ struct ObjectStack{
     size = 0;
   }
 
-  std::pair<WLNRing*,WLNSymbol*> & top(){
-    return stack.back();
+  std::pair<WLNRing*,WLNSymbol*> top(){
+    if(stack.empty())
+      return {0,0};
+    else
+      return stack.back();
   }
 
   // cleans branches
@@ -1339,8 +1353,7 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
     top = branch_stack.top().second;
     if(!top)
       return top; // only iterate to the next
-    
-    if(top->ch == 'Y' && count_children(top)==3)
+    else if(top->ch == 'Y' && count_children(top)==3)
       branch_stack.pop();
     else if(top->num_edges == top->allowed_edges)
       branch_stack.pop();
@@ -1962,6 +1975,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           highest_loc = ring->locants_ch[path];
         else{
           fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c(%d)'\n",ring->locants_ch[path],ring->locants_ch[path]);
+          free(ring_path);
           return false;
         }
       }
@@ -2044,9 +2058,11 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         }
 
         WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
-        if(!edge)
+        if(!edge){
+          free(ring_path);
           return false;
-        
+        }
+         
         allowed_connections[bind_1]--;
         if(allowed_connections[bind_2])
           allowed_connections[bind_2]--;
@@ -2364,7 +2380,12 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                   return Fatal(start+i);
                 }
               }
-            
+
+              if(!isNumber(str_buffer)){
+                fprintf(stderr,"Error: non numeric value entered as ring size\n");
+                return Fatal(start+i);
+              }
+
               ring_components.push_back({std::stoi(str_buffer),positional_locant}); //big ring
               positional_locant = 'A';
               locant_attached = false;
@@ -2519,7 +2540,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             pseudo_locants.push_back(ch);
           else{
             fprintf(stderr,"Error: unhandled locant rule\n");
-            Fatal(start+i);
+            return Fatal(start+i);
           }
 
           positional_locant = ch; // use for look back
@@ -3258,8 +3279,10 @@ bool AdjMatrixBFS(WLNRing *ring, unsigned int src, unsigned int sink, int *path)
     for(unsigned int v=0;v<ring->rsize;v++){
       if(!visited[v] && ring->adj_matrix[u * ring->rsize + v] > 0){
         path[v] = u;
-        if(v == sink)
+        if(v == sink){
+          free(visited);
           return true;
+        }
 
         queue.push_front(v);
       }
@@ -3314,8 +3337,6 @@ bool WLNKekulize(WLNGraph &graph){
   
 
       if(IsBipartite(wring) && !WLNRingBPMaxMatching(wring,MatchR)){
-        
-        
         free(MatchR);
         MatchR = 0;
         return false;
@@ -3377,12 +3398,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 {
   
   // keep the memory alive
-
   if (opt_debug)
     fprintf(stderr, "Parsing WLN notation: %s\n",wln_ptr);
 
   ObjectStack branch_stack;   // access to both rings and symbols
-  branch_stack.reserve(100);  // reasonable size given
+  branch_stack.reserve(512);  // reasonable size given
 
   std::vector<std::pair<unsigned int, int>> ionic_charges;
   
@@ -4457,7 +4477,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               if (e->order == 2){
                 e = saturate_edge(e,1);
                 if(!e)
-                  Fatal(i);
+                  return Fatal(i);
 
                 shift = e->child;
                 break;

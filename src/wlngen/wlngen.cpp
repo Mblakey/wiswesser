@@ -71,17 +71,22 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
 }
 
 
+bool Validate(const char * wln_str){
+  fprintf(stderr,"testing: %s\n",wln_str);
+  OBMol mol;
+  if(!ReadWLN(wln_str,&mol))
+    return false;
+  return true;
+}
+
 double RewardFunction(const char *wln_str){
   
-  return 0.0;
-  
   OBMol mol;
-  ReadWLN(wln_str,&mol);
-  
+  double logp = 0.0;
   OBDescriptor* pDesc = OBDescriptor::FindType("logP");
   if(pDesc)
-    std::cout << "logP  " << pDesc->Predict(&mol) << std::endl;
-
+    logp = pDesc->Predict(&mol); 
+  
   return 0.0;
 };
 
@@ -111,15 +116,16 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
     if(e[chosen]->ch == '\n'){
 
       if(gen_length <= length){ // only accepts will have new line, ensures proper molecule
-        count++;
         length = 0;
         state = wlnmodel->root;
 
-        std::cout << wlnstr << std::endl;
-        
         // in beta, the faster i make readWLN the better this is
-        RewardFunction(wlnstr.c_str());
-        
+        if(Validate(wlnstr.c_str())){
+          std::cout << wlnstr << std::endl;
+          count++;
+          // double reward = RewardFunction(wlnstr.c_str());
+        }
+    
         
         wlnstr.clear();
         path.clear(); // can assign learning here
