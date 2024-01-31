@@ -35,10 +35,9 @@ static void DisplayHelp()
 {
   fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
   fprintf(stderr, " This parser reads and evaluates wiswesser\n"
-                  " line notation (wln), the parser is native\n"
-                  " and will can return either a reformatted string*\n"
-                  " *if rules do not parse exactly, and the connection\n"
-                  " table which can be used in other libraries\n");
+                  " line notation (wln), the parser is native C\n"
+                  " with a plug in function to OpenBabel\n"
+        );
   DisplayUsage();
 }
 

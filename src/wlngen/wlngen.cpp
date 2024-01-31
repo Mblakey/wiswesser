@@ -9,8 +9,6 @@
 #include <map>
 #include <vector>
 #include <random>
-#include <chrono>
-
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -71,29 +69,71 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
 }
 
 
-bool Validate(const char * wln_str){
+bool Validate(const char * wln_str, OBMol *mol){
   fprintf(stderr,"testing: %s\n",wln_str);
-  OBMol mol;
-  if(!ReadWLN(wln_str,&mol))
+  if(!ReadWLN(wln_str,mol))
     return false;
   return true;
 }
 
-double RewardFunction(const char *wln_str){
-  
-  OBMol mol;
-  double logp = 0.0;
+double RewardFunction(const char *wln_strm, OBMol *mol){
   OBDescriptor* pDesc = OBDescriptor::FindType("logP");
   if(pDesc)
-    logp = pDesc->Predict(&mol); 
-  
-  return 0.0;
+    return pDesc->Predict(mol); 
+  else
+    return 0.0;
 };
 
-bool StatisticalGenerate(FSMAutomata *wlnmodel){
+
+/* 
+--- notes ---
+
+Epsilon-greedy policy - either take an action based on the qtable
+values, (exploitation), or the random FSM values, (exploration).
+
+I think really the Q table needs to be on the edges per state, since
+two transitions could go to the same state, but have wildly different
+outcomes to the final string. 
+
+logic might follow: mealey Q-learning machine? hmmm
+
+dummy scoring:
+
++1 = valid WLN
++2 = unique
++5 = in target range
+
+From a good Q table, rescale the probabilities, some might be zero which
+means transitions are removed? Generate compounds
+
+
+Mode collapse - not a black box model so there will be methods to handle 
+                this
+*/
+
+
+/* watch for overflows on the unsigned int, floats MAY be better 
+for incremental rewards that level off */
+void debug_Qtable(FSMAutomata *wlnmodel, std::map<FSMEdge*,unsigned int> &Qtable){
+  for(unsigned int i=0;i<wlnmodel->num_edges;i++){
+    FSMEdge *e = wlnmodel->edges[i]; 
+    fprintf(stderr,"%d - %d\n",e->id,Qtable[e]);
+  }
+}
+
+/* uses Q learning to generate compounds from the language FSM
+as a markov decision process, WLN is small enough that with 20
+characters a large scope of chemical space can be covered. */
+bool QGenerateWLN(FSMAutomata *wlnmodel){
   unsigned int count = 0; 
   unsigned int length = 0; 
 
+  // set up a qtable for each state
+  std::map<FSMEdge*,unsigned int> Qtable; 
+  for(unsigned int i=0;i<wlnmodel->num_edges;i++)
+    Qtable[wlnmodel->edges[i]] = 0;
+
+  
   std::random_device rd;
   std::mt19937 gen(rd());
 
@@ -120,10 +160,17 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
         state = wlnmodel->root;
 
         // in beta, the faster i make readWLN the better this is
-        if(Validate(wlnstr.c_str())){
-          std::cout << wlnstr << std::endl;
+        
+        OBMol mol;
+        if(Validate(wlnstr.c_str(),&mol)){
           count++;
-          // double reward = RewardFunction(wlnstr.c_str());
+          //fprintf(stdout,"%s = %f\n",wlnstr.c_str(),RewardFunction(wlnstr.c_str(),&mol));
+        
+          // go back through all the edges and give them the +1 score
+          for(FSMEdge *e:path){
+            Qtable[e]++;
+          }
+        
         }
     
         
@@ -146,7 +193,7 @@ bool StatisticalGenerate(FSMAutomata *wlnmodel){
     state = e[chosen]->dwn;
   }
 
-
+  //debug_Qtable(wlnmodel,Qtable);
   return true;
 }
 
@@ -229,8 +276,6 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
 
-
-
   FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE,REASONABLE,false); // build the model 
 
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
@@ -251,27 +296,7 @@ int main(int argc, char *argv[])
     fclose(tfp);
   }
 
-  // use for timing only
-  if(opt_verbose){
-    using std::chrono::high_resolution_clock;
-    using std::chrono::duration_cast;
-    using std::chrono::duration;
-    using std::chrono::milliseconds;
-
-    auto start = high_resolution_clock::now();
-    StatisticalGenerate(wlnmodel);
-    auto stop = high_resolution_clock::now();
-  
-      // Get duration. Substart timepoints to 
-      // get duration. To cast it to proper unit
-      // use duration cast method
-    auto ms_int = duration_cast<milliseconds>(stop - start);
-
-    fprintf(stderr,"\n%d molecules generated in %d ms\n",gen_count,ms_int.count());
-  }
-  else
-    StatisticalGenerate(wlnmodel);
-  
+  QGenerateWLN(wlnmodel);
   delete wlnmodel;
   return 0;
 }
