@@ -156,6 +156,7 @@ characters a large scope of chemical space can be covered. */
 bool QGenerateWLN(FSMAutomata *wlnmodel){
   int hits = 0; 
   int misses = 0;
+  int duplicates = 0;
   int out_range = 0;
  
   // from the compression data, we can use edge->c to be the q-scoring
@@ -189,7 +190,6 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
           score+= 1;
           
           if(!unique[wlnstr]){
-            hits++;
             score += 1;
             unique[wlnstr] = true;
 
@@ -223,6 +223,8 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
                 break;
             }
           }
+          else 
+            duplicates++;
         
           // go back through all the edges and give them the +1 score
           if(score){
@@ -257,7 +259,7 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
     state = edge->dwn;
   }
 
-  fprintf(stderr,"%d hits, %d misses, %d out of target range\n",hits,misses,out_range);
+  fprintf(stderr,"%d hits, %d misses, %d duplicates, %d out of target range\n",hits,misses,duplicates,out_range);
   return true;
 }
 
