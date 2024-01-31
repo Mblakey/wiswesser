@@ -261,6 +261,11 @@ struct WLNBlossom{
   }
 
   void add_edge(int u, int v){
+    if(u >= g.size())
+      return;
+    if(v >= g[u].size())
+      return;
+    
     g[u][v] = u;
     g[v][u] = v;
   }
@@ -325,16 +330,22 @@ struct WLNBlossom{
         continue;
       }
       int w = vx.back();
+
+      if(z >= b.size())
+        return {};
+
       int i = (A.size() % 2 == 0 ? std::find(b[z].begin(), b[z].end(), g[z][w]) - b[z].begin() : 0);
       int j = (A.size() % 2 == 1 ? std::find(b[z].begin(), b[z].end(), g[z][A.back()]) - b[z].begin() : 0);
       int k = b[z].size();
       int dif = (A.size() % 2 == 0 ? i % 2 == 1 : j % 2 == 0) ? 1 : k - 1;
       
       unsigned int safety = 10000;
-      while(i != j && safety > 0) {
+      while(i != j) {
         vx.push_back(b[z][i]);
         i = (i + dif) % k;
         safety--;
+        if(!safety)
+          return {};
       }
       vx.push_back(b[z][i]);
     }
@@ -4352,11 +4363,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         std::string r_notation = get_notation(block_start,block_end);
 
         if(pending_spiro){
-
-          ring->locants[on_locant] = prev;
+          
+          if(!prev)
+            Fatal(i,"Error: sprio notation opened without a previous atom");
+          else
+            ring->locants[on_locant] = prev;
 
           // check for an aromaticity bond move?
-          if(prev->allowed_edges - prev->num_edges < 2){
+          if(prev && (prev->allowed_edges - prev->num_edges) < 2){
 
             // spiro would not be possible here, check if a double bond can be shifted
             WLNEdge *e = 0;

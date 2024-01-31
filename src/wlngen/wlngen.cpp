@@ -71,7 +71,6 @@ bool train_on_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 
 bool Validate(const char * wln_str, OBMol *mol){
-  fprintf(stderr,"testing: %s\n",wln_str);
   if(!ReadWLN(wln_str,mol))
     return false;
   return true;
@@ -153,7 +152,12 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
     }
 
     std::discrete_distribution<> d(p.begin(), p.end());
-    unsigned int chosen = d(gen); 
+    unsigned int chosen = 0; 
+    
+    do{
+      chosen = d(gen);
+    }while(chosen >= e.size());
+
     if(e[chosen]->ch == '\n'){
 
       if(gen_length <= length){ // only accepts will have new line, ensures proper molecule
@@ -168,20 +172,23 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
           //fprintf(stdout,"%s = %f\n",wlnstr.c_str(),RewardFunction(wlnstr.c_str(),&mol));
         
           // go back through all the edges and give them the +1 score
-          for(FSMEdge *e:path){
-            Qtable[e]++;
+          for(FSMEdge *pe:path){
+            if(Qtable[pe] && Qtable[pe] < UINT16_MAX)
+              Qtable[pe]++;
           }
         
         }
     
-        
         wlnstr.clear();
         path.clear(); // can assign learning here
       }
       else{
         // choose something else
-        while(e[chosen]->ch == '\n')
-          chosen = d(gen); 
+        while(e[chosen]->ch == '\n'){
+          do{
+            chosen = d(gen);
+          }while(chosen >= e.size());
+        }
       }
     }
     else{
