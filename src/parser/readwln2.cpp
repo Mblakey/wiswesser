@@ -50,7 +50,6 @@ using namespace OpenBabel;
 
 
 // --- DEV OPTIONS  ---
-#define ERRORS 0 
 #define OPT_DEBUG 0
 #define OPT_CORRECT 0
 
