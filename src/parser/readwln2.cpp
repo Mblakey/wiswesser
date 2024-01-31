@@ -47,7 +47,7 @@ GNU General Public License for more details.
 using namespace OpenBabel; 
 
 #define REASONABLE 1024
-#define ERRORS 1
+#define ERRORS 0
 
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -92,7 +92,7 @@ std::string get_notation(unsigned int s, unsigned int e)
 bool Fatal(unsigned int pos, const char *message)
 { 
 
-#if ERRORS 
+#if ERRORS == 1
   fprintf(stderr,"%s\n",message);
   fprintf(stderr, "Fatal: %s\n", wln_string);
   fprintf(stderr, "       ");
@@ -489,7 +489,7 @@ struct ObjectStack{
 
   bool pop(){
     if(!size){
-#if ERRORS 
+#if ERRORS == 1
       fprintf(stderr,"Error: popping empty stack\n");
 #endif
       return false;
@@ -593,7 +593,7 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
 {
 
   if(graph.symbol_count >= REASONABLE){
-#if ERRORS
+#if ERRORS == 1
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
 #endif
     return 0;
@@ -1373,21 +1373,21 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
   
   graph.edge_count++;
   if(graph.edge_count > REASONABLE){
-#if ERRORS
+#if ERRORS == 1 
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
 #endif
     return 0;
   }
   
   if ( ((child->num_edges + 1) > child->allowed_edges) && !RaiseBranchingSymbol(child) ){
-#if ERRORS
+#if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
 #endif
     return 0;
   }
   
   if ( ((parent->num_edges + 1) > parent->allowed_edges) && !RaiseBranchingSymbol(parent)){
-#if ERRORS
+#if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
 #endif
     return 0;
@@ -1452,14 +1452,14 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
   edge->child->num_edges+= n;
 
   if( (edge->child->num_edges > edge->child->allowed_edges) && !RaiseBranchingSymbol(edge->child)){
-#if ERRORS 
+#if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
 #endif
     return 0;
   }
 
   if( (edge->parent->num_edges > edge->parent->allowed_edges) && !RaiseBranchingSymbol(edge->parent) ){
-#if ERRORS 
+#if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
 #endif
     return 0;
@@ -1869,7 +1869,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     WLNSymbol *path = ring->locants[bind_1];
 
     if(!path){
-#if ERRORS
+#if ERRORS == 1
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
 #endif
       return 0;
@@ -1931,7 +1931,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(locant_to_int(ring->locants_ch[path]) == local_size)
           highest_loc = ring->locants_ch[path];
         else{
-#if ERRORS
+#if ERRORS == 1
           fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c(%d)'\n",ring->locants_ch[path],ring->locants_ch[path]);
 #endif
           free(ring_path);
@@ -2090,7 +2090,7 @@ unsigned char create_relative_position(unsigned char parent){
   // A = 129
   unsigned int relative = 128 + locant_to_int(parent);
   if(relative > 252){
-#if ERRORS
+#if ERRORS == 1
     fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
 #endif
     return '\0';
@@ -5007,12 +5007,17 @@ struct BabelGraph{
     
     OBBond* bptr = 0; 
     if(!s || !e){
+#if ERRORS == 1
       fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible\n");
+#endif      
       return bptr;
     }
 
     if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)){
+
+#if ERRORS == 1
       fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
+#endif
       return bptr;
     }
         

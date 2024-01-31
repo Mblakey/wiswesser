@@ -34,6 +34,7 @@ unsigned int opt_verbose = false;
 
 const char *trainfile;
 
+
 using namespace OpenBabel;
 
 
@@ -274,6 +275,7 @@ static void ProcessCommandLine(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+
   ProcessCommandLine(argc, argv);
 
   FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE,REASONABLE,false); // build the model 
