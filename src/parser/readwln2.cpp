@@ -47,11 +47,12 @@ GNU General Public License for more details.
 using namespace OpenBabel; 
 
 #define REASONABLE 1024
-#define ERRORS 0
+
 
 // --- DEV OPTIONS  ---
-static bool opt_debug = false;
-static bool opt_correct = false; 
+#define ERRORS 0 
+#define OPT_DEBUG 0
+#define OPT_CORRECT 0
 
 const char *wln_string;
 struct WLNSymbol;
@@ -1345,9 +1346,10 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
   return top;
 }
 
-
+#define DEPRECATED 0
+#if DEPRECATED
 bool RaiseBranchingSymbol(WLNSymbol *sym){
-  if(!opt_correct)
+  if(!OPT_CORRECT)
     return false;
 
   switch(sym->ch){
@@ -1371,6 +1373,7 @@ bool RaiseBranchingSymbol(WLNSymbol *sym){
   }
   return true;
 }
+#endif
 
 /**********************************************************************
                           WLNEdge Functions
@@ -1390,14 +1393,14 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
     return 0;
   }
   
-  if ( ((child->num_edges + 1) > child->allowed_edges) && !RaiseBranchingSymbol(child) ){
+  if ( ((child->num_edges + 1) > child->allowed_edges)){
 #if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
 #endif
     return 0;
   }
   
-  if ( ((parent->num_edges + 1) > parent->allowed_edges) && !RaiseBranchingSymbol(parent)){
+  if ( ((parent->num_edges + 1) > parent->allowed_edges)){
 #if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
 #endif
@@ -1462,14 +1465,14 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
   edge->parent->num_edges += n;
   edge->child->num_edges+= n;
 
-  if( (edge->child->num_edges > edge->child->allowed_edges) && !RaiseBranchingSymbol(edge->child)){
+  if( (edge->child->num_edges > edge->child->allowed_edges)){
 #if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
 #endif
     return 0;
   }
 
-  if( (edge->parent->num_edges > edge->parent->allowed_edges) && !RaiseBranchingSymbol(edge->parent) ){
+  if( (edge->parent->num_edges > edge->parent->allowed_edges)){
 #if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
 #endif
@@ -1724,7 +1727,7 @@ bool set_up_broken( WLNRing *ring, WLNGraph &graph,
       else if(pos > 3)
         return false;
       
-      if(opt_debug)
+      if(OPT_DEBUG)
         fprintf(stderr,"  ghost linking %d to parent %c\n",loc_broken,parent);
       
       if(!ring->locants[loc_broken]){
@@ -1800,7 +1803,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     }
 
     local_size+= - broken_locants.size();
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
   }
   else
@@ -1894,7 +1897,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           unsigned char pbind_2 = int_to_locant(s); 
           unsigned char pbind_1 = pseudo_lookup[pbind_2];
 
-          if(opt_debug)
+          if(OPT_DEBUG)
             fprintf(stderr,"  %d  catch fusing: %c <-- %c\n",fuses,pbind_2,pbind_1);
           
           if(!search_edge(ring->locants[pbind_2],ring->locants[pbind_1])){
@@ -2020,7 +2023,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
           ring_path[path_size-1] = ++bind_2;
         
-        if(opt_debug){
+        if(OPT_DEBUG){
           fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
           for (unsigned int a=0;a<path_size;a++)
             fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
@@ -2327,7 +2330,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 return Fatal(i+start, "Error: could not create hypervalent element");
 
               graph.string_positions[start+i + 1] = new_locant; // attaches directly
-              if(opt_debug)
+              if(OPT_DEBUG)
                 fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
             }
             else 
@@ -2364,7 +2367,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
 
-              if(opt_debug)
+              if(OPT_DEBUG)
                 fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
               
               positional_locant++;
@@ -2394,7 +2397,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           if(!positional_locant)
             positional_locant = 'A';
 
-          if(opt_debug)
+          if(OPT_DEBUG)
             fprintf(stderr,"  placing pi bond charge on locant - %c\n",positional_locant);
 
           ring->post_charges.push_back({positional_locant++,-1});
@@ -2433,7 +2436,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case 'D':
         if(i == 0){
           heterocyclic = true;
-          if(opt_debug)
+          if(OPT_DEBUG)
             fprintf(stderr,"  opening chelating notation\n");
         }
 
@@ -2517,7 +2520,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         else if (positional_locant){
           
-          if (opt_debug)
+          if (OPT_DEBUG)
             fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
           WLNSymbol *new_locant = 0; 
@@ -2824,12 +2827,12 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     ch = *(++block_str);
   }
 
-  if(opt_debug && warned)
+  if(OPT_DEBUG && warned)
     fprintf(stderr,"Warning: heterocyclic ring notation required for inter atom assignment, change starting 'L' to 'T'\n");
   
 
   // debug here
-  if (opt_debug){
+  if (OPT_DEBUG){
     
     fprintf(stderr,"  ring components: ");
     for (std::pair<unsigned int, unsigned char> comp : ring_components){
@@ -3139,7 +3142,7 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
     else{
       graph.charge_additions[assignment] += pos_charge.second;
 
-      if(opt_debug)
+      if(OPT_DEBUG)
         fprintf(stderr, "  character at position [%d] has the following charge addition - %d\n",pos_charge.first,pos_charge.second);
 
     }
@@ -3336,7 +3339,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 {
   
   // keep the memory alive
-  if (opt_debug)
+  if (OPT_DEBUG)
     fprintf(stderr, "Parsing WLN notation: %s\n",wln_ptr);
 
   ObjectStack branch_stack;   // access to both rings and symbols
@@ -4583,7 +4586,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         
       }
-      else if (!opt_correct)
+      else
         return Fatal(i, "Error: space used outside ring and ionic notation");
       
       // only burn the stacks now on ionic clearance
@@ -5049,7 +5052,7 @@ struct BabelGraph{
 #ifdef REPLACED
     if(!OBKekulize(mol)){
       fprintf(stderr,"Error: failed to kekulize mol\n");
-      if(!opt_debug) // if we cant kekulise lets see why
+      if(!OPT_DEBUG) // if we cant kekulise lets see why
         return false; 
     }
 #endif
@@ -5060,7 +5063,7 @@ struct BabelGraph{
 
   bool ConvertFromWLN(OBMol* mol,WLNGraph &graph, unsigned int len){
 
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"Converting wln to obabel mol object: \n");
 
     // set up atoms
@@ -5275,7 +5278,7 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
 
-  if (opt_debug)
+  if (OPT_DEBUG)
     WriteGraph(wln_graph,"wln-graph.dot");
   
     // needs to be this order to allow K to take the methyl groups

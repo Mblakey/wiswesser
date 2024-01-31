@@ -85,6 +85,38 @@ double RewardFunction(const char *wln_strm, OBMol *mol){
 };
 
 
+FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
+
+  std::uniform_real_distribution<> dis(0, 1);
+  double choice = dis(rgen); 
+
+  FSMEdge *e = 0;
+  if(choice > epsilon){
+    
+    // Explotation, take the best Q score
+    FSMEdge *best = curr->transitions;
+    for(e = curr->transitions;e;e=e->nxt){
+      if(e->c > best->c)
+        best = e; 
+    }
+
+    return best; 
+  }
+  else{
+    std::vector<FSMEdge*> edge_vec = {};
+    std::vector<double> prob_vec = {}; // vector of probabilities 
+    for(e=curr->transitions;e;e=e->nxt){
+      edge_vec.push_back(e);
+      prob_vec.push_back(e->p);
+    }
+
+    std::discrete_distribution<> d(prob_vec.begin(), prob_vec.end());
+    unsigned int chosen = d(rgen);
+    return edge_vec[chosen];
+  }
+}
+
+
 /* 
 --- notes ---
 
@@ -124,84 +156,71 @@ void debug_Qtable(FSMAutomata *wlnmodel, std::map<FSMEdge*,unsigned int> &Qtable
 /* uses Q learning to generate compounds from the language FSM
 as a markov decision process, WLN is small enough that with 20
 characters a large scope of chemical space can be covered. */
-bool QGenerateWLN(FSMAutomata *wlnmodel){
-  unsigned int count = 0; 
-  unsigned int length = 0; 
+bool QGenerateWLN(FSMAutomata *wlnmodel, unsigned int n, unsigned int l){
+  unsigned int hits = 0; 
+  unsigned int misses = 0;
+ 
 
-  // set up a qtable for each state
-  std::map<FSMEdge*,unsigned int> Qtable; 
-  for(unsigned int i=0;i<wlnmodel->num_edges;i++)
-    Qtable[wlnmodel->edges[i]] = 0;
+  double epsilon = 0.2;
 
-  
+  // from the compression data, we can use edge->c to be the q-scoring
+
   std::random_device rd;
   std::mt19937 gen(rd());
 
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
-
   std::string wlnstr; 
   std::vector<FSMEdge*> path;
-  while(count < gen_count){
 
-    std::vector<FSMEdge*> e = {};
-    std::vector<double> p = {}; // vector of probabilities 
-    for(edge=state->transitions;edge;edge=edge->nxt){
-      e.push_back(edge);
-      p.push_back(edge->p);
-    }
+  unsigned int length = 0;
+  while(hits < n){
 
-    std::discrete_distribution<> d(p.begin(), p.end());
-    unsigned int chosen = 0; 
-    
-    do{
-      chosen = d(gen);
-    }while(chosen >= e.size());
+    edge = EpsilonGreedy(state,epsilon,gen);
 
-    if(e[chosen]->ch == '\n'){
+    if(edge->ch == '\n'){
 
-      if(gen_length <= length){ // only accepts will have new line, ensures proper molecule
+      if(length >= l){ // only accepts will have new line, ensures proper molecule
         length = 0;
         state = wlnmodel->root;
 
-        // in beta, the faster i make readWLN the better this is
+        // in beta, the faster i make ReadWLN the better this is
         
         OBMol mol;
         if(Validate(wlnstr.c_str(),&mol)){
-          count++;
-          //fprintf(stdout,"%s = %f\n",wlnstr.c_str(),RewardFunction(wlnstr.c_str(),&mol));
+          hits++;
+          fprintf(stdout,"%s = %f\n",wlnstr.c_str(),RewardFunction(wlnstr.c_str(),&mol));
         
           // go back through all the edges and give them the +1 score
           for(FSMEdge *pe:path){
-            if(Qtable[pe] && Qtable[pe] < UINT16_MAX)
-              Qtable[pe]++;
+            if(pe->c < UINT32_MAX)
+              pe->c++;
           }
-        
         }
+        else
+          misses++;
     
         wlnstr.clear();
         path.clear(); // can assign learning here
       }
       else{
         // choose something else
-        while(e[chosen]->ch == '\n'){
-          do{
-            chosen = d(gen);
-          }while(chosen >= e.size());
-        }
+        while(edge->ch == '\n')
+          edge = EpsilonGreedy(state,epsilon,gen);
       }
     }
     else{
-      path.push_back(e[chosen]);
-      wlnstr += e[chosen]->ch;
+      path.push_back(edge);
+      wlnstr += edge->ch;
       length++;
     }
    
 
-    state = e[chosen]->dwn;
+    state = edge->dwn;
   }
 
-  //debug_Qtable(wlnmodel,Qtable);
+
+  fprintf(stderr,"%d hits, %d misses\n",hits,misses);
   return true;
 }
 
@@ -305,7 +324,7 @@ int main(int argc, char *argv[])
     fclose(tfp);
   }
 
-  QGenerateWLN(wlnmodel);
+  QGenerateWLN(wlnmodel, gen_count, gen_length);
   delete wlnmodel;
   return 0;
 }
