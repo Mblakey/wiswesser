@@ -32,13 +32,16 @@ using namespace OpenBabel;
 
 int length = 5;
 int count = 10; 
-
+int episodes = 5;
 
 int dt = 0;
 double molwt = 0.0;
 double logp = 0.0;
 
 double epsilon = 0.5;
+double learning_rate = 0.5;
+double discount_rate = 0.85;
+double decay_rate = 0.005;
 
 std::vector<const char*> train_files;
 
@@ -254,7 +257,6 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
     state = edge->dwn;
   }
 
-
   fprintf(stderr,"%d hits, %d misses, %d out of target range\n",hits,misses,out_range);
   return true;
 }
@@ -269,47 +271,108 @@ static void DisplayUsage()
 {
   fprintf(stderr, "wlngen <options> <trainfile>\n");
   fprintf(stderr,"options:\n");
-  fprintf(stderr,"-l|--length=<int>      set length for generation (default 5)\n");
-  fprintf(stderr,"-c|--count=<int>       set target count for generation (default 10)\n");
-  fprintf(stderr,"-e|--epsilon=<double>  set epsilon hyperparameter for QL-process (default 0.5)\n");
-  fprintf(stderr,"-p|--print             print all set hyperparameters to console (debugging)\n");
-
-
+  fprintf(stderr,"-l|--length=<int>      set length for generation        (default 5)\n");
+  fprintf(stderr,"-c|--count=<int>       set target count for generation  (default 10)\n");
+  
+  fprintf(stderr,"\ntuning:\n");
+  fprintf(stderr,"-r|--runs=<int>        set learning episodes            (default 5)\n");
+  fprintf(stderr,"-e|--epsilon=<double>  set epsilon hyperparameter       (default 0.5)\n");
+  fprintf(stderr,"-d|--decay=<double>    set decay rate hyperparameter    (default 0.005)\n");
+  fprintf(stderr,"-a|--alpha=<double>    set learning rate hyperparameter (default 0.5)\n");
+  fprintf(stderr,"-g|--gamma=<double>    set discount rate hyperparameter (default 0.85)\n");
+  
+  fprintf(stderr,"\ngeneral:\n");
+  fprintf(stderr,"-p|--print             show all set hyperparameters and exit\n");
+  fprintf(stderr,"-h|--help              show this help menu and exit\n");
+  
   fprintf(stderr,"\ndescriptors:\n");
-  fprintf(stderr,"--logp=<double>     set logp  target value, range is +/- 0.5 from this value\n");
-  fprintf(stderr,"--molwt=<double>    set molwt target value, range is +/- 50  from this value\n");
+  fprintf(stderr,"--logp=<double>        set logp  target value, range is +/- 0.5 from this value\n");
+  fprintf(stderr,"--molwt=<double>       set molwt target value, range is +/- 50  from this value\n");
   exit(1);
 }
 
+
+static void DisplayParameters(){
+  fprintf(stderr,"----------------------------\n");
+  fprintf(stderr,"target count:      %d\n",count);
+  fprintf(stderr,"target length:     %d\n",length);
+  
+  fprintf(stderr,"\nepisodes:          %d\n",episodes);
+  fprintf(stderr,"learning rate:     %f\n",learning_rate);
+  fprintf(stderr,"discount rate:     %f\n",discount_rate);
+  fprintf(stderr,"epsilon:           %f\n",epsilon);
+  fprintf(stderr,"decay rate:        %f\n",decay_rate);
+  
+  fprintf(stderr,"\nlogp target:       %f\n",logp);
+  fprintf(stderr,"molwt target:      %f\n",molwt);
+  switch(dt){
+    case 0:
+      fprintf(stderr,"dt mode:           %d (no descriptor)\n",dt);
+      break;
+    case 1:
+      fprintf(stderr,"dt mode:           %d (logp)\n",dt);
+      break;
+    case 2:
+      fprintf(stderr,"dt mode:           %d (molwt)\n",dt);
+      break;
+  }
+  fprintf(stderr,"----------------------------\n");
+  exit(1);
+}
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
   const char *ptr = 0;
   unsigned char ch = 0;
-  int i,j;
+  int i,j,l;
   j = 0;
   for (i = 1; i < argc; i++)
   {
     ptr = argv[i];
     ch = *ptr; 
     if (ptr[0] == '-' && ptr[1]){
+      l = 0;
       switch (ptr[1]){
 
         case 'p':
-          fprintf(stderr,"logp target:       %f\n",logp);
-          fprintf(stderr,"mol weight target: %f\n",molwt);
-          fprintf(stderr,"epsilon value:     %f\n",epsilon);
-          fprintf(stderr,"target count:      %d\n",count);
-          fprintf(stderr,"target legnth:     %d\n",length);
-          fprintf(stderr,"dt mode:           %d\n",dt);
-          exit(0);
+          DisplayParameters();
+          break;
+         
+
+        case 'h':
+          DisplayUsage();
+          break;
+
+
+        case 'r':
+          while(ch != '=' && ch){
+            ch = *(++ptr);
+            l++;
+          }
+
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
+            DisplayUsage();
+          }
+          else{
+            ptr++;
+            episodes = atoi(ptr);
+            if(episodes < 0){
+              fprintf(stderr,"Error: runs must be a positive integer\n");
+              DisplayUsage();
+            }
+          }
+          break;
+
 
         case 'c':
-          while(ch != '=' && ch)
+          while(ch != '=' && ch){
             ch = *(++ptr);
+            l++;
+          }
 
-          if(!(*ptr)){
-            fprintf(stderr,"Error: format for count is -c=<int>\n");
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
             DisplayUsage();
           }
           else{
@@ -323,11 +386,13 @@ static void ProcessCommandLine(int argc, char *argv[])
           break;
 
         case 'l':
-          while(ch != '=' && ch)
+          while(ch != '=' && ch){
             ch = *(++ptr);
+            l++;
+          }
 
-          if(!(*ptr)){
-            fprintf(stderr,"Error: format for legnth is -l=<int>\n");
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
             DisplayUsage();
           }
           else{
@@ -341,11 +406,13 @@ static void ProcessCommandLine(int argc, char *argv[])
           break;
 
         case 'e':
-          while(ch != '=' && ch)
+          while(ch != '=' && ch){
             ch = *(++ptr);
+            l++;
+          }
 
-          if(!(*ptr)){
-            fprintf(stderr,"Error: format for epsilon is -e=<double>\n");
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
             DisplayUsage();
           }
           else{
@@ -358,6 +425,70 @@ static void ProcessCommandLine(int argc, char *argv[])
             }
           }
           break;
+
+        case 'd':
+          while(ch != '=' && ch){
+            ch = *(++ptr);
+            l++;
+          }
+
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
+            DisplayUsage();
+          }
+          else{
+            ptr++;
+            char* endptr; 
+            decay_rate = strtod(ptr, &endptr); 
+            if (decay_rate < 0 || decay_rate > 1){
+              fprintf(stderr,"Error: range for decay rate is [0,1]\n");
+              DisplayUsage();
+            }
+          }
+          break;
+
+        case 'a':
+          while(ch != '=' && ch){
+            ch = *(++ptr);
+            l++;
+          }
+
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
+            DisplayUsage();
+          }
+          else{
+            ptr++;
+            char* endptr; 
+            learning_rate = strtod(ptr, &endptr); 
+            if (learning_rate < 0 || learning_rate > 1){
+              fprintf(stderr,"Error: range for learning rate is [0,1]\n");
+              DisplayUsage();
+            }
+          }
+          break;
+
+        case 'g':
+          while(ch != '=' && ch){
+            ch = *(++ptr);
+            l++;
+          }
+
+          if(!(*ptr) || l != 2){
+            fprintf(stderr,"Error: incorrect flag format\n");
+            DisplayUsage();
+          }
+          else{
+            ptr++;
+            char* endptr; 
+            discount_rate = strtod(ptr, &endptr); 
+            if (discount_rate < 0 || discount_rate > 1){
+              fprintf(stderr,"Error: range for discount rate is [0,1]\n");
+              DisplayUsage();
+            }
+          }
+          break;
+
 
         case '-':
           ptr++;
@@ -391,12 +522,32 @@ static void ProcessCommandLine(int argc, char *argv[])
             molwt = strtod(ptr, &endptr); 
             dt = 2;
           }
+          else if (prefix("-print",ptr)){
+            DisplayParameters();
+          }
+          else if (prefix("-runs",ptr)){
+            while(ch != '=' && ch)
+              ch = *(++ptr);
+
+            if(!(*ptr)){
+              fprintf(stderr,"Error: incorrect flag format\n");
+              DisplayUsage();
+            }
+            else{
+              ptr++;
+              episodes = atoi(ptr);
+              if(episodes < 0){
+                fprintf(stderr,"Error: count must be a positive integer\n");
+                DisplayUsage();
+              }
+            }
+          }
           else if (prefix("-epsilon",ptr)){
             while(ch != '=' && ch)
               ch = *(++ptr);
             
             if(!(*ptr)){
-              fprintf(stderr,"Error: format for epsilon is -e=<double>\n");
+              fprintf(stderr,"Error: incorrect flag format\n");
               DisplayUsage();
             }
             else{
@@ -409,12 +560,66 @@ static void ProcessCommandLine(int argc, char *argv[])
               }
             }
           }
+          else if (prefix("-decay",ptr)){
+            while(ch != '=' && ch)
+              ch = *(++ptr);
+            
+            if(!(*ptr)){
+              fprintf(stderr,"Error: incorrect flag format\n");
+              DisplayUsage();
+            }
+            else{
+              ptr++;
+              char* endptr; 
+              decay_rate = strtod(ptr, &endptr); 
+              if (decay_rate < 0 || decay_rate > 1){
+                fprintf(stderr,"Error: range for decay rate is [0,1]\n");
+                DisplayUsage();
+              }
+            }
+          }
+          else if (prefix("-alpha",ptr)){
+            while(ch != '=' && ch)
+              ch = *(++ptr);
+            
+            if(!(*ptr)){
+              fprintf(stderr,"Error: incorrect flag format\n");
+              DisplayUsage();
+            }
+            else{
+              ptr++;
+              char* endptr; 
+              learning_rate = strtod(ptr, &endptr); 
+              if (learning_rate < 0 || learning_rate > 1){
+                fprintf(stderr,"Error: range for learning_rate is [0,1]\n");
+                DisplayUsage();
+              }
+            }
+          }
+          else if (prefix("-gamma",ptr)){
+            while(ch != '=' && ch)
+              ch = *(++ptr);
+            
+            if(!(*ptr)){
+              fprintf(stderr,"Error: incorrect flag format\n");
+              DisplayUsage();
+            }
+            else{
+              ptr++;
+              char* endptr; 
+              discount_rate = strtod(ptr, &endptr); 
+              if (discount_rate < 0 || discount_rate > 1){
+                fprintf(stderr,"Error: range for discount rate is [0,1]\n");
+                DisplayUsage();
+              }
+            }
+          }
           else if (prefix("-count",ptr)){
             while(ch != '=' && ch)
               ch = *(++ptr);
 
             if(!(*ptr)){
-              fprintf(stderr,"Error: format for count is -c=<int>\n");
+              fprintf(stderr,"Error: incorrect flag format\n");
               DisplayUsage();
             }
             else{
@@ -431,7 +636,7 @@ static void ProcessCommandLine(int argc, char *argv[])
               ch = *(++ptr);
 
             if(!(*ptr)){
-              fprintf(stderr,"Error: format for legnth is -l=<int>\n");
+              fprintf(stderr,"Error: incorrect flag format\n");
               DisplayUsage();
             }
             else{
