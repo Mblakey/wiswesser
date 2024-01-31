@@ -1,5 +1,3 @@
-
-
 # Converting between WLN and CLN Formats
 
 This file contains usage notes for coverting between WLN and more modern chemical line notations, also, experimentally, a modern version of WLN used for the compression and generation projects. 
