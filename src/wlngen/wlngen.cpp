@@ -198,6 +198,7 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
             switch(dt){
               case 0:
                 hits++;
+                fprintf(stderr,"%s\n",wlnstr.c_str());
                 break;
 
               case 1:
