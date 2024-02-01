@@ -30,6 +30,9 @@
 
 using namespace OpenBabel;
 
+
+#define GEN_DEBUG 1
+
 int length = 5;
 int count = 10; 
 int episodes = 5;
@@ -154,17 +157,39 @@ FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
 }
 
 
+/* used to update the Q values in the chain if a successful hit is made */
+void BellManEquation(FSMEdge *curr, unsigned int score){
+  FSMState *nxt = curr->dwn; // get the next state. 
+  double expected = 0.0; // expected future reward looking ahead 1 state
+  FSMEdge *e = 0; 
+  for(e=nxt->transitions;e;e=e->nxt){
+    if(e->q > expected)
+      expected = e->q; 
+  }
+
+  curr->q = (1-learning_rate)*curr->q + learning_rate * (score + (discount_rate * expected) );
+}
+
+double average_QScore(FSMAutomata *wlnmodel){
+  double total = 0.0;
+  for(unsigned int i=0;i<wlnmodel->num_edges;i++){
+    FSMEdge *e = wlnmodel->edges[i]; 
+    total += e->q;
+  }
+  total = total/(double)wlnmodel->num_edges;
+  return total; 
+}
+
+
 /* uses Q learning to generate compounds from the language FSM
 as a markov decision process, WLN is small enough that with 20
 characters a large scope of chemical space can be covered. */
-bool QGenerateWLN(FSMAutomata *wlnmodel){
+void QGenerateWLN(FSMAutomata *wlnmodel, std::unordered_map<std::string, bool> &unique){
   int hits = 0; 
   int misses = 0;
   int duplicates = 0;
   int out_range = 0;
- 
-  // from the compression data, we can use edge->c to be the q-scoring
-
+  
   std::random_device rd;
   std::mt19937 gen(rd());
 
@@ -173,7 +198,6 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
 
   std::string wlnstr; 
   std::set<FSMEdge*> path; // avoid the duplicate path increases
-  std::unordered_map<std::string, bool> unique;
 
   int strlength = 0;
   while(hits < count){
@@ -202,7 +226,7 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
             switch(dt){
               case 0:
                 hits++;
-                fprintf(stderr,"%s\n",wlnstr.c_str());
+                //fprintf(stderr,"%s\n",wlnstr.c_str());
                 break;
 
               case 1:
@@ -210,7 +234,7 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
                 if (lp >= logp-0.5 && lp <= logp+0.5){
                   score+= 3;
                   hits++;
-                  fprintf(stderr,"%s - %f\n",wlnstr.c_str(),lp);
+                  //fprintf(stderr,"%s - %f\n",wlnstr.c_str(),lp);
                 }
                 else
                   out_range++;
@@ -221,7 +245,7 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
                 if (mw >= molwt-50 && mw <= molwt+50){
                   score+= 3;
                   hits++;
-                  fprintf(stderr,"%s - %f\n",wlnstr.c_str(),mw);
+                  //fprintf(stderr,"%s - %f\n",wlnstr.c_str(),mw);
                 }
                 else
                   out_range++;
@@ -234,10 +258,8 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
           // go back through all the edges and give them the +1 score
           if(score){
             path.insert(edge);
-            for(FSMEdge *pe:path){
-              if(pe->c < UINT32_MAX)
-                pe->c+=score;
-            }
+            for(FSMEdge *pe:path)
+              BellManEquation(pe,score);
           }
         }
         else
@@ -264,14 +286,12 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
     state = edge->dwn;
   }
 
+#if GEN_DEBUG
   fprintf(stderr,"%d hits, %d misses, %d duplicates, %d out of target range\n",hits,misses,duplicates,out_range);
-  return true;
+  fprintf(stderr,"%f reward accumalted\n", average_QScore(wlnmodel));
+#endif
 }
 
-bool BellManEquation(FSMEdge *prev, FSMEdge *curr){
-
-  return true; 
-}
 
 
 /* compare old Q learning factors with new current, need 2 copies of the FSM*/
@@ -279,24 +299,16 @@ bool RunEpisodes(FSMAutomata *wlnmodel){
 
   // Get the initial Q-learning values for update loop. 
   // ~ 10 seconds per 50K molecules on ARM64 M1.  
-  
-  FSMAutomata *current = wlnmodel->Copy();
-  FSMAutomata *previous= wlnmodel->Copy();
 
   // set up Q-table iteration init condition 
-  QGenerateWLN(previous); 
-
-
-
+  std::unordered_map<std::string, bool> unique;
   for (unsigned int i=0;i<episodes;i++){
     // the model now has a saved Q-table used to scale
-
-
-
-
-
-
+    QGenerateWLN(wlnmodel,unique);
+   
   }
+
+  return true;
 }
 
 
@@ -743,7 +755,7 @@ int main(int argc, char *argv[])
     }
   }
 
-  QGenerateWLN(wlnmodel);
+  RunEpisodes(wlnmodel);
   delete wlnmodel;
   return 0;
 }
