@@ -83,13 +83,17 @@ Epsilon-greedy policy - either take an action based on the qtable
 values, (exploitation), or the random FSM values, (exploration).
 
 dummy scoring:
+  +1 = valid WLN
+  +2 = unique
+  +5 = in target range
 
-+1 = valid WLN
-+2 = unique
-+5 = in target range
+Episode structure is built, currently around 3K molecules/second 
+for a logP target. 
 
-From a good Q table, rescale the probabilities, some might be zero which
-means transitions are removed? Generate compounds
+Definitely dependent on seed data, mode collapse is something to solve
+- potentially uint64 type to dump set - run away memory requirements 
+
+
 */
 
 
@@ -101,7 +105,6 @@ bool Validate(const char *wln_str, OBMol *mol){
 
 
 // https://open-babel.readthedocs.io/en/latest/Descriptors/descriptors.html
-
 
 double LogP(const char *wln_strm, OBMol *mol){
   OBDescriptor* pDesc = OBDescriptor::FindType("logP");
@@ -149,6 +152,7 @@ FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
     return edge_vec[chosen];
   }
 }
+
 
 /* uses Q learning to generate compounds from the language FSM
 as a markov decision process, WLN is small enough that with 20
@@ -263,6 +267,40 @@ bool QGenerateWLN(FSMAutomata *wlnmodel){
   fprintf(stderr,"%d hits, %d misses, %d duplicates, %d out of target range\n",hits,misses,duplicates,out_range);
   return true;
 }
+
+bool BellManEquation(FSMEdge *prev, FSMEdge *curr){
+
+  return true; 
+}
+
+
+/* compare old Q learning factors with new current, need 2 copies of the FSM*/
+bool RunEpisodes(FSMAutomata *wlnmodel){
+
+  // Get the initial Q-learning values for update loop. 
+  // ~ 10 seconds per 50K molecules on ARM64 M1.  
+  
+  FSMAutomata *current = wlnmodel->Copy();
+  FSMAutomata *previous= wlnmodel->Copy();
+
+  // set up Q-table iteration init condition 
+  QGenerateWLN(previous); 
+
+
+
+  for (unsigned int i=0;i<episodes;i++){
+    // the model now has a saved Q-table used to scale
+
+
+
+
+
+
+  }
+}
+
+
+
 
 
 bool prefix(const char *pre, const char *str)

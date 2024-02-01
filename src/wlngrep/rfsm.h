@@ -45,6 +45,7 @@ struct FSMEdge{
 	FSMEdge *nxt;
 
   double p;
+  double q;
   unsigned int c; 
 
   FSMEdge(){
@@ -52,7 +53,9 @@ struct FSMEdge{
     ch = 0;
     dwn = 0;
     nxt = 0;
+
     p = 0.0;
+    q = 0.0; // for the q-learning reward scheme.  
     c = 0;
   };
 };
@@ -429,7 +432,24 @@ struct FSMAutomata{
     num_edges = edge_index; 
   }
 
+  FSMAutomata* Copy(){
 
+    Reindex();
+    FSMAutomata *copy = new FSMAutomata(num_states,num_edges);
+
+    for(unsigned int i=0;i<num_states;i++){
+      FSMState *s = copy->AddState(states[i]->accept);
+      s->id = states[i]->id;
+    }
+
+    for(unsigned int i=0;i<num_states;i++){
+      FSMEdge *e = 0;
+      for(e=states[i]->transitions;e;e=e->nxt)
+        copy->AddTransition(copy->states[i],copy->states[e->dwn->id],e->ch);
+    }
+
+    return copy; 
+  }
 
   bool DumpFSM(const char *filename){
     fprintf(stderr,"--- FSM Dump ---\n");
