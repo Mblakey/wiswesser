@@ -30,7 +30,6 @@
 
 using namespace OpenBabel;
 
-
 #define GEN_DEBUG 1
 
 int length = 5;
@@ -45,6 +44,7 @@ double epsilon = 0.5;
 double learning_rate = 0.5;
 double discount_rate = 0.85;
 double decay_rate = 0.005;
+unsigned int lcount = 0;
 
 std::vector<const char*> train_files;
 
@@ -89,14 +89,6 @@ dummy scoring:
   +1 = valid WLN
   +2 = unique
   +5 = in target range
-
-Episode structure is built, currently around 3K molecules/second 
-for a logP target. 
-
-Definitely dependent on seed data, mode collapse is something to solve
-- potentially uint64 type to dump set - run away memory requirements 
-
-
 */
 
 
@@ -125,6 +117,15 @@ double MolWt(const char *wln_strm, OBMol *mol){
     return 0.0;
 }
 
+
+
+double DecayEpsilon(double epsilon_N0, double decay_rate){
+  if(epsilon > 0.1)
+    return epsilon_N0 * exp(-decay_rate*(lcount*10));
+  else
+    return 0.1;
+}
+
 FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
 
   std::uniform_real_distribution<> dis(0, 1);
@@ -133,10 +134,10 @@ FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
   FSMEdge *e = 0;
   if(choice > epsilon){
     
-    // Explotation, take the best Q score
+    // Exploitation, take the best Q score
     FSMEdge *best = curr->transitions;
     for(e = curr->transitions;e;e=e->nxt){
-      if(e->c > best->c)
+      if(e->q > best->q)
         best = e; 
     }
 
@@ -170,6 +171,8 @@ void BellManEquation(FSMEdge *curr, unsigned int score){
   curr->q = (1-learning_rate)*curr->q + learning_rate * (score + (discount_rate * expected) );
 }
 
+
+/* this should rise as we learn, otherwise BAD */
 double average_QScore(FSMAutomata *wlnmodel){
   double total = 0.0;
   for(unsigned int i=0;i<wlnmodel->num_edges;i++){
@@ -184,7 +187,7 @@ double average_QScore(FSMAutomata *wlnmodel){
 /* uses Q learning to generate compounds from the language FSM
 as a markov decision process, WLN is small enough that with 20
 characters a large scope of chemical space can be covered. */
-void QGenerateWLN(FSMAutomata *wlnmodel, std::unordered_map<std::string, bool> &unique){
+void QGenerateWLN(  FSMAutomata *wlnmodel ){
   int hits = 0; 
   int misses = 0;
   int duplicates = 0;
@@ -198,11 +201,13 @@ void QGenerateWLN(FSMAutomata *wlnmodel, std::unordered_map<std::string, bool> &
 
   std::string wlnstr; 
   std::set<FSMEdge*> path; // avoid the duplicate path increases
+  std::unordered_map<std::string, bool> unique;
 
+  double lepsilon = DecayEpsilon(epsilon,decay_rate);
   int strlength = 0;
   while(hits < count){
 
-    edge = EpsilonGreedy(state,epsilon,gen);
+    edge = EpsilonGreedy(state,lepsilon,gen);
 
     if(edge->ch == '\n'){
 
@@ -271,7 +276,7 @@ void QGenerateWLN(FSMAutomata *wlnmodel, std::unordered_map<std::string, bool> &
       else{
         // choose something else
         while(edge->ch == '\n')
-          edge = EpsilonGreedy(state,epsilon,gen);
+          edge = EpsilonGreedy(state,lepsilon,gen);
 
         path.insert(edge);
       }
@@ -282,13 +287,11 @@ void QGenerateWLN(FSMAutomata *wlnmodel, std::unordered_map<std::string, bool> &
       strlength++;
     }
    
-
     state = edge->dwn;
   }
 
 #if GEN_DEBUG
-  fprintf(stderr,"%d hits, %d misses, %d duplicates, %d out of target range\n",hits,misses,duplicates,out_range);
-  fprintf(stderr,"%f reward accumalted\n", average_QScore(wlnmodel));
+  fprintf(stderr,"%f:  %d misses, %d duplicates, %d out of target range\n",average_QScore(wlnmodel),misses,duplicates,out_range);
 #endif
 }
 
@@ -301,11 +304,10 @@ bool RunEpisodes(FSMAutomata *wlnmodel){
   // ~ 10 seconds per 50K molecules on ARM64 M1.  
 
   // set up Q-table iteration init condition 
-  std::unordered_map<std::string, bool> unique;
   for (unsigned int i=0;i<episodes;i++){
-    // the model now has a saved Q-table used to scale
-    QGenerateWLN(wlnmodel,unique);
-   
+    QGenerateWLN(wlnmodel);
+    lcount++;
+    // epsilon gets scaled down by the decay rate
   }
 
   return true;

@@ -184,6 +184,7 @@ struct WLNRing
   ~WLNRing(){
     if(adj_matrix)
       free(adj_matrix);
+    adj_matrix = 0;
   };
 
   bool FillAdjMatrix(){
@@ -192,7 +193,6 @@ struct WLNRing
     adj_matrix = (unsigned int*)malloc(sizeof(unsigned int) * (rsize*rsize)); 
     if(!adj_matrix)
       return false;
-    
     
     for (unsigned int i = 0; i< rsize;i++){
       for (unsigned int j=0; j < rsize;j++){
@@ -228,16 +228,6 @@ struct WLNRing
 
     return true;
   }
-
-  void print_matrix(){
-    for (unsigned int i = 0; i< rsize;i++){
-      fprintf(stderr,"[ ");
-      for (unsigned int j=0; j < rsize;j++)
-        fprintf(stderr,"%d ",adj_matrix[i * rsize + j]);
-      fprintf(stderr,"]\n");
-    }
-  }
-
 };
 
 struct WLNBlossom{
@@ -1946,8 +1936,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         else{
 #if ERRORS == 1
           fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c(%d)'\n",ring->locants_ch[path],ring->locants_ch[path]);
-#endif
-          free(ring_path);
+#endif    
+          if(ring_path)
+            free(ring_path);
+          ring_path = 0;
           return false;
         }
       }
@@ -2031,7 +2023,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
         WLNEdge *edge = AllocateWLNEdge(ring->locants[bind_2],ring->locants[bind_1],graph);
         if(!edge){
-          free(ring_path);
+          if(ring_path)
+            free(ring_path);
+          ring_path = 0;
           return false;
         }
          
@@ -2090,7 +2084,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
     }
 
-    free(ring_path);
+    if(ring_path)
+      free(ring_path);
     ring_path = 0; 
     fuses++;
   }
@@ -3219,10 +3214,20 @@ bool AdjMatrixBFS(WLNRing *ring, unsigned int src, unsigned int sink, int *path)
     visited[u] = true; 
 
     for(unsigned int v=0;v<ring->rsize;v++){
+
+      if((u * ring->rsize + v) >= ring->rsize*ring->rsize){
+        if(visited)
+          free(visited);
+        visited = 0;
+        return false;
+      }
+        
       if(!visited[v] && ring->adj_matrix[u * ring->rsize + v] > 0){
         path[v] = u;
         if(v == sink){
-          free(visited);
+          if(visited)
+            free(visited);
+          visited = 0;
           return true;
         }
 
@@ -3231,12 +3236,16 @@ bool AdjMatrixBFS(WLNRing *ring, unsigned int src, unsigned int sink, int *path)
     }
   }
 
-  free(visited);
+  if(visited)
+    free(visited);
+  visited = 0;
   return false;
 }
 
 bool BPMatching(WLNRing *ring, unsigned int u, bool *seen, int *MatchR){
   for(unsigned int v=0;v < ring->rsize;v++){
+    if((u * ring->rsize + v) >= ring->rsize*ring->rsize)
+      return false;
 
     if(ring->adj_matrix[u * ring->rsize + v] > 0 && !seen[v]){
       seen[v] = true;
@@ -3257,8 +3266,10 @@ bool WLNRingBPMaxMatching(WLNRing *ring, int *MatchR){
   
   for(unsigned int u=0; u< ring->rsize;u++)
     BPMatching(ring,u,seen,MatchR);
-      
-  free(seen);
+  
+  if(seen)
+    free(seen);
+  seen = 0;
   return true;
 }
 
@@ -3278,7 +3289,8 @@ bool WLNKekulize(WLNGraph &graph){
   
 
       if(IsBipartite(wring) && !WLNRingBPMaxMatching(wring,MatchR)){
-        free(MatchR);
+        if(MatchR)
+          free(MatchR);
         MatchR = 0;
         return false;
       }
@@ -3320,11 +3332,13 @@ bool WLNKekulize(WLNGraph &graph){
         }
       }
       
-      free(MatchR);
+      if(MatchR)
+        free(MatchR);
       MatchR = 0;
     }
   }
 
+  
   return true;
 }
 
