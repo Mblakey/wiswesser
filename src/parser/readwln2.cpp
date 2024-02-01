@@ -46,7 +46,7 @@ GNU General Public License for more details.
 
 using namespace OpenBabel; 
 
-#define REASONABLE 1024
+#define STRUCT_COUNT 1024
 
 
 // --- DEV OPTIONS  ---
@@ -426,9 +426,9 @@ struct WLNGraph
   unsigned int symbol_count;
   unsigned int ring_count;
 
-  WLNSymbol *SYMBOLS[REASONABLE];
-  WLNEdge   *EDGES  [REASONABLE];
-  WLNRing   *RINGS  [REASONABLE];
+  WLNSymbol *SYMBOLS[STRUCT_COUNT];
+  WLNEdge   *EDGES  [STRUCT_COUNT];
+  WLNRing   *RINGS  [STRUCT_COUNT];
 
 
   // ionic parsing
@@ -442,7 +442,7 @@ struct WLNGraph
 
     // pointer safety
     root = 0;
-    for (unsigned int i = 0; i < REASONABLE;i++){
+    for (unsigned int i = 0; i < STRUCT_COUNT;i++){
       SYMBOLS[i] = 0;
       EDGES[i] = 0;
       RINGS[i] = 0;
@@ -450,7 +450,7 @@ struct WLNGraph
   };
 
   ~WLNGraph(){
-    for (unsigned int i = 0; i < REASONABLE;i++){
+    for (unsigned int i = 0; i < STRUCT_COUNT;i++){
       delete SYMBOLS[i];
       delete EDGES[i];
       delete RINGS[i];
@@ -593,7 +593,7 @@ struct ObjectStack{
 WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
 {
 
-  if(graph.symbol_count >= REASONABLE){
+  if(graph.symbol_count >= STRUCT_COUNT){
 #if ERRORS == 1
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
 #endif
@@ -1375,7 +1375,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
     return 0;
   
   graph.edge_count++;
-  if(graph.edge_count > REASONABLE){
+  if(graph.edge_count >= STRUCT_COUNT){
 #if ERRORS == 1 
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
 #endif
@@ -1552,7 +1552,7 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
 
 WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &graph){
 
-  if (size > REASONABLE)
+  if (size > STRUCT_COUNT)
     return 0;
   
   head->ch = '1';
@@ -1565,9 +1565,9 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   WLNSymbol *prev = head;
   for(unsigned int i=0;i<size-1;i++){
     WLNSymbol* carbon = AllocateWLNSymbol('1',graph);
-    carbon->allowed_edges = 4; // allows hydrogen resolve
     if(!carbon)
       return 0;
+    carbon->allowed_edges = 4; // allows hydrogen resolve
     edge = AllocateWLNEdge(carbon,prev,graph);
     if(!edge)
       return 0;
@@ -1672,7 +1672,7 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
 
 WLNRing *AllocateWLNRing(WLNGraph &graph)
 {
-  if(graph.ring_count > REASONABLE)
+  if(graph.ring_count >= STRUCT_COUNT)
     return 0;
   
   WLNRing *wln_ring = new WLNRing;
@@ -4592,7 +4592,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         // single letter methyl branches
         if(on_locant && !pending_inline_ring){
-          if(!add_methyl(branch_stack.ring->locants[on_locant],graph))
+          if(!branch_stack.ring || !add_methyl(branch_stack.ring->locants[on_locant],graph))
             return Fatal(i, "Error: could not attach implied methyl to ring");
           
           on_locant = '\0';
@@ -5083,6 +5083,9 @@ struct BabelGraph{
     for (unsigned int i=0; i<graph.symbol_count;i++){
       WLNSymbol *sym = graph.SYMBOLS[i];
       OBAtom *atom = 0;
+
+      if(!sym)
+        return Fatal(len,"Error: formation of obabel atom object");
 
       int charge = 0; 
       unsigned int atomic_num = 0;

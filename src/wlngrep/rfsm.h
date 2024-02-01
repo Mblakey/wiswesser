@@ -18,7 +18,6 @@ of regular languages, handles DFA, NFA, eNFA
 #include <stack>
 #include <map>
 
-#define REALLOC 512  // reallocate 512 more states or edges at a time
 #define REASONABLE 8192
 
 enum FSMType{DFA=0,NFA=1,eNFA=2};

@@ -120,8 +120,9 @@ double MolWt(const char *wln_strm, OBMol *mol){
 
 
 double DecayEpsilon(double epsilon_N0, double decay_rate){
-  if(epsilon > 0.1)
-    return epsilon_N0 * exp(-decay_rate*(lcount*10));
+  double e = epsilon_N0 * exp(-decay_rate*(lcount*10));
+  if(e > 0.1)
+    return e; 
   else
     return 0.1;
 }
@@ -133,7 +134,6 @@ FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
 
   FSMEdge *e = 0;
   if(choice > epsilon){
-    
     // Exploitation, take the best Q score
     FSMEdge *best = curr->transitions;
     for(e = curr->transitions;e;e=e->nxt){
@@ -187,12 +187,9 @@ double average_QScore(FSMAutomata *wlnmodel){
 /* uses Q learning to generate compounds from the language FSM
 as a markov decision process, WLN is small enough that with 20
 characters a large scope of chemical space can be covered. */
-void QGenerateWLN(  FSMAutomata *wlnmodel ){
+void QLearnWLN(  FSMAutomata *wlnmodel ){
   int hits = 0; 
-  int misses = 0;
-  int duplicates = 0;
-  int out_range = 0;
-  
+
   std::random_device rd;
   std::mt19937 gen(rd());
 
@@ -204,33 +201,30 @@ void QGenerateWLN(  FSMAutomata *wlnmodel ){
   std::unordered_map<std::string, bool> unique;
 
   double lepsilon = DecayEpsilon(epsilon,decay_rate);
+  unsigned int score_total = 0;
   int strlength = 0;
   while(hits < count){
 
     edge = EpsilonGreedy(state,lepsilon,gen);
-
     if(edge->ch == '\n'){
-
       if(strlength >= length){ // only accepts will have new line, ensures proper molecule
+        hits++; // increate the hits here
         strlength = 0;
         state = wlnmodel->root;
-
-        // in beta, the faster i make ReadWLN the better this is
-        
+#if EXPERIMENT
         OBMol mol;
         unsigned int score = 0;
         if(Validate(wlnstr.c_str(),&mol)){
           score+= 1;
           
           if(!unique[wlnstr]){
-            score += 1;
+            //score += 2;
             unique[wlnstr] = true;
 
             double lp = 0.0;
             double mw = 0.0;
             switch(dt){
               case 0:
-                hits++;
                 //fprintf(stderr,"%s\n",wlnstr.c_str());
                 break;
 
@@ -238,38 +232,27 @@ void QGenerateWLN(  FSMAutomata *wlnmodel ){
                 lp = LogP(wlnstr.c_str(),&mol);
                 if (lp >= logp-0.5 && lp <= logp+0.5){
                   score+= 3;
-                  hits++;
                   //fprintf(stderr,"%s - %f\n",wlnstr.c_str(),lp);
                 }
-                else
-                  out_range++;
                 break;
 
               case 2: 
                 mw = MolWt(wlnstr.c_str(),&mol);
                 if (mw >= molwt-50 && mw <= molwt+50){
                   score+= 3;
-                  hits++;
                   //fprintf(stderr,"%s - %f\n",wlnstr.c_str(),mw);
                 }
-                else
-                  out_range++;
                 break;
             }
           }
-          else 
-            duplicates++;
         
           // go back through all the edges and give them the +1 score
-          if(score){
-            path.insert(edge);
-            for(FSMEdge *pe:path)
-              BellManEquation(pe,score);
-          }
+          score_total += score; 
+          path.insert(edge);
+          for(FSMEdge *pe:path)
+            BellManEquation(pe,score); // this is very much the wrong way of doing it
         }
-        else
-          misses++;
-    
+#endif
         wlnstr.clear();
         path.clear(); // can assign learning here
       }
@@ -288,10 +271,21 @@ void QGenerateWLN(  FSMAutomata *wlnmodel ){
     }
    
     state = edge->dwn;
+
+    // if your in an accept state, do some scoring? 
+    if(state->accept){
+      OBMol mol;
+      unsigned int score = 0;
+      if(Validate(wlnstr.c_str(),&mol)){
+        BellManEquation(edge,1);
+        score_total++;
+      }
+    }
+
   }
 
 #if GEN_DEBUG
-  fprintf(stderr,"%f:  %d misses, %d duplicates, %d out of target range\n",average_QScore(wlnmodel),misses,duplicates,out_range);
+  fprintf(stderr,"score: %d epsilon: %f\n",score_total ,lepsilon);
 #endif
 }
 
@@ -305,7 +299,7 @@ bool RunEpisodes(FSMAutomata *wlnmodel){
 
   // set up Q-table iteration init condition 
   for (unsigned int i=0;i<episodes;i++){
-    QGenerateWLN(wlnmodel);
+    QLearnWLN(wlnmodel);
     lcount++;
     // epsilon gets scaled down by the decay rate
   }
