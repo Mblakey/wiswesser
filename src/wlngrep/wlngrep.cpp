@@ -18,7 +18,6 @@ unsigned int opt_match_option = 0; // 0 - return whole line, 1 - return matches 
 unsigned int opt_count        = 0;
 unsigned int opt_string_file  = 0;
 
-
 bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
   char *end = buffer+n;
   char *ptr;
@@ -38,6 +37,7 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
       *ptr = '\0';
       return true;
     }
+
     if (ch == '\r') {
       *ptr++ = '\n';
       *ptr = '\0';
@@ -205,7 +205,6 @@ int main(int argc, char* argv[])
     if(opt_count)
       fprintf(stderr,"%d matches\n",matches);
   }
-
 
   delete wlnDFA; 
   return 0;

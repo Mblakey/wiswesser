@@ -41,8 +41,8 @@ else
     make install 
 fi
 
-mkdir -p "$SCRIPT_DIR/bin"
-cd "$SCRIPT_DIR/bin"
+mkdir -p "$SCRIPT_DIR/build"
+cd "$SCRIPT_DIR/build"
 cmake ..
 make 
 

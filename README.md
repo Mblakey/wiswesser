@@ -23,7 +23,7 @@ Note: This project is solely created by Michael as part of his PhD work, if you 
 ## Build
 
 Run `./bootstrap.sh` from the project directory, this will clone and build openbabel as well as linking
-the library to the parser in cmake. Babel files will be installed to `external`. Building the projects places all executables into `bin/`. <br>
+the library to the parser in cmake. Babel files will be installed to `external`. Building the projects places all executables into `build/`. <br>
 
 ## Project Structure 
 

@@ -6,4 +6,6 @@ external
 scripts
 data/proprietary/*
 test/incorrect.txt
-test/correct.txt
+test/correct.txt.cache
+.cache
+build

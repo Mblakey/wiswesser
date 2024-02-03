@@ -1,8 +1,10 @@
-cmake_minimum_required(VERSION 3.21)
+
 project(wisswesser)
+cmake_minimum_required(VERSION 3.21)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3 -std=c++11")
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include_directories(
         ${PROJECT_SOURCE_DIR}/src/parser
         ${PROJECT_SOURCE_DIR}/src/wlngrep
@@ -42,3 +44,4 @@ endif()
 
 target_compile_definitions(readwln PRIVATE ERRORS=1)
 target_compile_definitions(wlngen PRIVATE ERRORS=0)
+

@@ -5,8 +5,6 @@ of regular languages, handles DFA, NFA, eNFA
 
 ###############################################################*/
 
-
-
 #ifndef REG_FSM_H
 #define REG_FSM_H
 
@@ -58,6 +56,7 @@ struct FSMEdge{
     c = 0;
   };
 };
+
 
 struct FSMAutomata{
 
