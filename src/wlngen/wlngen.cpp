@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
 
 #include <iostream>
 #include <string>
@@ -24,7 +23,6 @@
 #include <openbabel/groupcontrib.h>
 
 #include "rfsm.h"
-#include "wlnmatch.h"
 #include "wlndfa.h"
 #include "parser.h"
 
@@ -42,7 +40,6 @@ double epsilon = 0.5;
 double learning_rate = 0.5;
 double discount_rate = 0.85;
 double decay_rate = 0.005;
-
 
 std::vector<const char*> train_files;
 
@@ -79,6 +76,12 @@ bool seed_from_file(FILE *ifp, FSMAutomata *wlnmodel){
 
 /* 
 --- notes ---
+
+Previous attempts at the classic Q learning approach does not work, rewards 
+are way to sparse and time delaying also doesnt work. The main one is the greedy here
+is not suitable since mulitple transitions can take each state. 
+
+Each HER and time delayed measures to bring this into line.
 
 Epsilon-greedy policy - either take an action based on the qtable
 values, (exploitation), or the random FSM values, (exploration).
