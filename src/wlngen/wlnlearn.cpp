@@ -1,10 +1,15 @@
+/*
+ first iteration of WLN learn, the idea is to use sparse rewards to inorder to 
+ reduce the number of misses, this MAY (likely) lead to something like mode collapse 
+ where the same inputs are given each time, this is good, at least we are trending to
+ an learning answer. 
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
 
-#include <iostream>
 #include <string>
 #include <set>
 #include <unordered_map> // traditional hash map
@@ -24,7 +29,6 @@
 #include <openbabel/groupcontrib.h>
 
 #include "rfsm.h"
-#include "wlnmatch.h"
 #include "wlndfa.h"
 #include "parser.h"
 
@@ -32,20 +36,15 @@
 using namespace OpenBabel;
 
 #define GEN_DEBUG 1
+#define COUNT 1000
+
 
 int length = 5;
-int count = 10; 
 int episodes = 5;
 
-int dt = 0;
-double molwt = 0.0;
-double logp = 0.0;
-
-double epsilon = 0.5;
+double start_epsilon = 0.5;
 double learning_rate = 0.5;
-double discount_rate = 0.85;
 double decay_rate = 0.005;
-unsigned int lcount = 0;
 
 std::vector<const char*> train_files;
 
@@ -80,122 +79,115 @@ bool seed_from_file(FILE *ifp, FSMAutomata *wlnmodel){
 }
 
 
-/* 
---- notes ---
-
-Epsilon-greedy policy - either take an action based on the qtable
-values, (exploitation), or the random FSM values, (exploration).
-
-dummy scoring:
-  +1 = valid WLN
-  +2 = unique
-  +5 = in target range
-*/
-
-
+/* reward function, if the WLN is valid back score */
 bool Validate(const char *wln_str, OBMol *mol){
   if(!ReadWLN(wln_str,mol))
     return false;
   return true;
 }
 
-
-// https://open-babel.readthedocs.io/en/latest/Descriptors/descriptors.html
-
-double LogP(const char *wln_strm, OBMol *mol){
-  OBDescriptor* pDesc = OBDescriptor::FindType("logP");
-  if(pDesc)
-    return pDesc->Predict(mol); 
-  else
-    return 0.0;
-}
-
-double MolWt(const char *wln_strm, OBMol *mol){
-  OBDescriptor* pDesc = OBDescriptor::FindType("MW");
-  if(pDesc)
-    return pDesc->Predict(mol); 
-  else
-    return 0.0;
-}
-
-
-
-double DecayEpsilon(double epsilon_N0, double decay_rate){
-  if(epsilon > 0.1)
-    return epsilon_N0 * exp(-decay_rate*(lcount*10));
+ 
+double DecayEpsilon(double epsilon_N0, double decay_rate, unsigned int iteration){
+  double new_epsilon = epsilon_N0 * exp(-decay_rate*(iteration*10));
+  if (new_epsilon > 0.1)
+    return new_epsilon; 
   else
     return 0.1;
 }
 
-FSMEdge *EpsilonGreedy(FSMState *curr, double epsilon, std::mt19937 &rgen){
+/* return an edge based on completely random distribution - highest exploration */
+FSMEdge *RandomEdge(FSMState *curr, std::mt19937 &rgen){
+  FSMEdge *e = 0; 
+  unsigned int total = 0; 
+  std::vector<FSMEdge*> edge_vec = {};
+  std::vector<double> prob_vec = {}; // vector of probabilities 
+  for(e=curr->transitions;e;e=e->nxt){
+    edge_vec.push_back(e);
+    total++; 
+  }
 
+  for (unsigned int i=0; i<total;i++)
+    prob_vec.push_back(1/(double)total);
+  
+  std::discrete_distribution<> d(prob_vec.begin(), prob_vec.end());
+  unsigned int chosen = d(rgen);
+  return edge_vec[chosen];
+}
+
+
+/* return an edge based on the learnt probabilities - still high exploration */
+FSMEdge *LikelyEdge(FSMState *curr, std::mt19937 &rgen){
+  FSMEdge *e = 0; 
+  std::vector<FSMEdge*> edge_vec = {};
+  std::vector<double> prob_vec = {}; // vector of probabilities 
+  for(e=curr->transitions;e;e=e->nxt){
+    edge_vec.push_back(e);
+    prob_vec.push_back(e->p);
+  }
+
+  std::discrete_distribution<> d(prob_vec.begin(), prob_vec.end());
+  unsigned int chosen = d(rgen);
+  return edge_vec[chosen];
+}
+
+
+FSMEdge *ChooseEdge(FSMState *curr, double epsilon,std::mt19937 &rgen){
   std::uniform_real_distribution<> dis(0, 1);
-  double choice = dis(rgen); 
-
-  FSMEdge *e = 0;
-  if(choice > epsilon){
-    
-    // Exploitation, take the best Q score
-    FSMEdge *best = curr->transitions;
-    for(e = curr->transitions;e;e=e->nxt){
-      if(e->q > best->q)
-        best = e; 
-    }
-
-    return best; 
-  }
-  else{
-    std::vector<FSMEdge*> edge_vec = {};
-    std::vector<double> prob_vec = {}; // vector of probabilities 
-    for(e=curr->transitions;e;e=e->nxt){
-      edge_vec.push_back(e);
-      prob_vec.push_back(e->p);
-    }
-
-    std::discrete_distribution<> d(prob_vec.begin(), prob_vec.end());
-    unsigned int chosen = d(rgen);
-    return edge_vec[chosen];
-  }
+  double choice = dis(rgen);
+  if(choice > epsilon)
+    return LikelyEdge(curr,rgen);
+  else
+    return RandomEdge(curr, rgen);
 }
 
 
 /* used to update the Q values in the chain if a successful hit is made */
 void BellManEquation(FSMEdge *curr, unsigned int score){
-  FSMState *nxt = curr->dwn; // get the next state. 
-  double expected = 0.0; // expected future reward looking ahead 1 state
-  FSMEdge *e = 0; 
-  for(e=nxt->transitions;e;e=e->nxt){
-    if(e->q > expected)
-      expected = e->q; 
-  }
-
-  curr->q = (1-learning_rate)*curr->q + learning_rate * (score + (discount_rate * expected) );
+ // curr->p += 0.02;
+ // return;
+  curr->p = ((1-learning_rate)*curr->p) + (learning_rate *score);
+  return;
 }
 
 
-/* this should rise as we learn, otherwise BAD */
-double average_QScore(FSMAutomata *wlnmodel){
-  double total = 0.0;
-  for(unsigned int i=0;i<wlnmodel->num_edges;i++){
-    FSMEdge *e = wlnmodel->edges[i]; 
-    total += e->q;
+
+void NormaliseState(FSMState* state){
+  FSMEdge *e = 0;
+  double sum = 0.0; // should be a safe normalise value
+  
+  for (e=state->transitions;e;e=e->nxt)
+    sum += e->p;   
+  
+//  double check = 0.0;
+  for (e=state->transitions;e;e=e->nxt) {
+    e->p = e->p/sum;
+//    check += e->p;
+//    fprintf(stderr,"%f ",e->p);
   }
-  total = total/(double)wlnmodel->num_edges;
-  return total; 
+  
+//  fprintf(stderr,"\ncheck: %f\n",check);
+  return;
+}
+
+void RewardPath(std::set<FSMEdge*> &path){
+  for(FSMEdge *e : path)
+    BellManEquation(e, 1);
+
+  for(FSMEdge *e: path)
+    NormaliseState(e->dwn);
+  return;
 }
 
 
 /* uses Q learning to generate compounds from the language FSM
 as a markov decision process, WLN is small enough that with 20
 characters a large scope of chemical space can be covered. */
-void QGenerateWLN(  FSMAutomata *wlnmodel ){
+void QLearnWLN(  FSMAutomata *wlnmodel, double epsilon){
   int hits = 0; 
   int misses = 0;
-  int duplicates = 0;
-  int out_range = 0;
   
   std::random_device rd;
-  std::mt19937 gen(rd());
+  std::mt19937 rgen(rd());
 
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
@@ -204,12 +196,11 @@ void QGenerateWLN(  FSMAutomata *wlnmodel ){
   std::set<FSMEdge*> path; // avoid the duplicate path increases
   std::unordered_map<std::string, bool> unique;
 
-  double lepsilon = DecayEpsilon(epsilon,decay_rate);
+//  double lepsilon = DecayEpsilon(epsilon,decay_rate);
   int strlength = 0;
-  while(hits < count){
-
-    edge = EpsilonGreedy(state,lepsilon,gen);
-
+  while(hits < COUNT){
+    edge = ChooseEdge(state,epsilon,rgen); 
+    
     if(edge->ch == '\n'){
 
       if(strlength >= length){ // only accepts will have new line, ensures proper molecule
@@ -219,65 +210,22 @@ void QGenerateWLN(  FSMAutomata *wlnmodel ){
         // in beta, the faster i make ReadWLN the better this is
         
         OBMol mol;
-        unsigned int score = 0;
         if(Validate(wlnstr.c_str(),&mol)){
-          score+= 1;
-          
-          if(!unique[wlnstr]){
-            score += 1;
-            unique[wlnstr] = true;
-
-            double lp = 0.0;
-            double mw = 0.0;
-            switch(dt){
-              case 0:
-                hits++;
-                //fprintf(stderr,"%s\n",wlnstr.c_str());
-                break;
-
-              case 1:
-                lp = LogP(wlnstr.c_str(),&mol);
-                if (lp >= logp-0.5 && lp <= logp+0.5){
-                  score+= 3;
-                  hits++;
-                  //fprintf(stderr,"%s - %f\n",wlnstr.c_str(),lp);
-                }
-                else
-                  out_range++;
-                break;
-
-              case 2: 
-                mw = MolWt(wlnstr.c_str(),&mol);
-                if (mw >= molwt-50 && mw <= molwt+50){
-                  score+= 3;
-                  hits++;
-                  //fprintf(stderr,"%s - %f\n",wlnstr.c_str(),mw);
-                }
-                else
-                  out_range++;
-                break;
-            }
-          }
-          else 
-            duplicates++;
-        
-          // go back through all the edges and give them the +1 score
-          if(score){
-            path.insert(edge);
-            for(FSMEdge *pe:path)
-              BellManEquation(pe,score);
-          }
+          //fprintf(stderr,"%s\n", wlnstr.c_str());
+          path.insert(edge);
+          RewardPath(path);
+          hits++;
         }
         else
-          misses++;
-    
+         misses++;
+                  
         wlnstr.clear();
         path.clear(); // can assign learning here
       }
       else{
         // choose something else
         while(edge->ch == '\n')
-          edge = EpsilonGreedy(state,lepsilon,gen);
+          edge = ChooseEdge(state,epsilon,rgen);
 
         path.insert(edge);
       }
@@ -291,24 +239,18 @@ void QGenerateWLN(  FSMAutomata *wlnmodel ){
     state = edge->dwn;
   }
 
-#if GEN_DEBUG
-  fprintf(stderr,"%f:  %d misses, %d duplicates, %d out of target range\n",average_QScore(wlnmodel),misses,duplicates,out_range);
-#endif
+  fprintf(stderr,"epsilon: %f, misses: %d\n", epsilon,misses);
 }
-
 
 
 /* compare old Q learning factors with new current, need 2 copies of the FSM*/
 bool RunEpisodes(FSMAutomata *wlnmodel){
-
   // Get the initial Q-learning values for update loop. 
-  // ~ 10 seconds per 50K molecules on ARM64 M1.  
-
-  // set up Q-table iteration init condition 
-  for (unsigned int i=0;i<episodes;i++){
-    QGenerateWLN(wlnmodel);
-    lcount++;
-    // epsilon gets scaled down by the decay rate
+  // ~ 10 seconds per 50K molecules on ARM64 M1.   
+  double epsilon = start_epsilon;
+  for (unsigned int i=0;i<(unsigned int)episodes;i++){
+    QLearnWLN(wlnmodel,epsilon);
+    epsilon = DecayEpsilon(start_epsilon, decay_rate,i);
   }
 
   return true;
@@ -323,55 +265,35 @@ bool prefix(const char *pre, const char *str)
   return strncmp(pre, str, strlen(pre)) == 0;
 }
 
-static void DisplayUsage()
-{
+static void DisplayUsage(){
   fprintf(stderr, "wlngen <options> <trainfile>\n");
   fprintf(stderr,"options:\n");
   fprintf(stderr,"-l|--length=<int>      set length for generation        (default 5)\n");
-  fprintf(stderr,"-c|--count=<int>       set target count for generation  (default 10)\n");
   
   fprintf(stderr,"\ntuning:\n");
   fprintf(stderr,"-r|--runs=<int>        set learning episodes            (default 5)\n");
   fprintf(stderr,"-e|--epsilon=<double>  set epsilon hyperparameter       (default 0.5)\n");
   fprintf(stderr,"-d|--decay=<double>    set decay rate hyperparameter    (default 0.005)\n");
   fprintf(stderr,"-a|--alpha=<double>    set learning rate hyperparameter (default 0.5)\n");
-  fprintf(stderr,"-g|--gamma=<double>    set discount rate hyperparameter (default 0.85)\n");
   
   fprintf(stderr,"\ngeneral:\n");
   fprintf(stderr,"-p|--print             show all set hyperparameters and exit\n");
   fprintf(stderr,"-h|--help              show this help menu and exit\n");
   
-  fprintf(stderr,"\ndescriptors:\n");
-  fprintf(stderr,"--logp=<double>        set logp  target value, range is +/- 0.5 from this value\n");
-  fprintf(stderr,"--molwt=<double>       set molwt target value, range is +/- 50  from this value\n");
   exit(1);
 }
 
 
 static void DisplayParameters(){
   fprintf(stderr,"----------------------------\n");
-  fprintf(stderr,"target count:      %d\n",count);
+  fprintf(stderr,"target count:      %d\n",COUNT);
   fprintf(stderr,"target length:     %d\n",length);
   
   fprintf(stderr,"\nepisodes:          %d\n",episodes);
   fprintf(stderr,"learning rate:     %f\n",learning_rate);
-  fprintf(stderr,"discount rate:     %f\n",discount_rate);
-  fprintf(stderr,"epsilon:           %f\n",epsilon);
+  fprintf(stderr,"epsilon:           %f\n",start_epsilon);
   fprintf(stderr,"decay rate:        %f\n",decay_rate);
   
-  fprintf(stderr,"\nlogp target:       %f\n",logp);
-  fprintf(stderr,"molwt target:      %f\n",molwt);
-  switch(dt){
-    case 0:
-      fprintf(stderr,"dt mode:           %d (no descriptor)\n",dt);
-      break;
-    case 1:
-      fprintf(stderr,"dt mode:           %d (logp)\n",dt);
-      break;
-    case 2:
-      fprintf(stderr,"dt mode:           %d (molwt)\n",dt);
-      break;
-  }
   fprintf(stderr,"----------------------------\n");
   exit(1);
 }
@@ -384,7 +306,7 @@ static void ProcessCommandLine(int argc, char *argv[])
   j = 0;
   for (i = 1; i < argc; i++)
   {
-    ptr = argv[i];
+    ptr = argv[i]; 
     ch = *ptr; 
     if (ptr[0] == '-' && ptr[1]){
       l = 0;
@@ -415,27 +337,6 @@ static void ProcessCommandLine(int argc, char *argv[])
             episodes = atoi(ptr);
             if(episodes < 0){
               fprintf(stderr,"Error: runs must be a positive integer\n");
-              DisplayUsage();
-            }
-          }
-          break;
-
-
-        case 'c':
-          while(ch != '=' && ch){
-            ch = *(++ptr);
-            l++;
-          }
-
-          if(!(*ptr) || l != 2){
-            fprintf(stderr,"Error: incorrect flag format\n");
-            DisplayUsage();
-          }
-          else{
-            ptr++;
-            count = atoi(ptr);
-            if(count < 0){
-              fprintf(stderr,"Error: count must be a positive integer\n");
               DisplayUsage();
             }
           }
@@ -474,8 +375,8 @@ static void ProcessCommandLine(int argc, char *argv[])
           else{
             ptr++;
             char* endptr; 
-            epsilon = strtod(ptr, &endptr); 
-            if (epsilon < 0 || epsilon > 1){
+            start_epsilon = strtod(ptr, &endptr); 
+            if (start_epsilon < 0 || start_epsilon > 1){
               fprintf(stderr,"Error: range for epsilon is [0,1]\n");
               DisplayUsage();
             }
@@ -524,61 +425,9 @@ static void ProcessCommandLine(int argc, char *argv[])
           }
           break;
 
-        case 'g':
-          while(ch != '=' && ch){
-            ch = *(++ptr);
-            l++;
-          }
-
-          if(!(*ptr) || l != 2){
-            fprintf(stderr,"Error: incorrect flag format\n");
-            DisplayUsage();
-          }
-          else{
-            ptr++;
-            char* endptr; 
-            discount_rate = strtod(ptr, &endptr); 
-            if (discount_rate < 0 || discount_rate > 1){
-              fprintf(stderr,"Error: range for discount rate is [0,1]\n");
-              DisplayUsage();
-            }
-          }
-          break;
-
-
-        case '-':
+       case '-':
           ptr++;
-          if(prefix("-logp",ptr)){
-            if(dt){
-              fprintf(stderr,"Error: targeting two descriptors is currently unsupported\n");
-              DisplayUsage();
-            }
-
-            ch = *ptr;
-            while(ch != '=' && ch)
-              ch = *(++ptr); 
-
-            ptr++;
-            char* endptr; 
-            logp = strtod(ptr, &endptr); 
-            dt = 1;
-          }
-          else if(prefix("-molwt",ptr)){
-            if(dt){
-              fprintf(stderr,"Error: targeting two descriptors is currently unsupported\n");
-              DisplayUsage();
-            }
-
-            ch = *ptr;
-            while(ch != '=' && ch)
-              ch = *(++ptr); 
-
-            ptr++;
-            char* endptr; 
-            molwt = strtod(ptr, &endptr); 
-            dt = 2;
-          }
-          else if (prefix("-print",ptr)){
+          if (prefix("-print",ptr)){
             DisplayParameters();
           }
           else if (prefix("-runs",ptr)){
@@ -609,8 +458,8 @@ static void ProcessCommandLine(int argc, char *argv[])
             else{
               ptr++;
               char* endptr; 
-              epsilon = strtod(ptr, &endptr); 
-              if (epsilon < 0 || epsilon > 1){
+              start_epsilon = strtod(ptr, &endptr); 
+              if (start_epsilon < 0 || start_epsilon > 1){
                 fprintf(stderr,"Error: range for epsilon is [0,1]\n");
                 DisplayUsage();
               }
@@ -648,41 +497,6 @@ static void ProcessCommandLine(int argc, char *argv[])
               learning_rate = strtod(ptr, &endptr); 
               if (learning_rate < 0 || learning_rate > 1){
                 fprintf(stderr,"Error: range for learning_rate is [0,1]\n");
-                DisplayUsage();
-              }
-            }
-          }
-          else if (prefix("-gamma",ptr)){
-            while(ch != '=' && ch)
-              ch = *(++ptr);
-            
-            if(!(*ptr)){
-              fprintf(stderr,"Error: incorrect flag format\n");
-              DisplayUsage();
-            }
-            else{
-              ptr++;
-              char* endptr; 
-              discount_rate = strtod(ptr, &endptr); 
-              if (discount_rate < 0 || discount_rate > 1){
-                fprintf(stderr,"Error: range for discount rate is [0,1]\n");
-                DisplayUsage();
-              }
-            }
-          }
-          else if (prefix("-count",ptr)){
-            while(ch != '=' && ch)
-              ch = *(++ptr);
-
-            if(!(*ptr)){
-              fprintf(stderr,"Error: incorrect flag format\n");
-              DisplayUsage();
-            }
-            else{
-              ptr++;
-              count = atoi(ptr);
-              if(count < 0){
-                fprintf(stderr,"Error: count must be a positive integer\n");
                 DisplayUsage();
               }
             }

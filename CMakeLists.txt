@@ -23,6 +23,8 @@ add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
 add_executable(wlnzip ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp)
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlngen.cpp ${PROJECT_SOURCE_DIR}/src/parser/readwln2.cpp)
+add_executable(wlnlearn ${PROJECT_SOURCE_DIR}/src/wlngen/wlnlearn.cpp ${PROJECT_SOURCE_DIR}/src/parser/readwln2.cpp)
+
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/include/")
@@ -34,14 +36,17 @@ elseif(APPLE)
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(obcomp "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(wlngen "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
+  target_link_libraries(wlnlearn "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
 elseif(UNIX)
   target_link_libraries(readwln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
   target_link_libraries(obcomp "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
   target_link_libraries(wlngen "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
+  target_link_libraries(wlnlearn "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
 endif()
 
 
 target_compile_definitions(readwln PRIVATE ERRORS=1)
 target_compile_definitions(wlngen PRIVATE ERRORS=0)
+target_compile_definitions(wlnlearn PRIVATE ERRORS=0)
 

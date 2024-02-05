@@ -12,7 +12,6 @@ of regular languages, handles DFA, NFA, eNFA
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
-#include <set>
 #include <stack>
 #include <map>
 
@@ -42,7 +41,6 @@ struct FSMEdge{
 	FSMEdge *nxt;
 
   double p;
-  double q;
   unsigned int c; 
 
   FSMEdge(){
@@ -52,7 +50,6 @@ struct FSMEdge{
     nxt = 0;
 
     p = 0.0;
-    q = 0.0; // for the q-learning reward scheme.  
     c = 0;
   };
 };

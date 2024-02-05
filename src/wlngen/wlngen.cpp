@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <set>
+#include <unistd.h>
 #include <unordered_map> // traditional hash map
 #include <vector>
 #include <random>
@@ -27,6 +28,7 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 #include "parser.h"
+
 
 using namespace OpenBabel;
 
@@ -170,7 +172,7 @@ FSMEdge *RandomEdge(FSMState *curr, std::mt19937 &rgen){
 }
 
 /* uses Q learning to generate compounds from the language FSM
-as a markov decision process, WLN is small enough that with 20
+as a marko process, WLN is small enough that with 20
 characters a large scope of chemical space can be covered. */
 bool QGenerateWLN(FSMAutomata *wlnmodel){
   int hits = 0; 
