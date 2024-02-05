@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "rfsm.h"
-#include "wlnmatch.h"
 #include "wlndfa.h"
 
 #include "huffman.h"
@@ -28,7 +27,6 @@ void LeftShift(unsigned char *arr, unsigned int len, unsigned int n)
 void stream_to_bytes(std::vector<unsigned char> &stream){
   unsigned int char_pos = 0;
   unsigned char out = 0;
-  unsigned int bits = 0;
 
   for(unsigned int i=0;i<stream.size();i++){
     if(stream[i])
@@ -450,8 +448,8 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 
             if(!reading_bits){
 
-             for(unsigned int i=0;i<length;i++)
-              buffer[i+BACKREFERENCE] = buffer[BACKREFERENCE-distance+i];
+              for(unsigned int i=0;i<length;i++)
+                buffer[i+BACKREFERENCE] = buffer[BACKREFERENCE-distance+i];
              
               while(buffer[BACKREFERENCE]){
                 for(edge=curr->transitions;edge;edge=edge->nxt){

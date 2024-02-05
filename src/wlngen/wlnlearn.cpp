@@ -37,7 +37,7 @@ using namespace OpenBabel;
 
 #define GEN_DEBUG 1
 #define COUNT 5000
-
+#define LOGP 2.5
 
 int length = 5;
 int episodes = 5;
@@ -107,7 +107,7 @@ unsigned int ScoreFunction(const char*wln_str){
     score +=1;
  
   double logp = LogP(&mol);
-  if(logp < (2.0 + 0.5) && logp > (2.0-0.5))
+  if(logp < (LOGP + 0.5) && logp > (LOGP-0.5))
     score += 3;
   
   return score;
