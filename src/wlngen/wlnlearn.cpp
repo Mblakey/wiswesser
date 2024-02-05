@@ -36,7 +36,7 @@
 using namespace OpenBabel;
 
 #define GEN_DEBUG 1
-#define COUNT 1000
+#define COUNT 10000
 
 
 int length = 5;
@@ -79,11 +79,38 @@ bool seed_from_file(FILE *ifp, FSMAutomata *wlnmodel){
 }
 
 
+
+double LogP(OBMol *mol){
+  OBDescriptor* pDesc = OBDescriptor::FindType("logP");
+  if(pDesc)
+    return pDesc->Predict(mol); 
+  else
+    return 0.0;
+}
+
+
+
 /* reward function, if the WLN is valid back score */
 bool Validate(const char *wln_str, OBMol *mol){
   if(!ReadWLN(wln_str,mol))
     return false;
   return true;
+}
+
+unsigned int ScoreFunction(const char*wln_str){
+  unsigned int score = 0;
+  OBMol mol;
+
+  if(!Validate(wln_str,&mol))
+    return score;
+  else
+    score +=1;
+ 
+  double logp = LogP(&mol);
+  if(logp < (2.0 + 0.5) && logp > (2.0-0.5))
+    score += 3;
+  
+  return score;
 }
 
  
@@ -169,9 +196,9 @@ void NormaliseState(FSMState* state){
   return;
 }
 
-void RewardPath(std::set<FSMEdge*> &path){
+void RewardPath(std::set<FSMEdge*> &path,unsigned int score){
   for(FSMEdge *e : path)
-    BellManEquation(e, 1);
+    BellManEquation(e, score);
 
   for(FSMEdge *e: path)
     NormaliseState(e->dwn);
@@ -206,14 +233,12 @@ void QLearnWLN(  FSMAutomata *wlnmodel, double epsilon){
       if(strlength >= length){ // only accepts will have new line, ensures proper molecule
         strlength = 0;
         state = wlnmodel->root;
-
-        // in beta, the faster i make ReadWLN the better this is
         
-        OBMol mol;
-        if(Validate(wlnstr.c_str(),&mol)){
+        unsigned int score = ScoreFunction(wlnstr.c_str());   
+        if(score){
           //fprintf(stderr,"%s\n", wlnstr.c_str());
           path.insert(edge);
-          RewardPath(path);
+          RewardPath(path,score);
           hits++;
         }
         else

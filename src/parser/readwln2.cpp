@@ -1,4 +1,4 @@
-/**********************************************************************
+/*********************************************************************
  
 Author : Michael Blakey
 
@@ -3356,7 +3356,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     fprintf(stderr, "Parsing WLN notation: %s\n",wln_ptr);
 
   ObjectStack branch_stack;   // access to both rings and symbols
-  branch_stack.reserve(512);  // reasonable size given
+  //branch_stack.reserve(512);  // reasonable size given
 
   std::vector<std::pair<unsigned int, int>> ionic_charges;
   
@@ -5022,6 +5022,9 @@ struct BabelGraph{
   OBAtom* NMOBMolNewAtom(OBMol* mol, unsigned int elem,int charge,unsigned int hcount)
   {
     OBAtom* result = mol->NewAtom();
+    if(!result)
+      return 0;
+
     result->SetAtomicNum(elem);
     result->SetImplicitHCount(hcount);
     result->SetFormalCharge(charge);
