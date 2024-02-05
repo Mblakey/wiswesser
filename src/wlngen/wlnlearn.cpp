@@ -36,7 +36,7 @@
 using namespace OpenBabel;
 
 #define GEN_DEBUG 1
-#define COUNT 10000
+#define COUNT 5000
 
 
 int length = 5;
@@ -267,6 +267,52 @@ void QLearnWLN(  FSMAutomata *wlnmodel, double epsilon){
   fprintf(stderr,"epsilon: %f, misses: %d\n", epsilon,misses);
 }
 
+void GenerateWLN(FSMAutomata *wlnmodel){
+  int hits = 0; 
+
+  std::random_device rd;
+  std::mt19937 rgen(rd());
+
+  FSMState *state = wlnmodel->root; 
+  FSMEdge *edge = 0;
+
+  std::string wlnstr; 
+  std::unordered_map<std::string, bool> unique;
+
+
+  int strlength = 0;
+  while(hits < COUNT){
+    edge = LikelyEdge(state,rgen); 
+    
+    if(edge->ch == '\n'){
+
+      if(strlength >= length){ // only accepts will have new line, ensures proper molecule
+        strlength = 0;
+        state = wlnmodel->root;
+        
+        OBMol mol; 
+        if(Validate(wlnstr.c_str(), &mol)){
+          fprintf(stderr,"%s\n", wlnstr.c_str());
+          hits++;
+        }
+                  
+        wlnstr.clear();
+      }
+      else{
+        // choose something else
+        while(edge->ch == '\n')
+          edge = LikelyEdge(state,rgen);
+      }
+    }
+    else{
+      wlnstr += edge->ch;
+      strlength++;
+    }
+   
+    state = edge->dwn;
+  }
+
+}
 
 /* compare old Q learning factors with new current, need 2 copies of the FSM*/
 bool RunEpisodes(FSMAutomata *wlnmodel){
@@ -598,6 +644,7 @@ int main(int argc, char *argv[])
   }
 
   RunEpisodes(wlnmodel);
+  GenerateWLN(wlnmodel);
   delete wlnmodel;
   return 0;
 }
