@@ -87,8 +87,6 @@ int main(int argc, char *argv[])
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
   }
 
-  wlnmodel->AssignEqualProbs();
-
   FILE *fp = 0; 
   fp = fopen(input,"rb");
   if(fp){

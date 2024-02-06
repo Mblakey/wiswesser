@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <vector>
 
@@ -83,10 +84,31 @@ unsigned int ScoreBackReference(  unsigned int length, unsigned int distance,
 }
 
 
+bool ParseFilePtr(FILE *ifp, FSMAutomata *wlnmodel){
+  unsigned char ch = 0;
+  FSMState *curr = wlnmodel->root;
+  FSMEdge *edge = 0;
+  
+  while(fread(&ch, sizeof(unsigned char), 1, ifp)){
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      if(edge->ch == ch){
+        if(edge->c < UINT32_MAX)
+          edge->c++; 
+        curr = edge->dwn; 
+        break;
+      }
+    }
+  }
+
+  rewind(ifp); // set the file pointer back to normal
+  return true;
+}
+
+
 
 bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
-  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE); 
+  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE);   
   memset(buffer,0,BUFFSIZE);
 
   bool reading_data = true;
@@ -112,6 +134,12 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
 
   unsigned char code[CSIZE] = {0};
   std::vector<unsigned char> bitstream;
+
+
+  // PARSE FILE FOR SMALL TREES
+ 
+  wlnmodel->AssignEqualProbs();
+  // ParseFilePtr(ifp, wlnmodel);
   
   // fill up the forward window
   for(unsigned int i=BACKREFERENCE;i<BUFFSIZE;i++){
@@ -165,24 +193,6 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
         distance = 0;
         length = 0;
       }
-    }
-
-    /* huffman tree gets made no matter what */
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      Node *n = AllocateNode(edge->ch,edge->c);
-      insert_term(n,priority_queue);
-    }
-
-    htree = ConstructHuffmanTree(priority_queue);
-    ReserveCode("00",'*',htree);
-    if(!htree){
-      fprintf(stderr,"Huffman tree allocation fault\n");
-      return false;
-    }
-
-    if(priority_queue->size){
-      fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
-      return false;
     }
 
     if(best_length && best_distance){
@@ -243,7 +253,6 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
         for(edge=curr->transitions;edge;edge=edge->nxt){
           if(edge->ch == buffer[BACKREFERENCE]){
             curr = edge->dwn;
-            //edge->c++;
             break;
           }
         }
@@ -261,6 +270,26 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
       }
     }
     else{
+     
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+        if(edge->c > 0){
+          Node *n = AllocateNode(edge->ch,edge->c);
+          insert_term(n,priority_queue);
+        }
+      }
+
+      htree = ConstructHuffmanTree(priority_queue);
+      ReserveCode("00",'*',htree);
+      if(!htree){
+        fprintf(stderr,"Huffman tree allocation fault\n");
+        return false;
+      }
+
+      if(priority_queue->size){
+        fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
+        return false;
+      }
+
 
       unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
       if(!clen){
@@ -292,10 +321,12 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
           buffer[BUFFSIZE-1] = ch;
       }
 
+
+      free_huffmantree(htree); 
+
     }
 
     // gets deleted no matter what as well
-    free_huffmantree(htree); 
   }
 
 
@@ -306,7 +337,6 @@ bool WLNENCODE(FILE *ifp, FSMAutomata *wlnmodel){
   free_buckets(buckets);
   free_heap(priority_queue);
   free(buffer);
-
 
   fprintf(stderr,"%d molecules compressed\n",molecules);
   return true;
@@ -353,6 +383,9 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   tree_root = ConstructHuffmanTree(priority_queue);
   ReserveCode("00",'*',tree_root);
   htree = tree_root;
+
+
+  wlnmodel->AssignEqualProbs();
 
   while(fread(&ch,sizeof(unsigned char),1,ifp)){
     for(int i=7;i>=0;i--){
@@ -537,7 +570,6 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
 
   bool reading_data = true;
   unsigned char ch = *str;
-  unsigned int molecules = 0;
 
   Node *htree = 0;
   PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
@@ -636,7 +668,7 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
     if(best_length && best_distance){
       // here i need to encode, best length, bits little endian, best distance, bits little endian
       // move the FSM through the shifts and increase the adaptive count for those edges
-
+      
       // potential increase the adaptive count per special symbol - optimisation once working
       bitstream.push_back(0);
       bitstream.push_back(0);
@@ -694,10 +726,7 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
             //edge->c++;
             break;
           }
-        }
-
-        if(buffer[BACKREFERENCE] == '\n')
-          molecules++;        
+        }   
 
         LeftShift(buffer,BUFFSIZE,1);
         if(reading_data){
@@ -713,10 +742,9 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
     else{
 
       unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
-      if(!clen){
-        fprintf(stderr,"Error: literal code generation - line %d\n",molecules);
+      if(!clen)
         return false;
-      }
+      
 
       for(unsigned int c = 0;c<clen;c++)
         bitstream.push_back(code[c]);
@@ -730,9 +758,6 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
           break;
         }
       }
-
-      if(buffer[BACKREFERENCE] == '\n')
-        molecules++;
 
       LeftShift(buffer,BUFFSIZE,1);
       if(reading_data){
@@ -748,7 +773,7 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
     // gets deleted no matter what as well
     free_huffmantree(htree); 
   }
-
+ 
 
   // get the last ones still in the stream
 

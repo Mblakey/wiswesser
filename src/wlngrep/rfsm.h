@@ -223,7 +223,7 @@ struct FSMAutomata{
     edges[edge->id] = edge;
 		edge->ch = ch;
     edge->dwn = trg; 
-    edge->c = 1;
+    edge->c = 0; // AH 
     alphabet[ch] = true; // store for look up on transitions
 
     e = src->transitions;

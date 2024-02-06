@@ -64,6 +64,11 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
 }
 
 
+/* 
+ * gzip does better as we assume the whole machine is avaliable from the start - yields 
+ * longer huffman codes 
+ *
+*/
 double WLNNormalisedCompressionDistance(const char *s1, const char *s2, FSMAutomata *wlnmodel)
 {
   double ncd = 0.0;   
@@ -80,6 +85,7 @@ double WLNNormalisedCompressionDistance(const char *s1, const char *s2, FSMAutom
   strcpy(store,s1);
   strcat(store,s2);
   unsigned int AB = EncodedBits(store, wlnmodel); 
+  wlnmodel->AssignEqualProbs();
   
   fprintf(stderr,"A: %d, B: %d, AB: %d\n",A,B,AB);
 
