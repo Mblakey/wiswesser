@@ -5,16 +5,11 @@
 #include <vector>
 
 #include "rfsm.h"
-#include "wlndfa.h"
-
 #include "huffman.h"
 #include "lz.h"
+#include "wlnzip.h"
 
 #define CSIZE 64
-
-unsigned int opt_mode = 0;
-const char *input;
-
 
 // general functions
 void LeftShift(unsigned char *arr, unsigned int len, unsigned int n)   
@@ -535,107 +530,235 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
 }
 
 
-/* ######################################################################################### */
+unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
+
+  unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE); 
+  memset(buffer,0,BUFFSIZE);
+
+  bool reading_data = true;
+  unsigned char ch = *str;
+  unsigned int molecules = 0;
+
+  Node *htree = 0;
+  PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
+  init_heap(priority_queue,512); // safe value for WLN
 
 
-static void DisplayUsage()
-{
-  fprintf(stderr, "wlnzip <options> <input> > <out>\n");
-  fprintf(stderr, "<options>\n");
-  fprintf(stderr, "  -c          compress input\n");
-  fprintf(stderr, "  -d          decompress input\n");
-  exit(1);
-}
+  // set up the distance tree
+  for(unsigned int c = 0;c<LZBUCKETS;c++){
+    Node *n = AllocateNode(('a'+c),1); // use 'a' as offset, only adds 1-2 KB overhead
+    insert_term(n,priority_queue);
+  }
+
+  Node *lz_tree = ConstructHuffmanTree(priority_queue);
+  LLBucket **buckets = init_buckets();
+
+  FSMState *curr = wlnmodel->root;
+  FSMEdge *edge = 0;
+
+  unsigned char code[CSIZE] = {0};
+  std::vector<unsigned char> bitstream;
+  
+  // fill up the forward window
+  for(unsigned int i=BACKREFERENCE;i<BUFFSIZE;i++){
+    if(!ch)
+      reading_data = false;
+    else
+      buffer[i] = ch;
+    
+    if(!reading_data)
+      break;
+    
+    ch = *(++str);
+  } 
+
+  if(!buffer[BACKREFERENCE]){
+    fprintf(stderr,"Error: no data!\n");
+    free(buffer);
+    return false;
+  }
 
 
-static void ProcessCommandLine(int argc, char *argv[])
-{
-  const char *ptr = 0;
-  int i,j;
+  while(buffer[BACKREFERENCE]){
+    unsigned int distance = 0;
+    unsigned int length   = 0;
+    unsigned int best_length = 0;
+    unsigned int best_distance = 0;
+    unsigned int saved = 0; // potential for overflow here, another optimisation point
 
-  input = (const char *)0;
-
-  j = 0;
-  for (i = 1; i < argc; i++)
-  {
-
-    ptr = argv[i];
-    if (ptr[0] == '-' && ptr[1]){
-      switch (ptr[1]){
+    for(unsigned int i=0;i<BUFFSIZE;i++){
+      if(i >= BACKREFERENCE && !length)
+        break;
+      
+      if(buffer[i] == buffer[BACKREFERENCE+length]){
+        length++;
+        if(!distance)
+          distance = BACKREFERENCE - i;
+      }
+      else if(length > 2){
         
-        case 'c': 
-          opt_mode = 1; 
-          break;
+        // if good backreference, store the positions in best, this is an approximation
+        unsigned int lsaved = ScoreBackReference(length,distance,curr,buckets);
+        if(lsaved > saved){
+          best_distance = distance;
+          best_length = length;
+          saved = lsaved; 
+        }
 
-        case 'd':
-          opt_mode = 2; 
-          break;
+        distance = 0;
+        length = 0;
+      }
+      else{
+        // reset
+        distance = 0;
+        length = 0;
+      }
+    }
 
-        default:
-          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
-          DisplayUsage();
+    /* huffman tree gets made no matter what */
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      Node *n = AllocateNode(edge->ch,edge->c);
+      insert_term(n,priority_queue);
+    }
+
+    htree = ConstructHuffmanTree(priority_queue);
+    ReserveCode("00",'*',htree);
+    if(!htree){
+      fprintf(stderr,"Huffman tree allocation fault\n");
+      return false;
+    }
+
+    if(priority_queue->size){
+      fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
+      return false;
+    }
+
+    if(best_length && best_distance){
+      // here i need to encode, best length, bits little endian, best distance, bits little endian
+      // move the FSM through the shifts and increase the adaptive count for those edges
+
+      // potential increase the adaptive count per special symbol - optimisation once working
+      bitstream.push_back(0);
+      bitstream.push_back(0);
+
+      LLBucket *lb = length_bucket(best_length,buckets);
+      LLBucket *db = distance_bucket(best_distance,buckets);
+      
+      unsigned int loffset = best_length - lb->lstart;
+      unsigned int doffset = best_distance - db->dstart;
+      
+      // write code for length bucket
+      unsigned int clen = WriteHuffmanCode(lz_tree,lb->symbol,code);
+      if(!clen){
+        fprintf(stderr,"Error: length code generation\n");
+        return false;
+      }
+
+      for(unsigned int c = 0;c<clen;c++)
+        bitstream.push_back(code[c]);
+      memset(code,0,CSIZE);
+
+      // write the bits expected for the length offset in little endian order 
+      for(unsigned int j=0;j<lb->lbits;j++){
+        if( loffset & (1 << j) )
+          bitstream.push_back(1); 
+        else
+          bitstream.push_back(0);
+      }
+
+      // repeat for the distance symbol
+      clen = WriteHuffmanCode(lz_tree,db->symbol,code);
+      if(!clen){
+        fprintf(stderr,"Error: distance code generation\n");
+        return false;
+      }
+        
+
+      for(unsigned int c = 0;c<clen;c++)
+        bitstream.push_back(code[c]);
+      memset(code,0,CSIZE);
+
+      // write the bits expected for the length offset in little endian order 
+      for(unsigned int j=0;j<db->dbits;j++){
+        if( doffset & (1 << j) )
+          bitstream.push_back(1); 
+        else
+          bitstream.push_back(0);
+      }
+
+      // shift everything down and move the machine in lockstep
+      for(unsigned int j=0;j<best_length;j++){
+        for(edge=curr->transitions;edge;edge=edge->nxt){
+          if(edge->ch == buffer[BACKREFERENCE]){
+            curr = edge->dwn;
+            //edge->c++;
+            break;
+          }
+        }
+
+        if(buffer[BACKREFERENCE] == '\n')
+          molecules++;        
+
+        LeftShift(buffer,BUFFSIZE,1);
+        if(reading_data){
+          if(!ch)
+            reading_data = 0;
+          else
+            buffer[BUFFSIZE-1] = ch;
+
+          ch = *(++str);
+        }
       }
     }
     else{
-      switch(j++){
-        case 0:
-          input = ptr; 
-          break;
-        default:
-          fprintf(stderr,"Error: multiple files not currently supported\n");
-          exit(1);
+
+      unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
+      if(!clen){
+        fprintf(stderr,"Error: literal code generation - line %d\n",molecules);
+        return false;
       }
+
+      for(unsigned int c = 0;c<clen;c++)
+        bitstream.push_back(code[c]);
+      
+      memset(code,0,CSIZE);
+
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+        if(edge->ch == buffer[BACKREFERENCE]){
+          curr = edge->dwn;
+          edge->c++;
+          break;
+        }
+      }
+
+      if(buffer[BACKREFERENCE] == '\n')
+        molecules++;
+
+      LeftShift(buffer,BUFFSIZE,1);
+      if(reading_data){
+        if(!ch)
+          reading_data = 0;
+        else
+          buffer[BUFFSIZE-1] = ch;
+        ch = *(++str);
+      }
+
     }
+
+    // gets deleted no matter what as well
+    free_huffmantree(htree); 
   }
 
-  if(!input){
-    fprintf(stderr,"Error: no input file given\n");
-    DisplayUsage();
-  }
 
-  if(!opt_mode){
-    fprintf(stderr,"Error: please choose -c or -d for file\n");
-    DisplayUsage();
-  }
+  // get the last ones still in the stream
 
-  return;
+  free_huffmantree(lz_tree);
+  free_buckets(buckets);
+  free_heap(priority_queue);
+  free(buffer);
+
+  return bitstream.size();
 }
 
-
-int main(int argc, char *argv[])
-{
-  ProcessCommandLine(argc, argv);
-
-  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
-
-  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'\0');  
-  for(unsigned int i=0;i<wlnmodel->num_states;i++){
-    if(wlnmodel->states[i]->accept)
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
-  }
-
-  wlnmodel->AssignEqualProbs();
-
-
-
-
-  FILE *fp = 0; 
-  fp = fopen(input,"rb");
-  if(fp){
-    if(opt_mode == 1)
-      WLNENCODE(fp,wlnmodel);
-    else if (opt_mode == 2)
-      WLNDECODE(fp,wlnmodel);
-
-    fclose(fp);
-  }
-  else{
-    fprintf(stderr,"Error: could not open file at %s\n",input);
-    return 1;
-  }
-
-  delete wlnmodel;
-  return 0;
-}
 
 /* ######################################################################################### */

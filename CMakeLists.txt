@@ -12,13 +12,34 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/src/wlngen
 )
 
-add_executable(readwln ${PROJECT_SOURCE_DIR}/src/wlnparser/reader.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/wln-nextmove.cpp)
-add_executable(writewln ${PROJECT_SOURCE_DIR}/src/wlnparser/writer.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/writewln2.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/modernwln.cpp)
+add_executable(readwln 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/reader.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/wln-nextmove.cpp
+)
+
+add_executable(writewln 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/writer.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/writewln2.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/modernwln.cpp
+)
+
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/wlnparser/obcomp.cpp)
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
-add_executable(wlncluster ${PROJECT_SOURCE_DIR}/src/wlncluster/wlncluster.cpp) 
-add_executable(wlnzip ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp)
+add_executable(wlnzip 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/compress.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/lz.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
+)
+add_executable(wlncluster 
+  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlncluster.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/lz.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
+)
+
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlnlearn.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")

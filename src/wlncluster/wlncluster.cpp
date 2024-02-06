@@ -2,11 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <string>
-
 #include "rfsm.h"
 #include "wlndfa.h"
-#include "huffman.h"
+#include "wlnzip.h"
 
 #define CSIZE 64
 
@@ -66,82 +64,13 @@ bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
 }
 
 
-unsigned int EncodeString(const char *str, FSMAutomata *wlnmodel)
-{
-  unsigned char ch = 0;
-  FSMState *curr = wlnmodel->root;
-  FSMEdge *edge = 0;
-
-  Node *htree = 0;
-  PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
-  init_heap(priority_queue,512); // safe value for WLN
-
-
-  std::string cstream;
-  curr = wlnmodel->root;
-  unsigned char code[CSIZE] = {0};
-  
-  ch = *str;
-  while(ch){
-
-    /* huffman tree gets made no matter what */
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      Node *n = AllocateNode(edge->ch,edge->c);
-      insert_term(n,priority_queue);
-    }
-
-    htree = ConstructHuffmanTree(priority_queue);
-    if(!htree){
-      fprintf(stderr,"Huffman tree allocation fault\n");
-      return false;
-    }
-
-    if(priority_queue->size){
-      fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
-      return false;
-    }
-
-    unsigned int clen = WriteHuffmanCode(htree,ch,code);
-    if(!clen){
-      fprintf(stderr,"Error: huffman code creation failure\n");
-      return false;
-    }
-    else{
-      for(unsigned int j=0;j<clen;j++)
-        cstream += code[j];
-    }
-
-  
-    memset(code,0,CSIZE);
-    free_huffmantree(htree); 
-
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      if(edge->ch == ch){
-        curr = edge->dwn;
-        edge->c++;
-        break;
-      }
-    }
-
-    ch = *(++str);
-  }
-
-
-  free(priority_queue->arr);
-  free(priority_queue);
-
-  // used for NCD metric
-  return cstream.size();
-}
-
-
 double WLNNormalisedCompressionDistance(const char *s1, const char *s2, FSMAutomata *wlnmodel)
 {
   double ncd = 0.0;   
-  unsigned int A = EncodeString(s1, wlnmodel);
+  unsigned int A = EncodedBits(s1, wlnmodel);
   wlnmodel->AssignEqualProbs();
 
-  unsigned int B = EncodeString(s2, wlnmodel);
+  unsigned int B = EncodedBits(s2, wlnmodel);
   wlnmodel->AssignEqualProbs();
 
 
@@ -150,7 +79,7 @@ double WLNNormalisedCompressionDistance(const char *s1, const char *s2, FSMAutom
   
   strcpy(store,s1);
   strcat(store,s2);
-  unsigned int AB = EncodeString(store, wlnmodel); 
+  unsigned int AB = EncodedBits(store, wlnmodel); 
   
   fprintf(stderr,"A: %d, B: %d, AB: %d\n",A,B,AB);
 
