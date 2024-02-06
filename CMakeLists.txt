@@ -33,6 +33,11 @@ add_executable(wlnzip
   ${PROJECT_SOURCE_DIR}/src/wlncompress/lz.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
 )
+
+add_executable(wlnseed 
+  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnseed.cpp 
+)
+
 add_executable(wlncluster 
   ${PROJECT_SOURCE_DIR}/src/wlncluster/wlncluster.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp

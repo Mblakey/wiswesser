@@ -562,12 +562,12 @@ bool WLNDECODE(FILE *ifp, FSMAutomata *wlnmodel){
   return true;
 }
 
-
+/* this function will NOT reset the edge->c values to zero on start */
 unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
 
   unsigned char *buffer = (unsigned char*)malloc(sizeof(unsigned char)*BUFFSIZE); 
   memset(buffer,0,BUFFSIZE);
-
+  
   bool reading_data = true;
   unsigned char ch = *str;
 
@@ -647,23 +647,6 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
       }
     }
 
-    /* huffman tree gets made no matter what */
-    for(edge=curr->transitions;edge;edge=edge->nxt){
-      Node *n = AllocateNode(edge->ch,edge->c);
-      insert_term(n,priority_queue);
-    }
-
-    htree = ConstructHuffmanTree(priority_queue);
-    ReserveCode("00",'*',htree);
-    if(!htree){
-      fprintf(stderr,"Huffman tree allocation fault\n");
-      return false;
-    }
-
-    if(priority_queue->size){
-      fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
-      return false;
-    }
 
     if(best_length && best_distance){
       // here i need to encode, best length, bits little endian, best distance, bits little endian
@@ -723,7 +706,6 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
         for(edge=curr->transitions;edge;edge=edge->nxt){
           if(edge->ch == buffer[BACKREFERENCE]){
             curr = edge->dwn;
-            //edge->c++;
             break;
           }
         }   
@@ -740,12 +722,30 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
       }
     }
     else{
+      
+      /* huffman tree gets made no matter what */
+      for(edge=curr->transitions;edge;edge=edge->nxt){
+        Node *n = AllocateNode(edge->ch,edge->c);
+        insert_term(n,priority_queue);
+      }
+
+      htree = ConstructHuffmanTree(priority_queue);
+      ReserveCode("00",'*',htree);
+      if(!htree){
+        fprintf(stderr,"Huffman tree allocation fault\n");
+        return false;
+      }
+
+      if(priority_queue->size){
+        fprintf(stderr,"Error: queue is not being fully dumped on tree creation\n");
+        return false;
+      }
+
 
       unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
       if(!clen)
         return false;
       
-
       for(unsigned int c = 0;c<clen;c++)
         bitstream.push_back(code[c]);
       
@@ -768,10 +768,9 @@ unsigned int EncodedBits(const char*str, FSMAutomata *wlnmodel){
         ch = *(++str);
       }
 
+      free_huffmantree(htree); 
     }
 
-    // gets deleted no matter what as well
-    free_huffmantree(htree); 
   }
  
 
