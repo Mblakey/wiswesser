@@ -47,6 +47,23 @@ using namespace OpenBabel;
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
 
+struct PathData {
+  OBAtom **locant_path = 0;
+  unsigned int path_size = 0;
+  bool macro_header = false;
+};
+
+
+/* allow a pass by reference for exiting the local sssr */
+struct SubsetData{
+  unsigned int path_size = 0;
+  OBRing * ring_removed = 0;
+  bool hetero = false;
+  bool bridging = false; 
+  bool multi = 0;
+};
+
+
 static void Fatal(const char *str){
   fprintf(stderr,"Fatal: %s\n",str);
   exit(1);
@@ -694,32 +711,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   }
   return best_path;
 }
-
-
-bool IsHeteroRing(OBAtom **locant_array,unsigned int size){
-  for(unsigned int i=0;i<size;i++){
-    if(locant_array[i]->GetAtomicNum() != 6)
-      return true;
-  }
-  return false; 
-}
-
-
-unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
-                            std::map<OBAtom*,unsigned int>  &atom_shares)
-{
-  unsigned int classification = 0;
-  for(std::set<OBAtom*>::iterator iter = ring_atoms.begin();iter != ring_atoms.end();iter++){
-    if(atom_shares[*iter] == 3){
-      if(classification < 1)
-        classification = 1; 
-    }
-  }
-
-  return classification; 
-}
-
-
 
 /**********************************************************************
                          Debugging Functions
@@ -1760,7 +1751,10 @@ struct BabelGraph{
           OBAtom *nbor = &(*a);
           if(nbor != spawned_from && nbor->IsInRing()){
             fprintf(stderr,"TRUE\n");
-          
+            buffer += '-';
+            buffer += ' ';
+
+            buffer += "-x-";
             // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
           }
         }
@@ -1823,17 +1817,18 @@ struct BabelGraph{
 
   /* parses the local ring system, return the size for creating the locant path with 
   non bonds to avoid */
-  unsigned int ConstructLocalSSSR(  OBMol *mol, OBAtom *ring_root,
-                                    std::set<OBAtom*>         &ring_atoms,
-                                    std::set<OBBond*>         &ring_bonds,
-                                    std::map<OBAtom*,bool>    &bridge_atoms,
-                                    std::map<OBAtom*,unsigned int> &atom_shares,
-                                    std::set<OBRing*> &local_SSSR)
+  bool  ConstructLocalSSRS( OBMol *mol, OBAtom *ring_root,
+                            std::set<OBAtom*>         &ring_atoms,
+                            std::set<OBBond*>         &ring_bonds,
+                            std::map<OBAtom*,bool>    &bridge_atoms,
+                            std::map<OBAtom*,unsigned int> &atom_shares,
+                            std::set<OBRing*> &local_SSSR,
+                            SubsetData &local_data)
   {
 
     if(!ring_root){
       fprintf(stderr,"Error: ring root is nullptr\n");
-      return 0;
+      return false;
     }
 
     OBAtom *ratom = 0; 
@@ -1912,6 +1907,7 @@ struct BabelGraph{
               
               // if the atom share climbs to 4, we can simplify by creating a macro-wrapper
               if(ring_removed){
+                local_data.ring_removed = ring_removed; 
                 // set the removed ring to non-cyclic
                 for(unsigned int i=0;i<obring->Size();i++){
                   OBAtom *ratom = mol->GetAtom(obring->_path[i]);
@@ -1931,14 +1927,20 @@ struct BabelGraph{
             // yes but 2 bonds within the completed local SSSR,so this will needed filtering
             if(intersection.size() > 2){
               for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++)
-                tmp_bridging_atoms.insert(*iiter); 
+                tmp_bridging_atoms.insert(*iiter);
+
+              local_data.bridging = true;
             }
 
             for(unsigned int i=0;i<obring->Size();i++){
               OBAtom *ratom = mol->GetAtom(obring->_path[i]);
               ring_atoms.insert(ratom);
               atom_shares[ratom]++;
-
+              if(atom_shares[ratom] >= 3)
+                local_data.multi = true; // set the multi classification
+              if(ratom->GetAtomicNum() != 6)
+                local_data.hetero = true;
+                
               if(!prev)
                 prev = ratom;
               else{
@@ -2013,8 +2015,9 @@ struct BabelGraph{
         fprintf(stderr,"  bridging atoms: %d\n",bridge_count);
       
     }
-      
-    return ring_atoms.size(); 
+
+    local_data.path_size = ring_atoms.size();  
+    return true; 
   }
 
 
@@ -2197,7 +2200,7 @@ struct BabelGraph{
 
 
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
-  std::pair<OBAtom **,unsigned int> ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer){
+  PathData* ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
 
@@ -2210,20 +2213,25 @@ struct BabelGraph{
     std::map<OBAtom*,bool>          bridge_atoms;
     std::map<OBAtom*,OBAtom*>       broken_atoms;
     std::map<OBAtom*,unsigned int>  atom_shares;
-  
-    unsigned int path_size   =  ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR); 
-    if(!path_size)
-      Fatal("failed to write ring");
+    
+    // can we get the local SSSR data out of this?
+    SubsetData LocalSSRS_data;
 
-
-    bool multi = ClassifyRing(ring_atoms,atom_shares); 
+    if(!ConstructLocalSSRS(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR, LocalSSRS_data)){
+      Fatal("failed to write ring"); 
+    }
+    
+    bool multi = LocalSSRS_data.multi;
+    bool hetero = LocalSSRS_data.hetero;
+    bool bridging = LocalSSRS_data.bridging;
+    unsigned int path_size = LocalSSRS_data.path_size;
 
     if(opt_debug)
       fprintf(stderr,"  multi classification: %d\n",multi);
 
     if(local_SSSR.size() == 1)
       locant_path = MonoPath(mol,path_size,local_SSSR);
-    else if(!multi && bridge_atoms.empty())
+    else if(!multi && !bridging)
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
@@ -2251,7 +2259,7 @@ struct BabelGraph{
       buffer += root_locant;
     }
     
-    if(IsHeteroRing(locant_path,path_size))
+    if(hetero)
       buffer += 'T';
     else
       buffer += 'L';
@@ -2260,7 +2268,7 @@ struct BabelGraph{
                     local_SSSR,bridge_atoms,broken_atoms,ring_order,
                     buffer,true); 
     
-    if(!bridge_atoms.empty()){
+    if(bridging){
       for(unsigned int i=0;i<path_size;i++){
         if(bridge_atoms[locant_path[i]]){
           buffer+= ' ';
@@ -2319,31 +2327,36 @@ struct BabelGraph{
     }
 
     buffer += 'J';
-    return {locant_path,path_size};
+    
+    PathData *pd = (PathData*)malloc(sizeof(PathData)); 
+    pd->locant_path = locant_path;
+    pd->path_size = path_size;
+    pd->macro_header = false;
+
+    return pd;
   }
     
 
   bool RecursiveParse(OBAtom *atom, OBAtom *spawned_from, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
-    last_cycle_seen = cycle_num;
-    std::pair<OBAtom**,unsigned int> path_pair; 
+    last_cycle_seen = cycle_num;  
 
-    path_pair = ParseCyclic(atom,spawned_from,mol,inline_ring,buffer);
-
-    if(!path_pair.first){
+    PathData *pd = ParseCyclic(atom,spawned_from,mol,inline_ring,buffer);
+    if(!pd->locant_path){
       fprintf(stderr,"Error: failed on cyclic parse\n");
+      free(pd); 
       return false;
     }
 
-    for(unsigned int i=0;i<path_pair.second;i++)
-      atoms_seen[path_pair.first[i]] = true;
+    for(unsigned int i=0;i<pd->path_size;i++)
+      atoms_seen[pd->locant_path[i]] = true;
       
-    for(unsigned int i=0;i<path_pair.second;i++){
-      FOR_NBORS_OF_ATOM(iter,path_pair.first[i]){
+    for(unsigned int i=0;i<pd->path_size;i++){
+      FOR_NBORS_OF_ATOM(iter,pd->locant_path[i]){
         OBAtom *latom = &(*iter);
-        OBBond* lbond = path_pair.first[i]->GetBond(latom);
+        OBBond* lbond = pd->locant_path[i]->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,path_pair.first[i],lbond->GetBondOrder(),
+          if(!ParseNonCyclic( latom,pd->locant_path[i],lbond->GetBondOrder(),
                               mol,buffer,
                               cycle_num,int_to_locant(i+1))){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -2354,7 +2367,7 @@ struct BabelGraph{
       }
 
       // OM logic 
-      if(path_pair.first[i]->GetAtomicNum() == 6 && path_pair.first[i]->GetFormalCharge() == -1){
+      if(pd->locant_path[i]->GetAtomicNum() == 6 && pd->locant_path[i]->GetFormalCharge() == -1){
         FOR_ATOMS_OF_MOL(om,mol){
           OBAtom *organometallic = &(*om);
           if( organometallic->GetAtomicNum() >= 20 && 
@@ -2367,7 +2380,7 @@ struct BabelGraph{
               buffer += '0';
               WriteSpecial(organometallic,buffer);
               atoms_seen[organometallic] = true;
-              path_pair.first[i]->SetFormalCharge(0);
+              pd->locant_path[i]->SetFormalCharge(0);
               if(charge)
                 charge--;
 
@@ -2376,7 +2389,7 @@ struct BabelGraph{
                 OBAtom* next_pi =  &(*negc); 
                 if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
                     && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
-                  if(!ParseNonCyclic(next_pi,path_pair.first[i],0,
+                  if(!ParseNonCyclic(next_pi,pd->locant_path[i],0,
                               mol,buffer,
                               cycle_num,'0')){
                     fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -2399,7 +2412,9 @@ struct BabelGraph{
 
     }
     
-    free(path_pair.first);
+
+    free(pd->locant_path);
+    free(pd); 
     return true;
   }
 
