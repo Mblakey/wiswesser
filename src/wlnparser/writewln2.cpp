@@ -2200,7 +2200,7 @@ struct BabelGraph{
 
 
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
-  PathData* ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer){
+  void ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer,PathData &pd){
     if(opt_debug)
       fprintf(stderr,"Reading Cyclic\n");
 
@@ -2328,35 +2328,32 @@ struct BabelGraph{
 
     buffer += 'J';
     
-    PathData *pd = (PathData*)malloc(sizeof(PathData)); 
-    pd->locant_path = locant_path;
-    pd->path_size = path_size;
-    pd->macro_header = false;
-
-    return pd;
+    pd.locant_path = locant_path;
+    pd.path_size = path_size;
+    pd.macro_header = false;
   }
     
 
   bool RecursiveParse(OBAtom *atom, OBAtom *spawned_from, OBMol *mol, bool inline_ring,std::string &buffer, unsigned int cycle_num){
     // assumes atom is a ring atom 
     last_cycle_seen = cycle_num;  
-
-    PathData *pd = ParseCyclic(atom,spawned_from,mol,inline_ring,buffer);
-    if(!pd->locant_path){
+    
+    PathData pd; 
+    ParseCyclic(atom,spawned_from,mol,inline_ring,buffer,pd);
+    if(!pd.locant_path){
       fprintf(stderr,"Error: failed on cyclic parse\n");
-      free(pd); 
       return false;
     }
 
-    for(unsigned int i=0;i<pd->path_size;i++)
-      atoms_seen[pd->locant_path[i]] = true;
+    for(unsigned int i=0;i<pd.path_size;i++)
+      atoms_seen[pd.locant_path[i]] = true;
       
-    for(unsigned int i=0;i<pd->path_size;i++){
-      FOR_NBORS_OF_ATOM(iter,pd->locant_path[i]){
+    for(unsigned int i=0;i<pd.path_size;i++){
+      FOR_NBORS_OF_ATOM(iter,pd.locant_path[i]){
         OBAtom *latom = &(*iter);
-        OBBond* lbond = pd->locant_path[i]->GetBond(latom);
+        OBBond* lbond = pd.locant_path[i]->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,pd->locant_path[i],lbond->GetBondOrder(),
+          if(!ParseNonCyclic( latom,pd.locant_path[i],lbond->GetBondOrder(),
                               mol,buffer,
                               cycle_num,int_to_locant(i+1))){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -2367,7 +2364,7 @@ struct BabelGraph{
       }
 
       // OM logic 
-      if(pd->locant_path[i]->GetAtomicNum() == 6 && pd->locant_path[i]->GetFormalCharge() == -1){
+      if(pd.locant_path[i]->GetAtomicNum() == 6 && pd.locant_path[i]->GetFormalCharge() == -1){
         FOR_ATOMS_OF_MOL(om,mol){
           OBAtom *organometallic = &(*om);
           if( organometallic->GetAtomicNum() >= 20 && 
@@ -2380,7 +2377,7 @@ struct BabelGraph{
               buffer += '0';
               WriteSpecial(organometallic,buffer);
               atoms_seen[organometallic] = true;
-              pd->locant_path[i]->SetFormalCharge(0);
+              pd.locant_path[i]->SetFormalCharge(0);
               if(charge)
                 charge--;
 
@@ -2389,7 +2386,7 @@ struct BabelGraph{
                 OBAtom* next_pi =  &(*negc); 
                 if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
                     && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
-                  if(!ParseNonCyclic(next_pi,pd->locant_path[i],0,
+                  if(!ParseNonCyclic(next_pi,pd.locant_path[i],0,
                               mol,buffer,
                               cycle_num,'0')){
                     fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -2413,8 +2410,7 @@ struct BabelGraph{
     }
     
 
-    free(pd->locant_path);
-    free(pd); 
+    free(pd.locant_path);  
     return true;
   }
 
