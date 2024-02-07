@@ -126,22 +126,22 @@ void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_
     new_path[i] = locant_path[i]; 
 }
 
-unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size,bool error=true){
+unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
     if(atom == locant_path[i])
       return i; 
   }
 
-  if(error)
-    fprintf(stderr,"Error: atom not found in locant path\n");
+  Fatal("Error: atom not found in locant path");
   return 0; 
 }
 
-unsigned int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
   unsigned int lpos = path_size; 
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *latom = mol->GetAtom(ring->_path[i]); 
-    unsigned int pos = position_in_path(latom,locant_path,path_size,false); 
+    unsigned int pos = position_in_path(latom,locant_path,path_size); 
+
     if(pos < lpos)
       lpos = pos; 
   }
@@ -153,7 +153,7 @@ unsigned int ring_sum(OBMol *mol, OBRing *ring, OBAtom**locant_path,unsigned int
   unsigned int rsum = 0;
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *ratom = mol->GetAtom(ring->_path[i]);
-    rsum += position_in_path(ratom, locant_path,path_size,false) + 1; 
+    rsum += position_in_path(ratom, locant_path,path_size) + 1;
   }
   return rsum;
 }
@@ -169,9 +169,11 @@ unsigned int fusion_sum(OBMol *mol, OBAtom **locant_path, unsigned int path_size
 void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
   
-  for(unsigned int i=0;i<ring->Size();i++)
-    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
-  
+  for(unsigned int i=0;i<ring->Size();i++){
+    unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
+    sequence[i] = int_to_locant(pos+1); 
+  }
+
   if(sort)
     sort_locants(sequence,ring->Size());
   fprintf(stderr,"[ ");
@@ -187,8 +189,10 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
                         std::map<unsigned char, bool> &in_chain)
 {
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
-  for(unsigned int i=0;i<ring->Size();i++)
-    sequence[i] = int_to_locant(position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)+1); 
+  for(unsigned int i=0;i<ring->Size();i++){
+    unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
+    sequence[i] = int_to_locant(pos+1); 
+  }
 
   sort_locants(sequence,ring->Size());
   unsigned char prev = 0; 
@@ -362,7 +366,8 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           unsigned char high_loc = 0; 
           unsigned int rsum = ring_sum(mol,wring,locant_path,path_size);
           for(unsigned int k=0;k<wring->Size();k++){
-            unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)+1); 
+            unsigned int pos = position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size);
+            unsigned char loc = int_to_locant(pos+1); 
             if(loc < min_loc)
               min_loc = loc; 
             if(loc > high_loc)
@@ -682,7 +687,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
       fprintf(stderr,"  found locant path with %d branches out\n",path_size-found_path_size);
 
     for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
-      if(position_in_path(*aiter,best_path,found_path_size,false) == 0 && best_path[0] != *aiter){
+      if(position_in_path(*aiter,best_path,found_path_size) == 0 && best_path[0] != *aiter){
         OBAtom *branching = *aiter; 
         unsigned int lowest_pos = found_path_size; 
         FOR_NBORS_OF_ATOM(a,branching){
