@@ -42,7 +42,7 @@ GNU General Public License for more details.
 using namespace OpenBabel; 
 
 #define REASONABLE 1024
-#define MACROTOOL 1
+#define MACROTOOL 0
 
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -1759,6 +1759,12 @@ struct BabelGraph{
             }
             else{
               require_macro_closure = true;
+              
+              if(carbon_chain){
+                buffer += std::to_string(carbon_chain);
+                carbon_chain = 0;
+              }
+
               buffer += '-';
               buffer += ' ';
               
