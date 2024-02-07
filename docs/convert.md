@@ -16,9 +16,8 @@ From the build directory:<br>
 
 `-h` - display the help menu <br>
 `-o` - choose output format for string, options are `-osmi`, `-oinchi`, `-okey` (inchikey)and `-ocan` following OpenBabels format conventions <br>
-`--old` - use nextmoves old wln parser (lower coverage, much faster)
+`--old` - use nextmoves old wln parser (lower coverage, much faster)<br>
 
-<br>
 `writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string.<br> 
 
 From the build directory:<br>
