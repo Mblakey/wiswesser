@@ -4,6 +4,9 @@ This file contains usage notes for coverting between WLN and more modern chemica
 
 ## Executables
 
+
+### `readwln`
+
 `readwln` - This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and returns the desired output format.<br> 
 
 From the build directory:<br>
@@ -17,6 +20,9 @@ From the build directory:<br>
 `-h` - display the help menu <br>
 `-o` - choose output format for string, options are `-osmi`, `-oinchi`, `-okey` (inchikey)and `-ocan` following OpenBabels format conventions <br>
 `--old` - use nextmoves old wln parser (lower coverage, much faster)<br>
+
+
+### `writewln`
 
 `writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string.<br> 
 
