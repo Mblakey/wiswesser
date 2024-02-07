@@ -5,10 +5,12 @@ This file contains usage notes for extracting WLN from any parsable ascii encode
 
 ## Executables
 
-Command line utility `wlngrep`. This either takes a filename, or an escaped single sequence if using the `-s` flag. With some exceptions, flags are kept inline with standard grep usage.
+Command line utility `wlngrep`. This either takes a filename, or an escaped single sequence if using the `-s` flag. With some exceptions, flags are kept inline with standard grep usage. <br>
+
+From the build directory:<br>
 
 ```
-wlngrep <options> <filename>
+./wlngrep <options> <filename>
 ```
 
 #### Flags 
