@@ -50,7 +50,7 @@ static bool opt_debug = false;
 struct PathData {
   OBAtom **locant_path = 0;
   unsigned int path_size = 0;
-  bool macro_header = false;
+  OBRing* macro_ring = 0;
 };
 
 
@@ -1401,7 +1401,7 @@ struct BabelGraph{
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
   bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from, unsigned int b_order,
                       OBMol *mol, std::string &buffer, 
-                      unsigned int cycle_num, unsigned char locant){
+                      unsigned int cycle_num, unsigned char locant,OBAtom **locant_path, unsigned int path_size){
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
     //##################################
@@ -1434,7 +1434,9 @@ struct BabelGraph{
     std::stack<OBAtom*> atom_stack; 
     std::stack<OBAtom*> branch_stack;
     std::map<OBAtom*,bool> branching_atom; 
-    atom_stack.push(atom); 
+    atom_stack.push(atom);
+
+    bool require_macro_closure = false;
 
     while(!atom_stack.empty()){
       atom = atom_stack.top(); 
@@ -1749,13 +1751,34 @@ struct BabelGraph{
         // here we ask, is this bonded to a ring atom that is not 'spawned from'
         FOR_NBORS_OF_ATOM(a,atom){
           OBAtom *nbor = &(*a);
-          if(nbor != spawned_from && nbor->IsInRing()){
-            fprintf(stderr,"TRUE\n");
-            buffer += '-';
-            buffer += ' ';
+          if(nbor != spawned_from && nbor->IsInRing() && atoms_seen[nbor] == true){
+    
+            if(require_macro_closure){
+              fprintf(stderr,"Error: macro-closure appearing more than once\n");
+              return 0;
+            }
+            else{
+              require_macro_closure = true;
+              buffer += '-';
+              buffer += ' ';
+              
+              if(!locant_path){
+                fprintf(stderr,"Error: no locant path to wrap back macro-closures\n");
+                return 0;
+              }
+              else{
+                for (unsigned int i=0;i<path_size;i++) {
+                  if(locant_path[i] == nbor){
+                    buffer += int_to_locant(i+1);
+                    break;
+                  }
+                }
+              }
 
-            buffer += "-x-";
-            // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
+              buffer += "-x-";
+              // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
+              break;
+            }
           }
         }
 #endif
@@ -1771,6 +1794,9 @@ struct BabelGraph{
       buffer += std::to_string(carbon_chain);
       carbon_chain = 0;
     }
+
+    if(require_macro_closure)
+      buffer += 'J';
 
     return atom; 
   }
@@ -2225,6 +2251,7 @@ struct BabelGraph{
     bool hetero = LocalSSRS_data.hetero;
     bool bridging = LocalSSRS_data.bridging;
     unsigned int path_size = LocalSSRS_data.path_size;
+    
 
     if(opt_debug)
       fprintf(stderr,"  multi classification: %d\n",multi);
@@ -2259,6 +2286,9 @@ struct BabelGraph{
       buffer += root_locant;
     }
     
+    if(LocalSSRS_data.ring_removed)
+      buffer += "T-"; 
+
     if(hetero)
       buffer += 'T';
     else
@@ -2330,7 +2360,7 @@ struct BabelGraph{
     
     pd.locant_path = locant_path;
     pd.path_size = path_size;
-    pd.macro_header = false;
+    pd.macro_ring = LocalSSRS_data.ring_removed; // could be zero, need check
   }
     
 
@@ -2355,7 +2385,7 @@ struct BabelGraph{
         if(!atoms_seen[latom]){
           if(!ParseNonCyclic( latom,pd.locant_path[i],lbond->GetBondOrder(),
                               mol,buffer,
-                              cycle_num,int_to_locant(i+1))){
+                              cycle_num,int_to_locant(i+1),pd.locant_path,pd.path_size)){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
@@ -2388,7 +2418,8 @@ struct BabelGraph{
                     && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
                   if(!ParseNonCyclic(next_pi,pd.locant_path[i],0,
                               mol,buffer,
-                              cycle_num,'0')){
+                              cycle_num,'0',pd.locant_path,pd.path_size)){
+
                     fprintf(stderr,"Error: failed on non-cyclic parse\n");
                     return false;
                   }
@@ -2409,7 +2440,6 @@ struct BabelGraph{
 
     }
     
-
     free(pd.locant_path);  
     return true;
   }
@@ -2444,7 +2474,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         if(started)
           buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(&(*a),0,0,mol_copy,buffer,0,0))
+        if(!obabel.ParseNonCyclic(&(*a),0,0,mol_copy,buffer,0,0,0,0))
           Fatal("failed on recursive branch parse");
 
         started = true; 
@@ -2475,7 +2505,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol)
       OBAtom *satom = &(*a); 
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(satom,0,0,mol_copy,buffer,0,0))
+        if(!obabel.ParseNonCyclic(satom,0,0,mol_copy,buffer,0,0,0,0))
           Fatal("failed on recursive branch parse");
       }
     }

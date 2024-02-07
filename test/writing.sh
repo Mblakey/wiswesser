@@ -4,9 +4,9 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 INCORRECT="${SCRIPT_DIR}/incorrect.txt"
 CORRECT="${SCRIPT_DIR}/correct.txt"
-WRITER="${SCRIPT_DIR}/../bin/writewln"
-READER="${SCRIPT_DIR}/../bin/readwln"
-COMP="${SCRIPT_DIR}/../bin/obcomp"
+WRITER="${SCRIPT_DIR}/../build/writewln"
+READER="${SCRIPT_DIR}/../build/readwln"
+COMP="${SCRIPT_DIR}/../build/obcomp"
 MODE=""
 FILE=""
 

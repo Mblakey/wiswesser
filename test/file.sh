@@ -1,8 +1,8 @@
 #!/bin/bash
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-READ="${SCRIPT_DIR}/../bin/readwln"
-WRITE="${SCRIPT_DIR}/../bin/writewln"
+READ="${SCRIPT_DIR}/../build/readwln"
+WRITE="${SCRIPT_DIR}/../build/writewln"
 FILE=""
 MODE=0
 

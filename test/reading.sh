@@ -3,8 +3,8 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 
-PARSE="${SCRIPT_DIR}/../bin/readwln"
-COMP="${SCRIPT_DIR}/../bin/obcomp"
+PARSE="${SCRIPT_DIR}/../build/readwln"
+COMP="${SCRIPT_DIR}/../build/obcomp"
 
 COUNT=0
 MISSED=0

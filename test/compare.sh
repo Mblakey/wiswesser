@@ -2,9 +2,9 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-PARSE="${SCRIPT_DIR}/../bin/readwln"
-EXTRACT="${SCRIPT_DIR}/../bin/wlngrep"
-COMP="${SCRIPT_DIR}/../bin/obcomp"
+PARSE="${SCRIPT_DIR}/../build/readwln"
+EXTRACT="${SCRIPT_DIR}/../build/wlngrep"
+COMP="${SCRIPT_DIR}/../build/obcomp"
 MODE=""
 
 
