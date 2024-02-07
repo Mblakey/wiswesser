@@ -22,13 +22,10 @@ GNU General Public License for more details.
 #include <set>
 #include <deque>
 #include <vector>
-#include <stack>
 #include <map>
 
 #include <utility> // std::pair
 #include <iterator>
-#include <sstream>
-#include <stdexcept>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -2381,7 +2378,6 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       
         break;
       }
-
 
       case '0':
         if(positional_locant >= 128)
@@ -4742,8 +4738,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: cannot access looping ring structure");
           
 
-          if(prev){
-            
+          if(prev){  
             if(prev == branch_stack.branch){
               while(!branch_stack.top().second && !branch_stack.empty())
                 branch_stack.pop();
@@ -4759,16 +4754,27 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           else
             return Fatal(i,"Error: no previous symbol for inline ring defintion");
-    
-          // last notation is not neccessary
+      
+
+          // if we remove this, we can allow branching inline defintiions 
+
+          // last notation is not neccessary, so we eat two positions
+          //
+          unsigned int hit = 0;
           while(wln_ptr){
             if(*wln_ptr == 'J')
-              break;
-
+              return Fatal(i, "Error: macro-notation requires closure with the ring size in two dashes e.g -6-");
+            
+            if(*wln_ptr == '-'){
+              hit++;
+              if(hit == 2)
+                break;
+            }
             wln_ptr++;
             i++;
           }
 
+          curr = prev; // set back to prev
           on_locant = '\0';
           pending_ring_in_ring = false;
           pending_inline_ring = false;
@@ -4973,9 +4979,9 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
         fprintf(fp, "  %d", node->id);
         fprintf(fp, " -> ");
         if(edge->aromatic)
-            fprintf(fp, "%d [color=red]\n", child->id);
-          else
-            fprintf(fp, "%d\n", child->id);
+          fprintf(fp, "%d [color=red]\n", child->id);
+        else
+          fprintf(fp, "%d\n", child->id);
       }
     }
   }

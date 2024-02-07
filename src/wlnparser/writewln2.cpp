@@ -1,4 +1,4 @@
-/**********************************************************************
+/*********************************************************************
  
 Author : Michael Blakey
 
@@ -14,15 +14,10 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
-
 #include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#include <limits.h>
 
 #include <set>
-#include <deque>
 #include <vector>
 #include <stack>
 #include <map>
@@ -30,7 +25,6 @@ GNU General Public License for more details.
 
 #include <utility> // std::pair
 #include <iterator>
-#include <sstream>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -48,6 +42,7 @@ GNU General Public License for more details.
 using namespace OpenBabel; 
 
 #define REASONABLE 1024
+#define MACROTOOL 1
 
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -432,7 +427,7 @@ OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
   OBRing *mono = *(local_SSSR.begin());
 
   for(unsigned int i=0;i<mono->Size();i++)
-  locant_path[i] = mol->GetAtom(mono->_path[i]);
+    locant_path[i] = mol->GetAtom(mono->_path[i]);
     
   return locant_path;
 }
@@ -719,10 +714,8 @@ unsigned int ClassifyRing(  std::set<OBAtom*>               &ring_atoms,
       if(classification < 1)
         classification = 1; 
     }
-
-    if(atom_shares[*iter] == 4)
-      return 2;
   }
+
   return classification; 
 }
 
@@ -1534,7 +1527,8 @@ struct BabelGraph{
         }
         continue;
       }
-
+        
+               
        // remaining_branches are -1, we only look forward
       unsigned int correction = 0; 
       unsigned char wln_character =  WriteSingleChar(atom);
@@ -1759,6 +1753,18 @@ struct BabelGraph{
         if(ret)
           prev = ret; 
       }
+        
+#if MACROTOOL
+        // here we ask, is this bonded to a ring atom that is not 'spawned from'
+        FOR_NBORS_OF_ATOM(a,atom){
+          OBAtom *nbor = &(*a);
+          if(nbor != spawned_from && nbor->IsInRing()){
+            fprintf(stderr,"TRUE\n");
+          
+            // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
+          }
+        }
+#endif
 
       FOR_NBORS_OF_ATOM(a,atom){
         if(!atoms_seen[&(*a)])
@@ -1834,7 +1840,9 @@ struct BabelGraph{
     OBAtom *prev = 0; 
     OBBond *bond = 0; 
     OBRing *obring = 0; 
+    OBRing *ring_removed = 0; // allow one instance of macro-simplification
     std::set<OBAtom*> tmp_bridging_atoms;
+    std::set<OBAtom*> remove_atoms; 
 
     // get the seed ring and add path to ring_atoms
     FOR_RINGS_OF_MOL(r,mol){
@@ -1890,10 +1898,35 @@ struct BabelGraph{
 
           // intersection == 1 is a spiro ring, ignore,
           if(intersection.size() > 1){
-            rings_seen[obring] = true; 
-            local_SSSR.insert(obring);
-            prev = 0;
 
+#if MACROTOOL
+            // if a simplification hasnt happen yet
+            if(!ring_removed){
+              for(unsigned int i=0;i<obring->Size();i++){
+                OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+                if(atom_shares[ratom] + 1 == 4){
+                  ring_removed = obring;
+                  break;
+                }
+              }
+              
+              // if the atom share climbs to 4, we can simplify by creating a macro-wrapper
+              if(ring_removed){
+                // set the removed ring to non-cyclic
+                for(unsigned int i=0;i<obring->Size();i++){
+                  OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+                  remove_atoms.insert(ratom); 
+                }
+
+                rings_seen[obring] = true; 
+                continue; // might not work in iterator
+              }
+            }
+#endif
+
+            // normal block 
+            prev = 0;
+            
             // if its enough to say that true bridges cannot have more than two bonds each?
             // yes but 2 bonds within the completed local SSSR,so this will needed filtering
             if(intersection.size() > 2){
@@ -1921,13 +1954,13 @@ struct BabelGraph{
             if(bond)
               ring_bonds.insert(bond); 
             
+            rings_seen[obring] = true; 
+            local_SSSR.insert(obring);
             running = true;
           }
         }
       }
     }
-
-
 
     // filter out only the 2 bond bridge atoms
     unsigned int bridge_count = 0;
@@ -1944,6 +1977,33 @@ struct BabelGraph{
         }
       }
     }
+
+#if MACROTOOL
+    // if the macro-wrapper is used, remove the intersection between the local SSSR and the remove set
+    if(ring_removed){
+      std::set<OBAtom*> intersection;  
+      std::set_intersection(ring_atoms.begin(), ring_atoms.end(), remove_atoms.begin(), remove_atoms.end(),
+                        std::inserter(intersection, intersection.begin()));
+            
+      for(unsigned int i=0;i<ring_removed->Size();i++){
+        OBAtom *ratom = mol->GetAtom(ring_removed->_path[i]);
+        // this is horrible but luckily limited on n. 
+        bool set = true;
+        for(std::set<OBAtom*>::iterator rriter = intersection.begin(); rriter != intersection.end();rriter++){
+          if(*rriter == ratom){
+            set = false;
+            break;
+          }
+        }
+        if(set)
+          ratom->SetInRing(false);
+      }
+
+    }
+#endif
+
+
+
 
     if(opt_debug){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
