@@ -16,7 +16,7 @@ DFA, NFA and eNFA simultion.
 #include "rfsm.h"
 
 #define BUFF_SIZE 2048
-
+#define SINGLE_CHAR 0
 
 struct MatchOptions{
 
@@ -86,7 +86,8 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
 
   int spos = -1; 
   int apos = -1;
-
+  
+  unsigned int l = 0;
   unsigned int n = 0;
   unsigned int match = 0; // 1 if true 
   unsigned char inp_char = *inp;
@@ -100,11 +101,13 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
 
       if(state->accept)
         apos = n;
+      
+      l++;
     }
     else{
 
       if(opt_match_option == EXACT){
-        if(spos == 0 && !inp_char && state->accept){
+        if(spos == 0 && !inp_char && state->accept && l > 1){
           if(count)
             match++;
           else if(highlight)
@@ -123,7 +126,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
             display_line(line);
         }
       }
-      else if(apos >= 0 && spos >= 0 && spos <= apos){ // turn off single letter match here
+      else if(apos >= 0 && spos >= 0 && spos <= apos && l > 1){ // turn off single letter match here
         // failed in non_accepting state, what was the last accept state we saw
         if(count)
           match++;
@@ -154,6 +157,8 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
         state = dfa->root;
         spos = -1; // resets the start character
       }
+
+      l = 0;
     }
 
     n++;
