@@ -26,7 +26,7 @@ static void DisplayUsage()
   fprintf(stderr, "readwln <options> -o<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
-  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -ocan)\n");
+  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan)\n");
   fprintf(stderr, " --old                use the old wln parser (nextmove software)\n");
   exit(1);
 }
@@ -89,8 +89,13 @@ static void ProcessCommandLine(int argc, char *argv[])
             format = "can";
             break;
           }
+          else if(!strcmp(ptr,"-okey"))
+          {
+            format  = "inchikey";
+            break;
+          }
           else{
-            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can']\n");
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can','key']\n");
             DisplayUsage();
           } 
         

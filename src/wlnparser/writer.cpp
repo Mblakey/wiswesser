@@ -41,7 +41,10 @@ static void DisplayHelp()
   fprintf(stderr, "\n--- wisswesser notation parser ---\n\n");
   fprintf(stderr, " This parser writes to wiswesser\n"
                   " line notation (wln) from smiles/inchi, the parser is built on OpenBabels\n"
-                  " toolkit and will return the minimal WLN string\n");
+                  " toolkit and will return the WLN string for the given input.\n"
+                  " Note: Rule 2 canonicalisation is not implemented here, ordering of the input atoms\n"
+                  "       will effect the resulting WLN, a canconicalisation algorithm to obey such\n"
+                  "       rules is in development\n");
   DisplayUsage();
 }
 

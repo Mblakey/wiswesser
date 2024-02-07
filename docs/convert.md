@@ -13,7 +13,7 @@ readwln <options> -o<format> 'string'
 #### Flags
 
 `-h` - display the help menu <br>
-`-o` - choose output format for string, options are `-osmi`, `-oinchi` and `-ocan` following OpenBabels format conventions <br>
+`-o` - choose output format for string, options are `-osmi`, `-oinchi`, `-okey` (inchikey)and `-ocan` following OpenBabels format conventions <br>
 `--old` - use nextmoves old wln parser (lower coverage, much faster)
 
 
