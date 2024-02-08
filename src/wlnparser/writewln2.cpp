@@ -128,6 +128,14 @@ void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_
     new_path[i] = locant_path[i]; 
 }
 
+bool in_locant_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++){
+    if(atom == locant_path[i])
+      return true; 
+  }
+  return false; 
+}
+
 unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
     if(atom == locant_path[i])
@@ -142,10 +150,12 @@ int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int pa
   unsigned int lpos = path_size; 
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *latom = mol->GetAtom(ring->_path[i]); 
-    unsigned int pos = position_in_path(latom,locant_path,path_size); 
+    if(in_locant_path(latom,locant_path,path_size)){
+      unsigned int pos = position_in_path(latom,locant_path,path_size); 
 
-    if(pos < lpos)
-      lpos = pos; 
+      if(pos < lpos)
+        lpos = pos;
+    }
   }
   return lpos; 
 }
@@ -155,7 +165,8 @@ unsigned int ring_sum(OBMol *mol, OBRing *ring, OBAtom**locant_path,unsigned int
   unsigned int rsum = 0;
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *ratom = mol->GetAtom(ring->_path[i]);
-    rsum += position_in_path(ratom, locant_path,path_size) + 1;
+    if(in_locant_path(ratom,locant_path, path_size))
+      rsum += position_in_path(ratom, locant_path,path_size) + 1;
   }
   return rsum;
 }
@@ -192,8 +203,12 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
 {
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
   for(unsigned int i=0;i<ring->Size();i++){
-    unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
-    sequence[i] = int_to_locant(pos+1); 
+    if(in_locant_path(mol->GetAtom(ring->_path[i]),locant_path, path_size)){
+      unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
+      sequence[i] = int_to_locant(pos+1); 
+    }
+    else
+      sequence[i] = 0; 
   }
 
   sort_locants(sequence,ring->Size());
@@ -368,12 +383,14 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           unsigned char high_loc = 0; 
           unsigned int rsum = ring_sum(mol,wring,locant_path,path_size);
           for(unsigned int k=0;k<wring->Size();k++){
-            unsigned int pos = position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size);
-            unsigned char loc = int_to_locant(pos+1); 
-            if(loc < min_loc)
-              min_loc = loc; 
-            if(loc > high_loc)
-              high_loc = loc;
+            if(in_locant_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)){
+              unsigned int pos = position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size);
+              unsigned char loc = int_to_locant(pos+1); 
+              if(loc < min_loc)
+                min_loc = loc; 
+              if(loc > high_loc)
+                high_loc = loc;
+            }
           }
 
           if(min_loc < lowest_in_ring || 
@@ -400,8 +417,10 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     
 
     for(unsigned int k=0;k<to_write->Size();k++){
-      unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
-      in_chain[loc] = true;
+      if(in_locant_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)){ 
+        unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
+        in_chain[loc] = true;
+      }
     }
 
     if(opt_debug && verbose){
@@ -548,7 +567,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
   for(unsigned int i=0;i<path_size;i++){
     if(!best_path[i]){
       free(best_path);
-      Fatal("no continous locant path was possible - currently unsupported - PAlgorithm\n");
+      return 0; 
     }
   }
 
@@ -611,7 +630,15 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
       FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
         catom = &(*a);
-        if(atom_shares[catom]){
+//        bool in_set = true;
+
+        bool in_set = false; 
+        for (std::set<OBAtom*>::iterator siter = ring_atoms.begin();siter != ring_atoms.end(); siter++) {
+          if (catom == *siter)
+            in_set = true;
+        }
+
+        if(in_set && atom_shares[catom]){
           if(catom == next)
             skipped = true;
           else if(!current[catom] && skipped && !pushed){
@@ -671,21 +698,54 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   // call recursion here for path finding
   if(!path_found){
     free(best_path);
-    
+    best_path = 0; 
+
     // try and remove one ring and stop the recursion
     if(recursion_tracker == 0){
       
-
+      // we need to remove one ring from the both the local SSSR, and the ring atoms set, mark the atoms as non cyclic IF
+      // they work on the recursion
       
-     // best_path = NPLocantPath(mol, <x>, ring_atoms, atom_shares, bridge_atoms, broken_atoms,local_SSSR, 1); 
-      
+      // lets choose a ring
+      unsigned int pos = 0;
+      for(std::set<OBRing*>::iterator riter = local_SSSR.begin();riter != local_SSSR.end();riter++){
+        OBRing *obring = *riter; 
+        std::set<OBAtom*> local_atoms; 
+        std::set<OBAtom*> difference;
+        
+        // its the difference ONLY if the atoms are ONLY contained in this ring
+        for(unsigned int i=0;i<obring->Size();i++){
+          OBAtom *latom = mol->GetAtom(obring->_path[i]);    
+          if(atom_shares[latom] == 1)
+            local_atoms.insert(latom);
+        }
+        
+        if(!local_atoms.empty()){
+          std::set_difference(ring_atoms.begin(), ring_atoms.end(), local_atoms.begin(), local_atoms.end(),
+                              std::inserter(difference, difference.begin()));
+
+          best_path = NPLocantPath(mol, difference.size(), difference, atom_shares, bridge_atoms, broken_atoms,local_SSSR, 1); 
+          if(best_path){
+            // remove ring from the local SSSR, mark all the local_atoms set as non cyclic
+            for(std::set<OBAtom*>::iterator laiter=local_atoms.begin(); laiter != local_atoms.end();laiter++)
+              (*laiter)->SetInRing(false);
+            
+            std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), pos); 
+            local_SSSR.erase(it);
+
+            ring_atoms = difference; 
+            return best_path;
+          }
+          
 
 
-    }
+          pos++;
+        }
+      }      
+    }  
 
-    Fatal("no locant path could be generated\n");
   }
-
+  
   return best_path;
 }
 
@@ -2245,7 +2305,10 @@ struct BabelGraph{
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR,0);
-      
+    
+    if(!locant_path)
+      Fatal("no locant path could be determined"); 
+
     // double check the path size here if we are making changes;     
     LocalSSRS_data.path_size = ring_atoms.size();
     path_size = LocalSSRS_data.path_size; 
