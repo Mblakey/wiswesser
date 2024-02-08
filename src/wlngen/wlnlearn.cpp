@@ -5,6 +5,7 @@
  an learning answer. 
  */
 
+#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -46,7 +47,15 @@ double start_epsilon = 0.5;
 double learning_rate = 0.5;
 double decay_rate = 0.005;
 
+bool opt_strings = false;
+
 std::vector<const char*> train_files;
+
+
+bool prefix(const char *pre, const char *str)
+{
+  return strncmp(pre, str, strlen(pre)) == 0;
+}
 
 bool seed_from_file(FILE *ifp, FSMAutomata *wlnmodel){
   unsigned char ch = 0;
@@ -77,6 +86,56 @@ bool seed_from_file(FILE *ifp, FSMAutomata *wlnmodel){
   }
   return true;
 }
+
+bool seed_from_string(const char *str, FSMAutomata *wlnmodel){
+  unsigned char ch = *str;
+  FSMState *curr = wlnmodel->root;
+  FSMEdge *edge = 0;
+  
+  while(ch){
+    for(edge=curr->transitions;edge;edge=edge->nxt){
+      if(edge->ch == ch){
+        if(edge->c < UINT32_MAX)
+          edge->c+=100; // arbituary but seeds the starting string more than files 
+
+        curr = edge->dwn; 
+        break;
+      }
+    }
+    ch = *(++str); 
+  }
+
+  for(unsigned int i=0;i<wlnmodel->num_states;i++){
+    FSMState *s = wlnmodel->states[i];
+    unsigned int count = 0;
+    FSMEdge *e = 0; 
+    for(e=s->transitions;e;e=e->nxt)
+      count+= e->c; // get total counts
+
+    for(e=s->transitions;e;e=e->nxt)
+      e->p = (double)e->c/(double)count;
+  }
+  return true;
+}
+
+
+FSMEdge *write_seed(const char *seed, FSMAutomata *wlnmodel, std::string &buffer ){
+  FSMState *state = wlnmodel->root; 
+  FSMEdge *edge = 0;
+  unsigned char ch = *seed;
+  while(ch){
+    buffer += ch;
+    for(edge=state->transitions;edge;edge=edge->nxt){
+      if(edge->ch == ch){
+        state = edge->dwn;
+        break;
+      }
+    }
+    ch = *(++seed);
+  }
+  return edge; 
+}
+
 
 
 
@@ -177,7 +236,6 @@ void BellManEquation(FSMEdge *curr, unsigned int score){
 }
 
 
-
 void NormaliseState(FSMState* state){
   FSMEdge *e = 0;
   double sum = 0.0; // should be a safe normalise value
@@ -223,7 +281,11 @@ void QLearnWLN(  FSMAutomata *wlnmodel, double epsilon){
   std::set<FSMEdge*> path; // avoid the duplicate path increases
   std::unordered_map<std::string, bool> unique;
 
-//  double lepsilon = DecayEpsilon(epsilon,decay_rate);
+  // if there is a target, start the string with that target
+  
+  if(opt_strings)
+    edge = write_seed(train_files[0],wlnmodel,wlnstr);
+
   int strlength = 0;
   while(hits < COUNT){
     edge = ChooseEdge(state,epsilon,rgen); 
@@ -234,7 +296,9 @@ void QLearnWLN(  FSMAutomata *wlnmodel, double epsilon){
         strlength = 0;
         state = wlnmodel->root;
         
-        unsigned int score = ScoreFunction(wlnstr.c_str());   
+        unsigned int score = 0; 
+        score = ScoreFunction(wlnstr.c_str());   
+        
         if(score){
           //fprintf(stderr,"%s\n", wlnstr.c_str());
           path.insert(edge);
@@ -243,9 +307,14 @@ void QLearnWLN(  FSMAutomata *wlnmodel, double epsilon){
         }
         else
          misses++;
-                  
+        
+        // move the machine to ensure that subunit is found
+      
         wlnstr.clear();
-        path.clear(); // can assign learning here
+        path.clear(); 
+        if(opt_strings)
+          edge = write_seed(train_files[0], wlnmodel, wlnstr);
+          
       }
       else{
         // choose something else
@@ -279,6 +348,8 @@ void GenerateWLN(FSMAutomata *wlnmodel){
   std::string wlnstr; 
   std::unordered_map<std::string, bool> unique;
 
+  if(opt_strings)
+    edge = write_seed(train_files[0], wlnmodel, wlnstr);
 
   int strlength = 0;
   while(hits < COUNT){
@@ -295,11 +366,13 @@ void GenerateWLN(FSMAutomata *wlnmodel){
           fprintf(stderr,"%s\n", wlnstr.c_str());
           hits++;
         }
-                  
+ 
         wlnstr.clear();
+        if(opt_strings)
+          edge = write_seed(train_files[0], wlnmodel, wlnstr);
       }
       else{
-        // choose something else
+          // choose something else
         while(edge->ch == '\n')
           edge = LikelyEdge(state,rgen);
       }
@@ -326,16 +399,6 @@ bool RunEpisodes(FSMAutomata *wlnmodel){
 
   return true;
 }
-
-
-
-
-
-bool prefix(const char *pre, const char *str)
-{
-  return strncmp(pre, str, strlen(pre)) == 0;
-}
-
 static void DisplayUsage(){
   fprintf(stderr, "wlngen <options> <trainfile>\n");
   fprintf(stderr,"options:\n");
@@ -350,6 +413,7 @@ static void DisplayUsage(){
   fprintf(stderr,"\ngeneral:\n");
   fprintf(stderr,"-p|--print             show all set hyperparameters and exit\n");
   fprintf(stderr,"-h|--help              show this help menu and exit\n");
+  fprintf(stderr,"-s|--string            treat trainfile as input string\n");
   
   exit(1);
 }
@@ -364,7 +428,7 @@ static void DisplayParameters(){
   fprintf(stderr,"learning rate:     %f\n",learning_rate);
   fprintf(stderr,"epsilon:           %f\n",start_epsilon);
   fprintf(stderr,"decay rate:        %f\n",decay_rate);
-  
+  fprintf(stderr,"strings:           %d\n", opt_strings); 
   fprintf(stderr,"----------------------------\n");
   exit(1);
 }
@@ -453,6 +517,10 @@ static void ProcessCommandLine(int argc, char *argv[])
             }
           }
           break;
+
+        case 's':
+          opt_strings = true;
+          break;          
 
         case 'd':
           while(ch != '=' && ch){
@@ -629,16 +697,21 @@ int main(int argc, char *argv[])
   unsigned int f = 0;
   if(!train_files.empty()){
     for (const char *trainfile : train_files){
-      f++;
-      FILE *tfp = fopen(trainfile,"r");
-      if(!tfp){
-        fprintf(stderr,"Error: could not open train file %d - skipping\n",f);
-        continue;
+      if(opt_strings){
+        seed_from_string(trainfile, wlnmodel);
       }
       else{
-        seed_from_file(tfp,wlnmodel);
-        fclose(tfp);
-        tfp = 0;
+        f++;
+        FILE *tfp = fopen(trainfile,"r");
+        if(!tfp){
+          fprintf(stderr,"Error: could not open train file %d - skipping\n",f);
+          continue;
+        }
+        else{
+          seed_from_file(tfp,wlnmodel);
+          fclose(tfp);
+          tfp = 0;
+        }
       }
     }
   }

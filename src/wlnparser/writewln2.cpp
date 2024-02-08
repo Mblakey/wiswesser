@@ -673,7 +673,15 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     free(best_path);
     
     // try and remove one ring and stop the recursion
+    if(recursion_tracker == 0){
+      
 
+      
+     // best_path = NPLocantPath(mol, <x>, ring_atoms, atom_shares, bridge_atoms, broken_atoms,local_SSSR, 1); 
+      
+
+
+    }
 
     Fatal("no locant path could be generated\n");
   }
