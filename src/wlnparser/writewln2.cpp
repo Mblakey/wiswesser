@@ -43,7 +43,8 @@ using namespace OpenBabel;
 
 #define REASONABLE 1024
 #define MACROTOOL 0
-
+#define MACROSAVE 1 // cheat the locant path; 
+                    
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
 
@@ -586,134 +587,91 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     best_path[i] = 0; 
   }
 
-  // decend logic idea from Tom Allam
-  while(!path_found && found_path_size > 1){ 
-    
-    for(OBAtom *rseed : seeds){
-      OBAtom*                catom  = 0;
-      std::map<OBAtom*,bool> current; 
-      std::vector<std::pair<OBAtom*,OBAtom*>> path; 
-      path.push_back({rseed,0}); 
+  for(OBAtom *rseed : seeds){
+    OBAtom*                catom  = 0;
+    std::map<OBAtom*,bool> current; 
+    std::vector<std::pair<OBAtom*,OBAtom*>> path; 
+    path.push_back({rseed,0}); 
 
-      unsigned int safety = 0;
-      while(!path.empty()){ // need a loop safety
-        safety++;
-        OBAtom* ratom = path.back().first;
-        OBAtom* next = path.back().second;
+    unsigned int safety = 0;
+    while(!path.empty()){ // need a loop safety
+      safety++;
+      OBAtom* ratom = path.back().first;
+      OBAtom* next = path.back().second;
 
-        current[ratom] = true;
-        
-        bool skipped = false;
-        bool pushed = false;
+      current[ratom] = true;
+      
+      bool skipped = false;
+      bool pushed = false;
 
-        if(!next)
-          skipped = true; 
+      if(!next)
+        skipped = true; 
 
-        FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
-          catom = &(*a);
-          if(atom_shares[catom]){
-            if(catom == next)
-              skipped = true;
-            else if(!current[catom] && skipped && !pushed){
-              path.push_back({catom,0});
-              pushed = true; 
-              break;
-            }
+      FOR_NBORS_OF_ATOM(a,ratom){ // this relies on this being a deterministic loop
+        catom = &(*a);
+        if(atom_shares[catom]){
+          if(catom == next)
+            skipped = true;
+          else if(!current[catom] && skipped && !pushed){
+            path.push_back({catom,0});
+            pushed = true; 
+            break;
           }
         }
+      }
 
-        if(!pushed && !path.empty()){
-          if(path.size() == found_path_size){
-            path_found = true;
-            for(unsigned int i=0;i<found_path_size;i++)
-              locant_path[i] = path[i].first;
-            
-            std::vector<OBRing*> tmp; 
-            std::string candidate_string; // unfortunate but necessary, very expensive procedure (we optimise later!)
-            unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
-            unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
-           
-            if(score < lowest_score){ // rule 30(d and e).
-              lowest_score = score;
-              lowest_fsum = fsum;
+      if(!pushed && !path.empty()){
+        if(path.size() == found_path_size){
+          path_found = true;
+          for(unsigned int i=0;i<found_path_size;i++)
+            locant_path[i] = path[i].first;
+          
+          std::vector<OBRing*> tmp; 
+          std::string candidate_string; // unfortunate but necessary, very expensive procedure (we optimise later!)
+          unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
+          unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
+         
+          if(score < lowest_score){ // rule 30(d and e).
+            lowest_score = score;
+            lowest_fsum = fsum;
+            copy_locant_path(best_path,locant_path,found_path_size);
+          }
+          else if (score == lowest_score){
+            if(fsum < lowest_fsum){
+              lowest_fsum = fsum; 
               copy_locant_path(best_path,locant_path,found_path_size);
             }
-            else if (score == lowest_score){
-              if(fsum < lowest_fsum){
-                lowest_fsum = fsum; 
-                copy_locant_path(best_path,locant_path,found_path_size);
-              }
-            }
-
           }
 
-          OBAtom *tmp = path.back().first; 
-          path.pop_back();
-          if(!path.empty()){
-            path.back().second = tmp;
-            current[tmp] = false; 
-          }
         }
 
-        // // super defensive temporary measure, this CANNOT be in the release
-        // // guards agaisnt C60
-        if(safety == 1000000)
-          break;
-        
-          
+        OBAtom *tmp = path.back().first; 
+        path.pop_back();
+        if(!path.empty()){
+          path.back().second = tmp;
+          current[tmp] = false; 
+        }
       }
-    }
 
-    for(unsigned int i=0;i<path_size;i++)
-      locant_path[i] = 0;
-    
-    if(!path_found){
-      for(unsigned int i=0;i<path_size;i++)
-        best_path[i] = 0;
-
-      found_path_size--; // decrement the path size and see what we can do
+      // // super defensive temporary measure, this CANNOT be in the release
+      // // guards agaisnt C60
+      if(safety == 1000000)
+        break;
+      
+        
     }
   }
+
+  for(unsigned int i=0;i<path_size;i++)
+    locant_path[i] = 0;
+  
   
   free(locant_path);
   if(!path_found){
     free(best_path);
-    Fatal("no locant path could be generated, even with decrements - first stop point\n");
+    Fatal("no locant path could be generated\n");
   }
 
-  if(found_path_size < path_size){
-
-    if(opt_debug)
-      fprintf(stderr,"  found locant path with %d branches out\n",path_size-found_path_size);
-
-    for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end();aiter++){
-      if(position_in_path(*aiter,best_path,found_path_size) == 0 && best_path[0] != *aiter){
-        OBAtom *branching = *aiter; 
-        unsigned int lowest_pos = found_path_size; 
-        FOR_NBORS_OF_ATOM(a,branching){
-          unsigned int bpos = position_in_path(&(*a),best_path,found_path_size);
-          if(bpos < lowest_pos)
-            lowest_pos = bpos; 
-        }
-
-        if(opt_debug)
-          fprintf(stderr,"  branching is bonded to: %c\n",int_to_locant(lowest_pos+1));
-        
-        if(broken_atoms[locant_path[lowest_pos]])
-          Fatal("multiple broken locants per atom are currently unsupported");
-        else
-          broken_atoms[locant_path[lowest_pos]] = branching;
-        
-        if(found_path_size < path_size)
-          best_path[found_path_size++] = branching; // stick at end of path
-      }
-    }
-  }
-
-  if(found_path_size < path_size){
-    free(best_path);
-    Fatal("no locant path could be generated, even with decrements - second stop point\n");
-  }
   return best_path;
 }
 
