@@ -52,14 +52,13 @@ static bool opt_debug = false;
 struct PathData {
   OBAtom **locant_path = 0;
   unsigned int path_size = 0;
-  OBRing* macro_ring = 0;
+  bool macro_ring = false;
 };
 
 
 /* allow a pass by reference for exiting the local sssr */
 struct SubsetData{
   unsigned int path_size = 0;
-  OBRing * ring_removed = 0;
   bool hetero = false;
   bool bridging = false; 
   bool multi = 0;
@@ -727,17 +726,18 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           best_path = NPLocantPath(mol, difference.size(), difference, atom_shares, bridge_atoms, broken_atoms,local_SSSR, 1); 
           if(best_path){
             // remove ring from the local SSSR, mark all the local_atoms set as non cyclic
-            for(std::set<OBAtom*>::iterator laiter=local_atoms.begin(); laiter != local_atoms.end();laiter++)
+            for(std::set<OBAtom*>::iterator laiter=local_atoms.begin(); laiter != local_atoms.end();laiter++){
               (*laiter)->SetInRing(false);
+              bridge_atoms[*laiter] = false;
+            }
+
             
             std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), pos); 
             local_SSSR.erase(it);
 
-            ring_atoms = difference; 
+            ring_atoms = difference;  // set the ring atoms to what we expect 
             return best_path;
           }
-          
-
 
           pos++;
         }
@@ -1784,47 +1784,45 @@ struct BabelGraph{
           prev = ret; 
       }
         
-#if MACROTOOL
-        // here we ask, is this bonded to a ring atom that is not 'spawned from'
-        FOR_NBORS_OF_ATOM(a,atom){
-          OBAtom *nbor = &(*a);
-          if(nbor != spawned_from && nbor->IsInRing() && atoms_seen[nbor] == true){
-    
-            if(require_macro_closure){
-              fprintf(stderr,"Error: macro-closure appearing more than once\n");
+      // here we ask, is this bonded to a ring atom that is not 'spawned from'
+      FOR_NBORS_OF_ATOM(a,atom){
+        OBAtom *nbor = &(*a);
+        if(nbor != spawned_from && nbor->IsInRing() && atoms_seen[nbor] == true){
+  
+          if(require_macro_closure){
+            fprintf(stderr,"Error: macro-closure appearing more than once\n");
+            return 0;
+          }
+          else{
+            require_macro_closure = true;
+            
+            if(carbon_chain){
+              buffer += std::to_string(carbon_chain);
+              carbon_chain = 0;
+            }
+
+            buffer += '-';
+            buffer += ' ';
+            
+            if(!locant_path){
+              fprintf(stderr,"Error: no locant path to wrap back macro-closures\n");
               return 0;
             }
             else{
-              require_macro_closure = true;
-              
-              if(carbon_chain){
-                buffer += std::to_string(carbon_chain);
-                carbon_chain = 0;
-              }
-
-              buffer += '-';
-              buffer += ' ';
-              
-              if(!locant_path){
-                fprintf(stderr,"Error: no locant path to wrap back macro-closures\n");
-                return 0;
-              }
-              else{
-                for (unsigned int i=0;i<path_size;i++) {
-                  if(locant_path[i] == nbor){
-                    buffer += int_to_locant(i+1);
-                    break;
-                  }
+              for (unsigned int i=0;i<path_size;i++) {
+                if(locant_path[i] == nbor){
+                  buffer += int_to_locant(i+1);
+                  break;
                 }
               }
-
-              buffer += "-x-";
-              // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
-              break;
             }
+
+            buffer += "-x-";
+            // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
+            break;
           }
         }
-#endif
+      }
 
       FOR_NBORS_OF_ATOM(a,atom){
         if(!atoms_seen[&(*a)])
@@ -2294,7 +2292,7 @@ struct BabelGraph{
     bool hetero = LocalSSRS_data.hetero;
     bool bridging = LocalSSRS_data.bridging;
     unsigned int path_size = LocalSSRS_data.path_size;
-    
+    bool macro_ring = false; 
 
     if(opt_debug)
       fprintf(stderr,"  multi classification: %d\n",multi);
@@ -2309,9 +2307,12 @@ struct BabelGraph{
     if(!locant_path)
       Fatal("no locant path could be determined"); 
 
-    // double check the path size here if we are making changes;     
-    LocalSSRS_data.path_size = ring_atoms.size();
-    path_size = LocalSSRS_data.path_size; 
+    // here a reduction condition must of been set.      
+    if(ring_atoms.size() != path_size){
+      macro_ring = true;
+      LocalSSRS_data.path_size = ring_atoms.size();
+      path_size = LocalSSRS_data.path_size; 
+    }
 
     if(inline_ring){
       buffer+= '-';
@@ -2336,7 +2337,7 @@ struct BabelGraph{
       buffer += root_locant;
     }
     
-    if(LocalSSRS_data.ring_removed)
+    if(macro_ring)
       buffer += "T-"; 
 
     if(hetero)
@@ -2410,7 +2411,7 @@ struct BabelGraph{
     
     pd.locant_path = locant_path;
     pd.path_size = path_size;
-    pd.macro_ring = LocalSSRS_data.ring_removed; // could be zero, need check
+    pd.macro_ring = macro_ring; // could be zero, need check
   }
     
 
