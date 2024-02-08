@@ -14,6 +14,7 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
+#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -562,7 +563,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
                             std::map<OBAtom*,bool>          &bridge_atoms, // rule 30f.
                             std::map<OBAtom*,OBAtom*>       &broken_atoms,
-                            std::set<OBRing*>               &local_SSSR)
+                            std::set<OBRing*>               &local_SSSR,
+                            unsigned int recursion_tracker)
 {
 
   // parameters needed to seperate out the best locant path
@@ -655,7 +657,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
 
       // // super defensive temporary measure, this CANNOT be in the release
       // // guards agaisnt C60
-      if(safety == 1000000)
+      if(safety == 100000)
         break;
       
         
@@ -663,12 +665,16 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
   }
 
   for(unsigned int i=0;i<path_size;i++)
-    locant_path[i] = 0;
-  
-  
+    locant_path[i] = 0;  
   free(locant_path);
+
+  // call recursion here for path finding
   if(!path_found){
     free(best_path);
+    
+    // try and remove one ring and stop the recursion
+
+
     Fatal("no locant path could be generated\n");
   }
 
@@ -2230,7 +2236,11 @@ struct BabelGraph{
     else if(!multi && !bridging)
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR,0);
+      
+    // double check the path size here if we are making changes;     
+    LocalSSRS_data.path_size = ring_atoms.size();
+    path_size = LocalSSRS_data.path_size; 
 
     if(inline_ring){
       buffer+= '-';
