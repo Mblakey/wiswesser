@@ -345,6 +345,27 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
 }
 
 
+bool ReachableFromEntry(OBAtom *entry, std::set<OBAtom*> &ring_atoms, std::set<OBAtom*> &seen){
+  std::stack<OBAtom*> stack;  
+  OBAtom *top = 0; 
+  stack.push(entry);
+  while(!stack.empty()){
+    top = stack.top();
+    seen.insert(top);
+    stack.pop();
+
+    FOR_NBORS_OF_ATOM(n ,top){
+      OBAtom *nbor = &(*n); 
+      for(std::set<OBAtom*>::iterator fiter = ring_atoms.begin(); fiter != ring_atoms.end();fiter++){
+        if(*fiter == nbor)
+          stack.push(nbor);
+      }
+    }
+  }
+
+  return (seen == ring_atoms);
+}
+
 /* read locant path algorithm, we return the number of non consecutive blocks,
 pseudo check will add determined pairs and check notation is viable for read */
 unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
@@ -702,10 +723,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
     // try and remove one ring and stop the recursion
     if(recursion_tracker == 0){
       
-      // we need to remove one ring from the both the local SSSR, and the ring atoms set, mark the atoms as non cyclic IF
-      // they work on the recursion
-      
-      // lets choose a ring
       unsigned int pos = 0;
       for(std::set<OBRing*>::iterator riter = local_SSSR.begin();riter != local_SSSR.end();riter++){
         OBRing *obring = *riter; 
@@ -722,7 +739,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
         if(!local_atoms.empty()){
           std::set_difference(ring_atoms.begin(), ring_atoms.end(), local_atoms.begin(), local_atoms.end(),
                               std::inserter(difference, difference.begin()));
-
+          
           best_path = NPLocantPath(mol, difference.size(), difference, atom_shares, bridge_atoms, broken_atoms,local_SSSR, 1); 
           if(best_path){
             // remove ring from the local SSSR, mark all the local_atoms set as non cyclic
@@ -730,8 +747,15 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
               (*laiter)->SetInRing(false);
               bridge_atoms[*laiter] = false;
             }
-
-            
+          
+            // bridges can only be made on two ring intersections? 
+            for(unsigned int i=0;i<obring->Size();i++){
+              OBAtom *latom = mol->GetAtom(obring->_path[i]);    
+              if(bridge_atoms[latom])
+                bridge_atoms[latom] = false;
+            }
+      
+ 
             std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), pos); 
             local_SSSR.erase(it);
 
@@ -1811,7 +1835,7 @@ struct BabelGraph{
             else{
               for (unsigned int i=0;i<path_size;i++) {
                 if(locant_path[i] == nbor){
-                  buffer += int_to_locant(i+1);
+                  write_locant(int_to_locant(i+1), buffer);
                   break;
                 }
               }
@@ -2304,8 +2328,24 @@ struct BabelGraph{
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR,0);
     
-    if(!locant_path)
+    if(!locant_path){
+        
+      // a ring in ring, has one large subring, that intersects every other cycle? - no, but most of them
+      
+      // first of all we cant remove the ring we are currently in, so ring_root eliminates one. 
+      // it has to have at least some atoms with ring shares == 1 ( could maximise on this? ) 
+      
+      // maximise on intersection and on number of single shares?
+      
+      unsigned int pos = 0; 
+      unsigned int best_pos = 0; 
+      for(std::set<OBRing*>::iterator riter=local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+        
+      }
+
+
       Fatal("no locant path could be determined"); 
+    }
 
     // here a reduction condition must of been set.      
     if(ring_atoms.size() != path_size){

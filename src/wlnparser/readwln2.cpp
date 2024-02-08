@@ -3589,8 +3589,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     case 'X':
       if (pending_J_closure)
         break;
-      else if (pending_locant)
+      else if (pending_locant){
         return Fatal(i, "Error: Wiswesser Uncertainities lead to runaway outcomings");
+      }
       else
       {
         on_locant = '\0';
@@ -4606,7 +4607,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       if (pending_J_closure)
         break;
       
-      if (pending_inline_ring)
+      if (pending_inline_ring && !pending_ring_in_ring)
       {
         // spiro notation open
         pending_spiro = true;
