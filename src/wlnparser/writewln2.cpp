@@ -371,7 +371,6 @@ pseudo check will add determined pairs and check notation is viable for read */
 unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
                       std::map<OBAtom*,bool>          &bridge_atoms,
-                      std::map<OBAtom*,OBAtom*>       &broken_atoms,
                       std::vector<OBRing*>            &ring_order,
                       std::string &buffer,
                       bool verbose)
@@ -503,7 +502,6 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
                         std::set<OBBond*>               &ring_bonds,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
-                        std::map<OBAtom*,OBAtom*>       &broken_atoms,
                         std::set<OBRing*>               &local_SSSR)
 {
 
@@ -566,7 +564,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 
       std::vector<OBRing*> tmp; 
       std::string candidate_string; // super annoying this has to go here, UPSET
-      unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
+      unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
       unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
 
       if(score < lowest_score){
@@ -601,7 +599,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
                             std::map<OBAtom*,bool>          &bridge_atoms, // rule 30f.
-                            std::map<OBAtom*,OBAtom*>       &broken_atoms,
                             std::set<OBRing*>               &local_SSSR,
                             unsigned int recursion_tracker)
 {
@@ -677,7 +674,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           
           std::vector<OBRing*> tmp; 
           std::string candidate_string; // unfortunate but necessary, very expensive procedure (we optimise later!)
-          unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,broken_atoms,tmp,candidate_string,false);
+          unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
           unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
          
           if(score < lowest_score){ // rule 30(d and e).
@@ -740,7 +737,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           std::set_difference(ring_atoms.begin(), ring_atoms.end(), local_atoms.begin(), local_atoms.end(),
                               std::inserter(difference, difference.begin()));
           
-          best_path = NPLocantPath(mol, difference.size(), difference, atom_shares, bridge_atoms, broken_atoms,local_SSSR, 1); 
+          best_path = NPLocantPath(mol, difference.size(), difference, atom_shares, bridge_atoms, local_SSSR, 1); 
           if(best_path){
             // remove ring from the local SSSR, mark all the local_atoms set as non cyclic
             for(std::set<OBAtom*>::iterator laiter=local_atoms.begin(); laiter != local_atoms.end();laiter++){
@@ -756,6 +753,8 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
             }
       
  
+
+
             std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), pos); 
             local_SSSR.erase(it);
 
@@ -1926,7 +1925,6 @@ struct BabelGraph{
     OBAtom *prev = 0; 
     OBBond *bond = 0; 
     OBRing *obring = 0; 
-    OBRing *ring_removed = 0; // allow one instance of macro-simplification
     std::set<OBAtom*> tmp_bridging_atoms;
     std::set<OBAtom*> remove_atoms; 
 
@@ -1973,47 +1971,22 @@ struct BabelGraph{
 
           std::set<OBAtom*> ring_set; 
           std::set<OBAtom*> intersection; 
+          bool all_ring = false;
 
           for(unsigned int i=0;i<obring->Size();i++){
             OBAtom *ratom = mol->GetAtom(obring->_path[i]);
             ring_set.insert(ratom);
+            if(!ratom->IsInRing())
+              all_ring = false;
           }
 
           std::set_intersection(ring_set.begin(), ring_set.end(), ring_atoms.begin(), ring_atoms.end(),
                                 std::inserter(intersection, intersection.begin()));
 
           // intersection == 1 is a spiro ring, ignore,
-          if(intersection.size() > 1){
+          if(intersection.size() > 1 && all_ring){
 
-#if MACROTOOL
-            // if a simplification hasnt happen yet
-            if(!ring_removed){
-              for(unsigned int i=0;i<obring->Size();i++){
-                OBAtom *ratom = mol->GetAtom(obring->_path[i]);
-                if(atom_shares[ratom] + 1 == 4){
-                  ring_removed = obring;
-                  break;
-                }
-              }
-              
-              // if the atom share climbs to 4, we can simplify by creating a macro-wrapper
-              if(ring_removed){
-                local_data.ring_removed = ring_removed; 
-                // set the removed ring to non-cyclic
-                for(unsigned int i=0;i<obring->Size();i++){
-                  OBAtom *ratom = mol->GetAtom(obring->_path[i]);
-                  remove_atoms.insert(ratom); 
-                }
-
-                rings_seen[obring] = true; 
-                continue; // might not work in iterator
-              }
-            }
-#endif
-
-            // normal block 
             prev = 0;
-            
             // if its enough to say that true bridges cannot have more than two bonds each?
             // yes but 2 bonds within the completed local SSSR,so this will needed filtering
             if(intersection.size() > 2){
@@ -2070,33 +2043,6 @@ struct BabelGraph{
         }
       }
     }
-
-#if MACROTOOL
-    // if the macro-wrapper is used, remove the intersection between the local SSSR and the remove set
-    if(ring_removed){
-      std::set<OBAtom*> intersection;  
-      std::set_intersection(ring_atoms.begin(), ring_atoms.end(), remove_atoms.begin(), remove_atoms.end(),
-                        std::inserter(intersection, intersection.begin()));
-            
-      for(unsigned int i=0;i<ring_removed->Size();i++){
-        OBAtom *ratom = mol->GetAtom(ring_removed->_path[i]);
-        // this is horrible but luckily limited on n. 
-        bool set = true;
-        for(std::set<OBAtom*>::iterator rriter = intersection.begin(); rriter != intersection.end();rriter++){
-          if(*rriter == ratom){
-            set = false;
-            break;
-          }
-        }
-        if(set)
-          ratom->SetInRing(false);
-      }
-
-    }
-#endif
-
-
-
 
     if(opt_debug){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
@@ -2302,7 +2248,6 @@ struct BabelGraph{
     std::vector<OBRing*>            ring_order; 
 
     std::map<OBAtom*,bool>          bridge_atoms;
-    std::map<OBAtom*,OBAtom*>       broken_atoms;
     std::map<OBAtom*,unsigned int>  atom_shares;
     
     // can we get the local SSSR data out of this?
@@ -2324,27 +2269,82 @@ struct BabelGraph{
     if(local_SSSR.size() == 1)
       locant_path = MonoPath(mol,path_size,local_SSSR);
     else if(!multi && !bridging)
-      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,broken_atoms,local_SSSR);
+      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,broken_atoms,local_SSSR,0);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,0);
     
     if(!locant_path){
         
-      // a ring in ring, has one large subring, that intersects every other cycle? - no, but most of them
+      // a ring in ring, has a target ring to cleave out
       
       // first of all we cant remove the ring we are currently in, so ring_root eliminates one. 
       // it has to have at least some atoms with ring shares == 1 ( could maximise on this? ) 
       
-      // maximise on intersection and on number of single shares?
+      // otherwise cleave based on next ring position with the following conditions:
+      // 1. has to be a middle ring i.e atoms share >= 2 unique other rings
+      // 2. if there are singular shared atoms, prefer this as easier to cleave
+      // 3. else, de-ring the OBBond object and recalculate a local SSSR. 
+      // 4. this can only be done once, so if local SSSR and path fails here, return fail
       
-      unsigned int pos = 0; 
-      unsigned int best_pos = 0; 
-      for(std::set<OBRing*>::iterator riter=local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+      // size is often good enough when unrestricted. 
+      
+      if(!spawned_from){
+
+        unsigned int pos = 0; 
+        unsigned int best_pos = 0; 
+        unsigned int best_size = 0;
+        for(std::set<OBRing*>::iterator riter=local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+          if((*riter)->Size() > best_size){
+            best_size = (*riter)->Size();
+            best_pos = pos; 
+          }
+          pos++;
+          rings_seen[(*riter)] = false;
+        }
+        fprintf(stderr,"%d: best size: %d\n",best_pos,best_size);
         
+        std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), best_pos); 
+        OBRing *ring_splice = *it; 
+
+        for(unsigned int i=0;i<ring_splice->Size();i++){
+          OBAtom *ratom = mol->GetAtom(ring_splice->_path[i]);
+          if(atom_shares[ratom] == 1){
+            ratom->SetInRing(false);
+            if(ratom == ring_root)
+              fprintf(stderr,"debug: shift need in macro recalculation\n");  
+              // if this is the case we need to shift it out of the ring
+          }
+        }
+        
+        // re-try with macro notation
+        local_SSSR.clear();
+        ring_atoms.clear();
+        atom_shares.clear();
+        bridge_atoms.clear();
+
+        if(!ConstructLocalSSRS(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR, LocalSSRS_data)){
+          Fatal("failed to write ring with macro cheat"); 
+        }
+
+        fprintf(stderr,"local SSSR size: %d\n",local_SSSR.size());
+         
+        multi = LocalSSRS_data.multi;
+        hetero = LocalSSRS_data.hetero;
+        bridging = LocalSSRS_data.bridging;
+        path_size = LocalSSRS_data.path_size;
+        macro_ring = true; 
+
+        // try again
+        if(local_SSSR.size() == 1)
+          locant_path = MonoPath(mol,path_size,local_SSSR);
+        else if(!multi && !bridging)
+          locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR); 
+        else 
+          locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,0);
+      
+        if(!locant_path) 
+          Fatal("no locant path could be determined"); 
       }
-
-
-      Fatal("no locant path could be determined"); 
     }
 
     // here a reduction condition must of been set.      
@@ -2379,14 +2379,14 @@ struct BabelGraph{
     
     if(macro_ring)
       buffer += "T-"; 
-
+ 
     if(hetero)
       buffer += 'T';
     else
       buffer += 'L';
 
     ReadLocantPath( mol,locant_path,path_size,
-                    local_SSSR,bridge_atoms,broken_atoms,ring_order,
+                    local_SSSR,bridge_atoms,ring_order,
                     buffer,true); 
     
     if(bridging){
