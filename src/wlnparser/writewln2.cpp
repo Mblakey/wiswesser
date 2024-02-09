@@ -44,7 +44,6 @@ using namespace OpenBabel;
 
 #define REASONABLE 1024
 #define MACROTOOL 0
-#define MACROSAVE 1 // cheat the locant path; 
                     
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -1971,7 +1970,7 @@ struct BabelGraph{
 
           std::set<OBAtom*> ring_set; 
           std::set<OBAtom*> intersection; 
-          bool all_ring = false;
+          bool all_ring = true;
 
           for(unsigned int i=0;i<obring->Size();i++){
             OBAtom *ratom = mol->GetAtom(obring->_path[i]);
@@ -2272,7 +2271,8 @@ struct BabelGraph{
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
     else 
       locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,0);
-    
+
+#if MACROTOOL
     if(!locant_path){
         
       // a ring in ring, has a target ring to cleave out
@@ -2346,6 +2346,11 @@ struct BabelGraph{
           Fatal("no locant path could be determined"); 
       }
     }
+#else
+    if(!locant_path)
+      return Fatal("no locant path could be determined");
+#endif
+
 
     // here a reduction condition must of been set.      
     if(ring_atoms.size() != path_size){

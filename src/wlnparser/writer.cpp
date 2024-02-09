@@ -31,7 +31,7 @@ static void DisplayUsage()
   fprintf(stderr, "writewln <options> -i<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -h                    show the help for executable usage\n");
-  fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican)\n");
+  fprintf(stderr, "  -i                    choose input format (-ismi, -iinchi, -ican, -imol)\n");
   fprintf(stderr, "  -m                    write mwln (modern) strings (part of michaels PhD work\n");
   exit(1);
 }
@@ -86,8 +86,13 @@ static void ProcessCommandLine(int argc, char *argv[])
             format = "can";
             break;
           }
+          else if (!strcmp(ptr, "-imol"))
+          {
+            format = "mol";
+            break;
+          }
           else{
-            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can']\n");
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can','mol']\n");
             DisplayUsage();
           }
 
@@ -140,8 +145,14 @@ int main(int argc, char *argv[])
   OBMol mol;
   OBConversion conv;
 
+
+    
   conv.SetInFormat(format);
-  res = conv.ReadString(&mol,cli_inp);
+  
+  if(!strcmp(format,"mol"))
+    res = conv.ReadFile(&mol, cli_inp);
+  else
+    res = conv.ReadString(&mol,cli_inp);
 
   if(!res){
     fprintf(stderr,"Error: failed to read incoming notation\n");

@@ -4451,10 +4451,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         pending_J_closure = false;
       }
-      else if (pending_ring_in_ring){
-        fprintf(stderr,"here?\n"); 
-      }
-
+    //  else
+     //   return Fatal(i, "Error: J character in unrecognised state"); 
+      
       cleared = false;
       break;
 
