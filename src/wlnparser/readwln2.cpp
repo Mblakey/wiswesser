@@ -2680,7 +2680,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             locant_attached = true;
           }
           else
-            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct\n");
+            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
           
         }
       
@@ -2779,12 +2779,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             pseudo_locants.push_back(ch);
           else
             return Fatal(start+i,"Error: unhandled locant rule");
-          
-
+        
           positional_locant = ch; // use for look back
           locant_attached = true;
           expected_locants--;
-
           break;
         }
         else if(state_multi == 2){
@@ -2804,9 +2802,8 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             locant_attached = true;
           }
           else
-            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct\n");
+            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
         }
-        
         break;
 
       default:
@@ -3368,6 +3365,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_inline_ring      = false;
   bool pending_spiro            = false;
   bool pending_ring_in_ring     = false; // rings in rings
+  bool pending_rir_closure      = false;
 
   bool no_shift = false; // stop shifting if already done
   std::string str_buffer; 
@@ -4348,6 +4346,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // ring notation
 
     case 'J':
+      if(pending_rir_closure){
+        wrap_ring = 0;
+        pending_rir_closure = false;
+        break;
+      }
       if(pending_J_closure && j_skips)
         break;
       if (pending_locant)
@@ -4364,7 +4367,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_locant = false;
         on_locant = ch;
       }
-
       else if (pending_J_closure 
               && ( (i<len-1 && (wln_string[i+1] == ' ' || wln_string[i+1] == '&') && wln_string[i-1] != ' ') 
               || i == len -1)
@@ -4423,14 +4425,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(pending_ring_in_ring && !wrap_ring)
           wrap_ring = ring; // instant back access
 
-
         branch_stack.push({ring,0});
-
         block_start = 0;
         block_end = 0;
 
         // does the incoming locant check
-
         if(pending_spiro)
           pending_spiro = false;
         else if (prev && on_locant && on_locant != '0')
@@ -4452,13 +4451,19 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         pending_J_closure = false;
       }
+      else if (pending_ring_in_ring){
+        fprintf(stderr,"here?\n"); 
+      }
+
       cleared = false;
       break;
 
     case 'L':
     case 'T':
-      if (pending_J_closure)
+      if (pending_J_closure || pending_rir_closure)
         break;
+   //   else if (pending_ring_in_ring)
+   //     break;
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4732,13 +4737,17 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       else if (pending_inline_ring)
       { 
+        
         if(pending_ring_in_ring){
           // onlocant holds the char needed to wrap the ring back, 
+          
+          if(!wrap_ring)
+            return Fatal(i, "Error: wrap ring is not active");
+
           curr = wrap_ring->locants[on_locant];
           if(!curr)
             return Fatal(i, "Error: cannot access looping ring structure");
-          
-
+        
           if(prev){  
             if(prev == branch_stack.branch){
               while(!branch_stack.top().second && !branch_stack.empty())
@@ -4758,9 +4767,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       
 
           // if we remove this, we can allow branching inline defintiions 
-
           // last notation is not neccessary, so we eat two positions
-          //
           unsigned int hit = 0;
           while(wln_ptr){
             if(*wln_ptr == 'J')
@@ -4774,11 +4781,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             wln_ptr++;
             i++;
           }
-
+          
           curr = prev; // set back to prev
           on_locant = '\0';
           pending_ring_in_ring = false;
           pending_inline_ring = false;
+          pending_rir_closure = true;
         }
         else
           return Fatal(i, "Error: only one pending ring can be active, check closures");
@@ -4793,7 +4801,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         // move off the first dash
         i++;
         ch = *(++wln_ptr);
-
         while(ch != '\0'){
           if(ch == '-'){
             closed_dash = true;
