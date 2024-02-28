@@ -14,6 +14,7 @@ static void DisplayUsage(){
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
+
   const char *ptr = 0;
   int i,j;
 
@@ -121,6 +122,8 @@ double WLNFingerprint(const char* string){
     case '0': // cannot be lone, must be an addition to another num
       if(pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       break;
@@ -136,6 +139,8 @@ double WLNFingerprint(const char* string){
     case '9':
       if(pending_J_closure)
           break; 
+      else if (reading_dash)
+        break;
       
       reading_chain = true; 
       break;
@@ -146,7 +151,10 @@ double WLNFingerprint(const char* string){
         reading_chain = false; 
         CarbonChains++; 
       }
+
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -160,6 +168,8 @@ double WLNFingerprint(const char* string){
         CarbonChains++; 
       }     
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false; 
@@ -176,6 +186,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -189,6 +201,8 @@ double WLNFingerprint(const char* string){
       }     
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -204,6 +218,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -217,6 +233,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -234,6 +252,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -247,6 +267,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)  
         pending_locant = false;
@@ -262,6 +284,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -275,6 +299,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -291,6 +317,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -306,12 +334,15 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
         Gsymbol++;  
-      
       break;
+
+
     case 'F':
       if(reading_chain){
         reading_chain = false; 
@@ -319,6 +350,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -334,6 +367,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break; 
       else if (pending_locant)
         pending_locant = false;
       else
@@ -351,6 +386,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)  
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -364,6 +401,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -381,6 +420,9 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
+      
       else if (pending_locant)
         pending_locant = false;
       else
@@ -397,6 +439,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false; 
       
@@ -412,6 +456,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
           
@@ -425,6 +471,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -442,6 +490,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -455,7 +505,9 @@ double WLNFingerprint(const char* string){
         CarbonChains++; 
       }
 
-      if(pending_locant)
+      if (reading_dash)
+        break;
+      else if(pending_locant)
         pending_locant = false; 
       else if(pending_J_closure){
         pending_J_closure = false; 
@@ -472,6 +524,8 @@ double WLNFingerprint(const char* string){
 
       if (pending_J_closure)
         break;
+      else if (reading_dash)
+        break;
       else if (pending_locant)
         pending_locant = false;
       else
@@ -485,6 +539,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
@@ -501,6 +557,8 @@ double WLNFingerprint(const char* string){
       }
 
       if (pending_J_closure)
+        break;
+      else if (reading_dash)
         break;
       else if (pending_locant)
         pending_locant = false;
