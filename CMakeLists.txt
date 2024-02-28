@@ -45,6 +45,10 @@ add_executable(wlncluster
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
 )
 
+add_executable(wlnfp 
+  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnfp.cpp
+)
+
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlnlearn.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")

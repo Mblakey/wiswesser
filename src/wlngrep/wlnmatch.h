@@ -59,8 +59,7 @@ void display_highlighted_match(char *line, unsigned int spos, unsigned int epos)
   fprintf(stdout,"\n");
 }
 
-void display_match(char *line, unsigned int spos, unsigned int epos){
-  
+void display_match(char *line, unsigned int spos, unsigned int epos){  
   for(unsigned int i=0;i<BUFF_SIZE;i++){
     if(!line[i] || line[i] == '\n')
       break;

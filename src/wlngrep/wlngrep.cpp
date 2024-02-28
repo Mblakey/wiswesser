@@ -1,5 +1,4 @@
-
-
+#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -80,6 +79,10 @@ static bool MatchFile(FILE *fp,FSMAutomata *machine){
   free(buffer);
   return true;
 }
+
+
+
+
 
 static void DisplayUsage()
 {
