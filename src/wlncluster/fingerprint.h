@@ -5,7 +5,7 @@
 
 #include <inttypes.h>
 
-#define VERBOSE 0
+#define VERBOSE 1 
 #define FPSIZE 32
 
 uint16_t* WLNFingerprint(const char* string);

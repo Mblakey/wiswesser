@@ -57,6 +57,7 @@ typedef struct{
 }Descriptors;
 
 
+
 void init_descriptors(Descriptors *desc){
 
   desc->CarbonAtoms = 0;
@@ -99,16 +100,70 @@ void init_descriptors(Descriptors *desc){
 }
 
 
+void debug_descriptors(Descriptors *desc){
+
+  fprintf(stderr,"\nCarbon Atoms: %d\n", desc->CarbonAtoms); 
+  fprintf(stderr,"Alkyl Chains: %d\n", desc->CarbonChains); 
+  fprintf(stderr,"X symbols: %d\n", desc->Xsymbol); 
+  fprintf(stderr,"Y symbols: %d\n", desc->Ysymbol);
+
+  fprintf(stderr,"K symbols: %d\n", desc->Ksymbol); 
+  fprintf(stderr,"M symbols: %d\n", desc->Msymbol); 
+  fprintf(stderr,"N symbols: %d\n", desc->Nsymbol); 
+  
+  fprintf(stderr,"O symbols: %d\n", desc->Osymbol); 
+  fprintf(stderr,"Q symbols: %d\n", desc->Qsymbol); 
+  
+  fprintf(stderr,"P symbols: %d\n", desc->Psymbol); 
+  fprintf(stderr,"S symbols: %d\n", desc->Ssymbol); 
+  fprintf(stderr,"B symbols: %d\n", desc->Bsymbol); 
+
+  fprintf(stderr,"V symbols: %d\n", desc->Vsymbol); 
+  fprintf(stderr,"W symbols: %d\n", desc->Wsymbol); 
+  fprintf(stderr,"R symbols: %d\n", desc->Rsymbol); 
+
+  fprintf(stderr,"E symbols: %d\n", desc->Esymbol); 
+  fprintf(stderr,"F symbols: %d\n", desc->Fsymbol); 
+  fprintf(stderr,"G symbols: %d\n", desc->Gsymbol); 
+  fprintf(stderr,"H symbols: %d\n", desc->Hsymbol); 
+  fprintf(stderr,"I symbols: %d\n", desc->Isymbol); 
+
+  fprintf(stderr,"Unsaturations: %d\n", desc->BondUnsaturations); 
+  fprintf(stderr,"Other Atoms:   %d\n", desc->AtomOther); 
+  
+  fprintf(stderr,"Scaffold Atoms:          %d\n", desc->ScaffoldAtoms); 
+  fprintf(stderr,"Carbon Scaffolds:        %d\n", desc->CarbonScaffolds); 
+  fprintf(stderr,"Hetero Scaffolds:        %d\n", desc->HeteroScaffolds); 
+  fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AromSubcycles); 
+  fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AlipSubcycles);
+  fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
+  fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
+}
+
+unsigned int locant_to_int(unsigned char ch){
+  if(ch < 'A'){
+    fprintf(stderr,"Error: %c is not a valid locant\n",ch); 
+    return 0; 
+  }
+
+  return (ch - 'A') +1; 
+}
+
+
+
 bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *desc){
   
   bool expecting_locant = false;
   bool expecting_size = false; 
   unsigned int read_skips = 0; 
 
-  unsigned char read_size = 0; 
+  unsigned int read_size = 0; 
   unsigned int total_cycles = 0; 
   unsigned int ali_cycles = 0; 
   unsigned int arom_cycles = 0; 
+
+  unsigned int subcycles[64] = {0}; 
+
 
   for(unsigned int i=s;i<e;i++){
     unsigned char ch = cpy[i]; 
@@ -133,10 +188,11 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         if(expecting_locant){
           desc->MultiCyclics += ch - '0';
           expecting_size = true; 
+          expecting_locant = false;
           read_skips = ch - '0';
         }
         else
-          total_cycles++; 
+          subcycles[total_cycles++] = ch - '0'; 
         break;
       
       case 'A':
@@ -144,7 +200,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = false;
         }
         else if (expecting_size && !read_size){
-          read_size = ch; 
+          read_size = locant_to_int(ch); 
         }else{
           fprintf(stderr,"Error: locant only character read as atom\n"); 
           return false;
@@ -156,7 +212,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = false;
         }
         else if (expecting_size && !read_size){
-          read_size = ch;
+          read_size = locant_to_int(ch);
         }
         else {
           desc->Bsymbol++;
@@ -168,7 +224,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = false;
         }
         else if (expecting_size && !read_size){
-          read_size = ch; 
+          read_size = locant_to_int(ch); 
         }
         else{
           fprintf(stderr,"Error: locant only character read as atom\n"); 
@@ -177,6 +233,18 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
 
+       case 'P': 
+        if (expecting_locant){
+          expecting_locant = false;
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch);
+        }
+        else{
+          desc->Psymbol++; 
+        }
+        break;
+
       case 'L':
         if(i==s)
           desc->CarbonScaffolds++;
@@ -184,7 +252,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = false;
         }
         else if (expecting_size && !read_size){
-          read_size = ch;
+          read_size = locant_to_int(ch);
         }
         break;
 
@@ -196,7 +264,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = false;
         }
         else if (expecting_size && !read_size)
-          read_size = ch; 
+          read_size = locant_to_int(ch); 
         else{
           ali_cycles++;  
         }
@@ -220,8 +288,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case ' ':
-        if(expecting_size)
+        if(expecting_size){
           break;
+        }
         else
           expecting_locant = true;
         break;
@@ -250,9 +319,14 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   
   // -- ring sizes
   if(read_size)
-    desc->ScaffoldAtoms += read_size - '0';
+    desc->ScaffoldAtoms += read_size;
   else{
     // use calc
+    read_size+= subcycles[0];
+    for(unsigned int i=1;i<total_cycles;i++){
+      read_size += (subcycles[i] - 2); 
+    }
+    desc->ScaffoldAtoms += read_size;
   }
 
   return true; 
@@ -886,44 +960,6 @@ bool WLNParse(const char* string, Descriptors *desc){
     desc->CarbonAtoms += atoi(chain); 
   }
 
-  if(VERBOSE){
-    fprintf(stderr,"Carbon Atoms: %d\n", desc->CarbonAtoms); 
-    fprintf(stderr,"Alkyl Chains: %d\n", desc->CarbonChains); 
-    fprintf(stderr,"X symbols: %d\n", desc->Xsymbol); 
-    fprintf(stderr,"Y symbols: %d\n", desc->Ysymbol);
-
-    fprintf(stderr,"K symbols: %d\n", desc->Ksymbol); 
-    fprintf(stderr,"M symbols: %d\n", desc->Msymbol); 
-    fprintf(stderr,"N symbols: %d\n", desc->Nsymbol); 
-    
-    fprintf(stderr,"O symbols: %d\n", desc->Osymbol); 
-    fprintf(stderr,"Q symbols: %d\n", desc->Qsymbol); 
-    
-    fprintf(stderr,"P symbols: %d\n", desc->Psymbol); 
-    fprintf(stderr,"S symbols: %d\n", desc->Ssymbol); 
-    fprintf(stderr,"B symbols: %d\n", desc->Bsymbol); 
-
-    fprintf(stderr,"V symbols: %d\n", desc->Vsymbol); 
-    fprintf(stderr,"W symbols: %d\n", desc->Wsymbol); 
-    fprintf(stderr,"R symbols: %d\n", desc->Rsymbol); 
- 
-    fprintf(stderr,"E symbols: %d\n", desc->Esymbol); 
-    fprintf(stderr,"F symbols: %d\n", desc->Fsymbol); 
-    fprintf(stderr,"G symbols: %d\n", desc->Gsymbol); 
-    fprintf(stderr,"H symbols: %d\n", desc->Hsymbol); 
-    fprintf(stderr,"I symbols: %d\n", desc->Isymbol); 
-
-    fprintf(stderr,"Unsaturations: %d\n", desc->BondUnsaturations); 
-    fprintf(stderr,"Other Atoms:   %d\n", desc->AtomOther); 
-    
-    fprintf(stderr,"Carbon Scaffolds:        %d\n", desc->CarbonScaffolds); 
-    fprintf(stderr,"Hetero Scaffolds:        %d\n", desc->HeteroScaffolds); 
-    fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AromSubcycles); 
-    fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AlipSubcycles);
-    fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
-    fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
-  } 
-
   return true; 
 }
 
@@ -934,6 +970,10 @@ u_int16_t *WLNFingerprint(const char *string){
 
   if(!WLNParse(string, desc))
     return 0;
+  
+
+  if(VERBOSE)
+    debug_descriptors(desc);
 
   u_int16_t *FP = (u_int16_t*)malloc(sizeof(u_int16_t)* FPSIZE);
   memset(FP, 0, sizeof(u_int16_t) * FPSIZE); 
@@ -973,16 +1013,18 @@ u_int16_t *WLNFingerprint(const char *string){
   FP[21] = desc->BondUnsaturations; 
 
   // -- Cycles
-  FP[22] = desc->CarbonScaffolds;
-  FP[23] = desc->HeteroScaffolds; 
-  FP[24] = desc->AromSubcycles; 
-  FP[25] = desc->AlipSubcycles; 
-  FP[26] = desc->MultiCyclics; 
-  FP[27] = desc->BridgeAtoms; 
-
+  FP[22] = desc->ScaffoldAtoms; 
+  FP[23] = desc->CarbonScaffolds;
+  FP[24] = desc->HeteroScaffolds; 
+  FP[25] = desc->AromSubcycles; 
+  FP[26] = desc->AlipSubcycles; 
+  FP[27] = desc->MultiCyclics; 
+  FP[28] = desc->BridgeAtoms; 
 
   free(desc); 
   return FP; 
 }
+
+
 
 
