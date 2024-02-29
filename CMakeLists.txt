@@ -46,7 +46,7 @@ add_executable(wlncluster
 )
 
 add_executable(wlnfp 
-  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnfp.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnFP.cpp
 )
 
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlnlearn.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp)
