@@ -80,8 +80,14 @@ int main(int argc, char *argv[]){
   if(!fp2)
     return 1;
   
-  double similarity = WLNFPTanimoto(fp1, fp2); 
-  fprintf(stderr,"%f\n", similarity); 
+  double wlnfp = WLNFPTanimoto(fp1, fp2); 
+  double obfp = OBabelTanimoto(str1, str2);
+
+  fprintf(stderr,"wlnFP: %f\n", wlnfp);
+  fprintf(stderr,"ObabelFP: %f\n", obfp);
+
+  
+
 
   free(fp1);
   free(fp2); 
