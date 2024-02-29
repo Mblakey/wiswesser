@@ -72,11 +72,11 @@ static void ProcessCommandLine(int argc, char *argv[])
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
-  uint16_t *fp1 = WLNFingerprint(str1); 
+  u_int8_t *fp1 = WLNFingerprint(str1); 
   if(!fp1)
     return 1;
 
-  uint16_t *fp2 = WLNFingerprint(str2);
+  u_int8_t *fp2 = WLNFingerprint(str2);
   if(!fp2)
     return 1;
   

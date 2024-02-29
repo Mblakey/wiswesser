@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,54 +7,54 @@
 typedef struct{ 
  
 // inorganics
-  u_int16_t Bsymbol; // boron
-  u_int16_t Psymbol; // phosphorous 
-  u_int16_t Ssymbol; // sulphur 
+  u_int8_t Bsymbol; // boron
+  u_int8_t Psymbol; // phosphorous 
+  u_int8_t Ssymbol; // sulphur 
 
 // nitrogens
-  u_int16_t Ksymbol; // 4 nitro
-  u_int16_t Msymbol; // 2 nitro
-  u_int16_t Nsymbol; // 3 nitro 
-  u_int16_t Zsymbol; // terminal nitro
+  u_int8_t Ksymbol; // 4 nitro
+  u_int8_t Msymbol; // 2 nitro
+  u_int8_t Nsymbol; // 3 nitro 
+  u_int8_t Zsymbol; // terminal nitro
 
   // carbons
-  u_int16_t Ysymbol; // 3 carbonyl 
-  u_int16_t Xsymbol; 
+  u_int8_t Ysymbol; // 3 carbonyl 
+  u_int8_t Xsymbol; 
 
   // oxygens 
-  u_int16_t Osymbol; 
-  u_int16_t Qsymbol; 
+  u_int8_t Osymbol; 
+  u_int8_t Qsymbol; 
 
   // halogens
-  u_int16_t Esymbol; // terminal bromine
-  u_int16_t Fsymbol; // terminal flourine 
-  u_int16_t Gsymbol; // terminal chlorine 
-  u_int16_t Hsymbol; // terminal hydrogen
-  u_int16_t Isymbol; // terminal Iodide
+  u_int8_t Esymbol; // terminal bromine
+  u_int8_t Fsymbol; // terminal flourine 
+  u_int8_t Gsymbol; // terminal chlorine 
+  u_int8_t Hsymbol; // terminal hydrogen
+  u_int8_t Isymbol; // terminal Iodide
 
 
   // Functional
-  u_int16_t Vsymbol; // C=O
-  u_int16_t Wsymbol; // X(=O)(=O)
-  u_int16_t Rsymbol; // c1cccc1
+  u_int8_t Vsymbol; // C=O
+  u_int8_t Wsymbol; // X(=O)(=O)
+  u_int8_t Rsymbol; // c1cccc1
 
   // patterns 
-  u_int16_t CarbonChains; 
-  u_int16_t CarbonAtoms; // the total atoms counted by chains
-  u_int16_t BondUnsaturations; 
-  u_int16_t AtomOther; 
+  u_int8_t CarbonChains; 
+  u_int8_t CarbonAtoms; // the total atoms counted by chains
+  u_int8_t BondUnsaturations; 
+  u_int8_t AtomOther; 
 
   // Cycles  
-  u_int16_t ScaffoldAtoms; 
-  u_int16_t HeteroScaffolds;      // L/T - J notation 
-  u_int16_t CarbonScaffolds;      // L/T - J notation 
+  u_int8_t ScaffoldAtoms; 
+  u_int8_t HeteroScaffolds;      // L/T - J notation 
+  u_int8_t CarbonScaffolds;      // L/T - J notation 
 
-  u_int16_t AromSubcycles;  // Linear time ring perception 
-  u_int16_t AlipSubcycles;  // Linear time ring perception 
+  u_int8_t AromSubcycles;  // Linear time ring perception 
+  u_int8_t AlipSubcycles;  // Linear time ring perception 
   
-  u_int16_t MultiCyclics;   // Linear time ring internals 
-  u_int16_t BridgeAtoms;    // Linear time ring internals 
-  u_int16_t SpiroPoints;    // Linear time ring internals 
+  u_int8_t MultiCyclics;   // Linear time ring internals 
+  u_int8_t BridgeAtoms;    // Linear time ring internals 
+  u_int8_t SpiroPoints;    // Linear time ring internals 
   
 }Descriptors;
 
@@ -588,9 +587,10 @@ bool WLNParse(const char* string, Descriptors *desc){
   bool pending_locant = false;
   bool pending_J_closure = false; // use as a ring flag 
   bool reading_chain = false; 
-  bool reading_dash = false; 
+  bool reading_dash = false;
+  bool dash_numerical = false; 
 
-  u_int16_t chain_pos = 0; // track carbon counts
+  u_int8_t chain_pos = 0; // track carbon counts
   char chain[3] = {0}; 
 
   const char *cpy = string; 
@@ -615,8 +615,10 @@ bool WLNParse(const char* string, Descriptors *desc){
     case '9':
       if(pending_J_closure)
           break; 
-      else if (reading_dash)
+      else if (reading_dash){
+        dash_numerical = true; 
         break;
+      }
       
       reading_chain = true; 
       if(chain_pos<3)
@@ -1057,7 +1059,7 @@ bool WLNParse(const char* string, Descriptors *desc){
       else if(pending_J_closure){
         pending_J_closure = false; 
         if(!WLNRingParse(cpy, r_start, p,desc))
-          return (uint16_t*)0;
+          return (u_int8_t*)0;
         r_start = 0; 
       }
       break;
@@ -1178,11 +1180,14 @@ bool WLNParse(const char* string, Descriptors *desc){
         desc->CarbonChains++; 
       }
 
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(p - r_start == 1)
+          pending_J_closure = false;
         break;
-
-      if(reading_dash){
+      }
+      else if(reading_dash && !dash_numerical){
         reading_dash = false;
+        dash_numerical = false; 
         desc->AtomOther++; 
       }
       else
@@ -1217,7 +1222,7 @@ bool WLNParse(const char* string, Descriptors *desc){
   return true; 
 }
 
-u_int16_t *WLNFingerprint(const char *string){
+u_int8_t *WLNFingerprint(const char *string){
   Descriptors *desc = (Descriptors*)malloc(sizeof(Descriptors));
   init_descriptors(desc);
 
@@ -1225,8 +1230,8 @@ u_int16_t *WLNFingerprint(const char *string){
     free(desc); 
     return 0;
   }
-  u_int16_t *FP = (u_int16_t*)malloc(sizeof(u_int16_t)* FPSIZE);
-  memset(FP, 0, sizeof(u_int16_t) * FPSIZE); 
+  u_int8_t *FP = (u_int8_t*)malloc(sizeof(u_int8_t)* FPSIZE);
+  memset(FP, 0, sizeof(u_int8_t) * FPSIZE); 
 
   // -- Carbons -- 
   FP[0] = desc->CarbonAtoms; 
