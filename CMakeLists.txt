@@ -9,6 +9,7 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/src/wlnparser
         ${PROJECT_SOURCE_DIR}/src/wlngrep
         ${PROJECT_SOURCE_DIR}/src/wlncompress
+        ${PROJECT_SOURCE_DIR}/src/wlncluster
         ${PROJECT_SOURCE_DIR}/src/wlngen
 )
 
@@ -34,9 +35,9 @@ add_executable(wlnzip
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
 )
 
-add_executable(wlnseed 
-  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnseed.cpp 
-)
+#add_executable(wlnseed 
+#  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnseed.cpp 
+#)
 
 add_executable(wlncluster 
   ${PROJECT_SOURCE_DIR}/src/wlncluster/wlncluster.cpp 
@@ -45,8 +46,10 @@ add_executable(wlncluster
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
 )
 
-add_executable(wlnfp 
+add_executable(wlndistance 
+  ${PROJECT_SOURCE_DIR}/src/wlncluster/wlndistance.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncluster/wlnFP.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncluster/similarity.cpp
 )
 
 add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlnlearn.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp)

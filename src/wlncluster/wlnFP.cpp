@@ -1,133 +1,284 @@
-
-#include <cstdio>
+#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-bool opt_verbose = false; 
-const char *input; 
-
-
-static void DisplayUsage(){
-  fprintf(stderr, "wlnfp <string>\n");
-  exit(1); 
-}
-
-static void ProcessCommandLine(int argc, char *argv[])
-{
-
-  const char *ptr = 0;
-  int i,j;
-
-  input = (const char *)0;
-
-  j = 0;
-  for (i = 1; i < argc; i++)
-  {
-
-    ptr = argv[i];
-    if (ptr[0] == '-' && ptr[1]){
-      switch (ptr[1]){
-        
-        case 'h':
-          DisplayUsage();
-          break;
-
-        case 'v':
-          opt_verbose = true;
-          break;
-
-        default:
-          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
-          DisplayUsage();
-      }
-    }
-    else{
-      switch(j++){
-        case 0:
-          input = ptr; 
-          break;
-            
-        default:
-          fprintf(stderr,"Error: multiple files not currently supported\n");
-          exit(1);
-      }
-    }
-  }
-
-  if(!input){
-    fprintf(stderr,"Error: no input given\n");
-    DisplayUsage();
-  }  
-  return;
-}
-
-
-double WLNFingerprint(const char* string){
-
+#include "fingerprint.h"
   
-  // inorganics
-  unsigned int Bsymbol = 0; // boron
-  unsigned int Psymbol = 0; // phosphorous 
-  unsigned int Ssymbol = 0; // sulphur 
-  
+typedef struct{ 
+ 
+// inorganics
+  u_int16_t Bsymbol; // boron
+  u_int16_t Psymbol; // phosphorous 
+  u_int16_t Ssymbol; // sulphur 
 
-  // nitrogens
-  unsigned int Ksymbol = 0; // 4 nitro
-  unsigned int Msymbol = 0; // 2 nitro
-  unsigned int Nsymbol = 0; // 3 nitro 
-  unsigned int Zsymbol = 0; // terminal nitro
+// nitrogens
+  u_int16_t Ksymbol; // 4 nitro
+  u_int16_t Msymbol; // 2 nitro
+  u_int16_t Nsymbol; // 3 nitro 
+  u_int16_t Zsymbol; // terminal nitro
 
   // carbons
-  unsigned int Ysymbol =  0; // 3 carbonyl 
-  unsigned int Xsymbol =  0; 
+  u_int16_t Ysymbol; // 3 carbonyl 
+  u_int16_t Xsymbol; 
 
   // oxygens 
-  unsigned int Osymbol = 0; 
-  unsigned int Qsymbol = 0; 
+  u_int16_t Osymbol; 
+  u_int16_t Qsymbol; 
 
   // halogens
-  unsigned int Esymbol = 0; // terminal bromine
-  unsigned int Fsymbol = 0; // terminal flourine 
-  unsigned int Gsymbol = 0; // terminal chlorine 
-  unsigned int Hsymbol = 0; // terminal hydrogen
-  unsigned int Isymbol = 0; // terminal Iodide
+  u_int16_t Esymbol; // terminal bromine
+  u_int16_t Fsymbol; // terminal flourine 
+  u_int16_t Gsymbol; // terminal chlorine 
+  u_int16_t Hsymbol; // terminal hydrogen
+  u_int16_t Isymbol; // terminal Iodide
 
-  
+
   // Functional
-  unsigned int Vsymbol = 0; // C=O
-  unsigned int Wsymbol = 0; // X(=O)(=O)
-  unsigned int Rsymbol = 0; // c1cccc1
-
+  u_int16_t Vsymbol; // C=O
+  u_int16_t Wsymbol; // X(=O)(=O)
+  u_int16_t Rsymbol; // c1cccc1
 
   // patterns 
-  unsigned int CarbonChains = 0; 
-  unsigned int BondUnsaturations = 0; 
-  unsigned AtomOther = 0; 
+  u_int16_t CarbonChains; 
+  u_int16_t CarbonAtoms; // the total atoms counted by chains
+  u_int16_t BondUnsaturations; 
+  u_int16_t AtomOther; 
 
-  // Cycles - Build this as we go  
-  unsigned int Scaffolds = 0; // L/T - J notation 
-  unsigned int Subcycles = 0; // Linear time ring perception 
-    
+  // Cycles  
+  u_int16_t ScaffoldAtoms; 
+  u_int16_t HeteroScaffolds;      // L/T - J notation 
+  u_int16_t CarbonScaffolds;      // L/T - J notation 
+  u_int16_t AromSubcycles;  // Linear time ring perception 
+  u_int16_t AlipSubcycles;  // Linear time ring perception 
+  u_int16_t MultiCyclics;   // Linear time ring internals 
+  u_int16_t BridgeAtoms;    // Linear time ring internals 
+
+}Descriptors;
+
+
+void init_descriptors(Descriptors *desc){
+
+  desc->CarbonAtoms = 0;
+  desc->CarbonChains = 0;
+  desc->Xsymbol = 0; 
+  desc->Ysymbol = 0; 
+
+  desc->Ksymbol = 0;
+  desc->Nsymbol = 0; 
+  desc->Msymbol = 0; 
+  desc->Zsymbol = 0; 
+  
+  desc->Osymbol = 0;
+  desc->Qsymbol = 0;
+  desc->Vsymbol = 0; 
+  desc->Wsymbol = 0; 
+
+  desc->Bsymbol = 0;
+  desc->Ssymbol = 0;
+  desc->Psymbol = 0;
+  desc->AtomOther = 0; 
+
+  desc->Esymbol = 0; 
+  desc->Fsymbol = 0; 
+  desc->Gsymbol = 0; 
+  desc->Hsymbol = 0; 
+  desc->Isymbol = 0;
+
+
+  desc->Rsymbol = 0;
+  desc->BondUnsaturations = 0; 
+  
+  desc->HeteroScaffolds = 0;
+  desc->CarbonScaffolds = 0;
+  desc->ScaffoldAtoms = 0; 
+  desc->AromSubcycles = 0; 
+  desc->AlipSubcycles = 0;
+  desc->MultiCyclics = 0; 
+  desc->BridgeAtoms = 0; 
+}
+
+
+bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *desc){
+  
+  bool expecting_locant = false;
+  bool expecting_size = false; 
+  unsigned int read_skips = 0; 
+
+  unsigned char read_size = 0; 
+  unsigned int total_cycles = 0; 
+  unsigned int ali_cycles = 0; 
+  unsigned int arom_cycles = 0; 
+
+  for(unsigned int i=s;i<e;i++){
+    unsigned char ch = cpy[i]; 
+
+    if(read_skips){
+      read_skips--;
+      continue;
+    }
+
+    switch(ch){
+      
+      case '0': 
+      case '1':
+      case '2':
+      case '3':
+      case '4': 
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+        if(expecting_locant){
+          desc->MultiCyclics += ch - '0';
+          expecting_size = true; 
+          read_skips = ch - '0';
+        }
+        else
+          total_cycles++; 
+        break;
+      
+      case 'A':
+        if (expecting_locant){
+          expecting_locant = false;
+        }
+        else if (expecting_size && !read_size){
+          read_size = ch; 
+        }else{
+          fprintf(stderr,"Error: locant only character read as atom\n"); 
+          return false;
+        }
+        break;
+
+      case 'B':
+        if (expecting_locant){
+          expecting_locant = false;
+        }
+        else if (expecting_size && !read_size){
+          read_size = ch;
+        }
+        else {
+          desc->Bsymbol++;
+        }
+        break; 
+      
+      case 'C':
+        if (expecting_locant){
+          expecting_locant = false;
+        }
+        else if (expecting_size && !read_size){
+          read_size = ch; 
+        }
+        else{
+          fprintf(stderr,"Error: locant only character read as atom\n"); 
+          return false;
+        }
+        break;
+
+
+      case 'L':
+        if(i==s)
+          desc->CarbonScaffolds++;
+        else if (expecting_locant){
+          expecting_locant = false;
+        }
+        else if (expecting_size && !read_size){
+          read_size = ch;
+        }
+        break;
+
+
+      case 'T':
+        if(i==s)
+          desc->HeteroScaffolds++;
+        else if (expecting_locant){
+          expecting_locant = false;
+        }
+        else if (expecting_size && !read_size)
+          read_size = ch; 
+        else{
+          ali_cycles++;  
+        }
+        break;
+
+      case '&':
+        if(expecting_locant){
+          break; // an expansion
+        }
+        else if (expecting_size && read_size)
+          read_size += 23;
+        else{
+          arom_cycles++; 
+        }
+        break;
+
+      case '-':
+        if(expecting_size){
+          expecting_size = false;
+        }
+        break;
+
+      case ' ':
+        if(expecting_size)
+          break;
+        else
+          expecting_locant = true;
+        break;
+
+      default: 
+        fprintf(stderr,"Error: unallowed character! - (%c) alphabet: [A-Z][0-1][&-/' ']\n", ch);
+        return false;  
+    }
+
+  }
+  
+
+  // -- aromatic and aliphatic subcycles 
+  if(ali_cycles + arom_cycles == total_cycles){
+    desc->AromSubcycles += arom_cycles;
+    desc->AlipSubcycles += ali_cycles; 
+  }
+  else if (ali_cycles == 1)
+    desc->AlipSubcycles += total_cycles; 
+  else if (arom_cycles == 0)
+    desc->AromSubcycles += total_cycles; 
+  else{
+    fprintf(stderr,"Error: subcycles read do match the aromaticity characters within the scaffold\n"); 
+    return false; 
+  }
+  
+  // -- ring sizes
+  if(read_size)
+    desc->ScaffoldAtoms += read_size - '0';
+  else{
+    // use calc
+  }
+
+  return true; 
+}
+
+bool WLNParse(const char* string, Descriptors *desc){
+  
   bool pending_locant = false;
-  bool pending_J_closure = false;
+  bool pending_J_closure = false; // use as a ring flag 
   bool reading_chain = false; 
   bool reading_dash = false; 
 
+  u_int16_t chain_pos = 0; // track carbon counts
+  char chain[3] = {0}; 
+
+  const char *cpy = string; 
   unsigned char ch = *string; 
+  unsigned int p = 0; 
+  unsigned int r_start = 0; 
+
   while(ch)
   { 
     switch (ch)
     {
 
     case '0': // cannot be lone, must be an addition to another num
-      if(pending_J_closure)
-        break;
-      else if (reading_dash)
-        break;
-      else if (pending_locant)
-        pending_locant = false;
-      break;
-
     case '1':
     case '2':
     case '3':
@@ -143,13 +294,21 @@ double WLNFingerprint(const char* string){
         break;
       
       reading_chain = true; 
+      if(chain_pos<3)
+        chain[chain_pos++] = ch; 
+      else{
+        fprintf(stderr,"Error: overflowing carbon chain\n");
+        return false; 
+      }
       break;
     
-
     case 'Y':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -159,13 +318,17 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-       Ysymbol++; 
+       desc->Ysymbol++; 
       break;
 
     case 'X':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+
+        desc->CarbonChains++; 
       }     
       if (pending_J_closure)
         break;
@@ -174,14 +337,17 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false; 
       else
-        Xsymbol++; 
+        desc->Xsymbol++; 
       break;
 
 
     case 'O':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -191,13 +357,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Osymbol++; 
+        desc->Osymbol++; 
       break;
 
     case 'Q':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }     
 
       if (pending_J_closure)
@@ -207,13 +376,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Qsymbol++;
+        desc->Qsymbol++;
       break;
 
     case 'V':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -223,13 +395,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Vsymbol++; 
+        desc->Vsymbol++; 
       break;
 
     case 'W':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -239,7 +414,7 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Wsymbol++; 
+        desc->Wsymbol++; 
       break;
 
       // nitrogens
@@ -247,7 +422,10 @@ double WLNFingerprint(const char* string){
     case 'N':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -257,13 +435,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Nsymbol++; 
+        desc->Nsymbol++; 
       break;
 
     case 'M':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -273,13 +454,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)  
         pending_locant = false;
       else
-        Msymbol++; 
+        desc->Msymbol++; 
       break;
 
     case 'K':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -289,13 +473,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Ksymbol++; 
+        desc->Ksymbol++; 
       break;
 
     case 'Z':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -305,14 +492,17 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-       Zsymbol++;
+       desc->Zsymbol++;
       break;
 
 
     case 'E':
      if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -322,14 +512,17 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Esymbol++; 
+        desc->Esymbol++; 
       break; 
 
 
     case 'G':
      if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -339,14 +532,17 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Gsymbol++;  
+        desc->Gsymbol++;  
       break;
 
 
     case 'F':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -356,13 +552,13 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Fsymbol++; 
+        desc->Fsymbol++; 
       break;
 
     case 'I':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -372,7 +568,7 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Isymbol++;
+        desc->Isymbol++;
       
       break;
 
@@ -381,7 +577,10 @@ double WLNFingerprint(const char* string){
     case 'B':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)  
@@ -391,13 +590,16 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Bsymbol++;
+        desc->Bsymbol++;
       break;
 
     case 'P':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -407,7 +609,7 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Psymbol++;
+        desc->Psymbol++;
 
       break; 
 
@@ -415,7 +617,10 @@ double WLNFingerprint(const char* string){
     case 'S':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -426,7 +631,7 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Ssymbol++; 
+        desc->Ssymbol++; 
 
       break;
 
@@ -434,7 +639,10 @@ double WLNFingerprint(const char* string){
     case 'C':
      if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       } 
 
       if (pending_J_closure)
@@ -450,8 +658,11 @@ double WLNFingerprint(const char* string){
 
     case 'A':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -466,8 +677,11 @@ double WLNFingerprint(const char* string){
     // this can start a chelating ring compound, so has the same block as 'L\T'
     case 'D':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -484,8 +698,11 @@ double WLNFingerprint(const char* string){
 
     case 'H':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -495,14 +712,17 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Hsymbol++; 
+        desc->Hsymbol++; 
       break;
 
 
     case 'J':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (reading_dash)
@@ -511,7 +731,9 @@ double WLNFingerprint(const char* string){
         pending_locant = false; 
       else if(pending_J_closure){
         pending_J_closure = false; 
-        Scaffolds++; 
+        if(!WLNRingParse(cpy, r_start, p,desc))
+          return (uint16_t*)0;
+        r_start = 0; 
       }
       break;
 
@@ -519,7 +741,10 @@ double WLNFingerprint(const char* string){
     case 'T':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -528,14 +753,19 @@ double WLNFingerprint(const char* string){
         break;
       else if (pending_locant)
         pending_locant = false;
-      else
-       pending_J_closure = true;      
+      else{
+        pending_J_closure = true;      
+        r_start = p; 
+      }
       break;
 
     case 'R':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -545,7 +775,7 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        Rsymbol++; 
+        desc->Rsymbol++; 
       break;
 
       // bonding
@@ -553,7 +783,10 @@ double WLNFingerprint(const char* string){
     case 'U':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -563,7 +796,7 @@ double WLNFingerprint(const char* string){
       else if (pending_locant)
         pending_locant = false;
       else
-        BondUnsaturations++;
+        desc->BondUnsaturations++;
 
       // unsaturate here
       break;
@@ -573,8 +806,11 @@ double WLNFingerprint(const char* string){
 
     case ' ':
       if(reading_chain){
-        reading_chain = false; 
-        CarbonChains++; 
+        reading_chain = false;
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if(reading_dash){
@@ -593,7 +829,10 @@ double WLNFingerprint(const char* string){
     case '&': // this could be ignored, unless doing number of branches as a fingerprint metric
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -605,7 +844,10 @@ double WLNFingerprint(const char* string){
     case '-':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
 
       if (pending_J_closure)
@@ -613,7 +855,7 @@ double WLNFingerprint(const char* string){
 
       if(reading_dash){
         reading_dash = false;
-        AtomOther++; 
+        desc->AtomOther++; 
       }
       else
         reading_dash = true; 
@@ -623,64 +865,124 @@ double WLNFingerprint(const char* string){
     case '/':
       if(reading_chain){
         reading_chain = false; 
-        CarbonChains++; 
+        desc->CarbonAtoms += atoi(chain); 
+        memset(chain, 0, 3);
+        chain_pos = 0; 
+        desc->CarbonChains++; 
       }
       break;
 
     default:
-      return fprintf(stderr,"Error: unallowed character! - alphabet: [A-Z][0-1][&-/' ']");
-      exit(1);
+      fprintf(stderr,"Error: unallowed character! - alphabet: [A-Z][0-1][&-/' ']");
+      return false; 
     }
 
-    ch = *(++string); 
+    ch = *(++string);
+    p++;
   }
 
-  if(reading_chain)
-    CarbonChains++; 
+  if(reading_chain){
+    desc->CarbonChains++;
+    desc->CarbonAtoms += atoi(chain); 
+  }
 
-  if(opt_verbose){
+  if(VERBOSE){
+    fprintf(stderr,"Carbon Atoms: %d\n", desc->CarbonAtoms); 
+    fprintf(stderr,"Alkyl Chains: %d\n", desc->CarbonChains); 
+    fprintf(stderr,"X symbols: %d\n", desc->Xsymbol); 
+    fprintf(stderr,"Y symbols: %d\n", desc->Ysymbol);
 
-    fprintf(stderr,"CarbonChains: %d\n", CarbonChains); 
-    fprintf(stderr,"X symbols: %d\n", Xsymbol); 
-    fprintf(stderr,"Y symbols: %d\n", Ysymbol);
-
-    fprintf(stderr,"K symbols: %d\n", Ksymbol); 
-    fprintf(stderr,"M symbols: %d\n", Msymbol); 
-    fprintf(stderr,"N symbols: %d\n", Nsymbol); 
+    fprintf(stderr,"K symbols: %d\n", desc->Ksymbol); 
+    fprintf(stderr,"M symbols: %d\n", desc->Msymbol); 
+    fprintf(stderr,"N symbols: %d\n", desc->Nsymbol); 
     
-    fprintf(stderr,"O symbols: %d\n", Osymbol); 
-    fprintf(stderr,"Q symbols: %d\n", Qsymbol); 
+    fprintf(stderr,"O symbols: %d\n", desc->Osymbol); 
+    fprintf(stderr,"Q symbols: %d\n", desc->Qsymbol); 
     
-    fprintf(stderr,"P symbols: %d\n", Psymbol); 
-    fprintf(stderr,"S symbols: %d\n", Ssymbol); 
-    fprintf(stderr,"B symbols: %d\n", Bsymbol); 
+    fprintf(stderr,"P symbols: %d\n", desc->Psymbol); 
+    fprintf(stderr,"S symbols: %d\n", desc->Ssymbol); 
+    fprintf(stderr,"B symbols: %d\n", desc->Bsymbol); 
 
-    fprintf(stderr,"V symbols: %d\n", Vsymbol); 
-    fprintf(stderr,"W symbols: %d\n", Wsymbol); 
-    fprintf(stderr,"R symbols: %d\n", Rsymbol); 
+    fprintf(stderr,"V symbols: %d\n", desc->Vsymbol); 
+    fprintf(stderr,"W symbols: %d\n", desc->Wsymbol); 
+    fprintf(stderr,"R symbols: %d\n", desc->Rsymbol); 
  
-    fprintf(stderr,"E symbols: %d\n", Esymbol); 
-    fprintf(stderr,"F symbols: %d\n", Fsymbol); 
-    fprintf(stderr,"G symbols: %d\n", Gsymbol); 
-    fprintf(stderr,"H symbols: %d\n", Hsymbol); 
-    fprintf(stderr,"I symbols: %d\n", Isymbol); 
+    fprintf(stderr,"E symbols: %d\n", desc->Esymbol); 
+    fprintf(stderr,"F symbols: %d\n", desc->Fsymbol); 
+    fprintf(stderr,"G symbols: %d\n", desc->Gsymbol); 
+    fprintf(stderr,"H symbols: %d\n", desc->Hsymbol); 
+    fprintf(stderr,"I symbols: %d\n", desc->Isymbol); 
 
-    fprintf(stderr,"Unsaturations: %d\n", BondUnsaturations); 
-    fprintf(stderr,"Other Atoms: %d\n", AtomOther); 
+    fprintf(stderr,"Unsaturations: %d\n", desc->BondUnsaturations); 
+    fprintf(stderr,"Other Atoms:   %d\n", desc->AtomOther); 
     
-    fprintf(stderr,"Scaffolds: %d\n", Scaffolds); 
-    fprintf(stderr,"Subcycles: %d\n", Subcycles); 
-  }
+    fprintf(stderr,"Carbon Scaffolds:        %d\n", desc->CarbonScaffolds); 
+    fprintf(stderr,"Hetero Scaffolds:        %d\n", desc->HeteroScaffolds); 
+    fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AromSubcycles); 
+    fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AlipSubcycles);
+    fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
+    fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
+  } 
 
-  return 0; 
+  return true; 
 }
 
 
+u_int16_t *WLNFingerprint(const char *string){
+  Descriptors *desc = (Descriptors*)malloc(sizeof(Descriptors));
+  init_descriptors(desc);
 
-int main(int argc, char *argv[]){
+  if(!WLNParse(string, desc))
+    return 0;
 
-  ProcessCommandLine(argc, argv);
-  WLNFingerprint(input); 
+  u_int16_t *FP = (u_int16_t*)malloc(sizeof(u_int16_t)* FPSIZE);
+  memset(FP, 0, sizeof(u_int16_t) * FPSIZE); 
 
-  return 0; 
+  // -- Carbons -- 
+  FP[0] = desc->CarbonAtoms; 
+  FP[1] = desc->CarbonChains;
+  FP[2] = desc->Xsymbol;
+  FP[3] = desc->Ysymbol; 
+
+  // -- Nitrogens
+  FP[4] = desc->Ksymbol;
+  FP[5] = desc->Nsymbol; 
+  FP[6] = desc->Msymbol; 
+  FP[7] = desc->Zsymbol; 
+
+  // -- Oxygens 
+  FP[8] = desc->Osymbol; 
+  FP[9] = desc->Qsymbol; 
+  FP[10] = desc->Vsymbol;
+  FP[11] = desc->Wsymbol; 
+
+  // -- Inorganics
+  FP[12] = desc->Bsymbol;
+  FP[13] = desc->Ssymbol;
+  FP[14] = desc->Psymbol; 
+  FP[15] = desc->AtomOther; 
+
+  // -- Halogens
+  FP[16] = desc->Esymbol;
+  FP[17] = desc->Fsymbol;
+  FP[18] = desc->Gsymbol;
+  FP[19] = desc->Hsymbol;
+  FP[20] = desc->Isymbol;
+
+  // -- Bonding
+  FP[21] = desc->BondUnsaturations; 
+
+  // -- Cycles
+  FP[22] = desc->CarbonScaffolds;
+  FP[23] = desc->HeteroScaffolds; 
+  FP[24] = desc->AromSubcycles; 
+  FP[25] = desc->AlipSubcycles; 
+  FP[26] = desc->MultiCyclics; 
+  FP[27] = desc->BridgeAtoms; 
+
+
+  free(desc); 
+  return FP; 
 }
+
+
