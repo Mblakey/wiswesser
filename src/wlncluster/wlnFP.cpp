@@ -55,7 +55,8 @@ typedef struct{
   
   u_int16_t MultiCyclics;   // Linear time ring internals 
   u_int16_t BridgeAtoms;    // Linear time ring internals 
-
+  u_int16_t SpiroPoints;    // Linear time ring internals 
+  
 }Descriptors;
 
 
@@ -100,7 +101,8 @@ void init_descriptors(Descriptors *desc){
   desc->AromSubcycles = 0; 
   desc->AlipSubcycles = 0;
   desc->MultiCyclics = 0; 
-  desc->BridgeAtoms = 0; 
+  desc->BridgeAtoms = 0;
+  desc->SpiroPoints = 0; 
 }
 
 
@@ -141,8 +143,11 @@ void debug_descriptors(Descriptors *desc){
   fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AlipSubcycles); 
   fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AromSubcycles);
   fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
+  fprintf(stderr,"Spiro Points:            %d\n", desc->SpiroPoints);
   fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
 }
+
+
 
 unsigned int locant_to_int(unsigned char ch){
   if(ch < 'A'){
@@ -159,6 +164,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   
   bool expecting_locant = false;
   bool expecting_size = false; 
+  bool reading_dash = true; 
   unsigned int read_skips = 0; 
 
   unsigned int read_size = 0; 
@@ -402,12 +408,12 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case '&':
-        if(locant_read){
-          locant_read+= 23; 
+        if (reading_dash){
+          desc->SpiroPoints++;
+          reading_dash = false;
         }
-        else if (expecting_size && read_size)
+        else if (expecting_size && read_size){
           read_size += 23;
-        else{
           arom_cycles++; 
           locant_read = 0; 
         }
@@ -416,6 +422,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
       case '-':
         if(expecting_size){
           expecting_size = false;
+        }
+        else {
+          reading_dash = true; 
         }
         break;
 
@@ -1045,10 +1054,13 @@ bool WLNParse(const char* string, Descriptors *desc){
         chain_pos = 0; 
         desc->CarbonChains++; 
       }
-
+      
       if (pending_J_closure)
         break;
-      
+      else if (reading_dash){
+        desc->SpiroPoints++;
+        reading_dash = false;
+      }
       break;
 
 
