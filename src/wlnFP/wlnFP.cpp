@@ -165,7 +165,8 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   bool expecting_locant = false;
   bool expecting_size = false; 
   bool reading_dash = false; 
-  unsigned int read_skips = 0; 
+  unsigned int multi_skips = 0; 
+  unsigned int pseudo_skips = 0; 
 
   unsigned int read_size = 0; 
   unsigned int total_cycles = 0; 
@@ -182,8 +183,13 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   for(unsigned int i=s;i<e;i++){
     unsigned char ch = cpy[i]; 
 
-    if(read_skips){
-      read_skips--;
+    if(multi_skips){
+      multi_skips--;
+      continue;
+    }
+
+    if(pseudo_skips){
+      pseudo_skips--;
       continue;
     }
 
@@ -203,7 +209,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           desc->MultiCyclics += ch - '0';
           expecting_size = true; 
           expecting_locant = false;
-          read_skips = ch - '0';
+          multi_skips = ch - '0';
         }
         else if(reading_dash){
 
@@ -473,6 +479,21 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         break;
 
+      case 'U':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size)
+          read_size = locant_to_int(ch); 
+        else{
+          desc->BondUnsaturations++; 
+          locant_read = 0; 
+        }
+        break;
+
       case '&':
         if (expecting_size && read_size){
           read_size += 23;
@@ -502,12 +523,15 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case ' ':
+        if(reading_dash){
+          reading_dash = false;
+          i++; // sort of cheating but why not, skips the double bond assignment
+          locant_read = 0;
+        }
         if(expecting_size && !read_size){
           break;
         }
         else if (locant_read){
-
-          fprintf(stderr,"bridging: %c\n", locant_read); 
           desc->BridgeAtoms++; 
           locant_read = 0;
           expecting_locant = true; 
@@ -516,6 +540,10 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = true;
           expecting_size = false;
         }
+        break;
+
+      case '/':
+        pseudo_skips = 2;
         break;
 
       default: 
