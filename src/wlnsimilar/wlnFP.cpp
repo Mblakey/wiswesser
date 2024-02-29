@@ -164,7 +164,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   
   bool expecting_locant = false;
   bool expecting_size = false; 
-  bool reading_dash = true; 
+  bool reading_dash = false; 
   unsigned int read_skips = 0; 
 
   unsigned int read_size = 0; 
@@ -174,6 +174,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
 
   unsigned int subcycles[64] = {0}; 
   unsigned char locant_read = 0; 
+  
+  char dash_capture[3] = {0};
+  unsigned int dash_pos = 0; 
 
 
   for(unsigned int i=s;i<e;i++){
@@ -202,28 +205,27 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           expecting_locant = false;
           read_skips = ch - '0';
         }
-        else
+        else if(reading_dash){
+
+          if(dash_pos > 2){
+            fprintf(stderr,"Error: overflowing ring size buffer\n"); 
+            return false; 
+          }
+          
+          dash_capture[dash_pos++] = ch; 
+        }
+        else{
           subcycles[total_cycles++] = ch - '0'; 
+          locant_read = 0;
+        }
         break;
       
-      case 'A':
-        if (expecting_locant){
-          expecting_locant = false;
-          locant_read = ch; 
-        }
-        else if (expecting_size && !read_size){
-          read_size = locant_to_int(ch); 
-        }else{
-          fprintf(stderr,"Error: locant only character read as atom\n"); 
-          return false;
-        }
-        break;
-
       case 'B':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch;
-
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch);
@@ -234,36 +236,10 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         break; 
       
-      case 'C':
-        if (expecting_locant){
-          expecting_locant = false;
-          locant_read = ch; 
-        }
-        else if (expecting_size && !read_size){
-          read_size = locant_to_int(ch); 
-        }
-        else{
-          fprintf(stderr,"Error: locant only character read as atom\n"); 
-          return false;
-        }
-        break;
-
-      case 'D':
-        if (expecting_locant){
-          expecting_locant = false;
-          locant_read = ch; 
-        }
-        else if (expecting_size && !read_size){
-          read_size = locant_to_int(ch); 
-        }
-        else{
-          fprintf(stderr,"Error: locant only character read as atom\n"); 
-          return false;
-        }
-        break;
-      
       case 'E':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -277,7 +253,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case 'F':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -291,7 +269,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case 'G':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -305,7 +285,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case 'H':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -319,7 +301,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case 'I':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -332,8 +316,15 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         break;
 
+      case 'A':
+      case 'C':
+      case 'D':
       case 'J':
-        if (expecting_locant){
+      case 'Z':
+      case 'Q':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -348,7 +339,9 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
  
 
       case 'K':
-        if (expecting_locant){
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -361,8 +354,58 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         break;
 
-      case 'P': 
-        if (expecting_locant){
+     case 'M':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Msymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+     case 'N':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Nsymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+     case 'O':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Osymbol++; 
+          locant_read = 0;
+        }
+        break;
+
+      case 'P':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
           expecting_locant = false;
           locant_read = ch; 
         }
@@ -375,8 +418,28 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         break;
 
+
+     case 'S':
+        if(reading_dash)
+          break;
+        else if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Ssymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+
       case 'L':
-        if(i==s)
+        if(reading_dash)
+          break;
+        else if(i==s)
           desc->CarbonScaffolds++;
         else if (expecting_locant){
           expecting_locant = false;
@@ -384,12 +447,15 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch);
+          locant_read = 0;
         }
         break;
 
 
       case 'T':
-        if(i==s)
+        if(reading_dash)
+          break;
+        else if(i==s)
           desc->HeteroScaffolds++;
         else if (expecting_locant){
           expecting_locant = false;
@@ -408,11 +474,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         break;
 
       case '&':
-        if (reading_dash){
-          desc->SpiroPoints++;
-          reading_dash = false;
-        }
-        else if (expecting_size && read_size){
+        if (expecting_size && read_size){
           read_size += 23;
           arom_cycles++; 
           locant_read = 0; 
@@ -423,22 +485,37 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         if(expecting_size){
           expecting_size = false;
         }
+        else if (reading_dash){
+          if(dash_pos > 0){
+            subcycles[total_cycles++] = atoi(dash_capture);
+            memset(dash_capture,0,3); 
+            dash_pos = 0; 
+          }
+          else {
+            desc->AtomOther++; 
+          }
+          reading_dash = false; 
+        }
         else {
           reading_dash = true; 
         }
         break;
 
       case ' ':
-        if(expecting_size){
+        if(expecting_size && !read_size){
           break;
         }
         else if (locant_read){
+
+          fprintf(stderr,"bridging: %c\n", locant_read); 
           desc->BridgeAtoms++; 
           locant_read = 0;
           expecting_locant = true; 
         }
-        else
+        else{
           expecting_locant = true;
+          expecting_size = false;
+        }
         break;
 
       default: 
@@ -1112,18 +1189,14 @@ bool WLNParse(const char* string, Descriptors *desc){
   return true; 
 }
 
-
 u_int16_t *WLNFingerprint(const char *string){
   Descriptors *desc = (Descriptors*)malloc(sizeof(Descriptors));
   init_descriptors(desc);
 
-  if(!WLNParse(string, desc))
+  if(!WLNParse(string, desc)){
+    free(desc); 
     return 0;
-  
-
-  if(VERBOSE)
-    debug_descriptors(desc);
-
+  }
   u_int16_t *FP = (u_int16_t*)malloc(sizeof(u_int16_t)* FPSIZE);
   memset(FP, 0, sizeof(u_int16_t) * FPSIZE); 
 
@@ -1174,5 +1247,17 @@ u_int16_t *WLNFingerprint(const char *string){
 }
 
 
+bool WLNDescriptors(const char *string){
+  Descriptors *desc = (Descriptors*)malloc(sizeof(Descriptors));
+  init_descriptors(desc);
+  if(!WLNParse(string, desc)){
+    free(desc);
+    return false;
+  }
+  else 
+    debug_descriptors(desc);
 
+  free(desc); 
+  return true;
+}
 
