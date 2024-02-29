@@ -49,8 +49,10 @@ typedef struct{
   u_int16_t ScaffoldAtoms; 
   u_int16_t HeteroScaffolds;      // L/T - J notation 
   u_int16_t CarbonScaffolds;      // L/T - J notation 
+
   u_int16_t AromSubcycles;  // Linear time ring perception 
   u_int16_t AlipSubcycles;  // Linear time ring perception 
+  
   u_int16_t MultiCyclics;   // Linear time ring internals 
   u_int16_t BridgeAtoms;    // Linear time ring internals 
 
@@ -90,9 +92,11 @@ void init_descriptors(Descriptors *desc){
   desc->Rsymbol = 0;
   desc->BondUnsaturations = 0; 
   
+  desc->ScaffoldAtoms = 0; 
+
   desc->HeteroScaffolds = 0;
   desc->CarbonScaffolds = 0;
-  desc->ScaffoldAtoms = 0; 
+  
   desc->AromSubcycles = 0; 
   desc->AlipSubcycles = 0;
   desc->MultiCyclics = 0; 
@@ -134,8 +138,8 @@ void debug_descriptors(Descriptors *desc){
   fprintf(stderr,"Scaffold Atoms:          %d\n", desc->ScaffoldAtoms); 
   fprintf(stderr,"Carbon Scaffolds:        %d\n", desc->CarbonScaffolds); 
   fprintf(stderr,"Hetero Scaffolds:        %d\n", desc->HeteroScaffolds); 
-  fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AromSubcycles); 
-  fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AlipSubcycles);
+  fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AlipSubcycles); 
+  fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AromSubcycles);
   fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
   fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
 }
@@ -163,6 +167,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   unsigned int arom_cycles = 0; 
 
   unsigned int subcycles[64] = {0}; 
+  unsigned char locant_read = 0; 
 
 
   for(unsigned int i=s;i<e;i++){
@@ -198,6 +203,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
       case 'A':
         if (expecting_locant){
           expecting_locant = false;
+          locant_read = ch; 
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch); 
@@ -210,18 +216,22 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
       case 'B':
         if (expecting_locant){
           expecting_locant = false;
+          locant_read = ch;
+
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch);
         }
         else {
           desc->Bsymbol++;
+          locant_read = 0; 
         }
         break; 
       
       case 'C':
         if (expecting_locant){
           expecting_locant = false;
+          locant_read = ch; 
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch); 
@@ -232,16 +242,130 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
         }
         break;
 
-
-       case 'P': 
+      case 'D':
         if (expecting_locant){
           expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          fprintf(stderr,"Error: locant only character read as atom\n"); 
+          return false;
+        }
+        break;
+      
+      case 'E':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Esymbol++;
+          locant_read = 0; 
+        }
+        break;
+
+      case 'F':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Fsymbol++; 
+          locant_read = 0;
+        }
+        break;
+
+      case 'G':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Gsymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+      case 'H':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Hsymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+      case 'I':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Isymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+      case 'J':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          fprintf(stderr,"Error: locant only character read as atom\n"); 
+          return false;
+        }
+        break;
+ 
+
+      case 'K':
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
+        }
+        else if (expecting_size && !read_size){
+          read_size = locant_to_int(ch); 
+        }
+        else{
+          desc->Ksymbol++; 
+          locant_read = 0; 
+        }
+        break;
+
+      case 'P': 
+        if (expecting_locant){
+          expecting_locant = false;
+          locant_read = ch; 
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch);
         }
         else{
           desc->Psymbol++; 
+          locant_read = 0; 
         }
         break;
 
@@ -250,6 +374,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           desc->CarbonScaffolds++;
         else if (expecting_locant){
           expecting_locant = false;
+          locant_read = ch; 
         }
         else if (expecting_size && !read_size){
           read_size = locant_to_int(ch);
@@ -262,22 +387,29 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
           desc->HeteroScaffolds++;
         else if (expecting_locant){
           expecting_locant = false;
+          locant_read = ch; 
         }
         else if (expecting_size && !read_size)
           read_size = locant_to_int(ch); 
         else{
+          if(locant_read){
+            desc->BridgeAtoms++;
+            locant_read = 0; 
+          }
+
           ali_cycles++;  
         }
         break;
 
       case '&':
-        if(expecting_locant){
-          break; // an expansion
+        if(locant_read){
+          locant_read+= 23; 
         }
         else if (expecting_size && read_size)
           read_size += 23;
         else{
           arom_cycles++; 
+          locant_read = 0; 
         }
         break;
 
@@ -290,6 +422,11 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
       case ' ':
         if(expecting_size){
           break;
+        }
+        else if (locant_read){
+          desc->BridgeAtoms++; 
+          locant_read = 0;
+          expecting_locant = true; 
         }
         else
           expecting_locant = true;
@@ -1020,7 +1157,6 @@ u_int16_t *WLNFingerprint(const char *string){
   FP[26] = desc->AlipSubcycles; 
   FP[27] = desc->MultiCyclics; 
   FP[28] = desc->BridgeAtoms; 
-
   free(desc); 
   return FP; 
 }
