@@ -28,13 +28,12 @@ double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2){
     for(unsigned int i=0;i<FPSIZE;i++){
       uint8_t a = fp1[i];
       uint8_t b = fp2[i];
-      for(int i=7;i>=0;i--){
-        if( ((a >> i) & 1) == ((b >> i) & 1) )
-          AnB++; 
-      }
       
-      A += 8;
-      B += 8; 
+      if(a==b)
+        AnB++;
+      
+      A += 1;
+      B += 1; 
     }
   
   return (double)(AnB)/(double)(A+B-AnB);

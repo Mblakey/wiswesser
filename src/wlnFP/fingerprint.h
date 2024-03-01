@@ -8,7 +8,7 @@
 
 #define FPSIZE 42
 #define SCREENSIZE 6
-#define LINGO 3
+#define LINGO 2
 
 u_int8_t* WLNFingerprint(const char* string);
 u_int8_t *WLNBitScreen(const char *string);

@@ -1,8 +1,9 @@
 
 #include <stdlib.h>
-#include <map>
 #include <string>
 #include <set>
+#include <vector>
+#include <algorithm>
 
 #include "fingerprint.h"
 
