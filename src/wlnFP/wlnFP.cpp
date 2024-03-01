@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/_types/_u_int8_t.h>
 #include <type_traits>
 
 #include "fingerprint.h"
@@ -139,62 +140,62 @@ void init_descriptors(Descriptors *desc){
 
 void debug_descriptors(Descriptors *desc){
 
-  fprintf(stderr,"\nCarbon Atoms: %d\n", desc->CarbonAtoms); 
-  fprintf(stderr,"Alkyl Chains: %d\n", desc->CarbonChains); 
-  fprintf(stderr,"X symbols: %d\n", desc->Xsymbol); 
-  fprintf(stderr,"Y symbols: %d\n", desc->Ysymbol);
+  fprintf(stderr,"Carbon Atom:        %d\n", desc->CarbonAtoms); 
+  fprintf(stderr,"Alkyl Chain:        %d\n", desc->CarbonChains); 
+  fprintf(stderr,"Chiral Carbon:      %d\n", desc->Xsymbol); 
+  fprintf(stderr,"Tertiary Carbon:    %d\n", desc->Ysymbol);
 
-  fprintf(stderr,"K symbols: %d\n", desc->Ksymbol); 
-  fprintf(stderr,"M symbols: %d\n", desc->Msymbol); 
-  fprintf(stderr,"N symbols: %d\n", desc->Nsymbol); 
+  fprintf(stderr,"Chiral Nitrogen:    %d\n", desc->Ksymbol); 
+  fprintf(stderr,"Secondary Nitrogen: %d\n", desc->Msymbol); 
+  fprintf(stderr,"Tertiary Nitrogen:  %d\n", desc->Nsymbol); 
   
-  fprintf(stderr,"O symbols: %d\n", desc->Osymbol); 
-  fprintf(stderr,"Q symbols: %d\n", desc->Qsymbol); 
+  fprintf(stderr,"Secondary Oxygen:   %d\n", desc->Osymbol); 
+  fprintf(stderr,"Primary Oxygen:     %d\n", desc->Qsymbol); 
   
-  fprintf(stderr,"P symbols: %d\n", desc->Psymbol); 
-  fprintf(stderr,"S symbols: %d\n", desc->Ssymbol); 
-  fprintf(stderr,"B symbols: %d\n", desc->Bsymbol); 
+  fprintf(stderr,"Phosphorus:         %d\n", desc->Psymbol); 
+  fprintf(stderr,"Sulphur:            %d\n", desc->Ssymbol); 
+  fprintf(stderr,"Boron:              %d\n", desc->Bsymbol); 
 
-  fprintf(stderr,"V symbols: %d\n", desc->Vsymbol); 
-  fprintf(stderr,"W symbols: %d\n", desc->Wsymbol); 
-  fprintf(stderr,"R symbols: %d\n", desc->Rsymbol); 
+  fprintf(stderr,"Carboyl:            %d\n", desc->Vsymbol); 
+  fprintf(stderr,"Oxyl group:         %d\n", desc->Wsymbol); 
+  fprintf(stderr,"Benzene Rings:      %d\n", desc->Rsymbol); 
 
-  fprintf(stderr,"E symbols: %d\n", desc->Esymbol); 
-  fprintf(stderr,"F symbols: %d\n", desc->Fsymbol); 
-  fprintf(stderr,"G symbols: %d\n", desc->Gsymbol); 
-  fprintf(stderr,"H symbols: %d\n", desc->Hsymbol); 
-  fprintf(stderr,"I symbols: %d\n", desc->Isymbol); 
+  fprintf(stderr,"Bromine:            %d\n", desc->Esymbol); 
+  fprintf(stderr,"Flourine:           %d\n", desc->Fsymbol); 
+  fprintf(stderr,"Chlorine:           %d\n", desc->Gsymbol); 
+  fprintf(stderr,"Implicit Hydrogen:  %d\n", desc->Hsymbol); 
+  fprintf(stderr,"Iodine:             %d\n", desc->Isymbol); 
 
-  fprintf(stderr,"Unsaturations: %d\n", desc->BondUnsaturations); 
-  fprintf(stderr,"Other Atoms:   %d\n", desc->AtomOther); 
+  fprintf(stderr,"Bond Unsaturation:  %d\n", desc->BondUnsaturations); 
+  fprintf(stderr,"Other Atom:         %d\n", desc->AtomOther); 
   
-  fprintf(stderr,"Ring Atoms:             %d\n", desc->RingAtoms); 
-  fprintf(stderr,"Carbon Scaffolds:       %d\n", desc->CarbonScaffolds); 
-  fprintf(stderr,"Hetero Scaffolds:       %d\n", desc->HeteroScaffolds); 
+  fprintf(stderr,"Ring Atoms:         %d\n", desc->RingAtoms); 
+  fprintf(stderr,"Carbon Scaffolds:   %d\n", desc->CarbonScaffolds); 
+  fprintf(stderr,"Hetero Scaffolds:   %d\n", desc->HeteroScaffolds); 
 
   
-  fprintf(stderr,"Arom3:                  %d\n", desc->Arom3cycles); 
-  fprintf(stderr,"Arom4:                  %d\n", desc->Arom4cycles); 
-  fprintf(stderr,"Arom5:                  %d\n", desc->Arom5cycles); 
-  fprintf(stderr,"Arom6:                  %d\n", desc->Arom6cycles); 
-  fprintf(stderr,"Arom7:                  %d\n", desc->Arom7cycles); 
-  fprintf(stderr,"Arom8:                  %d\n", desc->Arom8cycles); 
-  fprintf(stderr,"Arom9:                  %d\n", desc->Arom9cycles); 
-  fprintf(stderr,"AromBig:                %d\n", desc->AromBigCycle); 
+  fprintf(stderr,"Arom3:              %d\n", desc->Arom3cycles); 
+  fprintf(stderr,"Arom4:              %d\n", desc->Arom4cycles); 
+  fprintf(stderr,"Arom5:              %d\n", desc->Arom5cycles); 
+  fprintf(stderr,"Arom6:              %d\n", desc->Arom6cycles); 
+  fprintf(stderr,"Arom7:              %d\n", desc->Arom7cycles); 
+  fprintf(stderr,"Arom8:              %d\n", desc->Arom8cycles); 
+  fprintf(stderr,"Arom9:              %d\n", desc->Arom9cycles); 
+  fprintf(stderr,"AromBig:            %d\n", desc->AromBigCycle); 
 
-  fprintf(stderr,"Alip3:                  %d\n", desc->Alip3cycles); 
-  fprintf(stderr,"Alip4:                  %d\n", desc->Alip4cycles); 
-  fprintf(stderr,"Alip5:                  %d\n", desc->Alip5cycles); 
-  fprintf(stderr,"Alip6:                  %d\n", desc->Alip6cycles); 
-  fprintf(stderr,"Alip7:                  %d\n", desc->Alip7cycles); 
-  fprintf(stderr,"Alip8:                  %d\n", desc->Alip8cycles); 
-  fprintf(stderr,"Alip9:                  %d\n", desc->Alip9cycles); 
-  fprintf(stderr,"AlipBig:                %d\n", desc->AlipBigCycle); 
+  fprintf(stderr,"Alip3:              %d\n", desc->Alip3cycles); 
+  fprintf(stderr,"Alip4:              %d\n", desc->Alip4cycles); 
+  fprintf(stderr,"Alip5:              %d\n", desc->Alip5cycles); 
+  fprintf(stderr,"Alip6:              %d\n", desc->Alip6cycles); 
+  fprintf(stderr,"Alip7:              %d\n", desc->Alip7cycles); 
+  fprintf(stderr,"Alip8:              %d\n", desc->Alip8cycles); 
+  fprintf(stderr,"Alip9:              %d\n", desc->Alip9cycles); 
+  fprintf(stderr,"AlipBig:            %d\n", desc->AlipBigCycle); 
 
 
-  fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
-  fprintf(stderr,"Spiro Points:            %d\n", desc->SpiroPoints);
-  fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
+  fprintf(stderr,"Multicyclic Points: %d\n", desc->MultiCyclics); 
+  fprintf(stderr,"Spiro Points:       %d\n", desc->SpiroPoints);
+  fprintf(stderr,"Ring Bridges:       %d\n", desc->BridgeAtoms);
 }
 
 
@@ -1410,9 +1411,153 @@ u_int8_t *WLNFingerprint(const char *string){
 
   FP[40] = desc->MultiCyclics; 
   FP[41] = desc->BridgeAtoms; 
+
   free(desc); 
   return FP; 
 }
+
+/* returns a 64 bit array for screening */
+u_int8_t *WLNBitScreen(const char *string){
+  Descriptors *desc = (Descriptors*)malloc(sizeof(Descriptors));
+  init_descriptors(desc);
+
+  if(!WLNParse(string, desc)){
+    free(desc); 
+    return 0;
+  }
+
+  // 64 bit screen
+  u_int8_t *FP = (u_int8_t*)malloc(sizeof(u_int8_t)* 8);
+  memset(FP, 0, sizeof(u_int8_t) * 8);
+
+
+  // -- Carbons --
+  if(desc->CarbonAtoms)
+    FP[0] ^= (1 << 7);
+  
+  if(desc->CarbonChains)
+    FP[0] ^= (1 << 6); 
+
+  if(desc->Xsymbol)
+    FP[0] ^= (1 << 5);
+
+  if(desc->Ysymbol)
+    FP[0] ^= (1 << 4); 
+
+  // -- Nitrogens
+  if(desc->Ksymbol) 
+    FP[0] ^= (1 << 3); 
+
+  if(desc->Nsymbol)
+    FP[0] ^= (1 << 2); 
+
+  if(desc->Msymbol)
+    FP[0] ^= (1 << 1); 
+
+  if(desc->Zsymbol)
+    FP[0] ^= 1; 
+
+  // -- Oxygens
+  if(desc->Osymbol)
+    FP[1] ^= (1 << 7); 
+
+  if(desc->Qsymbol)
+    FP[1] ^= (1 << 6);
+
+
+  if(desc->Vsymbol)  
+    FP[1] ^= (1 << 5);
+
+  if(desc->Wsymbol) 
+    FP[1] ^= (1 << 4);
+
+
+  // -- Inorganics
+  if(desc->Bsymbol)
+    FP[1] ^= (1 << 3); 
+
+  if(desc->Ssymbol)
+    FP[1] ^= (1 << 2); 
+  if(desc->Psymbol) 
+    FP[1] ^= (1 << 1);
+
+  if(desc->AtomOther) 
+    FP[1] ^= 1; 
+
+
+  // -- Halogens
+  if(desc->Esymbol)  
+    FP[2] ^= (1 << 7); 
+
+  if(desc->Fsymbol)
+    FP[2] ^= (1 << 6); 
+  if(desc->Gsymbol)
+    FP[2] ^= (1 << 5); 
+  if(desc->Hsymbol)
+    FP[2] ^= (1 << 4); 
+  if(desc->Isymbol)
+    FP[2] ^= (1 << 3); 
+
+  // -- Bonding
+  if(desc->BondUnsaturations) 
+    FP[2] ^= (1 << 2); 
+
+  // -- Cycles
+  if(desc->RingAtoms)
+    FP[2] ^= (1 << 1);
+
+  if(desc->CarbonScaffolds)
+    FP[2] ^= 1;
+
+  if(desc->HeteroScaffolds)
+    FP[3] ^= (1 << 7); 
+  
+
+  if(desc->Arom3cycles)
+    FP[3] ^= (1 << 6); 
+  if(desc->Arom4cycles)
+    FP[3] ^= (1 << 5); 
+  if(desc->Arom5cycles) 
+    FP[3] ^= (1 << 4); 
+  if(desc->Arom6cycles)
+    FP[3] ^= (1 << 3);
+  if(desc->Arom7cycles)
+    FP[3] ^= (1 << 2); 
+  if(desc->Arom8cycles)
+    FP[3] ^= (1 << 1);
+  if(desc->Arom9cycles)
+    FP[3] ^= 1; 
+
+  if(desc->AromBigCycle)
+    FP[4] ^= (1 << 7); 
+
+  if(desc->Alip3cycles) 
+    FP[4] ^= (1 << 6); 
+  if(desc->Alip4cycles) 
+    FP[4] ^= (1 << 5); 
+  if(desc->Alip5cycles) 
+    FP[4] ^= (1 << 4); 
+  if(desc->Alip6cycles) 
+    FP[4] ^= (1 << 3); 
+  if(desc->Alip7cycles) 
+    FP[4] ^= (1 << 2); 
+  if(desc->Alip8cycles) 
+    FP[4] ^= (1 << 1); 
+  if(desc->Alip9cycles) 
+    FP[4] ^= 1; 
+  if(desc->AlipBigCycle) 
+    FP[5] ^= (1 << 7); 
+  
+  if(desc->MultiCyclics) 
+    FP[5] ^= (1 << 6); 
+
+  if(desc->BridgeAtoms) 
+    FP[5] ^= (1 << 5); 
+
+  free(desc); 
+  return FP; 
+}
+
 
 
 bool WLNDescriptors(const char *string){

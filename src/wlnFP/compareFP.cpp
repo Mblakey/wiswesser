@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <stdio.h> 
 #include <inttypes.h>
+#include <sys/_types/_u_int8_t.h>
 
 #include "fingerprint.h"
 
 bool opt_verbose = false; 
+bool opt_bit_screen = false;
 const char *str1;
 const char *str2; 
 
@@ -30,7 +32,10 @@ static void ProcessCommandLine(int argc, char *argv[])
     ptr = argv[i];
     if (ptr[0] == '-' && ptr[1]){
       switch (ptr[1]){
-        
+        case 'b':
+          opt_bit_screen = true;
+          break; 
+
         case 'h':
           DisplayUsage();
           break;
@@ -72,22 +77,27 @@ static void ProcessCommandLine(int argc, char *argv[])
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
-  u_int8_t *fp1 = WLNFingerprint(str1); 
-  if(!fp1)
-    return 1;
+  u_int8_t *fp1 = 0;
+  u_int8_t *fp2 = 0;
+  double wlnfp = 0; 
+  double obfp = 0; 
 
-  u_int8_t *fp2 = WLNFingerprint(str2);
-  if(!fp2)
-    return 1;
+  if(!opt_bit_screen){
+    fp1 = WLNFingerprint(str1); 
+    fp2 = WLNFingerprint(str2);
+  }
+  else{
+    fprintf(stderr,"using bit screen and tanimoto\n"); 
+    fp1 = WLNBitScreen(str1); 
+    fp2 = WLNBitScreen(str2);
+  }
   
-  double wlnfp = WLNFPTanimoto(fp1, fp2); 
-  double obfp = OBabelTanimoto(str1, str2);
-
+  wlnfp = WLNFPTanimoto(fp1, fp2,opt_bit_screen); 
+  obfp = OBabelTanimoto(str1, str2);
+  
+  
   fprintf(stderr,"wlnFP: %f\n", wlnfp);
   fprintf(stderr,"ObabelFP: %f\n", obfp);
-
-  
-
 
   free(fp1);
   free(fp2); 
