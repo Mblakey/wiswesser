@@ -53,7 +53,6 @@ double OBabelTanimoto(const char *str1, const char *str2){
   OBConversion conv; 
   conv.SetOutFormat("smi");
 
-
   if(!ReadWLN(str1, &mol_1))
     return 0.0;
   if(!ReadWLN(str2, &mol_2))

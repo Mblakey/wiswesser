@@ -4,7 +4,7 @@
 
 #include <stdlib.h>
 
-#define FPSIZE 32
+#define FPSIZE 42
 
 u_int8_t* WLNFingerprint(const char* string);
 bool WLNDescriptors(const char *string); 

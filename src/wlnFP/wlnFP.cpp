@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <type_traits>
 
 #include "fingerprint.h"
   
@@ -45,13 +46,28 @@ typedef struct{
   u_int8_t AtomOther; 
 
   // Cycles  
-  u_int8_t ScaffoldAtoms; 
+  u_int8_t RingAtoms; 
   u_int8_t HeteroScaffolds;      // L/T - J notation 
   u_int8_t CarbonScaffolds;      // L/T - J notation 
 
-  u_int8_t AromSubcycles;  // Linear time ring perception 
-  u_int8_t AlipSubcycles;  // Linear time ring perception 
-  
+  u_int8_t Arom3cycles;
+  u_int8_t Arom4cycles; 
+  u_int8_t Arom5cycles; 
+  u_int8_t Arom6cycles; 
+  u_int8_t Arom7cycles; 
+  u_int8_t Arom8cycles;
+  u_int8_t Arom9cycles;
+  u_int8_t AromBigCycle;
+ 
+  u_int8_t Alip3cycles;
+  u_int8_t Alip4cycles; 
+  u_int8_t Alip5cycles; 
+  u_int8_t Alip6cycles; 
+  u_int8_t Alip7cycles; 
+  u_int8_t Alip8cycles;
+  u_int8_t Alip9cycles;
+  u_int8_t AlipBigCycle;
+
   u_int8_t MultiCyclics;   // Linear time ring internals 
   u_int8_t BridgeAtoms;    // Linear time ring internals 
   u_int8_t SpiroPoints;    // Linear time ring internals 
@@ -92,13 +108,29 @@ void init_descriptors(Descriptors *desc){
   desc->Rsymbol = 0;
   desc->BondUnsaturations = 0; 
   
-  desc->ScaffoldAtoms = 0; 
+  desc->RingAtoms = 0; 
 
   desc->HeteroScaffolds = 0;
   desc->CarbonScaffolds = 0;
   
-  desc->AromSubcycles = 0; 
-  desc->AlipSubcycles = 0;
+  desc->Arom3cycles = 0;
+  desc->Arom4cycles = 0; 
+  desc->Arom5cycles = 0; 
+  desc->Arom6cycles = 0; 
+  desc->Arom7cycles = 0; 
+  desc->Arom8cycles = 0;
+  desc->Arom9cycles = 0;
+  desc->AromBigCycle = 0;
+ 
+  desc->Alip3cycles = 0;
+  desc->Alip4cycles = 0; 
+  desc->Alip5cycles = 0; 
+  desc->Alip6cycles = 0; 
+  desc->Alip7cycles = 0; 
+  desc->Alip8cycles = 0;
+  desc->Alip9cycles = 0;
+  desc->AlipBigCycle = 0;
+
   desc->MultiCyclics = 0; 
   desc->BridgeAtoms = 0;
   desc->SpiroPoints = 0; 
@@ -136,11 +168,30 @@ void debug_descriptors(Descriptors *desc){
   fprintf(stderr,"Unsaturations: %d\n", desc->BondUnsaturations); 
   fprintf(stderr,"Other Atoms:   %d\n", desc->AtomOther); 
   
-  fprintf(stderr,"Scaffold Atoms:          %d\n", desc->ScaffoldAtoms); 
-  fprintf(stderr,"Carbon Scaffolds:        %d\n", desc->CarbonScaffolds); 
-  fprintf(stderr,"Hetero Scaffolds:        %d\n", desc->HeteroScaffolds); 
-  fprintf(stderr,"Aliphatic Subcycles:     %d\n", desc->AlipSubcycles); 
-  fprintf(stderr,"Aromatic  Subcycles:     %d\n", desc->AromSubcycles);
+  fprintf(stderr,"Ring Atoms:             %d\n", desc->RingAtoms); 
+  fprintf(stderr,"Carbon Scaffolds:       %d\n", desc->CarbonScaffolds); 
+  fprintf(stderr,"Hetero Scaffolds:       %d\n", desc->HeteroScaffolds); 
+
+  
+  fprintf(stderr,"Arom3:                  %d\n", desc->Arom3cycles); 
+  fprintf(stderr,"Arom4:                  %d\n", desc->Arom4cycles); 
+  fprintf(stderr,"Arom5:                  %d\n", desc->Arom5cycles); 
+  fprintf(stderr,"Arom6:                  %d\n", desc->Arom6cycles); 
+  fprintf(stderr,"Arom7:                  %d\n", desc->Arom7cycles); 
+  fprintf(stderr,"Arom8:                  %d\n", desc->Arom8cycles); 
+  fprintf(stderr,"Arom9:                  %d\n", desc->Arom9cycles); 
+  fprintf(stderr,"AromBig:                %d\n", desc->AromBigCycle); 
+
+  fprintf(stderr,"Alip3:                  %d\n", desc->Alip3cycles); 
+  fprintf(stderr,"Alip4:                  %d\n", desc->Alip4cycles); 
+  fprintf(stderr,"Alip5:                  %d\n", desc->Alip5cycles); 
+  fprintf(stderr,"Alip6:                  %d\n", desc->Alip6cycles); 
+  fprintf(stderr,"Alip7:                  %d\n", desc->Alip7cycles); 
+  fprintf(stderr,"Alip8:                  %d\n", desc->Alip8cycles); 
+  fprintf(stderr,"Alip9:                  %d\n", desc->Alip9cycles); 
+  fprintf(stderr,"AlipBig:                %d\n", desc->AlipBigCycle); 
+
+
   fprintf(stderr,"Multicyclic Ring Points: %d\n", desc->MultiCyclics); 
   fprintf(stderr,"Spiro Points:            %d\n", desc->SpiroPoints);
   fprintf(stderr,"Ring Bridges:            %d\n", desc->BridgeAtoms);
@@ -168,16 +219,15 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
   unsigned int pseudo_skips = 0; 
 
   unsigned int read_size = 0; 
-  unsigned int total_cycles = 0; 
-  unsigned int ali_cycles = 0; 
-  unsigned int arom_cycles = 0; 
-
+  unsigned int total_cycles = 0;
+  unsigned int cycles_read = 0; 
+  
+  bool subcycle_type[64] = {0}; 
   unsigned int subcycles[64] = {0}; 
   unsigned char locant_read = 0; 
   
   char dash_capture[3] = {0};
   unsigned int dash_pos = 0; 
-
 
   for(unsigned int i=s;i<e;i++){
     unsigned char ch = cpy[i]; 
@@ -473,8 +523,7 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
             desc->BridgeAtoms++;
             locant_read = 0; 
           }
-
-          ali_cycles++;  
+          subcycle_type[cycles_read++] = false; 
         }
         break;
 
@@ -496,9 +545,12 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
       case '&':
         if (expecting_size && read_size){
           read_size += 23;
-          arom_cycles++; 
           locant_read = 0; 
+          expecting_size = false;
         }
+        else
+         subcycle_type[cycles_read++] = true;  
+        
         break;
 
       case '-':
@@ -551,32 +603,98 @@ bool WLNRingParse(const char *cpy, unsigned int s, unsigned int e, Descriptors *
     }
 
   }
+    
+  if(total_cycles != cycles_read){
+    
+    if(cycles_read == 0){
+      for(unsigned int i=0;i<total_cycles;i++)
+        subcycle_type[i] = true;
+    }
+    else if (cycles_read == 1 && subcycle_type[0] == false){
+      for(unsigned int i=0;i<total_cycles;i++)
+        subcycle_type[i] = false;
+    }
+    else{
+      fprintf(stderr,"Error: aromaticity assignments do no match the number of rings\n"); 
+      return false; 
+    }
+  }
   
-
   // -- aromatic and aliphatic subcycles 
-  if(ali_cycles + arom_cycles == total_cycles){
-    desc->AromSubcycles += arom_cycles;
-    desc->AlipSubcycles += ali_cycles; 
+  for(unsigned int i=0;i<total_cycles;i++){
+    unsigned int subcycle_size = subcycles[i];
+    bool arom = subcycle_type[i];
+    switch (subcycle_size) { 
+      case 3:
+        if(arom)
+          desc->Arom3cycles++;
+        else
+         desc->Alip3cycles++;
+        break;
+
+      case 4:
+        if(arom)
+          desc->Arom4cycles++;
+        else
+         desc->Alip4cycles++;
+        break;
+
+      case 5:
+        if(arom)
+          desc->Arom5cycles++;
+        else
+         desc->Alip5cycles++;
+        break;
+
+      case 6:
+        if(arom)
+          desc->Arom6cycles++;
+        else
+         desc->Alip6cycles++;
+        break;
+
+      case 7:
+        if(arom)
+          desc->Arom7cycles++;
+        else
+         desc->Alip7cycles++;
+        break;
+
+      case 8:
+        if(arom)
+          desc->Arom8cycles++;
+        else
+         desc->Alip8cycles++;
+        break;
+
+      case 9:
+        if(arom)
+          desc->Arom9cycles++;
+        else
+         desc->Alip9cycles++;
+        break;
+
+
+      default:
+        if(arom)
+          desc->AromBigCycle++;
+        else
+         desc->AlipBigCycle++;
+        break; 
+    }
   }
-  else if (ali_cycles == 1)
-    desc->AlipSubcycles += total_cycles; 
-  else if (arom_cycles == 0)
-    desc->AromSubcycles += total_cycles; 
-  else{
-    fprintf(stderr,"Error: subcycles read do match the aromaticity characters within the scaffold\n"); 
-    return false; 
-  }
+
   
   // -- ring sizes
   if(read_size)
-    desc->ScaffoldAtoms += read_size;
+    desc->RingAtoms += read_size;
   else{
     // use calc
     read_size+= subcycles[0];
     for(unsigned int i=1;i<total_cycles;i++){
       read_size += (subcycles[i] - 2); 
     }
-    desc->ScaffoldAtoms += read_size;
+    desc->RingAtoms += read_size;
   }
 
   return true; 
@@ -1268,13 +1386,30 @@ u_int8_t *WLNFingerprint(const char *string){
   FP[21] = desc->BondUnsaturations; 
 
   // -- Cycles
-  FP[22] = desc->ScaffoldAtoms; 
+  FP[22] = desc->RingAtoms; 
   FP[23] = desc->CarbonScaffolds;
   FP[24] = desc->HeteroScaffolds; 
-  FP[25] = desc->AromSubcycles; 
-  FP[26] = desc->AlipSubcycles; 
-  FP[27] = desc->MultiCyclics; 
-  FP[28] = desc->BridgeAtoms; 
+  
+  FP[25] = desc->Arom3cycles; 
+  FP[26] = desc->Arom4cycles; 
+  FP[27] = desc->Arom5cycles; 
+  FP[28] = desc->Arom6cycles; 
+  FP[29] = desc->Arom8cycles; 
+  FP[30] = desc->Arom9cycles; 
+  FP[31] = desc->AromBigCycle; 
+
+
+  FP[32] = desc->Alip3cycles; 
+  FP[33] = desc->Alip4cycles; 
+  FP[34] = desc->Alip5cycles; 
+  FP[35] = desc->Alip6cycles; 
+  FP[36] = desc->Alip7cycles; 
+  FP[37] = desc->Alip8cycles; 
+  FP[38] = desc->Alip9cycles; 
+  FP[39] = desc->AlipBigCycle; 
+
+  FP[40] = desc->MultiCyclics; 
+  FP[41] = desc->BridgeAtoms; 
   free(desc); 
   return FP; 
 }
