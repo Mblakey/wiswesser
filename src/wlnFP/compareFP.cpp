@@ -1,10 +1,10 @@
-
 #include <stdlib.h>
 #include <stdio.h> 
 #include <inttypes.h>
 
 
 #include "fingerprint.h"
+#include "align.h"
 #include "openbabel/mol.h"
 #include "openbabel/obconversion.h"
 #include "parser.h"
@@ -116,6 +116,8 @@ int main(int argc, char *argv[]){
   double smilingo = LingoTanimoto(first_smiles.c_str(), second_smiles.c_str()); 
   fprintf(stderr,"SMIlingo: %f\n", smilingo);
 
-
+  
+  unsigned int changes = WLNAlignment(str1,str2); 
+  fprintf(stderr,"Alignment: %d\n",changes); 
   return 0; 
 }

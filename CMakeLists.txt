@@ -42,6 +42,7 @@ add_executable(compareFP
   ${PROJECT_SOURCE_DIR}/src/wlnFP/FPMetric.cpp
   ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp
   ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnlingo.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlnFP/alignment.cpp 
 )
 
 add_executable(wlndesc  
