@@ -8,13 +8,14 @@
 
 #define FPSIZE 42
 #define SCREENSIZE 6
-#define LINGO 2
+#define WLINGO 3
 
 u_int8_t* WLNFingerprint(const char* string);
 u_int8_t *WLNBitScreen(const char *string);
 bool WLNDescriptors(const char *string); 
 
 std::set<std::string> WLNLingo(const char *str, unsigned int len);
+std::set<std::string> SmilesLingo(const char *str, unsigned int len);
 
 unsigned int Intersection(std::set<std::string> &v1, std::set<std::string> &v2);
 unsigned int Union(std::set<std::string> &v1, std::set<std::string> &v2);

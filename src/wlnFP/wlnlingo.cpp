@@ -10,8 +10,8 @@
 std::set<std::string> WLNLingo(const char *str, unsigned int len){
   std::set<std::string> lset; 
   std::string lingo_str; 
-  for(unsigned int i=0;i<len-LINGO;i++){
-    for(unsigned int j=0;j<LINGO;j++)
+  for(unsigned int i=0;i<len-WLINGO;i++){
+    for(unsigned int j=0;j<WLINGO;j++)
       lingo_str += str[i+j];
     
     lset.insert(lingo_str); 
@@ -20,6 +20,9 @@ std::set<std::string> WLNLingo(const char *str, unsigned int len){
 
   return lset;   
 }
+
+
+
 
 unsigned int Intersection(std::set<std::string> &v1, std::set<std::string> &v2){ 
   std::vector<std::string> v_intersection; 

@@ -5,6 +5,9 @@
 
 
 #include "fingerprint.h"
+#include "openbabel/mol.h"
+#include "openbabel/obconversion.h"
+#include "parser.h"
 
 bool opt_verbose = false; 
 unsigned int opt_mode = 0;
@@ -75,7 +78,21 @@ static void ProcessCommandLine(int argc, char *argv[])
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   
-  double obfp = OBabelTanimoto(str1, str2);
+  OBMol mol1;
+  OBMol mol2; 
+
+  if(!ReadWLN(str1, &mol1) || !ReadWLN(str2, &mol2))
+    return 1;
+  
+  OBConversion conv; 
+  conv.SetOutFormat("smi");  
+  std::string first_smiles = conv.WriteString(&mol1);
+  std::string second_smiles = conv.WriteString(&mol2);
+  
+  fprintf(stderr,"1: %s", first_smiles.c_str());
+  fprintf(stderr,"2: %s", second_smiles.c_str());
+
+  double obfp = OBabelTanimoto(first_smiles.c_str(), second_smiles.c_str());
   fprintf(stderr,"ObabelFP MACCS: %f\n", obfp);
 
   u_int8_t *fp1 = WLNFingerprint(str1); 
@@ -95,6 +112,10 @@ int main(int argc, char *argv[]){
   
   double wlnlingo = LingoTanimoto(str1, str2); 
   fprintf(stderr,"WLNlingo: %f\n", wlnlingo);
+  
+  double smilingo = LingoTanimoto(first_smiles.c_str(), second_smiles.c_str()); 
+  fprintf(stderr,"SMIlingo: %f\n", smilingo);
+
 
   return 0; 
 }

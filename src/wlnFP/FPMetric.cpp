@@ -17,8 +17,8 @@
 #include <openbabel/fingerprint.h>
 
 #include "fingerprint.h"
-#include "parser.h"
 
+using namespace OpenBabel; 
 
 double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2){
   unsigned int AnB = 0; 
@@ -62,31 +62,21 @@ double WLNBSTanimoto(u_int8_t *fp1, u_int8_t *fp2){
 
 double OBabelTanimoto(const char *str1, const char *str2){
   
-  std::string first_smiles;
-  std::string second_smiles; 
   std::vector<unsigned int> first_fp;
   std::vector<unsigned int> second_fp;
 
   OpenBabel::OBFingerprint* fp = OpenBabel::OBFingerprint::FindFingerprint("MACCS");
   
-  OpenBabel::OBMol mol_1;
-  OpenBabel::OBMol mol_2; 
+  OBMol mol1;
+  OBMol mol2; 
   OBConversion conv; 
-  conv.SetOutFormat("smi");
-
-  if(!ReadWLN(str1, &mol_1))
-    return 0.0;
-  if(!ReadWLN(str2, &mol_2))
-    return 0.0;
-
-  first_smiles = conv.WriteString(&mol_1);
-  second_smiles = conv.WriteString(&mol_2);
+  conv.SetInFormat("smi");
+    
+  conv.ReadString(&mol1, str1);
+  conv.ReadString(&mol2, str2);
   
-  fprintf(stderr,"1: %s", first_smiles.c_str());
-  fprintf(stderr,"2: %s", second_smiles.c_str());
-
-  fp->GetFingerprint(&mol_1, first_fp);
-  fp->GetFingerprint(&mol_2, second_fp);
+  fp->GetFingerprint(&mol1, first_fp);
+  fp->GetFingerprint(&mol2, second_fp);
 
   double tanimoto = OBFingerprint::Tanimoto(first_fp,second_fp);
   return tanimoto; 
@@ -102,5 +92,6 @@ double LingoTanimoto(const char *str1, const char *str2){
   unsigned int AuB = Union(L1, L2); 
   return AnB/(double)AuB; 
 }
+
 
 
