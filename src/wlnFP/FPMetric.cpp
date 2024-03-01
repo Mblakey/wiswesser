@@ -87,6 +87,30 @@ double OBabelTanimoto(const char *str1, const char *str2){
 }
 
 
+double LingoTanimoto(const char *str1, const char *str2, unsigned int lingo){
 
+  LingoTable *L1 = WLNLingo(str1,strlen(str1), lingo); 
+  LingoTable *L2 = WLNLingo(str2,strlen(str2), lingo); 
+    
+  unsigned int i = 0; 
+  while(i < L1->size && i < L2->size){
+
+    free(L1->ltable[i]);
+    free(L2->ltable[i]);
+    i++; 
+  }
+
+  while(i<L1->size)
+    free(L1->ltable[i++]);
+  
+  while(i<L2->size)
+    free(L2->ltable[i++]);
+  
+
+  free(L1->ltable);
+  free(L2->ltable); 
+
+  return 0.0; 
+}
 
 

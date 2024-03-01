@@ -35,15 +35,13 @@ add_executable(wlnzip
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
 )
 
-#add_executable(wlnseed 
-#  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnseed.cpp 
-#)
 
 add_executable(compareFP
   ${PROJECT_SOURCE_DIR}/src/wlnFP/compareFP.cpp
   ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
   ${PROJECT_SOURCE_DIR}/src/wlnFP/FPMetric.cpp
   ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnlingo.cpp 
 )
 
 add_executable(wlndesc  
@@ -51,8 +49,6 @@ add_executable(wlndesc
   ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
 )
 
-
-#add_executable(wlngen ${PROJECT_SOURCE_DIR}/src/wlngen/wlnlearn.cpp ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp)
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/include/")
