@@ -89,8 +89,11 @@ int main(int argc, char *argv[]){
   std::string first_smiles = conv.WriteString(&mol1);
   std::string second_smiles = conv.WriteString(&mol2);
   
-  fprintf(stderr,"1: %s", first_smiles.c_str());
-  fprintf(stderr,"2: %s", second_smiles.c_str());
+  first_smiles.pop_back();
+  second_smiles.pop_back(); 
+
+  fprintf(stderr,"1: %s\n", first_smiles.c_str());
+  fprintf(stderr,"2: %s\n", second_smiles.c_str());
 
   double obfp = OBabelTanimoto(first_smiles.c_str(), second_smiles.c_str());
   fprintf(stderr,"ObabelFP MACCS: %f\n", obfp);
@@ -117,7 +120,11 @@ int main(int argc, char *argv[]){
   fprintf(stderr,"SMIlingo: %f\n", smilingo);
 
   
-  unsigned int changes = WLNAlignment(str1,str2); 
-  fprintf(stderr,"Alignment: %d\n",changes); 
+  unsigned int wlnchanges = WLNAlignment(str1,str2); 
+  unsigned int smichanges = WLNAlignment(first_smiles.c_str(),second_smiles.c_str()); 
+  
+
+  fprintf(stderr,"WLN Alignment: %d\n",wlnchanges); 
+  fprintf(stderr,"SMI Alignment: %d\n",smichanges); 
   return 0; 
 }
