@@ -4,27 +4,25 @@
 
 #include <stdlib.h>
 #include <string> 
+#include <set>
 
 #define FPSIZE 42
 #define SCREENSIZE 6
-
-typedef struct LingoEntry{
-  std::string str; 
-  unsigned int n; 
-}LingoEntry; 
-
-typedef struct LingoTable {
-  LingoEntry **ltable;
-  unsigned int size; 
-}LingoTable;
+#define LINGO 3
 
 u_int8_t* WLNFingerprint(const char* string);
 u_int8_t *WLNBitScreen(const char *string);
 bool WLNDescriptors(const char *string); 
-LingoTable* WLNLingo(const char *str, unsigned int len, unsigned int lingo);
 
-double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2, bool bitscreen); 
+std::set<std::string> WLNLingo(const char *str, unsigned int len);
+
+unsigned int Intersection(std::set<std::string> &v1, std::set<std::string> &v2);
+unsigned int Union(std::set<std::string> &v1, std::set<std::string> &v2);
+
+double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2); 
+double WLNBSTanimoto(u_int8_t *fp1, u_int8_t *fp2); 
 double OBabelTanimoto(const char *str1, const char *str2);
+double LingoTanimoto(const char *str1, const char *str2);
 
 #endif 
 

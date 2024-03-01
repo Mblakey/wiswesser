@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <vector>
 #include <string>
+#include <set>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -19,12 +20,11 @@
 #include "parser.h"
 
 
-double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2, bool bitscreen){
+double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2){
   unsigned int AnB = 0; 
   unsigned int A = 0; 
   unsigned int B = 0;
 
-  if(!bitscreen){
     for(unsigned int i=0;i<FPSIZE;i++){
       uint8_t a = fp1[i];
       uint8_t b = fp2[i];
@@ -36,21 +36,28 @@ double WLNFPTanimoto(u_int8_t *fp1, u_int8_t *fp2, bool bitscreen){
       A += 8;
       B += 8; 
     }
-  }
-  else{
-    for(unsigned int i=0;i<SCREENSIZE;i++){
-      uint16_t a = fp1[i];
-      uint16_t b = fp2[i];
-      for(int i=7;i>=0;i--){
-        if( ( a & (1 << i)) == ( b & (1 << i)) )
-          AnB++; 
-          
-      }
-      A += 8;
-      B += 8; 
-    }
-  }
   
+  return (double)(AnB)/(double)(A+B-AnB);
+}
+
+
+double WLNBSTanimoto(u_int8_t *fp1, u_int8_t *fp2){
+  unsigned int AnB = 0; 
+  unsigned int A = 0; 
+  unsigned int B = 0;
+
+  for(unsigned int i=0;i<SCREENSIZE;i++){
+    uint16_t a = fp1[i];
+    uint16_t b = fp2[i];
+    for(int i=7;i>=0;i--){
+      if( ( a & (1 << i)) == ( b & (1 << i)) )
+        AnB++; 
+        
+    }
+    A += 8;
+    B += 8; 
+  }
+
   return (double)(AnB)/(double)(A+B-AnB);
 }
 
@@ -87,30 +94,14 @@ double OBabelTanimoto(const char *str1, const char *str2){
 }
 
 
-double LingoTanimoto(const char *str1, const char *str2, unsigned int lingo){
+double LingoTanimoto(const char *str1, const char *str2){
 
-  LingoTable *L1 = WLNLingo(str1,strlen(str1), lingo); 
-  LingoTable *L2 = WLNLingo(str2,strlen(str2), lingo); 
-    
-  unsigned int i = 0; 
-  while(i < L1->size && i < L2->size){
-
-    free(L1->ltable[i]);
-    free(L2->ltable[i]);
-    i++; 
-  }
-
-  while(i<L1->size)
-    free(L1->ltable[i++]);
+  std::set<std::string> L1 = WLNLingo(str1,strlen(str1)); 
+  std::set<std::string> L2 = WLNLingo(str2,strlen(str2)); 
   
-  while(i<L2->size)
-    free(L2->ltable[i++]);
-  
-
-  free(L1->ltable);
-  free(L2->ltable); 
-
-  return 0.0; 
+  unsigned int AnB = Intersection(L1, L2); 
+  unsigned int AuB = Union(L1, L2); 
+  return AnB/(double)AuB; 
 }
 
 

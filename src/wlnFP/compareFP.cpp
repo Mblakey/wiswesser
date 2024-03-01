@@ -7,7 +7,7 @@
 #include "fingerprint.h"
 
 bool opt_verbose = false; 
-bool opt_bit_screen = false;
+unsigned int opt_mode = 0;
 const char *str1;
 const char *str2; 
 
@@ -33,7 +33,11 @@ static void ProcessCommandLine(int argc, char *argv[])
     if (ptr[0] == '-' && ptr[1]){
       switch (ptr[1]){
         case 'b':
-          opt_bit_screen = true;
+          opt_mode = 1;
+          break; 
+
+        case 'l':
+          opt_mode = 2;
           break; 
 
         case 'h':
@@ -77,29 +81,29 @@ static void ProcessCommandLine(int argc, char *argv[])
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
-  u_int8_t *fp1 = 0;
-  u_int8_t *fp2 = 0;
-  double wlnfp = 0; 
-  double obfp = 0; 
+  double obfp = OBabelTanimoto(str1, str2);
+  fprintf(stderr,"ObabelFP MACCS: %f\n", obfp);
 
-  if(!opt_bit_screen){
-    fp1 = WLNFingerprint(str1); 
-    fp2 = WLNFingerprint(str2);
+  if(opt_mode == 0){
+    u_int8_t *fp1 = WLNFingerprint(str1); 
+    u_int8_t *fp2 = WLNFingerprint(str2);
+    double wlnfp = WLNFPTanimoto(fp1, fp2); 
+    fprintf(stderr,"wlnFP: %f\n", wlnfp);
+    free(fp1);
+    free(fp2); 
   }
-  else{
-    fprintf(stderr,"using bit screen and tanimoto\n"); 
-    fp1 = WLNBitScreen(str1); 
-    fp2 = WLNBitScreen(str2);
+  else if (opt_mode == 1){
+    u_int8_t *fp1 = WLNBitScreen(str1); 
+    u_int8_t *fp2 = WLNBitScreen(str2);
+    double wlnfp = WLNBSTanimoto(fp1, fp2); 
+    fprintf(stderr,"wlnBS: %f\n", wlnfp);
+    free(fp1);
+    free(fp2); 
+  }
+  else if (opt_mode == 2){
+    double lintan = LingoTanimoto(str1, str2); 
+    fprintf(stderr,"WLNlingo: %f\n", lintan);
   }
   
-  wlnfp = WLNFPTanimoto(fp1, fp2,opt_bit_screen); 
-  obfp = OBabelTanimoto(str1, str2);
-  
-  
-  fprintf(stderr,"wlnFP: %f\n", wlnfp);
-  fprintf(stderr,"ObabelFP: %f\n", obfp);
-
-  free(fp1);
-  free(fp2); 
   return 0; 
 }

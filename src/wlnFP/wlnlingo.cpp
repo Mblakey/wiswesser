@@ -2,36 +2,38 @@
 #include <stdlib.h>
 #include <map>
 #include <string>
+#include <set>
 
 #include "fingerprint.h"
 
-LingoTable *WLNLingo(const char *str, unsigned int len, unsigned int lingo){
-  LingoTable *LTable = (LingoTable*)malloc(sizeof(LingoTable)); 
-  std::map<std::string, unsigned int>  hash_map; 
+std::set<std::string> WLNLingo(const char *str, unsigned int len){
+  std::set<std::string> lset; 
   std::string lingo_str; 
-  for(unsigned int i=0;i<len-lingo;i++){
-    for(unsigned int j=0;j<lingo;j++)
+  for(unsigned int i=0;i<len-LINGO;i++){
+    for(unsigned int j=0;j<LINGO;j++)
       lingo_str += str[i+j];
     
-    hash_map[lingo_str]++;
+    lset.insert(lingo_str); 
     lingo_str.clear(); 
   }
 
-  LTable->ltable = (LingoEntry**)malloc(sizeof(LingoEntry) * hash_map.size()); 
-  LTable->size = hash_map.size(); 
-    
-  unsigned int i = 0;
-  for(std::map<std::string,unsigned int>::iterator miter = hash_map.begin(); miter != hash_map.end(); miter++){
-    LTable->ltable[i] = (LingoEntry*)malloc(sizeof(LingoEntry));
-    LTable->ltable[i]->str = miter->first; 
-    LTable->ltable[i]->n = miter->second; 
-    i++;
-  }
+  return lset;   
+}
 
-  return LTable;  
+unsigned int Intersection(std::set<std::string> &v1, std::set<std::string> &v2){ 
+  std::vector<std::string> v_intersection; 
+  std::set_intersection(v1.begin(), v1.end(), v2.begin(), v2.end(),
+                          std::back_inserter(v_intersection));
+
+  return v_intersection.size(); 
+}
+
+unsigned int Union(std::set<std::string> &v1, std::set<std::string> &v2){ 
+  v1.insert(v2.begin(),v2.end());
+  return v1.size(); 
 }
 
 
-/* as given in Rogers Paper */ 
+
 
 
