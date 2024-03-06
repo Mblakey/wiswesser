@@ -42,6 +42,7 @@ GNU General Public License for more details.
 
 using namespace OpenBabel; 
 
+#define WLNDEBUG 0
 #define REASONABLE 1024
 #define MACROTOOL 0
                     
@@ -403,7 +404,8 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           for(unsigned int k=0;k<wring->Size();k++){
             if(in_locant_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)){
               unsigned int pos = position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size);
-              unsigned char loc = int_to_locant(pos+1); 
+              unsigned char loc = int_to_locant(pos+1);
+
               if(loc < min_loc)
                 min_loc = loc; 
               if(loc > high_loc)
@@ -562,9 +564,13 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
       }
 
       std::vector<OBRing*> tmp; 
-      std::string candidate_string; // super annoying this has to go here, UPSET
+      std::string candidate_string; // super annoying this has to go here, i dont see another way round
       unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
       unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
+      
+#if WLNDEBUG
+      fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
+#endif 
 
       if(score < lowest_score){
         lowest_sum = fsum;
@@ -675,7 +681,14 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           std::string candidate_string; // unfortunate but necessary, very expensive procedure (we optimise later!)
           unsigned int score = ReadLocantPath(mol,locant_path,found_path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
           unsigned int fsum = fusion_sum(mol,locant_path,found_path_size,local_SSSR);
-         
+
+
+#if WLNDEBUG
+      fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
+#endif 
+
+
+
           if(score < lowest_score){ // rule 30(d and e).
             lowest_score = score;
             lowest_fsum = fsum;

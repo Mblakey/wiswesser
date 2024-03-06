@@ -55,9 +55,9 @@ main(){
     fi; 
 
     if [ -n "$OUT" ]; then
-      echo -ne "${ENTRY}\t$OUT\n"
+      echo -ne "${OUT}\n"
     else
-      echo -ne "${ENTRY}\tnull\n"
+      echo -ne "null\n"
     fi
   done <$FILE
   exit 0
