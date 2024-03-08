@@ -28,13 +28,16 @@ add_executable(writewln
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/wlnparser/obcomp.cpp)
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
-add_executable(wlnzip 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/compress.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp
+add_executable(wlndeflate 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlndeflate.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlncompress/lz.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
 )
 
+add_executable(wlnppm 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/ppm.cpp
+)
 
 add_executable(compareFP
   ${PROJECT_SOURCE_DIR}/src/wlnFP/compareFP.cpp
