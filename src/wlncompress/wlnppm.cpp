@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -7,13 +6,16 @@
 #include <string>
 
 #include "rfsm.h"
-#include "wlndfa.h"
 #include "ppm.h"
 
-const char *input;
+#include "wlnzip.h"
+
 unsigned int decode_zero_added = 0; 
 
 #define NGRAM 4
+#define PPM 1
+#define ALPHABET 42
+#define TERMINATE 'x'
 
 #define FIXED_POINT_FRACTIONAL_BITS 16
 #define FIXED_POINT_I_MAX INT32_MAX
@@ -54,11 +56,9 @@ void fread_string(unsigned char *ch, std::string &bitstream){
 }
 
 
-
 bool WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, std::string &bitstream, bool add_terminal){
   
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \n";
-
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
   wlnmodel->AssignEqualProbs(); // you moron
   
   FSMState *state = wlnmodel->root; 
@@ -84,35 +84,40 @@ bool WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, std::string &b
 
   for(;;){
 
-    // set an ngram look back for forward trie
-    if(seen_context < NGRAM)
-      lookback[seen_context++] = ch;
-    else{      
-      // escaping with no context is pointless
-      for(unsigned int i=0;i<NGRAM-1;i++)
-        lookback[i] = lookback[i+1]; 
-      lookback[NGRAM-1] = ch; 
- 
-    }
+    bool found = 0; 
 
     unsigned int T = 0;
+    unsigned int Cc = 0; 
+    unsigned int Cn = 0; 
+
+#if PPM
+    for(unsigned int a=0;a<ALPHABET;a++){
+      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context, ALPHABET); 
+      unsigned int fp_prob = double_to_fixed(prob); 
+      T+= fp_prob;
+    }
+
+    for(unsigned int a=0;a<ALPHABET;a++){
+      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context, ALPHABET); 
+      unsigned int fp_prob = double_to_fixed(prob); 
+    
+      if(ch == wln[a]){
+        Cn += fp_prob;
+        found = 1; 
+        break;
+      }
+      else
+        Cc += fp_prob; 
+    }
+    Cn += Cc; 
+#else 
+
     unsigned int edges = 0; 
     for(edge=state->transitions;edge;edge=edge->nxt){
       T+= edge->c;
       edges++; 
     }
-    
-    double test_prob = 0.0;
-    for(unsigned int a=0;a<strlen(wln);a++){
-      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context-1, strlen(wln)); 
-      test_prob += prob; 
-    }
-
-    fprintf(stderr,"sum: %f\n",test_prob); 
-    
-    unsigned int Cc = 0; 
-    unsigned int Cn = 0; 
-    bool found = false;
+ 
     for(edge = state->transitions;edge;edge=edge->nxt){
       if(ch == edge->ch){
         Cn += edge->c;
@@ -129,7 +134,7 @@ bool WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, std::string &b
       fprintf(stderr,"Error: invalid wln notation\n");
       return false;
     }
-
+#endif
 
 // ################################################
 
@@ -176,37 +181,46 @@ bool WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, std::string &b
       underflow_bits++;
     }
 
+
 // #################################################################################
 
-    // PPM trie update happens after an encoding so the decompressor can keep up
+// the order of these build --> add arguements seem to lead to better or worse compression?
 
-    fprintf(stderr,"%s\n",lookback); 
-    // update context trie
+// PPM trie update happens after an encoding so the decompressor can keep up
+// update context trie
     if(!BuildContextTree(root, (const char*)lookback, seen_context)){
       fprintf(stderr,"Error: failure in building n-gram trie\n");
       return false;
     }
 
-// #################################################################################
+    if(seen_context < NGRAM)
+      lookback[seen_context++] = ch;
+    else{      
+      // escaping with no context is pointless
+      for(unsigned int i=0;i<NGRAM-1;i++)
+        lookback[i] = lookback[i+1]; 
+      lookback[NGRAM-1] = ch; 
+    }
+ // #################################################################################
 
     if(stop)
       break;
     else
-     ch = *(++str);
-    
+      ch = *(++str);
+
     if(!ch){
       if(!add_terminal)
         break;
-      else
-        stop = true;     
-      ch = '\0';
+      else{
+        stop = true;
+        ch = TERMINATE; // special character for WLN ending
+      }
     }
-
-
 
     read++; 
   }
   
+
   if(add_terminal)
     read++; 
 
@@ -223,6 +237,7 @@ bool WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, std::string &b
 
 bool WLNPPMDecompressBuffer(std::string &bitstream, FSMAutomata *wlnmodel){
   
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx";
   wlnmodel->AssignEqualProbs(); // you moron
 
   FSMState *state = wlnmodel->root;
@@ -234,6 +249,12 @@ bool WLNPPMDecompressBuffer(std::string &bitstream, FSMAutomata *wlnmodel){
   unsigned int enc_pos = 0; 
   unsigned int encoded = 0;
   unsigned char ch = 0;
+
+  unsigned int seen_context = 0;
+  unsigned char lookback[NGRAM+1] = {0}; 
+
+  Node *root = AllocateTreeNode('0', 0); 
+  root->c = 1; 
 
   for(unsigned int i=0;i<4;i++){ // read 32 max into encoded
     fread_string(&ch, bitstream);
@@ -249,11 +270,57 @@ bool WLNPPMDecompressBuffer(std::string &bitstream, FSMAutomata *wlnmodel){
   fread_string(&ch,bitstream);
   enc_pos = 0;
 
+  unsigned int debug = 0; 
   for(;;){
     
     unsigned int T = 0; 
     unsigned int Cc = 0;
     unsigned int Cn = 0;
+
+#if PPM
+    for(unsigned int a=0;a<ALPHABET;a++){
+      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context, ALPHABET); 
+      unsigned int fp_prob = double_to_fixed(prob); 
+      T+= fp_prob;
+    }
+
+    uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
+    uint64_t scaled_sym = floor((T*(uint64_t)(encoded-low+1)-1)/range); // potential -1 here
+    
+    for(unsigned int a=0;a<ALPHABET;a++){
+      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context, ALPHABET); 
+      unsigned int fp_prob = double_to_fixed(prob); 
+    
+      Cn += fp_prob; 
+      if(scaled_sym >= Cc && scaled_sym < Cn){
+        if(wln[a] == TERMINATE)
+          return true;
+        else{
+          // add the char to the buffer, and then build the trie
+          fputc(wln[a],stdout);
+          // build the trie immediately
+          if(!BuildContextTree(root, (const char*)lookback, seen_context)){
+            fprintf(stderr,"Error: failure in building n-gram trie\n");
+            return false;
+          }
+
+          if(seen_context < NGRAM)
+            lookback[seen_context++] = wln[a];
+          else{      
+            // escaping with no context is pointless
+            for(unsigned int i=0;i<NGRAM-1;i++)
+              lookback[i] = lookback[i+1]; 
+            lookback[NGRAM-1] = wln[a];  
+          }
+          
+        }
+        break;
+      }
+      else
+        Cc += fp_prob; 
+    }
+   
+#else
     for(edge=state->transitions;edge;edge=edge->nxt)
       T += edge->c; 
     
@@ -274,6 +341,7 @@ bool WLNPPMDecompressBuffer(std::string &bitstream, FSMAutomata *wlnmodel){
       else
         Cc += edge->c;
     }
+#endif
 
     uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
     uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T);  // should there be a minus 1 here?
@@ -342,74 +410,174 @@ bool WLNPPMDecompressBuffer(std::string &bitstream, FSMAutomata *wlnmodel){
     }
   }
   
+  RReleaseTree(root); 
   return true; 
 }
 
-static void ProcessCommandLine(int argc, char *argv[])
-{
-  const char *ptr = 0;
-  int i,j;
 
-  input = (const char *)0;
 
-  j = 0;
-  for (i = 1; i < argc; i++)
-  {
+bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, std::string &bitstream){
+  
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
+  wlnmodel->AssignEqualProbs(); // you moron
+  
+  FSMState *state = wlnmodel->root; 
+  FSMEdge *edge = 0;
 
-    ptr = argv[i];
-    if (ptr[0] == '-' && ptr[1]){
-      switch (ptr[1]){
+  unsigned int read = 0; 
 
-        default:
-          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
-          exit(1); 
-      }
-    }
-    else{
-      switch(j++){
-        case 0:
-          input = ptr; 
-          break;
-        default:
-          fprintf(stderr,"Error: multiple files not currently supported\n");
-          exit(1);
-      }
-    }
+  unsigned int low = 0; 
+  unsigned int high = UINT32_MAX; // set all the bits to 11111...n 
+  unsigned int underflow_bits = 0;
+  
+  unsigned int seen_context = 0;
+  unsigned char lookback[NGRAM+1] = {0}; 
+
+  unsigned char ch = 0;
+  bool reading_data = true;
+  bool stop = false;
+  
+  Node *root = AllocateTreeNode('0', 0); 
+  root->c = 1; 
+
+  if(!fread(&ch,sizeof(unsigned char),1,ifp)){
+    fprintf(stderr,"Error: no data in file\n"); 
+    return false;
   }
 
-  if(!input){
-    fprintf(stderr,"Error: no input file given\n");
-    exit(1);
-  }
+  for(;;){
 
-  return;
-}
-int main(int argc, char *argv[]){
-  ProcessCommandLine(argc, argv);
+    bool found = 0; 
+
+    unsigned int T = 0;
+    unsigned int Cc = 0; 
+    unsigned int Cn = 0; 
+
+#if PPM
+    for(unsigned int a=0;a<ALPHABET;a++){
+      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context, ALPHABET); 
+      unsigned int fp_prob = double_to_fixed(prob); 
+      T+= fp_prob;
+    }
+
+    for(unsigned int a=0;a<ALPHABET;a++){
+      double prob = PredictPPM((const char*)lookback, wln[a], root, 'A', seen_context, ALPHABET); 
+      unsigned int fp_prob = double_to_fixed(prob); 
     
-  double test = 0.2500;
-  fprintf(stderr,"%f = %d\n",test,double_to_fixed(test)); 
-
-  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
-
-  for(unsigned int i=0;i<wlnmodel->num_states;i++){
-    if(wlnmodel->states[i]->accept){
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\0');  
+      if(ch == wln[a]){
+        Cn += fp_prob;
+        found = 1; 
+        break;
+      }
+      else
+        Cc += fp_prob; 
     }
+    Cn += Cc; 
+#else 
+    unsigned int edges = 0; 
+    for(edge=state->transitions;edge;edge=edge->nxt){
+      T+= edge->c;
+      edges++; 
+    }
+ 
+    for(edge = state->transitions;edge;edge=edge->nxt){
+      if(ch == edge->ch){
+        Cn += edge->c;
+        state = edge->dwn; // move the state;
+        found = 1; 
+        break;
+      }
+      else
+        Cc += edge->c;
+    }
+    Cn += Cc;
+    
+    if(!found){
+      fprintf(stderr,"Error: invalid wln notation\n");
+      return false;
+    }
+#endif
+
+// ################################################
+
+    // standard arithmetic coder 32 bit int. 
+    uint64_t range = ((uint64_t)high+1)-(uint64_t)low;
+    uint64_t new_low = (uint64_t)low + (uint64_t)floor((range*Cc)/T); 
+    uint64_t new_high = (uint64_t)low + (uint64_t)floor((range*Cn)/T);  
+
+    // truncate down
+    low = new_low;
+    high = new_high;
+
+    unsigned char lb = low & (1 << 31) ? 1:0;
+    unsigned char hb = high & (1 << 31) ? 1:0;
+    unsigned char lb2 = low & (1 << 30) ? 1:0;
+    unsigned char hb2 = high & (1 << 30) ? 1:0;
+    unsigned char ubit = lb ? 0:1;
+
+    if(lb == hb){
+      while(lb == hb){
+        bitstream += lb;
+  
+        low <<= 1; // shift in the zero 
+        high <<= 1; // shift in zero then set to 1.
+        high ^= 1;
+        lb = low & (1 << 31) ? 1:0;
+        hb = high & (1 << 31) ? 1:0;
+
+        if(underflow_bits){
+          for(unsigned int i=0;i<underflow_bits;i++)
+            bitstream += ubit; 
+          underflow_bits = 0;
+        }
+      }
+    }
+    else if (lb2 && !hb2){      
+      low <<= 1;
+      high <<= 1; 
+
+      low ^= (1 << 31);
+      high ^= (1 << 31);
+      high ^= 1;
+      
+      underflow_bits++;
+    }
+
+
+// #################################################################################
+
+// the order of these build --> add arguements seem to lead to better or worse compression?
+
+// PPM trie update happens after an encoding so the decompressor can keep up
+// update context trie
+    if(!BuildContextTree(root, (const char*)lookback, seen_context)){
+      fprintf(stderr,"Error: failure in building n-gram trie\n");
+      return false;
+    }
+
+    if(seen_context < NGRAM)
+      lookback[seen_context++] = ch;
+    else{      
+      // escaping with no context is pointless
+      for(unsigned int i=0;i<NGRAM-1;i++)
+        lookback[i] = lookback[i+1]; 
+      lookback[NGRAM-1] = ch; 
+    }
+ // #################################################################################
+
+    if(stop)
+      break;
+    else if(!fread(&ch,sizeof(unsigned char),1,ifp)){
+      stop = true;
+      ch = TERMINATE; // special character for WLN ending
+    }
+
+    read++; 
   }
-  wlnmodel->AssignEqualProbs(); // initalise the order -1 model
   
 
-  bool ending = false;
-  // perhaps need to add the escape sequence as a transition. 
-  std::string bitstream; 
-  if(!WLNPPMCompressBuffer(input, wlnmodel, bitstream,ending))
-    return 1; 
-   
-  if(ending)
-    WLNPPMDecompressBuffer(bitstream, wlnmodel);
-  
-  delete wlnmodel;
-  return 0;
+  fprintf(stderr,"bit stream: %d/%d\n",bitstream.size(), read*8); 
+  RReleaseTree(root);  
+  return true;
 }
+

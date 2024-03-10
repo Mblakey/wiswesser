@@ -104,6 +104,7 @@ Node *search_tree(const char *str, Node*root, unsigned int k){
 
 /* builds a forward context tree */
 bool BuildContextTree(Node *root, const char *str,unsigned int context_len){
+
   Node *t = root;
   
   unsigned int j = 0;
