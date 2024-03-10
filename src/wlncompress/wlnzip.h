@@ -9,12 +9,20 @@
 
 #include "rfsm.h"
 
+typedef struct  BitStream{
+  unsigned char b; 
+  struct BitStream *nxt; 
+}BitStream; 
+
 bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel); 
 bool WLNinflate(FILE *ifp, FSMAutomata *wlnmodel); 
 
-bool WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, std::string &bitstream, bool add_terminal); 
-bool WLNPPMDecompressBuffer(std::string &bitstream, FSMAutomata *wlnmodel); 
-bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, std::string &bitstream); 
+BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned char escape_type,bool add_terminal); 
+bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigned char escape_type); 
+
+
+bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel,   unsigned char escape_type); 
+bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type); 
 
 
 #endif

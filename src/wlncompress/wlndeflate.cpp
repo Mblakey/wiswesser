@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <vector>
+#include <string>
 
 #include "rfsm.h"
 #include "huffman.h"
@@ -21,7 +22,7 @@ void LeftShift(unsigned char *arr, unsigned int len, unsigned int n)
 }
 
 /* there will be some optimisations here, specially to get rid of vectors */
-void stream_to_bytes(std::vector<unsigned char> &stream){
+void stream_to_bytes(std::string &stream){
   unsigned int char_pos = 0;
   unsigned char out = 0;
 
@@ -114,7 +115,7 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
 
   bool reading_data = true;
   unsigned char ch = 0;
-  unsigned int molecules = 0;
+  unsigned int read = 0;
 
   Node *htree = 0;
   PQueue *priority_queue = (PQueue*)malloc(sizeof(PQueue)); 
@@ -134,8 +135,7 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
   FSMEdge *edge = 0;
 
   unsigned char code[CSIZE] = {0};
-  std::vector<unsigned char> bitstream;
-
+  std::string bitstream;
 
   // PARSE FILE FOR SMALL TREES
  
@@ -146,8 +146,10 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
   for(unsigned int i=BACKREFERENCE;i<BUFFSIZE;i++){
     if(!fread(&ch,sizeof(unsigned char),1,ifp))
       reading_data = false;
-    else
+    else{
       buffer[i] = ch;
+      read++; 
+    }
     
     if(!reading_data)
       break;
@@ -258,15 +260,14 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
           }
         }
 
-        if(buffer[BACKREFERENCE] == '\n')
-          molecules++;        
-
         LeftShift(buffer,BUFFSIZE,1);
         if(reading_data){
           if(!fread(&ch,sizeof(unsigned char),1,ifp))
             reading_data = 0;
-          else
+          else{
             buffer[BUFFSIZE-1] = ch;
+            read++;
+          }
         }
       }
     }
@@ -294,7 +295,7 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
 
       unsigned int clen = WriteHuffmanCode(htree,buffer[BACKREFERENCE],code);
       if(!clen){
-        fprintf(stderr,"Error: literal code generation - line %d\n",molecules);
+        fprintf(stderr,"Error: literal code generation failure\n");
         return false;
       }
 
@@ -311,15 +312,14 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
         }
       }
 
-      if(buffer[BACKREFERENCE] == '\n')
-        molecules++;
-
       LeftShift(buffer,BUFFSIZE,1);
       if(reading_data){
         if(!fread(&ch,sizeof(unsigned char),1,ifp))
           reading_data = 0;
-        else
+        else{
           buffer[BUFFSIZE-1] = ch;
+          read++; 
+        }
       }
 
 
@@ -339,7 +339,7 @@ bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel){
   free_heap(priority_queue);
   free(buffer);
 
-  fprintf(stderr,"%d molecules compressed\n",molecules);
+  fprintf(stderr,"bit stream: %d/%d = %f\n",bitstream.size(), read*8, (read*8)/(double)bitstream.size()); 
   return true;
 }
 
@@ -557,7 +557,7 @@ bool WLNinflate(FILE *ifp, FSMAutomata *wlnmodel){
     }
 
   }
-  
+    
   free_heap(priority_queue);
   free(buffer);
   return true;
