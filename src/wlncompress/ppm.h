@@ -17,6 +17,8 @@ struct Node{
   unsigned int c; 
   Edge *leaves;
   Node *vine;
+
+  Node *prev; // debugging only, remove when algorithm working 
  };
 
 
@@ -26,10 +28,10 @@ Edge *AllocateTreeEdge(Node *p, Node *c);
 void RReleaseTree(Node *root);
 void WriteDotFile(Node *root, FILE *stream);
 
-bool BuildContextTree(Node *root,const char *str, unsigned int context_len);
+void BuildContextTree(Node *root,const char *str, unsigned int context_len);
 bool BuildContextTreeUpdateExclusion(Node *root,const char *str, unsigned int context_len);
+void RunbackContext(Node *node);
 
-double PredictPPM(const char *message, unsigned ch_pred, Node *tree, unsigned char mode, unsigned int context_len,unsigned int avaliable_chars);
 double PredictPPMExclusion(const char *message, unsigned ch_pred, Node *tree, unsigned char mode, unsigned int context_len);
 double PredictPPMLazyExclusion(const char *message, unsigned ch_pred, Node *tree, unsigned char mode, unsigned int context_len);
 

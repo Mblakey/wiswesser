@@ -12,8 +12,10 @@ Node *AllocateTreeNode(unsigned char ch, unsigned int id){
   n->ch = ch;
   n->leaves = 0;
   n->id = id;
-
+  
   n->vine = 0;
+
+  n->prev = 0; // debugging only, remove when algorithm tested
   return n; 
 }
 
@@ -33,7 +35,8 @@ Edge *AllocateTreeEdge(Node *p, Node *c){
     }
     q->nxt = e;
   }
-
+  
+  c->prev = p; 
   return e; 
 }
 
@@ -102,18 +105,20 @@ Node *search_tree(const char *str, Node*root, unsigned int k){
   return v; 
 }
 
-/* builds a forward context tree */
-bool BuildContextTree(Node *root, const char *str,unsigned int context_len){
+/* Builds a forward context tree, character by character, this will return the last
+ * node seen/created, meaning decrementing through the vines to the root node is a way
+ * to quickly parse contexts, will return the longest node, use prev if context_len == top
+ * */
+void BuildContextTree(Node *root, const char *str,unsigned int context_len){
 
   Node *t = root;
-  
   unsigned int j = 0;
-  Node *prev = 0; 
+  Node *prev = 0;
+
   while(j < context_len){
     bool found = false;
     t = root; 
     for(unsigned int k = j; k < context_len;k++){
-      
       found=false;
       for(Edge *e=t->leaves;e;e=e->nxt){
         if(e->dwn->ch == str[k]){
@@ -135,7 +140,7 @@ bool BuildContextTree(Node *root, const char *str,unsigned int context_len){
       }
 
     }
-    
+
     if(prev)
       prev->vine = t; 
     prev = t; 
@@ -146,7 +151,7 @@ bool BuildContextTree(Node *root, const char *str,unsigned int context_len){
     j++;
   }
 
-  return true;
+  return;
 }
 
 
@@ -193,7 +198,22 @@ bool BuildContextTreeUpdateExclusion(Node *root, const char *str, unsigned int c
   return root;
 }
 
-/* builds a forward context tree */
+
+void RunbackContext(Node *node){
+  unsigned int bpos = 0; 
+  unsigned char buffer[32] = {0};
+  Node *n= node;
+  while(n){
+    buffer[bpos++] = n->ch; 
+    n = n->prev; 
+  }
+
+  for(int i = bpos-1;i>=0;i--)
+    fputc(buffer[i],stderr);
+  fputc('\n',stderr); 
+}
+
+
 double PredictPPM(  const char *message, unsigned ch_pred, Node *tree, unsigned char mode, 
                     unsigned int context_len, unsigned int avaliable_chars){
  
@@ -209,8 +229,8 @@ double PredictPPM(  const char *message, unsigned ch_pred, Node *tree, unsigned 
   unsigned int char_occurance = 0;
   
   unsigned int order = context_len; 
-  double prob = 0.0;
-  double weight = 1.0; 
+  long double prob = 0.0;
+  long double weight = 1.0; 
 
   for(unsigned int i=0;i<context_len;i++){ 
     for(e=t->leaves;e;e=e->nxt){
@@ -268,33 +288,28 @@ double PredictPPM(  const char *message, unsigned ch_pred, Node *tree, unsigned 
 
 
 
-double PredictPPMExclusion(const char *message, unsigned ch_pred, Node *tree, unsigned char mode, unsigned int context_len){
- 
-  if(!tree){
-    fprintf(stderr,"Error: dead root\n");
-    return 0; 
-  }
 
-  int i=strlen(message);
-  unsigned int count = 0;
-  while(i>=0 && count < context_len){ 
-    i--;
-    count++;
-  }  
-  i++; 
-  message += i;  // move the pointer to context prediction <addres> + ds:0x[context_len] 
-
-  // with the vines we should only need one traversal, find the highest order message
+/* Predict PPM with exclusions, function takes in memory buffer pointer, and returns
+ * number of values placed in the array before a probability was found. A zero value
+ * indicates an escape should be encoded. 
+ *
+ * How the escape character range is calculated is moved into the arithmetic coder, where 
+ * T is incremented, and counts changed to reflect the inclusion of the escape character
+*/
+unsigned int PredictPPMExclusion(   const char *message, unsigned ch_pred, 
+                                    Node *tree, unsigned char mode, unsigned int context_len,
+                                    unsigned int *frequency_buffer)
+{ 
   Node *t = tree; 
   Edge *e = 0; 
   unsigned int char_occurance = 0;
   unsigned char ch = *message; 
 
   unsigned int order = 0;
-  double prob = 0.0;
-  double weight = 1.0; 
+  unsigned int freq_pos = 0; 
   
   bool ascii_exclude[255] = {false}; 
+  
   while(ch){ 
     order++; 
     for(e=t->leaves;e;e=e->nxt){
@@ -331,39 +346,16 @@ double PredictPPMExclusion(const char *message, unsigned ch_pred, Node *tree, un
       }
     }
 
-    double e_o = 1.0;
-    if(mode=='A')
-      e_o = 1/(double)(Co+1);
-    else if (mode == 'B' && edges && Co)
-      e_o = edges/(double)(Co); 
-    else if(mode == 'C' && edges)
-      e_o = edges/(double)(Co+edges);
-
 //    fprintf(stderr,"order  %d:: q_o: %d, c_o: %d, C_o: %d, e_o: %f, weight: %f\n",order,edges, char_occurance, Co,e_o,weight);  
 
-    if(char_occurance){
-      double WoPo = 0.0;  
-      if(mode == 'A'){
-        WoPo = (char_occurance)/(double)(Co+1);
-        return WoPo * weight;
-      }
-      else if (mode == 'B' && char_occurance > 1){      
-        WoPo = (char_occurance-1)/(double)(Co);
-        return WoPo * weight;
-      }
-      else if (mode == 'C'){
-        WoPo = (char_occurance)/(double)(Co+edges); 
-        return WoPo *weight;
-      }
-    }
-
-    // edge will be gone by the time we get to order-0
+    frequency_buffer[freq_pos++] = 0; // an escape should be encoded.
     
-    weight *= e_o; 
     order--;
     t = t->vine;
   }
   
+  double prob = 0.0;
+  double weight = 0.0; 
  // fprintf(stderr,"order -1:: excluded: %d,  weight: %f\n",excluded,weight);  
   prob += weight * 1/(double)(5-excluded); 
   return prob; 

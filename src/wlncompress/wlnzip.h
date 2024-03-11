@@ -17,7 +17,7 @@ typedef struct  BitStream{
 bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel); 
 bool WLNinflate(FILE *ifp, FSMAutomata *wlnmodel); 
 
-BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned char escape_type,bool add_terminal); 
+BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned char escape_type); 
 bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigned char escape_type); 
 
 

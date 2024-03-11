@@ -86,12 +86,11 @@ int main(int argc, char *argv[]){
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     if(wlnmodel->states[i]->accept){
       wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
+      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'x');
     }
   }
-
+  
   wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,'x');  // x is a chosen terminal here, can change
-
-
 
 #if DEFLATE // experimental, for comparison only
   if(mode == 1){
@@ -161,7 +160,7 @@ int main(int argc, char *argv[]){
   }
   else if (mode == 3){
      
-    BitStream *bitstream = WLNPPMCompressBuffer(input, wlnmodel, ESCAPE,true);
+    BitStream *bitstream = WLNPPMCompressBuffer(input, wlnmodel, ESCAPE);
     if(!bitstream)
       return 1; 
    
