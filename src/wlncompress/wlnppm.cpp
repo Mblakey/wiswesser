@@ -11,7 +11,6 @@
 
 #include "wlnzip.h"
 
-unsigned int decode_zero_added = 0; 
 
 #define NGRAM 4
 #define PPM 1
@@ -68,18 +67,6 @@ void WriteBits(std::string &stream){
       ch = 0; 
     }
   }
-  
-  while(pos < 8){
-    if(decode_zero_added)
-     ch ^= (1 << (7-pos));
-    else
-      decode_zero_added = true;
-    pos++;
-
-    fprintf(stderr,"adding ones\n"); 
-  }
-
-  fputc(ch, stdout);
 }
 
 /* updates the lookback array, returns the node for the longest 
@@ -239,41 +226,40 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
     low = new_low;
     high = new_high;
 
-    unsigned char lb = low & (1 << 15) ? 1:0;
-    unsigned char hb = high & (1 << 15) ? 1:0;
-    unsigned char lb2 = low & (1 << 14) ? 1:0;
-    unsigned char hb2 = high & (1 << 14) ? 1:0;
-    unsigned char ubit = lb ? 0:1;
+    for(;;){
+      
+      unsigned char lb = low & (1 << 15) ? 1:0;
+      unsigned char hb = high & (1 << 15) ? 1:0;
+      unsigned char lb2 = low & (1 << 14) ? 1:0;
+      unsigned char hb2 = high & (1 << 14) ? 1:0;
 
-    if(lb == hb){
-      while(lb == hb){
+      if(lb == hb){
         Append(lb,bitstream);
         assigned++;
-  
+
         low <<= 1; // shift in the zero 
         high <<= 1; // shift in zero then set to 1.
         high ^= 1;
-        lb = low & (1 << 15) ? 1:0;
-        hb = high & (1 << 15) ? 1:0;
 
-        if(underflow_bits){
-          for(unsigned int i=0;i<underflow_bits;i++){
-            Append(ubit, bitstream);  
-            assigned++;
-          }
-          underflow_bits = 0;
+        for(unsigned int i=0;i<underflow_bits;i++){
+          Append(!lb, bitstream);  
+          assigned++;
         }
+        underflow_bits = 0;
       }
-    }
-    else if (lb2 && !hb2){      
-      low <<= 1;
-      high <<= 1; 
+      else if (lb2 && !hb2){      
 
-      low ^= (1 << 15);
-      high ^= (1 << 15);
-      high ^= 1;
-      
-      underflow_bits++;
+        high <<= 1; 
+        high ^= (1 << 15);
+        high ^= 1;
+
+        low <<= 1;
+        low &= (1 << 15)-1;
+        
+        underflow_bits++;
+      }
+      else 
+        break; 
     }
 
 
@@ -371,8 +357,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
     bit = bit->nxt;
   }
 
-    // pre-load next char if relevent
-  enc_pos = 0;
+  // pre-load next char if relevent
   for(;;){
      
     unsigned int T = 0; 
@@ -502,13 +487,13 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
     low = new_low;
     high = new_high;
 
-    unsigned char lb = low & (1 << 15) ? 1:0;
-    unsigned char hb = high & (1 << 15) ? 1:0;
-    unsigned char lb2 = low & (1 << 14) ? 1:0;
-    unsigned char hb2 = high & (1 << 14) ? 1:0;
+    for(;;){
+      unsigned char lb = low & (1 << 15) ? 1:0;
+      unsigned char hb = high & (1 << 15) ? 1:0;
+      unsigned char lb2 = low & (1 << 14) ? 1:0;
+      unsigned char hb2 = high & (1 << 14) ? 1:0;
 
-    if(lb == hb){
-      while(lb == hb){
+      if(lb == hb){
 
         low <<= 1; // shift in the zero 
         high <<= 1; // shift in zero then set to 1.
@@ -522,30 +507,23 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
         lb = low & (1 << 15) ? 1:0;
         hb = high & (1 << 15) ? 1:0;
       }
-    }
-    else if (lb2 && !hb2){      
-      enc_pos = 0;
-      unsigned short int encoded_shift = 0; 
-      for(int j=15;j>=0;j--){
-        if(j != 14){
-          if (encoded & (1 << j))
-            encoded_shift ^= (1 << (15-enc_pos) );
-          enc_pos++;
-        }
-      }
-
-      encoded_shift |= bit->b; 
-      if(bit->nxt)
-        bit = bit->nxt;
+      else if (lb2 && !hb2){      
+        unsigned short int msb = encoded >> 15;
+        unsigned short int rest = encoded & 0x3fff; // bits 0 to 14
+        encoded = (msb<<15)|(rest<<1)|bit->b; 
+        if(bit->nxt)
+          bit = bit->nxt;
     
-      encoded = encoded_shift; // set the bit to spliced
 
-      low <<= 1;
-      high <<= 1; 
-
-      low ^= (1 << 15);
-      high ^= (1 << 15);
-      high ^= 1;
+        high <<= 1; 
+        high ^= (1 << 15);
+        high ^= 1;
+        
+        low <<= 1;
+        low &= (1 << 15) -1;
+      }
+      else 
+        break;
     }
   }
 
