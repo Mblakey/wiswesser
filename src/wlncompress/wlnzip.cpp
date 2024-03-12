@@ -9,7 +9,7 @@
 const char *input;
 unsigned int mode = 0; 
 
-#define DEFLATE 0
+#define DEFLATE 0 
 #define ESCAPE 'A'
 
 static void DisplayUsage()

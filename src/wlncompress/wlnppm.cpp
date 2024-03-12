@@ -12,8 +12,7 @@
 #define PPM 1
 #define ALPHABET 42
 #define TERMINATE 'x'
-#define EXCLUSION 'e'
-#define ASCII_EXCLUDES 0
+#define ASCII_EXCLUDES 1
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
