@@ -4,19 +4,16 @@
 #include <math.h>
 #include <string.h>
 
-#include <string>
-
 #include "rfsm.h"
 #include "ctree.h"
-
 #include "wlnzip.h"
 
-
-#define NGRAM 4
-#define PPM 0
+#define NGRAM 5
+#define PPM 1
 #define ALPHABET 42
 #define TERMINATE 'x'
-
+#define EXCLUSION 'e'
+#define ASCII_EXCLUDES 0
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
@@ -101,7 +98,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
     unsigned int Cn = 0; 
 
 #if PPM
-    bool encoding_escape = 0; // this stops ch pointer incrementing
+    bool encoding_escape = false; // this stops ch pointer incrementing
     unsigned int e_o = 1; 
     
     // order- -1 model, escape is not needed here 
@@ -150,7 +147,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
       if(!found){
         encoding_escape = true;
         Cn += e_o; // escape probability to high range
-      
+#if ASCII_EXCLUDES
       // exclude the characters
         for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -158,6 +155,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
             excluded++;
           }
         }
+#endif
       }
       
       // encoded char will be something just not in the trie, test binded candidancy
@@ -415,6 +413,8 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
       }
       
       if(!found){
+
+#if ASCII_EXCLUDES
         // must be an escape character, add ascii exclusion and move back a vine
         for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -422,6 +422,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
             excluded++; 
           }
         }
+#endif
         curr_context = curr_context->vine;
         Cn += e_o; 
       }
@@ -528,14 +529,15 @@ void print_bits(unsigned char *ch){
   }
 }
 
+
+
 bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type){
     
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x', EXCLUSION = 'e'
   wlnmodel->AssignEqualProbs(); // you moron
    
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
-  
   
   unsigned int read_bytes = 0; 
   unsigned int out_bits = 0; 
@@ -546,12 +548,12 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
 
   unsigned int seen_context = 0;
   unsigned char lookback[NGRAM+1] = {0}; 
-  bool ascii_exclude[255] = {false};  // for exclusion mechanism
+  bool ascii_exclude[256] = {false};  // for exclusion mechanism
   unsigned int excluded = 0; 
 
   bool stop = false;
    
-  Node *root = AllocateTreeNode('0', 0); // place to return to
+  Node *root = AllocateTreeNode('.', 0); // place to return to
   Node *curr_context = 0; 
   Edge *cedge = 0; 
   root->c = 1; 
@@ -568,16 +570,15 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
   
 
   for(;;){
-
+    
     bool found = 0; 
     unsigned int T = 0;
     unsigned int Cc = 0; 
     unsigned int Cn = 0; 
-
-#if PPM
-    bool encoding_escape = 0; // this stops ch pointer incrementing
     unsigned int e_o = 1; 
     
+#if PPM
+    bool encoding_escape = 0; // this stops ch pointer incrementing
     // order- -1 model, escape is not needed here 
     if(!curr_context){
       T = ALPHABET-excluded; 
@@ -608,23 +609,21 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
       
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
         if(!ascii_exclude[cedge->dwn->ch]){
-          
           if(cedge->dwn->ch == ch){
             Cn += cedge->dwn->c;
             found = true; 
             break;
           }
           Cc+= cedge->dwn->c;
-
         }
       }
-
       Cn+=Cc; 
       
       if(!found){
         encoding_escape = true;
         Cn += e_o; // escape probability to high range
-      
+              
+#if ASCII_EXCLUDES
       // exclude the characters
         for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -632,9 +631,8 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
             excluded++;
           }
         }
+#endif
       }
-      
-      // encoded char will be something just not in the trie, test binded candidancy
     }
 #else 
     unsigned int edges = 0; 
@@ -687,7 +685,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
           stream = 0;
           stream_pos = 0;
         }
-
         out_bits++; 
 
         low <<= 1; // shift in the zero 
@@ -725,11 +722,10 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
 // #################################################################################
 #if PPM
     if(!encoding_escape){
-      
+
       if(seen_context < NGRAM)
         lookback[seen_context++] = ch;
       else{      
-        // escaping with no context is pointless
         for(unsigned int i=0;i<NGRAM-1;i++)
           lookback[i] = lookback[i+1]; 
         lookback[NGRAM-1] = ch; 
@@ -749,27 +745,26 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
       if(stop)
         break; 
       else{
-        if(!fread(&ch,sizeof(unsigned char),1,ifp))
-          ch = 0; 
+        if(!fread(&ch,sizeof(unsigned char),1,ifp)){
+          ch = TERMINATE;
+          stop = true;
+        }
         else
-         read_bytes++; 
+          read_bytes++; 
       }
     }
 #else
     if(stop)
       break;
     else{
-      if(!fread(&ch,sizeof(unsigned char),1,ifp))
-        ch = 0; 
+      if(!fread(&ch,sizeof(unsigned char),1,ifp)){
+        ch = TERMINATE; 
+        stop = true;
+      }
       else
         read_bytes++; 
     }
 #endif
-
-    if(!ch){
-      stop = true;
-      ch = TERMINATE; // special character for WLN ending
-    }
   }
 
   append_bit(0, &stream); 
@@ -785,7 +780,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
     append_bit(1, &stream);
     stream_pos++;
     out_bits++;
-  } 
+  }
   fputc(stream,stdout);
   
   fprintf(stderr,"%d/%d bits = %f\n",out_bits,read_bytes*8, (read_bytes*8)/(double)out_bits); 
@@ -822,7 +817,7 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
 
   for(unsigned int i=0;i<2;i++){ // read 16 max into encoded
     if(!fread(&ch,sizeof(unsigned char),1,ifp))
-      ch = 0;
+      ch = UINT8_MAX;
     
     for(int j=7;j>=0;j--){
       if( (ch & (1 << j))==0 )  
@@ -834,8 +829,9 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
    
   // pre-load next char, ready for transfer
   shift_pos = 0;
-  fread(&ch,sizeof(unsigned char),1,ifp);
-  
+  if(!fread(&ch,sizeof(unsigned char),1,ifp))
+    ch = UINT8_MAX; 
+
   for(;;){
     
     unsigned int T = 0; 
@@ -863,7 +859,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
         if(!ascii_exclude[wln[a]]){
           Cn += 1; 
           if(scaled_sym >= Cc && scaled_sym < Cn){
-
             if(wln[a] == TERMINATE)
               return true;
             else{
@@ -875,7 +870,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
                   lookback[i] = lookback[i+1]; 
                 lookback[NGRAM-1] = wln[a];  
               }
-             
               BuildContextTree(root, (const char*)lookback, seen_context);
               memset(ascii_exclude,0,255);
               excluded = 0; 
@@ -897,7 +891,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
           if(scaled_sym >= Cc && scaled_sym < Cn){   
             found = true;
             fputc(cedge->dwn->ch,stdout);
-
             if(seen_context < NGRAM)
               lookback[seen_context++] = cedge->dwn->ch;
             else{   
@@ -908,8 +901,8 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
              
             BuildContextTree(root, (const char*)lookback, seen_context);
             memset(ascii_exclude,0,255);
-            excluded = 0; 
-             
+            excluded = 0;
+
             curr_context = UpdateCurrentContext(root,lookback,seen_context);    
             break;
           }
@@ -920,12 +913,14 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
       
       if(!found){
         // must be an escape character, add ascii exclusion and move back a vine
+#if ASCII_EXCLUDES
         for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
             ascii_exclude[cedge->dwn->ch] = true;
-            excluded++; 
+            excluded++;
           }
         }
+#endif
         curr_context = curr_context->vine;
         Cn += e_o; 
       }
@@ -954,7 +949,7 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
 #endif
 
     unsigned int new_low = (unsigned int)low + (unsigned int)floor((range*Cc)/T); 
-    unsigned int new_high = (unsigned int)low + (unsigned int)floor((range*Cn)/T)-1;  // should there be a minus 1 here?
+    unsigned int new_high = (unsigned int)low + (unsigned int)floor((range*Cn)/T)-1;  
                                                                           
     low = new_low;
     high = new_high;
@@ -978,7 +973,7 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
         if(shift_pos == 8){
           if(!fread(&ch,sizeof(unsigned char),1,ifp))
             ch = UINT8_MAX;
-          shift_pos = 0; 
+          shift_pos = 0;
         }
 
         // move a bit from ch to encoded.

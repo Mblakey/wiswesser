@@ -145,8 +145,16 @@ void BuildContextTree(Node *root, const char *str,unsigned int context_len){
       prev->vine = t; 
     prev = t; 
 
-    if(found)
+    if(found){
       t->c++;
+
+#define BASIC_SCALE 1
+#if BASIC_SCALE
+      if(t->c == 64)
+        t->c = 16;
+#endif
+    }
+
 
     j++;
   }
