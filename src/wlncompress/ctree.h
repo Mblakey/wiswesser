@@ -1,5 +1,5 @@
-#ifndef TPPM_H
-#define TPPM_H
+#ifndef CTREE_H
+#define CTREE_H
 
 #include <stdio.h>
 
@@ -31,9 +31,6 @@ void WriteDotFile(Node *root, FILE *stream);
 void BuildContextTree(Node *root,const char *str, unsigned int context_len);
 bool BuildContextTreeUpdateExclusion(Node *root,const char *str, unsigned int context_len);
 void RunbackContext(Node *node);
-
-double PredictPPMExclusion(const char *message, unsigned ch_pred, Node *tree, unsigned char mode, unsigned int context_len);
-double PredictPPMLazyExclusion(const char *message, unsigned ch_pred, Node *tree, unsigned char mode, unsigned int context_len);
 
 
 #endif 

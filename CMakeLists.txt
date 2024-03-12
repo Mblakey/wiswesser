@@ -32,9 +32,9 @@ add_executable(wlnzip
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnzip.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlndeflate.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/lz.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/lempelz.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/ppm.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/context_trie.cpp
 )
 
 

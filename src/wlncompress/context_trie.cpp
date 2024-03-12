@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ppm.h"
+#include "ctree.h"
 
 unsigned int debug_id = 1; 
 
@@ -360,7 +360,6 @@ unsigned int PredictPPMExclusion(   const char *message, unsigned ch_pred,
   prob += weight * 1/(double)(5-excluded); 
   return prob; 
 }
-
 
 
 

@@ -167,8 +167,8 @@ int main(int argc, char *argv[]){
     if(!WLNPPMDecompressBuffer(bitstream, wlnmodel, ESCAPE))
       return 1; 
     
-    
     fprintf(stdout,"\n"); 
+    DeleteStream(bitstream); 
   }
 #endif
 

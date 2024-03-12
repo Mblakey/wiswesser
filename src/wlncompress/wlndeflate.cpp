@@ -8,7 +8,7 @@
 
 #include "rfsm.h"
 #include "huffman.h"
-#include "lz.h"
+#include "lempelz.h"
 
 #include "wlnzip.h"
 

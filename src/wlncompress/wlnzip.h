@@ -9,10 +9,16 @@
 
 #include "rfsm.h"
 
+/* debugging bitstream struct, not for release application */
 typedef struct  BitStream{
   unsigned char b; 
   struct BitStream *nxt; 
-}BitStream; 
+}BitStream;
+
+
+void ReadStream(BitStream *stream);
+void DeleteStream(BitStream *stream);
+void Append(unsigned char b, BitStream *stream);
 
 bool WLNdeflate(FILE *ifp, FSMAutomata *wlnmodel); 
 bool WLNinflate(FILE *ifp, FSMAutomata *wlnmodel); 

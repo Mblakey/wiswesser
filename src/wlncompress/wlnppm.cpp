@@ -7,7 +7,7 @@
 #include <string>
 
 #include "rfsm.h"
-#include "ppm.h"
+#include "ctree.h"
 
 #include "wlnzip.h"
 
@@ -53,7 +53,8 @@ void Append(unsigned char b, BitStream *stream){
 }
 
 
-void OutputStream(std::string &stream){
+
+void WriteBits(std::string &stream){
   unsigned int  pos = 0; 
   unsigned char ch  = 0; 
   for(unsigned int i=0;i<stream.size();i++){
@@ -80,6 +81,23 @@ void OutputStream(std::string &stream){
 
   fputc(ch, stdout);
 }
+
+/* updates the lookback array, returns the node for the longest 
+ * context ready for next iteration */
+Node* UpdateCurrentContext(Node *root, unsigned char *lookback, unsigned int seen_context){
+  Node * curr_context = root;
+  Edge *cedge = 0; 
+  for(unsigned int i=1;i<seen_context;i++){
+    for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
+      if(cedge->dwn->ch == lookback[i]){
+        curr_context = cedge->dwn;
+        break;
+      }
+    }
+  }
+  return curr_context;
+}
+
 
 BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned char escape_mode){ 
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
@@ -263,6 +281,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
 // PPM trie update happens after an encoding so the decompressor can keep up
 #if PPM
     if(!encoding_escape){
+      
       if(seen_context < NGRAM)
         lookback[seen_context++] = ch;
       else{      
@@ -276,16 +295,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
       memset(ascii_exclude,0,255);
       excluded = 0; 
     
-      curr_context = root;
-      for(unsigned int i=1;i<seen_context;i++){
-        for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
-          if(cedge->dwn->ch == lookback[i]){
-            curr_context = cedge->dwn;
-            break;
-          }
-        }
-      }
-    
+      curr_context = UpdateCurrentContext(root,lookback,seen_context);    
     }
     else
       curr_context = curr_context->vine; // move to the lower context
@@ -315,6 +325,10 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
   }
      
 //  WriteDotFile(root, stdout); 
+  
+  Append(0, bitstream);
+  Append(1, bitstream);
+  assigned+=2; 
 
   fprintf(stderr,"%d/%d bits = %f\n",assigned,read*8, (read*8)/(double)assigned); 
   RReleaseTree(root);
@@ -335,7 +349,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
    
   unsigned short int low = 0; 
   unsigned short int high = UINT16_MAX;
-  unsigned short int encoded = 0;
+  unsigned short int encoded = UINT16_MAX;
   unsigned int enc_pos = 0; 
 
   unsigned int seen_context = 0;   
@@ -349,8 +363,8 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
   Edge *cedge = 0; 
   root->c = 1; 
 
-  while(bit && enc_pos < 16){ // read 16 max into encoded
-    if(bit->b)
+  while(bit->nxt && enc_pos < 16){ // read 16 max into encoded
+    if(!bit->b)
       encoded ^= (1 << (15-enc_pos) );
 
     enc_pos++;
@@ -392,7 +406,6 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
               return true;
             else{
               fputc(wln[a],stdout);
-              // build the trie immediately
               if(seen_context < NGRAM)
                 lookback[seen_context++] = wln[a];
               else{   
@@ -404,18 +417,10 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
               BuildContextTree(root, (const char*)lookback, seen_context);
               memset(ascii_exclude,0,255);
               excluded = 0; 
-              
-              curr_context = root;
-              for(unsigned int i=1;i<seen_context;i++){
-                for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
-                  if(cedge->dwn->ch == lookback[i]){
-                    curr_context = cedge->dwn;
-                    break;
-                  }
-                }
-              }
+
+              curr_context = UpdateCurrentContext(root,lookback,seen_context);    
+              break;
             }
-            break;
           }
           else
             Cc += 1; 
@@ -442,17 +447,8 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
             BuildContextTree(root, (const char*)lookback, seen_context);
             memset(ascii_exclude,0,255);
             excluded = 0; 
-              
-            curr_context = root;
-            for(unsigned int i=1;i<seen_context;i++){
-              for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
-                if(cedge->dwn->ch == lookback[i]){
-                  curr_context = cedge->dwn;
-                  break;
-                }
-              }
-            }
-
+             
+            curr_context = UpdateCurrentContext(root,lookback,seen_context);    
             break;
           }
           else 
@@ -468,7 +464,6 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
             excluded++; 
           }
         }
-        
         curr_context = curr_context->vine;
         Cn += e_o; 
       }
@@ -520,16 +515,9 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
         high ^= 1;
 
         encoded <<= 1;
-
-        if(bit){
-          if(bit->b)
-            encoded ^= 1; 
+        encoded |= bit->b; 
+        if(bit->nxt)
           bit = bit->nxt;
-        }              
-        else if(!decode_zero_added)
-          decode_zero_added = 1;
-        else
-          encoded ^= 1;
 
         lb = low & (1 << 15) ? 1:0;
         hb = high & (1 << 15) ? 1:0;
@@ -546,18 +534,10 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
         }
       }
 
-
-      if(bit){
-        if(bit->b)
-          encoded_shift ^= 1; 
-
+      encoded_shift |= bit->b; 
+      if(bit->nxt)
         bit = bit->nxt;
-      }
-      else if(!decode_zero_added)
-        decode_zero_added = 1;
-      else
-        encoded_shift ^= 1; // inf ones if needed to end the message
-      
+    
       encoded = encoded_shift; // set the bit to spliced
 
       low <<= 1;
@@ -574,9 +554,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
 }
 
 
-
- bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type){
- return true;}
+bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type){return true;}
 //   std::string bitstream; 
 //
 //   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
@@ -735,16 +713,15 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
 //     read++; 
 //   }
 //   
-//   OutputStream(bitstream); 
+//   WriteBits(bitstream); 
 //
 //   fprintf(stderr,"bit stream: %d/%d = %f\n",bitstream.size(), read*8, (read*8)/(double)bitstream.size()); 
 //   RReleaseTree(root);  
 //   return true;
 // }
-//
-//
-//
-//
+
+
+
 bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type){return true;}
 //   
 //   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx";

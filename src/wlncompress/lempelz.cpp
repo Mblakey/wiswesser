@@ -1,6 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
-#include "lz.h"
+#include "lempelz.h"
 
 /* 
 we can keep the original DEFLATE specification for distances, but for lengths we,
