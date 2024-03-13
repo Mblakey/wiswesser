@@ -12,7 +12,9 @@
 #define PPM 1
 #define ALPHABET 42
 #define TERMINATE 'x'
+#define UPDATE_EXCLUSION 0
 #define ASCII_EXCLUDES 1
+#define ESCAPE 'C'
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
@@ -55,7 +57,7 @@ Node* UpdateCurrentContext(Node *root, unsigned char *lookback, unsigned int see
 }
 
 
-BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned char escape_mode){ 
+BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){ 
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
   wlnmodel->AssignEqualProbs();
   
@@ -247,7 +249,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
         lookback[NGRAM-1] = ch; 
       }
 
-      BuildContextTree(root, (const char*)lookback, seen_context); 
+      BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION); 
       memset(ascii_exclude,0,255);
       excluded = 0; 
     
@@ -293,7 +295,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel, unsigned
 
 
 
-bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigned char escape_type){
+bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
    
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx";
   wlnmodel->AssignEqualProbs(); // you moron
@@ -369,7 +371,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
                 lookback[NGRAM-1] = wln[a];  
               }
              
-              BuildContextTree(root, (const char*)lookback, seen_context);
+              BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
               memset(ascii_exclude,0,255);
               excluded = 0; 
 
@@ -399,7 +401,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel, unsigne
               lookback[NGRAM-1] = cedge->dwn->ch;  
             }
              
-            BuildContextTree(root, (const char*)lookback, seen_context);
+            BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
             memset(ascii_exclude,0,255);
             excluded = 0; 
              
@@ -530,7 +532,7 @@ void print_bits(unsigned char *ch){
 
 
 
-bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type){
+bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x', EXCLUSION = 'e'
   wlnmodel->AssignEqualProbs(); // you moron
@@ -575,7 +577,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
     unsigned int Cc = 0; 
     unsigned int Cn = 0; 
     unsigned int e_o = 1; 
-    
+
 #if PPM
     bool encoding_escape = 0; // this stops ch pointer incrementing
     // order- -1 model, escape is not needed here 
@@ -598,12 +600,18 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
     }
     else{
       bool found = false;
+      unsigned int scontexts = 0; 
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
-        if(!ascii_exclude[cedge->dwn->ch])
+        if(!ascii_exclude[cedge->dwn->ch]){
           T += cedge->dwn->c;
+          scontexts++; 
+        }
       }
-      
+       
+      if(ESCAPE == 'C')
+        e_o = scontexts ? scontexts:1;
       // methods for escape calculation go here
+
       T+= e_o; // add the escape frequency in
       
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
@@ -730,7 +738,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
         lookback[NGRAM-1] = ch; 
       }
 
-      BuildContextTree(root, (const char*)lookback, seen_context); 
+      BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION); 
       memset(ascii_exclude,0,255);
       excluded = 0; 
     
@@ -789,7 +797,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_t
 
 
 
-bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape_type){
+bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
   const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx";
   wlnmodel->AssignEqualProbs(); // you moron
@@ -843,10 +851,16 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
       T = ALPHABET-excluded; 
     }
     else{
+      unsigned int scontexts = 0;
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
-        if(!ascii_exclude[cedge->dwn->ch])
+        if(!ascii_exclude[cedge->dwn->ch]){
           T+= cedge->dwn->c;
+          scontexts++; 
+        }
       }
+
+      if(ESCAPE == 'C')
+        e_o = scontexts ? scontexts:1;
       T+= e_o; 
     }
 
@@ -869,7 +883,7 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
                   lookback[i] = lookback[i+1]; 
                 lookback[NGRAM-1] = wln[a];  
               }
-              BuildContextTree(root, (const char*)lookback, seen_context);
+              BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
               memset(ascii_exclude,0,255);
               excluded = 0; 
 
@@ -898,7 +912,7 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel, unsigned char escape
               lookback[NGRAM-1] = cedge->dwn->ch;  
             }
              
-            BuildContextTree(root, (const char*)lookback, seen_context);
+            BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
             memset(ascii_exclude,0,255);
             excluded = 0;
 

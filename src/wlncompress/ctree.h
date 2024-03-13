@@ -28,8 +28,7 @@ Edge *AllocateTreeEdge(Node *p, Node *c);
 void RReleaseTree(Node *root);
 void WriteDotFile(Node *root, FILE *stream);
 
-void BuildContextTree(Node *root,const char *str, unsigned int context_len);
-bool BuildContextTreeUpdateExclusion(Node *root,const char *str, unsigned int context_len);
+void BuildContextTree(Node *root,const char *str, unsigned int context_len,bool update_exclusion);
 void RunbackContext(Node *node);
 
 

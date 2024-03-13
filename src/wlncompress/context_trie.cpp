@@ -109,7 +109,7 @@ Node *search_tree(const char *str, Node*root, unsigned int k){
  * node seen/created, meaning decrementing through the vines to the root node is a way
  * to quickly parse contexts, will return the longest node, use prev if context_len == top
  * */
-void BuildContextTree(Node *root, const char *str,unsigned int context_len){
+void BuildContextTree(Node *root, const char *str,unsigned int context_len,bool update_exclusion){
 
   Node *t = root;
   unsigned int j = 0;
@@ -144,9 +144,15 @@ void BuildContextTree(Node *root, const char *str,unsigned int context_len){
     if(prev)
       prev->vine = t; 
     prev = t; 
-
+    
     if(found){
-      t->c++;
+      
+      if(update_exclusion){
+        if(j==0)
+          t->c++;
+      }
+      else
+        t->c++;
 
 #define BASIC_SCALE 1
 #if BASIC_SCALE
@@ -160,50 +166,6 @@ void BuildContextTree(Node *root, const char *str,unsigned int context_len){
   }
 
   return;
-}
-
-
-
-bool BuildContextTreeUpdateExclusion(Node *root, const char *str, unsigned int context_len){
-    
-  Node *t = root;
-  unsigned int j = 0;
-  Node *prev = 0; 
-  while(j < context_len){
-    bool found = false;
-    t = root; 
-    for(unsigned int k = j; k < context_len;k++){
-      found=false;
-      for(Edge *e=t->leaves;e;e=e->nxt){
-        if(e->dwn->ch == str[k]){
-          t = e->dwn;
-          found = true;
-        }
-      }
-    
-      if(!found){
-        Node *n = AllocateTreeNode(str[k], debug_id++);
-        AllocateTreeEdge(t, n);
-        
-        if(t==root)
-          n->vine = t; 
-
-        t = n;
-        t->c=1;
-      }
-
-    }
-    
-    if(prev)
-      prev->vine = t; 
-    prev = t;
-
-    if(found && j==0)
-      t->c++; 
-    j++;
-  }
-  
-  return root;
 }
 
 

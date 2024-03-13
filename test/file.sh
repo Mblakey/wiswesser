@@ -3,6 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 READ="${SCRIPT_DIR}/../build/readwln"
 WRITE="${SCRIPT_DIR}/../build/writewln"
+COMP="${SCRIPT_DIR}/../build/obcomp"
 FILE=""
 MODE=0
 
@@ -49,15 +50,25 @@ main(){
     ((LINE++));
     OUT=""
     if [ $MODE -eq 1 ]; then
-      OUT=$($READ -osmi "${ENTRY}" 2> /dev/null)
+      OUT=$($READ -ocan "${ENTRY}" 2> /dev/null)
     elif [ $MODE -eq 2 ]; then 
-      OUT=$($WRITE -ismi "${ENTRY}" 2> /dev/null)
+      # guarentee the round trip, slow but accurate
+      OUT=$($WRITE -ican "${ENTRY}" 2> /dev/null)
+      RT=$($READ -osmi "${OUT}" 2> /dev/null)      
+      if [ -z "$RT" ]; then
+        OUT=""
+      fi
+
+      SAME=$($COMP "$ENTRY" "$RT")
+      if [[ "$SAME" != "1" ]]; then
+        OUT=""
+      fi;
     fi; 
 
     if [ -n "$OUT" ]; then
       echo -ne "${OUT}\n"
     else
-      echo -ne "null\n"
+      echo -ne "FAIL: ${ENTRY}\n"
     fi
   done <$FILE
   exit 0

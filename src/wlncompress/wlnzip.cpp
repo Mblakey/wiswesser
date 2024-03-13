@@ -10,7 +10,6 @@ const char *input;
 unsigned int mode = 0; 
 
 #define DEFLATE 0 
-#define ESCAPE 'A'
 
 static void DisplayUsage()
 {
@@ -136,7 +135,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
     
-    if(!WLNPPMCompressFile(fp, wlnmodel, ESCAPE)){
+    if(!WLNPPMCompressFile(fp, wlnmodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -151,7 +150,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
 
-    if(!WLNPPMDecompressFile(fp, wlnmodel, ESCAPE)){
+    if(!WLNPPMDecompressFile(fp, wlnmodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -160,11 +159,11 @@ int main(int argc, char *argv[]){
   }
   else if (mode == 3){
      
-    BitStream *bitstream = WLNPPMCompressBuffer(input, wlnmodel, ESCAPE);
+    BitStream *bitstream = WLNPPMCompressBuffer(input, wlnmodel);
     if(!bitstream)
       return 1; 
    
-    if(!WLNPPMDecompressBuffer(bitstream, wlnmodel, ESCAPE))
+    if(!WLNPPMDecompressBuffer(bitstream, wlnmodel))
       return 1; 
     
     fprintf(stdout,"\n"); 
