@@ -1952,6 +1952,8 @@ struct BabelGraph{
           ratom = mol->GetAtom(obring->_path[i]);
           atom_shares[ratom]++;
           ring_atoms.insert(ratom); 
+          if(ratom->GetAtomicNum() != 6)
+            local_data.hetero = true;
 
           if(!prev)
             prev = ratom; 
