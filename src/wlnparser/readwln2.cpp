@@ -1520,7 +1520,7 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
 
 WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
 
-  WLNSymbol *carbon = AllocateWLNSymbol('C',graph);
+  WLNSymbol *carbon = AllocateWLNSymbol('1',graph);
   WLNSymbol *hydrogen = 0;
   WLNEdge   *edge = 0;
   
@@ -1529,6 +1529,7 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
   else 
     return 0;
   
+#if FULL_REP
   for(unsigned int i=0;i<3;i++){
     hydrogen = AllocateWLNSymbol('H',graph);
     if(hydrogen)
@@ -1539,6 +1540,7 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
     if(!edge)
       return 0;
   }
+#endif
 
   WLNEdge *bond = AllocateWLNEdge(carbon,head,graph);
   return bond; 
