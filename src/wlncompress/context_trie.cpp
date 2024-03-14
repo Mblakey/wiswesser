@@ -161,7 +161,6 @@ void BuildContextTree(Node *root, const char *str,unsigned int context_len,bool 
 #endif
     }
 
-
     j++;
   }
 

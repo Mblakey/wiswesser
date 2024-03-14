@@ -30,6 +30,7 @@ FSMState * InsertAcyclic(FSMAutomata *acyclic){
   acyclic->AddTransition(root,open_dash,'-');
   acyclic->AddTransition(func_group,open_dash,'-');
   acyclic->AddTransition(digits,open_dash,'-');
+  acyclic->AddTransition(branch,open_dash,'-');
 
   // allow any combo for element definition, at the moment
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
