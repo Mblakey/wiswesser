@@ -585,6 +585,14 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
     wln->AddTransition(charge_negative,charge,' '); 
   }
 
+
+  // barrie walkers WLN note appending // after a space ampersand ampersand, the WLN grep tool should match everything after the string. 
+  
+  FSMState *ampersand_enter_note =  wln->AddState(false);
+  FSMState *ampersand_accept_note =  wln->AddState(true);
+  wln->AddTransition(ion, ampersand_enter_note, '&'); // this should minimise down
+  wln->AddTransition(ampersand_enter_note, ampersand_accept_note, '&'); // this should minimise down
+  wln->AddTransition(ampersand_accept_note, ampersand_accept_note, '*'); // treat this as an epsilon immune to the e-closure. 
   return;
 }
 

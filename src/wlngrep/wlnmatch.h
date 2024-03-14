@@ -92,6 +92,9 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
   unsigned char inp_char = *inp;
 
   while(n <= len){
+    
+    if(inp_char && state->access['*']) // accept all of barrie walkers changes
+      inp_char = '*'; 
 
     if(inp_char && state->access[inp_char]){
       state = state->access[inp_char];
