@@ -10,8 +10,8 @@
 
 #define NGRAM 5
 #define PPM 1
-#define ALPHABET 42
-#define TERMINATE 'x'
+#define ALPHABET 43
+#define TERMINATE '#'
 #define UPDATE_EXCLUSION 0
 #define ASCII_EXCLUDES 1
 #define ESCAPE 'C'
@@ -58,7 +58,7 @@ Node* UpdateCurrentContext(Node *root, unsigned char *lookback, unsigned int see
 
 
 BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){ 
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x'
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#"; // TERMINATE = 'x'
   wlnmodel->AssignEqualProbs();
   
   BitStream *bitstream = (BitStream*)malloc(sizeof(BitStream)); 
@@ -297,7 +297,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
 
 bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
    
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx";
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#";
   wlnmodel->AssignEqualProbs(); // you moron
 
   FSMState *state = wlnmodel->root;
@@ -534,15 +534,12 @@ void print_bits(unsigned char *ch){
 
 bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx"; // TERMINATE = 'x', EXCLUSION = 'e'
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#"; // TERMINATE = '#', EXCLUSION = 'e'
   wlnmodel->AssignEqualProbs(); // you moron
    
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
   
-  unsigned int read_bytes = 0; 
-  unsigned int out_bits = 0; 
-
   unsigned short int low = 0; 
   unsigned short int high = UINT16_MAX; // set all the bits to 11111...n 
   unsigned int underflow_bits = 0;
@@ -563,7 +560,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
   unsigned char stream = 0;
   
   unsigned char ch = 0; 
-  read_bytes++;
   if(!fread(&ch,sizeof(unsigned char),1,ifp)){
     fprintf(stderr,"Error: no data in file\n"); 
     return false;
@@ -611,9 +607,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
       if(ESCAPE == 'C')
         e_o = scontexts ? scontexts:1;
       // methods for escape calculation go here
-
       T+= e_o; // add the escape frequency in
-      
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
         if(!ascii_exclude[cedge->dwn->ch]){
           if(cedge->dwn->ch == ch){
@@ -692,7 +686,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
           stream = 0;
           stream_pos = 0;
         }
-        out_bits++; 
 
         low <<= 1; // shift in the zero 
         high <<= 1; // shift in zero then set to 1.
@@ -706,7 +699,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
             stream = 0; 
             stream_pos = 0;
           }
-          out_bits++; 
         }
 
         underflow_bits = 0;
@@ -756,8 +748,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
           ch = TERMINATE;
           stop = true;
         }
-        else
-          read_bytes++; 
       }
     }
 #else
@@ -775,7 +765,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
   }
 
   append_bit(0, &stream); 
-  out_bits++; 
   stream_pos++;
   if(stream_pos == 8){
     fputc(stream,stdout);
@@ -786,11 +775,8 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
   while(stream_pos < 8){
     append_bit(1, &stream);
     stream_pos++;
-    out_bits++;
   }
   fputc(stream,stdout);
-  
-  fprintf(stderr,"%d/%d bits = %f\n",out_bits,read_bytes*8, (read_bytes*8)/(double)out_bits); 
   RReleaseTree(root);  
   return true;
 }
@@ -799,7 +785,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
 bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- \nx";
+  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#";
   wlnmodel->AssignEqualProbs(); // you moron
 
   FSMState *state = wlnmodel->root;
@@ -845,7 +831,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int Cc = 0;
     unsigned int Cn = 0;
     unsigned int e_o = 1; 
-
 #if PPM
     if(!curr_context){
       T = ALPHABET-excluded; 

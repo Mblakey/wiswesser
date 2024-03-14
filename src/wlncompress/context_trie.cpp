@@ -156,7 +156,7 @@ void BuildContextTree(Node *root, const char *str,unsigned int context_len,bool 
 
 #define BASIC_SCALE 1
 #if BASIC_SCALE
-      if(t->c == 64)
+      if(t->c >= 64)
         t->c = 16;
 #endif
     }
