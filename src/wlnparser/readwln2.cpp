@@ -45,7 +45,6 @@ using namespace OpenBabel;
 
 #define STRUCT_COUNT 1024
 
-
 // --- DEV OPTIONS  ---
 #define OPT_DEBUG 0
 #define OPT_CORRECT 0
@@ -410,7 +409,6 @@ struct WLNBlossom{
   }
 
 };
-
 
 
 // handles all memory and 'global' vars
@@ -3343,7 +3341,6 @@ bool WLNKekulize(WLNGraph &graph){
 /* returns the head of the graph, parse all normal notation */
 bool ParseWLNString(const char *wln_ptr, WLNGraph &graph) 
 {
-  
   // keep the memory alive
   if (OPT_DEBUG)
     fprintf(stderr, "Parsing WLN notation: %s\n",wln_ptr);
@@ -5291,10 +5288,8 @@ struct BabelGraph{
 /**********************************************************************
                          API FUNCTION
 **********************************************************************/
-
 bool ReadWLN(const char *ptr, OBMol* mol)
 {   
-
   if(!ptr){
     fprintf(stderr,"Error: could not read wln string pointer\n");
     return false;
@@ -5327,10 +5322,8 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   return true;
 }
 
-
 bool WriteWLNShort(const char *ptr, OBMol* mol)
 {   
-
   if(!ptr){
     fprintf(stderr,"Error: could not read wln string pointer\n");
     return false;
@@ -5338,29 +5331,12 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
   else 
     wln_string = ptr; 
 
-  unsigned int len = strlen(wln_string);
-
   WLNGraph wln_graph;
   BabelGraph obabel; 
 
   if(!ParseWLNString(ptr,wln_graph))
     return false;
-
+  
   WriteGraph(wln_graph,"wln-graph.dot");
-
-  return true;
-  // this will do the final routine, but the graph needs to be ordered in the right way
-
-    // needs to be this order to allow K to take the methyl groups
-  if(!WLNKekulize(wln_graph))
-    return Fatal(len,"Error: failed to kekulize mol");
-
-  if(!ExpandWLNSymbols(wln_graph,len))
-    return false;
-
-  if(!obabel.ConvertFromWLN(mol,wln_graph,len))
-    return false;
-
-  obabel.NMOBSanitizeMol(mol);
   return true;
 }
