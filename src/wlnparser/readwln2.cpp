@@ -5327,3 +5327,40 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   return true;
 }
 
+
+bool WriteWLNShort(const char *ptr, OBMol* mol)
+{   
+
+  if(!ptr){
+    fprintf(stderr,"Error: could not read wln string pointer\n");
+    return false;
+  }
+  else 
+    wln_string = ptr; 
+
+  unsigned int len = strlen(wln_string);
+
+  WLNGraph wln_graph;
+  BabelGraph obabel; 
+
+  if(!ParseWLNString(ptr,wln_graph))
+    return false;
+
+  WriteGraph(wln_graph,"wln-graph.dot");
+
+  return true;
+  // this will do the final routine, but the graph needs to be ordered in the right way
+
+    // needs to be this order to allow K to take the methyl groups
+  if(!WLNKekulize(wln_graph))
+    return Fatal(len,"Error: failed to kekulize mol");
+
+  if(!ExpandWLNSymbols(wln_graph,len))
+    return false;
+
+  if(!obabel.ConvertFromWLN(mol,wln_graph,len))
+    return false;
+
+  obabel.NMOBSanitizeMol(mol);
+  return true;
+}

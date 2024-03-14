@@ -25,18 +25,11 @@ const char *smiles_1;
 const char *smiles_2; 
 
 
-bool AreSame(double a, double b, const double EPSILON)
-{
-  return fabs(a - b) < EPSILON;
-}
-
-
 static void DisplayUsage()
 {
   fprintf(stderr, "obcomp <smiles> <smiles>\n");
   exit(1);
 }
-
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
@@ -93,8 +86,7 @@ int main(int argc, char *argv[]){
 
   conv.ReadString(&mol_1,smiles_1);
   conv.ReadString(&mol_2,smiles_2);
- 
-    
+  
   // removes all the stereo
   mol_1.DeleteData(27);
   mol_2.DeleteData(27);
