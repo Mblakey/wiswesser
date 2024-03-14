@@ -145,7 +145,6 @@ int main(int argc, char *argv[])
   OBMol mol;
   OBConversion conv;
 
-
   conv.SetInFormat(format);  
   if(!strcmp(format,"mol"))
     res = conv.ReadFile(&mol, cli_inp);
@@ -157,15 +156,9 @@ int main(int argc, char *argv[])
     return 1; 
   }
 
-
   std::string buffer;
   buffer.reserve(1000);
-
-  if(opt_modern){
-    if(!WriteModernWLN(buffer,&mol))
-      return 1; 
-  }
-  else if(!WriteWLN(buffer,&mol))
+  if(!WriteWLN(buffer,&mol,opt_modern))
     return 1;
   
   std::cout << buffer << std::endl;

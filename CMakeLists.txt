@@ -22,7 +22,6 @@ add_executable(readwln
 add_executable(writewln 
   ${PROJECT_SOURCE_DIR}/src/wlnparser/writer.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlnparser/writewln2.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlnparser/modernwln.cpp
 )
 
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/wlnparser/obcomp.cpp)

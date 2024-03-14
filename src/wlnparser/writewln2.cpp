@@ -45,7 +45,9 @@ using namespace OpenBabel;
 #define WLNDEBUG 0
 #define REASONABLE 1024
 #define MACROTOOL 0
-                    
+      
+bool MODERN = 0; 
+
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
 
@@ -457,9 +459,16 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
       assignment_score++;
   
     if(to_write->Size() > 9){
-      buffer+='-';
-      buffer+= std::to_string(to_write->Size());
-      buffer+='-';
+      if(MODERN){
+        buffer+='<';
+        buffer+= std::to_string(to_write->Size());
+        buffer+='>';
+      }
+      else{
+        buffer+='-';
+        buffer+= std::to_string(to_write->Size());
+        buffer+='-';
+      }
     }
     else
       buffer+= std::to_string(to_write->Size());
@@ -848,10 +857,12 @@ struct BabelGraph{
   // recursion tracking
   unsigned int cycle_count; 
   unsigned int last_cycle_seen;
-  
+  bool modern; 
+
   BabelGraph(){
     cycle_count = 0; 
     last_cycle_seen = 0; 
+    modern = 0; 
   };
   ~BabelGraph(){};
 
@@ -948,457 +959,470 @@ struct BabelGraph{
     if(!atom)
       Fatal("writing notation from dead atom ptr");
     // all special elemental cases
+    //
+    
+    if(MODERN)
+      buffer += "<";
+    else
+      buffer += "-";
+
     switch(atom->GetAtomicNum()){
       case 5:
-        buffer += "-B-";
+        buffer += "B";
         break;
 
       case 8:
-        buffer += "-O-";
+        buffer += "O";
         break;
 
       case 9:
-        buffer += "-F-";
+        buffer += "F";
         break;
 
       case 53:
-        buffer += "-I-";
+        buffer += "I";
         break;
 
       case 35:
-        buffer += "-E-";
+        buffer += "E";
         break;
 
       case 17:
-        buffer += "-G-";
+        buffer += "G";
         break; 
 
       case 89:
-        buffer += "-AC-";
+        buffer += "AC";
         break;
 
       case 47:
-        buffer += "-AG-";
+        buffer += "AG";
         break;
     
       case 13:
-        buffer += "-AL-";
+        buffer += "AL";
         break;
 
       case 95:
-        buffer += "-AM-";
+        buffer += "AM";
         break;
 
       case 18:
-        buffer += "-AR-";
+        buffer += "AR";
         break;
 
       case 33:
-        buffer += "-AS-";
+        buffer += "AS";
         break;
 
       case 85:
-        buffer += "-AT-";
+        buffer += "AT";
         break;
 
       case 79:
-        buffer += "-AU-";
+        buffer += "AU";
         break;
 
 
       case 56:
-        buffer += "-BA-";
+        buffer += "BA";
         break;
 
       case 4:
-        buffer += "-BE-";
+        buffer += "BE";
         break;
 
       case 107:
-        buffer += "-BH-";
+        buffer += "BH";
         break;
 
       case 83:
-        buffer += "-BI-";
+        buffer += "BI";
         break;
 
       case 97:
-        buffer += "-BK-";
+        buffer += "BK";
         break;
 
       case 20:
-        buffer += "-CA-";
+        buffer += "CA";
         break;
       
       case 48:
-        buffer += "-CD-";
+        buffer += "CD";
         break;
 
       case 58:
-        buffer += "-CE-";
+        buffer += "CE";
         break;
 
       case 98:
-        buffer += "-CF-";
+        buffer += "CF";
         break;
 
       case 96:
-        buffer += "-CN-";
+        buffer += "CN";
         break;
 
       case 112:
-        buffer += "-CN-";
+        buffer += "CN";
         break;
 
       case 27:
-        buffer += "-CO-";
+        buffer += "CO";
         break;
 
       case 24:
-        buffer += "-CR-";
+        buffer += "CR";
         break;
 
       case 55:
-        buffer += "-CS-";
+        buffer += "CS";
         break;
 
       case 29:
-        buffer += "-CU-";
+        buffer += "CU";
         break;
 
       case 105:
-        buffer += "-DB-";
+        buffer += "DB";
         break;
 
       case 110:
-        buffer += "-DS-";
+        buffer += "DS";
         break;
 
       case 66:
-        buffer += "-DY-";
+        buffer += "DY";
         break;
 
       case 68:
-        buffer += "-ER-";
+        buffer += "ER";
         break;
 
       case 99:
-        buffer += "-ES-";
+        buffer += "ES";
         break;
 
       case 63:
-        buffer += "-EU-";
+        buffer += "EU";
         break;
 
       case 26:
-        buffer += "-FE-";
+        buffer += "FE";
         break;
 
       case 114:
-        buffer += "-FL-";
+        buffer += "FL";
         break;
 
       case 100:
-        buffer += "-FM-";
+        buffer += "FM";
         break;
 
       case 87:
-        buffer += "-FR-";
+        buffer += "FR";
         break;
 
       case 31:
-        buffer += "-GA-";
+        buffer += "GA";
         break;
 
       case 64:
-        buffer += "-GD-";
+        buffer += "GD";
         break;
 
       case 32:
-        buffer += "-GE-";
+        buffer += "GE";
         break;
 
       case 2:
-        buffer += "-HE-";
+        buffer += "HE";
         break;
 
       case 72:
-        buffer += "-HF-";
+        buffer += "HF";
         break;
 
       case 80:
-        buffer += "-HG-";
+        buffer += "HG";
         break;
 
       case 67:
-        buffer += "-HO-";
+        buffer += "HO";
         break;
 
       case 108:
-        buffer += "-HS-";
+        buffer += "HS";
         break;
 
       case 49:
-        buffer += "-IN-";
+        buffer += "IN";
         break;
 
       case 77:
-        buffer += "-IR-";
+        buffer += "IR";
         break;
 
       case 36:
-        buffer += "-KR-";
+        buffer += "KR";
         break;
 
       case 19:
-        buffer += "-KA-";
+        buffer += "KA";
         break;
 
       case 57:
-        buffer += "-LA-";
+        buffer += "LA";
         break;
 
       case 3:
-        buffer += "-LI-";
+        buffer += "LI";
         break;
 
       case 103:
-        buffer += "-LR-";
+        buffer += "LR";
         break;
 
       case 71:
-        buffer += "-LU-";
+        buffer += "LU";
         break;
 
       case 116:
-        buffer += "-LV-";
+        buffer += "LV";
         break;
 
       case 115:
-        buffer += "-MC-";
+        buffer += "MC";
         break;
 
       case 101:
-        buffer += "-MD-";
+        buffer += "MD";
         break;
 
       case 12:
-        buffer += "-MG-";
+        buffer += "MG";
         break;
 
       case 25:
-        buffer += "-MN-";
+        buffer += "MN";
         break;
 
       case 42:
-        buffer += "-MO-";
+        buffer += "MO";
         break;
 
       case 109:
-        buffer += "-MT-";
+        buffer += "MT";
         break;
 
       case 11:
-        buffer += "-NA-";
+        buffer += "NA";
         break;
 
       case 41:
-        buffer += "-NB-";
+        buffer += "NB";
         break;
 
       case 60:
-        buffer += "-ND-";
+        buffer += "ND";
         break;
 
       case 10:
-        buffer += "-NE-";
+        buffer += "NE";
         break;
 
       case 113:
-        buffer += "-NH-";
+        buffer += "NH";
         break;
 
       case 28:
-        buffer += "-NI-";
+        buffer += "NI";
         break;
 
       case 102:
-        buffer += "-NO-";
+        buffer += "NO";
         break;
 
       case 93:
-        buffer += "-NP-";
+        buffer += "NP";
         break;
 
       case 118:
-        buffer += "-OG-";
+        buffer += "OG";
         break;
 
       case 76:
-        buffer += "-OS-";
+        buffer += "OS";
         break;
 
       case 91:
-        buffer += "-PA-";
+        buffer += "PA";
         break;
 
       case 82:
-        buffer += "-PB-";
+        buffer += "PB";
         break;
 
       case 46:
-        buffer += "-PD-";
+        buffer += "PD";
         break;
 
       case 61:
-        buffer += "-PM-";
+        buffer += "PM";
         break;
 
       case 84:
-        buffer += "-PO-";
+        buffer += "PO";
         break;
 
       case 59:
-        buffer += "-PR-";
+        buffer += "PR";
         break;
 
       case 78:
-        buffer += "-PT-";
+        buffer += "PT";
         break;
 
       case 94:
-        buffer += "-PU-";
+        buffer += "PU";
         break;
 
       case 88:
-        buffer += "-RA-";
+        buffer += "RA";
         break;
 
       case 37:
-        buffer += "-RB-";
+        buffer += "RB";
         break;
 
       case 75:
-        buffer += "-RE-";
+        buffer += "RE";
         break;
 
       case 104:
-        buffer += "-RF-";
+        buffer += "RF";
         break;
 
       case 111:
-        buffer += "-RG-";
+        buffer += "RG";
         break;
 
       case 45:
-        buffer += "-RH-";
+        buffer += "RH";
         break;
 
       case 86:
-        buffer += "-RN-";
+        buffer += "RN";
         break;
 
       case 44:
-        buffer += "-RU-";
+        buffer += "RU";
         break;
 
       case 51:
-        buffer += "-SB-";
+        buffer += "SB";
         break;
 
       case 21:
-        buffer += "-SC-";
+        buffer += "SC";
         break;
 
       case 34:
-        buffer += "-SE-";
+        buffer += "SE";
         break;
 
       case 106:
-        buffer += "-SG-";
+        buffer += "SG";
         break;
 
       case 14:
-        buffer += "-SI-";
+        buffer += "SI";
         break;
 
       case 62:
-        buffer += "-SM-";
+        buffer += "SM";
         break;
 
       case 50:
-        buffer += "-SN-";
+        buffer += "SN";
         break;
 
       case 38:
-        buffer += "-SR-";
+        buffer += "SR";
         break;
 
 
       case 73:
-        buffer += "-TA-";
+        buffer += "TA";
         break;
 
       case 65:
-        buffer += "-TB-";
+        buffer += "TB";
         break;
 
       case 43:
-        buffer += "-TC-";
+        buffer += "TC";
         break;
 
       case 52:
-        buffer += "-TE-";
+        buffer += "TE";
         break;
 
       case 90:
-        buffer += "-TH-";
+        buffer += "TH";
         break;
 
       case 22:
-        buffer += "-TI-";
+        buffer += "TI";
         break;
 
       case 81:
-        buffer += "-TL-";
+        buffer += "TL";
         break;
 
       case 69:
-        buffer += "-TM-";
+        buffer += "TM";
         break;
 
       case 117:
-        buffer += "-TS-";
+        buffer += "TS";
         break;
 
       case 92:
-        buffer += "-UR-";
+        buffer += "UR";
         break;
 
       case 23:
-        buffer += "-VA-";
+        buffer += "VA";
         break;
 
       case 54:
-        buffer += "-XE-";
+        buffer += "XE";
         break;
 
       case 39:
-        buffer += "-YT-";
+        buffer += "YT";
         break;
 
       case 70:
-        buffer += "-YB-";
+        buffer += "YB";
         break;
 
       case 30:
-        buffer += "-ZN-";
+        buffer += "ZN";
         break;
 
       case 40:
-        buffer += "-ZR-";
+        buffer += "ZR";
         break;
     }
+
+    if(MODERN)
+      buffer+='>';
+    else
+     buffer+='-';
+
   }
 
   unsigned int CountDioxo(OBAtom *atom){
@@ -1473,7 +1497,8 @@ struct BabelGraph{
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
   bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from, unsigned int b_order,
                       OBMol *mol, std::string &buffer, 
-                      unsigned int cycle_num, unsigned char locant,OBAtom **locant_path, unsigned int path_size){
+                      unsigned int cycle_num, unsigned char locant,
+                      OBAtom **locant_path, unsigned int path_size){
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
     //##################################
@@ -2562,12 +2587,14 @@ struct BabelGraph{
                          API FUNCTION
 **********************************************************************/
 
-bool WriteWLN(std::string &buffer, OBMol* mol)
+bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
 {   
-  
-  OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
+  if(modern)
+    MODERN = 1;
 
-  BabelGraph obabel; 
+  OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
+  BabelGraph obabel;
+  
   unsigned int cyclic = 0;
   bool started = false; 
   FOR_RINGS_OF_MOL(r,mol_copy)
