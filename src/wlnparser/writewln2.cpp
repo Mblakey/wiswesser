@@ -1418,8 +1418,23 @@ struct BabelGraph{
         break;
     }
 
-    if(MODERN)
+    if(MODERN){
+      // add the charges here
+      if(atom->GetFormalCharge() > 0){
+        if(atom->GetFormalCharge()>1)
+          buffer += atom->GetFormalCharge() + '0';
+        
+        buffer+= '+';
+      }
+
+      if(atom->GetFormalCharge() < 0){
+        if(atom->GetFormalCharge()<1)
+          buffer += abs(atom->GetFormalCharge()) + '0';
+        
+        buffer+= '-';
+      }
       buffer+='>';
+    }
     else
      buffer+='-';
 
@@ -2646,8 +2661,9 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
       }
     }
   }
-
-  obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
+  
+  if(!MODERN)
+    obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
 
   delete mol_copy; 
   return true; 
