@@ -1,4 +1,5 @@
-#include <cstdio>
+
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,6 +10,7 @@
 #include "wlnmatch.h"
 #include "wlndfa.h"
 
+
 const char *filename;
 unsigned int lines_parsed = 0; 
 
@@ -16,6 +18,7 @@ unsigned int opt_dump         = 0;
 unsigned int opt_match_option = 0; // 0 - return whole line, 1 - return matches only, 2 - exact match only, 3- invert exact match
 unsigned int opt_count        = 0;
 unsigned int opt_string_file  = 0;
+unsigned int opt_invert_match  = 0;
 
 bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
   char *end = buffer+n;
@@ -70,7 +73,7 @@ static bool MatchFile(FILE *fp,FSMAutomata *machine){
 
   while(ReadLineFromFile(fp,buffer,BUFF_SIZE,false)){
     lines_parsed++;
-    matches += DFAGreedyMatchLine(buffer,machine,isatty(1),opt_match_option, opt_count);
+    matches += DFAGreedyMatchLine(buffer,machine,isatty(1),opt_invert_match,opt_match_option, opt_count);
   }
   
   if(opt_count)
@@ -79,10 +82,6 @@ static bool MatchFile(FILE *fp,FSMAutomata *machine){
   free(buffer);
   return true;
 }
-
-
-
-
 
 static void DisplayUsage()
 {
@@ -136,7 +135,7 @@ static void ProcessCommandLine(int argc, char *argv[])
           break;
 
         case 'v':
-          opt_match_option = 3;
+          opt_invert_match = 1; 
           break;
 
         case '-':
@@ -149,10 +148,9 @@ static void ProcessCommandLine(int argc, char *argv[])
           else if(!strcmp(ptr,"--exact-match"))
             opt_match_option = 2;
           else if(!strcmp(ptr,"--invert-match"))
-            opt_match_option = 2;
+            opt_invert_match = true;
           else if(!strcmp(ptr,"--string"))
             opt_string_file = 1;
-
           break;
 
         default:
@@ -204,7 +202,7 @@ int main(int argc, char* argv[])
     fclose(fp);
   }
   else{
-    unsigned int matches = DFAGreedyMatchLine(filename,wlnDFA,isatty(0),opt_match_option,opt_count);
+    unsigned int matches = DFAGreedyMatchLine(filename,wlnDFA,isatty(0),opt_invert_match,opt_match_option,opt_count);
     if(opt_count)
       fprintf(stderr,"%d matches\n",matches);
   }

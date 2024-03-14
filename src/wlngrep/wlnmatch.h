@@ -73,9 +73,9 @@ void display_match(char *line, unsigned int spos, unsigned int epos){
 
 /* matches the longest possible word using DFA
 - 1 matches only, 2 - exact match only, 3- return all matches */
-unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highlight, unsigned int opt_match_option=0, bool count=false){
+unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highlight, bool invert,unsigned int opt_match_option=0, bool count=false){
   
-  enum match_mode {WHOLE_LINE=0,MATCH_ONLY=1,EXACT=2,INVERSE=3};
+  enum match_mode {WHOLE_LINE=0,MATCH_ONLY=1,EXACT=2};
   
   char line[BUFF_SIZE] = {0};
   strcpy(line,inp);
@@ -90,8 +90,12 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
   unsigned int n = 0;
   unsigned int match = 0; // 1 if true 
   unsigned char inp_char = *inp;
+  
 
   while(n <= len){
+    
+    if(inp_char && state->access['*']) // accept all of barrie walkers changes
+      inp_char = '*'; 
 
     if(inp_char && state->access[inp_char]){
       state = state->access[inp_char];
@@ -104,9 +108,16 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
       l++;
     }
     else{
-
       if(opt_match_option == EXACT){
-        if(spos == 0 && !inp_char && state->accept && l > 1){
+        if(invert){
+          if(n != len){
+            if(count)
+              match++;
+            else
+              display_line(line);
+          }
+        }
+        else if(spos == 0 && !inp_char && state->accept && l > 1){
           if(count)
             match++;
           else if(highlight)
@@ -114,16 +125,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
           else
             display_line(line);
         }
-      }
-      else if(opt_match_option == INVERSE && state->accept){
-        if(spos != 0 && !inp_char){
-          if(count)
-            match++;
-          else if(highlight)
-            display_highlighted_line(line,spos,n);
-          else
-            display_line(line);
-        }
+        return match; 
       }
       else if(apos >= 0 && spos >= 0 && spos <= apos && l > 1){ // turn off single letter match here
         // failed in non_accepting state, what was the last accept state we saw

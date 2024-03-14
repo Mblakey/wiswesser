@@ -1,5 +1,6 @@
 
 
+#include <cstring>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -26,7 +27,8 @@ static void DisplayUsage()
   fprintf(stderr, "readwln <options> -o<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
-  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan)\n");
+  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan, -owln *)\n");
+  fprintf(stderr, "                      * selecting -owln will return the shortest possible wln string\n");
   fprintf(stderr, " --old                use the old wln parser (nextmove software)\n");
   exit(1);
 }
@@ -94,8 +96,13 @@ static void ProcessCommandLine(int argc, char *argv[])
             format  = "inchikey";
             break;
           }
+          else if(!strcmp(ptr,"-owln"))
+          {
+            format  = "WLN";
+            break;
+          }
           else{
-            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can','key']\n");
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can','key','wln']\n");
             DisplayUsage();
           } 
         
@@ -151,16 +158,19 @@ int main(int argc, char *argv[])
     if(!NMReadWLN(cli_inp,&mol))
       return 1;
   }
+  else if(!strcmp(format, "WLN")){
+    if(!WriteWLNShort(cli_inp,&mol))
+      return 1;
+  }
   else{
     if(!ReadWLN(cli_inp,&mol))
       return 1;
-  }
-  
-  OBConversion conv;
-  conv.AddOption("h",OBConversion::OUTOPTIONS);
-  conv.SetOutFormat(format);
+    OBConversion conv;
+    conv.AddOption("h",OBConversion::OUTOPTIONS);
+    conv.SetOutFormat(format);
 
-  res = conv.WriteString(&mol);
-  std::cout << res;
+    res = conv.WriteString(&mol);
+    std::cout << res;
+  }
   return 0;
 }

@@ -45,7 +45,6 @@ using namespace OpenBabel;
 
 #define STRUCT_COUNT 1024
 
-
 // --- DEV OPTIONS  ---
 #define OPT_DEBUG 0
 #define OPT_CORRECT 0
@@ -410,7 +409,6 @@ struct WLNBlossom{
   }
 
 };
-
 
 
 // handles all memory and 'global' vars
@@ -1522,7 +1520,7 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
 
 WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
 
-  WLNSymbol *carbon = AllocateWLNSymbol('C',graph);
+  WLNSymbol *carbon = AllocateWLNSymbol('1',graph);
   WLNSymbol *hydrogen = 0;
   WLNEdge   *edge = 0;
   
@@ -1531,6 +1529,7 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
   else 
     return 0;
   
+#if FULL_REP
   for(unsigned int i=0;i<3;i++){
     hydrogen = AllocateWLNSymbol('H',graph);
     if(hydrogen)
@@ -1541,6 +1540,7 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
     if(!edge)
       return 0;
   }
+#endif
 
   WLNEdge *bond = AllocateWLNEdge(carbon,head,graph);
   return bond; 
@@ -3343,7 +3343,6 @@ bool WLNKekulize(WLNGraph &graph){
 /* returns the head of the graph, parse all normal notation */
 bool ParseWLNString(const char *wln_ptr, WLNGraph &graph) 
 {
-  
   // keep the memory alive
   if (OPT_DEBUG)
     fprintf(stderr, "Parsing WLN notation: %s\n",wln_ptr);
@@ -5291,10 +5290,8 @@ struct BabelGraph{
 /**********************************************************************
                          API FUNCTION
 **********************************************************************/
-
 bool ReadWLN(const char *ptr, OBMol* mol)
 {   
-
   if(!ptr){
     fprintf(stderr,"Error: could not read wln string pointer\n");
     return false;
@@ -5327,3 +5324,21 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   return true;
 }
 
+bool WriteWLNShort(const char *ptr, OBMol* mol)
+{   
+  if(!ptr){
+    fprintf(stderr,"Error: could not read wln string pointer\n");
+    return false;
+  }
+  else 
+    wln_string = ptr; 
+
+  WLNGraph wln_graph;
+  BabelGraph obabel; 
+
+  if(!ParseWLNString(ptr,wln_graph))
+    return false;
+  
+  WriteGraph(wln_graph,"wln-graph.dot");
+  return true;
+}

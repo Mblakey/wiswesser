@@ -13,11 +13,10 @@
 #include <openbabel/obmolecformat.h>
 #include <openbabel/graphsym.h>
 
-using namespace OpenBabel; 
+using namespace OpenBabel;
 
 bool ReadWLN(const char *ptr, OBMol* mol);
-bool WriteWLN(std::string &buffer, OBMol* mol);
-bool WriteModernWLN(std::string &buffer, OBMol* mol);
+bool WriteWLN(std::string &buffer, OBMol* mol, bool modern);
 bool NMReadWLN(const char *ptr, OpenBabel::OBMol* mol);
-
+bool WriteWLNShort(const char *ptr, OBMol* mol);
 #endif 

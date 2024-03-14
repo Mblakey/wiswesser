@@ -30,6 +30,7 @@ FSMState * InsertAcyclic(FSMAutomata *acyclic){
   acyclic->AddTransition(root,open_dash,'-');
   acyclic->AddTransition(func_group,open_dash,'-');
   acyclic->AddTransition(digits,open_dash,'-');
+  acyclic->AddTransition(branch,open_dash,'-');
 
   // allow any combo for element definition, at the moment
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
@@ -183,7 +184,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
   FSMState *digit_locant = cyclic->AddState(false);
 
   cyclic->AddTransition(digit_locant,digit_locant,'&'); //  L E&6
-  cyclic->AddTransition(digit_locant,digit_locant,'-'); //  L E&6
+  cyclic->AddTransition(digit_locant,digit_locant,'-'); //  L E-
 
   cyclic->AddTransition(digit_locant,digit_space,' '); //  forward bridge notation
 
@@ -283,7 +284,10 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
   cyclic->AddTransition(db_end_locant,db_end_locant,'&'); // expand
 
   cyclic->AddTransition(ring_digits,hetero_open_dash,'-'); // L6P
+                                                                  // 
   cyclic->AddTransition(big_ring_dash_close,hetero_open_dash,'-'); // L-6-P
+  cyclic->AddTransition(ring_digits,cycle_double_bond,'U'); // L6P
+  cyclic->AddTransition(big_ring_dash_close,cycle_double_bond,'U'); // L-6-P
 
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     cyclic->AddTransition(hetero_open_dash,hetero_element_a,ch);
@@ -322,7 +326,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
       case '-':
       //case '&':
       case '/':
-       case 'U':
+      case 'U':
       // case 'H': // this are allowed here!
         break;
       
@@ -372,6 +376,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
     cyclic->AddTransition(hetero_space,hetero_locant,ch); // L6' 'A..
 
   cyclic->AddTransition(hetero_locant,hetero_locant,'&'); // L6P A&...
+  cyclic->AddTransition(hetero_locant,hetero_locant,'-'); // L6P A&...
   
 
   // multi atom attachment 
@@ -585,6 +590,14 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
     wln->AddTransition(charge_negative,charge,' '); 
   }
 
+
+  // barrie walkers WLN note appending // after a space ampersand ampersand, the WLN grep tool should match everything after the string. 
+  
+  FSMState *ampersand_enter_note =  wln->AddState(false);
+  FSMState *ampersand_accept_note =  wln->AddState(true);
+  wln->AddTransition(ion, ampersand_enter_note, '&'); // this should minimise down
+  wln->AddTransition(ampersand_enter_note, ampersand_accept_note, '&'); // this should minimise down
+  wln->AddTransition(ampersand_accept_note, ampersand_accept_note, '*'); // treat this as an epsilon immune to the e-closure. 
   return;
 }
 
