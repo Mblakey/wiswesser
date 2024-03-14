@@ -284,6 +284,8 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 
   cyclic->AddTransition(ring_digits,hetero_open_dash,'-'); // L6P
   cyclic->AddTransition(big_ring_dash_close,hetero_open_dash,'-'); // L-6-P
+  cyclic->AddTransition(ring_digits,cycle_double_bond,'U'); // L6P
+  cyclic->AddTransition(big_ring_dash_close,cycle_double_bond,'U'); // L-6-P
 
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     cyclic->AddTransition(hetero_open_dash,hetero_element_a,ch);
@@ -322,7 +324,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
       case '-':
       //case '&':
       case '/':
-       case 'U':
+      case 'U':
       // case 'H': // this are allowed here!
         break;
       
