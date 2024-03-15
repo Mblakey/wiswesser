@@ -1495,12 +1495,14 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
   edge->child->num_edges--;
 
   if(head->bonds == edge){
-    edge->child = 0; // use for mark and sweep out  
     
     if(edge->nxt)
       head->bonds = edge->nxt;
     else
       head->bonds = 0;
+    
+    edge->nxt = 0; 
+    edge->child = 0; // use for mark and sweep out  
     return true;
   }
 
@@ -5306,53 +5308,42 @@ struct BabelGraph{
                           GRAPH MANIPULATIONS
 **********************************************************************/
 
-/* reverse the edge direction in the graph */ 
-bool ReverseGraph(WLNGraph &graph){
+// make all the edges point outwards from a given source node, allows full
+// graph traversal from a given starting point.
+bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
+  // build recursively, avoid all cycle nodes
   
+  
+  WLNEdge *e = 0; 
   std::map<WLNSymbol*,bool> seen; 
-  for(unsigned int i=0;i<graph.symbol_count;i++){
-    WLNSymbol *s = graph.SYMBOLS[i]; 
-    seen[s] =true; // stop a double flip
-
-    WLNEdge   *e = 0;
-    unsigned int b = 0; 
-    WLNEdge *bonds[64] = {0}; // reasonable size
-    for(e=s->bonds;e;e=e->nxt){
-      if(!seen[e->child])
-        bonds[b++] = e;
-    }
-
-    for(unsigned int j=0;j<b;j++){
-      WLNSymbol *p = bonds[j]->child; 
-      if(!remove_edge(s, bonds[j])){
-        return false;
-      }
-      
-      WLNEdge *n = AllocateWLNEdge(s,p, graph); // create reverse bond
-    }
-  }
-
-  unsigned int p = 0; 
-  unsigned int b = 0; 
-  WLNEdge *release[STRUCT_COUNT] = {0}; // reasonable size
-  for(unsigned int i=1;i<STRUCT_COUNT;i++){ // 0 should be nulled
-    WLNEdge *e = graph.EDGES[i]; 
-    if(!e)
-      break; 
+  std::stack<WLNSymbol*> stack; 
+  stack.push(node); 
+  while(!stack.empty()){
+    WLNSymbol *top = stack.top(); 
+    stack.pop(); 
+    seen[top] = true;
     
-    graph.EDGES[i] = 0; 
-    if(e->child)
-      graph.EDGES[p++] = e; 
-    else
-      release[b++] = e;
+    // is anything pointing to the node and that hasnt been seen?
+    for(unsigned int i=1;i<STRUCT_COUNT;i++){
+      WLNEdge *ge = graph.EDGES[i]; 
+      if(!ge)
+        break;
+      else if(ge->child == top && !seen[ge->parent]){
+        remove_edge(ge->parent, ge);
+        AllocateWLNEdge(ge->parent,top, graph); 
+      }
+    }
+
+    for(e = top->bonds;e;e=e->nxt){
+      if(!seen[e->child] &&  !e->child->inRing){
+        stack.push(e->child);
+      }
+    }
+
   }
 
-  for(unsigned int i=0;i<b;i++)
-    delete release[i]; 
-
-  return true; 
+  return true;
 }
-
 
 
 /**********************************************************************
@@ -5410,7 +5401,7 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
   
-  ReverseGraph(wln_graph); 
+  FlowFromNode(wln_graph.SYMBOLS[5], wln_graph); 
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
