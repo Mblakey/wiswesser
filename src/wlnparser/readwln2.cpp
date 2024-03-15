@@ -1366,8 +1366,12 @@ bool RaiseBranchingSymbol(WLNSymbol *sym){
 
 WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
 
-  if(!child || !parent || child == parent)
+  if(!child || !parent || child == parent){
+#if ERRORS == 1 
+    fprintf(stderr,"Error: binding invalid nodes\n"); 
+#endif
     return 0;
+  }
   
   graph.edge_count++;
   if(graph.edge_count >= STRUCT_COUNT){
@@ -1482,14 +1486,21 @@ WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
 
 
 bool remove_edge(WLNSymbol *head,WLNEdge *edge){
-  if(!head || !edge)
+  if(!head || !edge){
+    fprintf(stderr,"Error: trying to remove edge on invalid pointers\n"); 
     return false;
+  }
   
   head->num_edges--;
   edge->child->num_edges--;
 
   if(head->bonds == edge){
-    head->bonds = 0;
+    edge->child = 0; // use for mark and sweep out  
+    
+    if(edge->nxt)
+      head->bonds = edge->nxt;
+    else
+      head->bonds = 0;
     return true;
   }
 
@@ -1506,14 +1517,17 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
     search = search->nxt;
   }
 
-  if(!found)
+  if(!found){
     return false;
+  }
   else{
     WLNEdge *tmp = edge->nxt;
     prev->nxt = tmp;
     // dont null the edges as we use the mempool to release them
   }
 
+  edge->child = 0; // use for mark and sweep out  
+  edge->nxt = 0; 
   return true;
 }
 
@@ -5287,6 +5301,60 @@ struct BabelGraph{
 };
 
 
+
+/**********************************************************************
+                          GRAPH MANIPULATIONS
+**********************************************************************/
+
+/* reverse the edge direction in the graph */ 
+bool ReverseGraph(WLNGraph &graph){
+  
+  std::map<WLNSymbol*,bool> seen; 
+  for(unsigned int i=0;i<graph.symbol_count;i++){
+    WLNSymbol *s = graph.SYMBOLS[i]; 
+    seen[s] =true; // stop a double flip
+
+    WLNEdge   *e = 0;
+    unsigned int b = 0; 
+    WLNEdge *bonds[64] = {0}; // reasonable size
+    for(e=s->bonds;e;e=e->nxt){
+      if(!seen[e->child])
+        bonds[b++] = e;
+    }
+
+    for(unsigned int j=0;j<b;j++){
+      WLNSymbol *p = bonds[j]->child; 
+      if(!remove_edge(s, bonds[j])){
+        return false;
+      }
+      
+      WLNEdge *n = AllocateWLNEdge(s,p, graph); // create reverse bond
+    }
+  }
+
+  unsigned int p = 0; 
+  unsigned int b = 0; 
+  WLNEdge *release[STRUCT_COUNT] = {0}; // reasonable size
+  for(unsigned int i=1;i<STRUCT_COUNT;i++){ // 0 should be nulled
+    WLNEdge *e = graph.EDGES[i]; 
+    if(!e)
+      break; 
+    
+    graph.EDGES[i] = 0; 
+    if(e->child)
+      graph.EDGES[p++] = e; 
+    else
+      release[b++] = e;
+  }
+
+  for(unsigned int i=0;i<b;i++)
+    delete release[i]; 
+
+  return true; 
+}
+
+
+
 /**********************************************************************
                          API FUNCTION
 **********************************************************************/
@@ -5324,6 +5392,9 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   return true;
 }
 
+
+
+
 bool WriteWLNShort(const char *ptr, OBMol* mol)
 {   
   if(!ptr){
@@ -5339,6 +5410,7 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
   
+  ReverseGraph(wln_graph); 
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
