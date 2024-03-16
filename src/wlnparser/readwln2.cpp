@@ -15,6 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
+#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -601,6 +602,20 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
   wln->ch = ch;
  
   return wln;
+}
+
+bool IsTerminator(WLNSymbol *symbol){
+  switch(symbol->ch){
+    case 'E':
+    case 'F':
+    case 'G':
+    case 'H':
+    case 'I':
+    case 'Q':
+    case 'Z':
+      return true;
+  }
+  return false;
 }
 
 WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
@@ -1590,9 +1605,6 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   return prev;
 }
 
-
-/* W is going to need to be post resolved, triple bond W will be unsaturated 
-with an maximal group dioxo added */
 bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   WLNEdge *edge = 0;
@@ -5308,11 +5320,12 @@ struct BabelGraph{
                           GRAPH MANIPULATIONS
 **********************************************************************/
 
+
+
 // make all the edges point outwards from a given source node, allows full
 // graph traversal from a given starting point.
 bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
   // build recursively, avoid all cycle nodes
-  
   
   WLNEdge *e = 0; 
   std::map<WLNSymbol*,bool> seen; 
@@ -5322,7 +5335,7 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
     WLNSymbol *top = stack.top(); 
     stack.pop(); 
     seen[top] = true;
-    
+  
     // is anything pointing to the node and that hasnt been seen?
     for(unsigned int i=1;i<STRUCT_COUNT;i++){
       WLNEdge *ge = graph.EDGES[i]; 
@@ -5341,10 +5354,59 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
     }
 
   }
-
+  
   return true;
 }
 
+
+/* Assumes a full DFS is possible, call FlowfromNode first to ensure,
+ * at a base level, this should be able to return the WLN string read if all
+ * checks are passed, any valid WLN start point should only contain 1 forward edge, 
+ * unless this is a ring, then the ring must take priority and the question is how 
+ * to order locants, and symbols within the locants. 
+*/
+
+
+bool WriteFromNode(WLNSymbol *node, WLNGraph &graph){
+  
+  WLNEdge *e = 0; 
+  WLNSymbol *prev = 0; 
+  std::map<WLNSymbol*,bool> seen; 
+  std::stack<WLNSymbol*> stack; 
+  stack.push(node); 
+
+  while(!stack.empty()){
+    WLNSymbol *top = stack.top();
+    stack.pop(); 
+    seen[top] = true;
+    
+    // skip through carbon chains
+    if(top->ch == '1'){
+      unsigned int length = 1;
+      while(top->bonds && top->bonds->order==1 && top->bonds->child->ch == '1'){
+        top = top->bonds->child; 
+        length++;
+      }
+      fprintf(stdout,"%d",length); 
+    }
+    else if (top->ch == '*'){
+      fputc('-',stdout);
+      fprintf(stdout, "%s",top->special.c_str()); 
+      fputc('-',stdout);
+    }
+    else 
+      fputc(top->ch,stdout);
+
+    for(e = top->bonds;e;e=e->nxt){
+      if(!seen[e->child] &&  !e->child->inRing)
+        stack.push(e->child);
+    }
+    prev = top; 
+  }
+  
+  fputc('\n',stdout); 
+  return true;
+}
 
 /**********************************************************************
                          API FUNCTION
@@ -5401,7 +5463,24 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
   
-  FlowFromNode(wln_graph.SYMBOLS[5], wln_graph); 
+  unsigned int stop = wln_graph.symbol_count;
+  for (unsigned int i=0;i<stop;i++){
+    WLNSymbol *sym = wln_graph.SYMBOLS[i];
+
+    switch(sym->ch){
+      case 'Y':
+      case 'X':
+      case 'K':
+        resolve_methyls(sym,wln_graph);
+        break;
+    }
+  }
+
+
+  WLNSymbol *node = wln_graph.SYMBOLS[0]; 
+  FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
+  
+  WriteFromNode(node, wln_graph); 
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
