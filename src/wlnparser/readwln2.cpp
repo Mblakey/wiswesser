@@ -5367,45 +5367,106 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
 */
 
 
-bool WriteFromNode(WLNSymbol *node, WLNGraph &graph){
+std::string WriteFromNode(WLNSymbol *node, WLNGraph &graph){
+  std::string buffer = "";   
   
-  WLNEdge *e = 0; 
+  WLNSymbol *sym = node; 
   WLNSymbol *prev = 0; 
-  std::map<WLNSymbol*,bool> seen; 
-  std::stack<WLNSymbol*> stack; 
-  stack.push(node); 
+  WLNEdge *e = 0;
+  WLNEdge *break_edge = 0; 
+  unsigned int length = 1;
 
-  while(!stack.empty()){
-    WLNSymbol *top = stack.top();
-    stack.pop(); 
-    seen[top] = true;
-    
-    // skip through carbon chains
-    if(top->ch == '1'){
-      unsigned int length = 1;
-      while(top->bonds && top->bonds->order==1 && top->bonds->child->ch == '1'){
-        top = top->bonds->child; 
+  std::map<WLNSymbol*,bool> seen_symbols;
+  std::stack<WLNEdge*> bond_stack;
+
+// init conditions
+// #######################################################################################
+   switch(sym->ch){
+    case '1':
+      while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
+        sym = sym->bonds->child; 
         length++;
       }
-      fprintf(stdout,"%d",length); 
-    }
-    else if (top->ch == '*'){
-      fputc('-',stdout);
-      fprintf(stdout, "%s",top->special.c_str()); 
-      fputc('-',stdout);
-    }
-    else 
-      fputc(top->ch,stdout);
+      buffer += std::to_string(length);
+      length = 1;
+      break;
 
-    for(e = top->bonds;e;e=e->nxt){
-      if(!seen[e->child] &&  !e->child->inRing)
-        stack.push(e->child);
-    }
-    prev = top; 
+    case '*':
+      buffer += '-';
+      buffer+= sym->special; 
+      buffer += '-';
+      break;
+
+    default:
+      buffer += sym->ch; 
+      break;
   }
-  
-  fputc('\n',stdout); 
-  return true;
+
+  for(e = sym->bonds;e;e=e->nxt)
+    bond_stack.push(e);
+// #######################################################################################
+
+  while(!bond_stack.empty()){
+    WLNEdge *top_edge = bond_stack.top();
+    if(!top_edge){
+      bond_stack.pop();
+      buffer +='&';
+      continue;
+    }
+
+    sym = top_edge->child;
+    if(seen_symbols[top_edge->parent]){
+      if(prev && !IsTerminator(prev))
+        buffer+='&';
+    }
+
+    seen_symbols[top_edge->parent] = true;
+    bond_stack.pop();
+
+
+    switch(sym->ch){
+    // skip through carbon chains
+      case '1':
+        while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
+          sym = sym->bonds->child; 
+          length++;
+        }
+        buffer += std::to_string(length);
+        length = 1;
+        break;
+      
+      case '*':
+      case 'X':
+      case 'Y':
+      case 'K':
+      case 'P':
+      case 'S':
+        if(sym->ch == '*'){
+          buffer += '-';
+          buffer+= sym->special; 
+          buffer += '-';
+        }
+        else
+          buffer += sym->ch; 
+
+        if(sym->num_edges < sym->allowed_edges){
+          bond_stack.push(break_edge); // should be zero 
+        }
+        break;
+
+      default:
+        buffer += sym->ch; // & gets added to open branches, can get tidyed right at the end
+    }
+   
+    
+    for(e = sym->bonds;e;e=e->nxt){
+      bond_stack.push(e);
+    }
+
+    prev = sym; // for terminator tracking
+  }
+
+  return buffer;
 }
 
 /**********************************************************************
@@ -5463,6 +5524,7 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
   
+  // resolve step is needed first 
   unsigned int stop = wln_graph.symbol_count;
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = wln_graph.SYMBOLS[i];
@@ -5480,7 +5542,9 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
   WLNSymbol *node = wln_graph.SYMBOLS[0]; 
   FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
   
-  WriteFromNode(node, wln_graph); 
+  std::string test = WriteFromNode(node, wln_graph); 
+  std::cout << test << std::endl; 
+
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
