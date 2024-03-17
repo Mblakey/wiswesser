@@ -5413,6 +5413,9 @@ std::string WriteFromNode(WLNSymbol *node, WLNGraph &graph){
       buffer +='&';
       continue;
     }
+    
+    for(unsigned int i=1;i<top_edge->order;i++)
+      buffer +='U';
 
     sym = top_edge->child;
     if(seen_symbols[top_edge->parent]){
