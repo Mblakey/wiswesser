@@ -49,7 +49,7 @@ using namespace OpenBabel;
 #define STRUCT_COUNT 1024
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 1
+#define OPT_DEBUG 0
 #define OPT_CORRECT 0
 
 const char *wln_string;
@@ -432,11 +432,6 @@ struct WLNGraph
   WLNSymbol *SYMBOLS[STRUCT_COUNT];
   WLNEdge   *EDGES  [STRUCT_COUNT];
   WLNRing   *RINGS  [STRUCT_COUNT];
-
-
-  // ionic parsing
-  std::map<unsigned int,WLNSymbol*> string_positions; 
-  std::map<WLNSymbol*,int> charge_additions;
 
   WLNGraph(){
     edge_count   = 0;
@@ -1653,7 +1648,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     sedge = unsaturate_edge(sedge,1); 
   
   if(binded_symbol->ch == 'N')
-    graph.charge_additions[binded_symbol]++;
+    binded_symbol->charge++;
 
   if(!edge || !sedge)
     return false;
@@ -2353,10 +2348,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!new_locant)
                 return Fatal(i+start, "Error: could not create hypervalent element");
               
-
               new_locant->str_position = start+i+1;
-              graph.string_positions[start+i + 1] = new_locant; // attaches directly
-
               if(OPT_DEBUG)
                 fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
             }
@@ -2392,9 +2384,8 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!new_locant)
                 return Fatal(i+start, "Error: could not create periodic code element");
 
-              graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
               new_locant->str_position = start+i + 1; // attaches directly to the starting letter
-
+    
               if(OPT_DEBUG)
                 fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
               
@@ -2427,7 +2418,12 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           if(OPT_DEBUG)
             fprintf(stderr,"  placing pi bond charge on locant - %c\n",positional_locant);
 
-          ring->post_charges.push_back({positional_locant++,-1});
+          
+          WLNSymbol *zero_carbon = AllocateWLNSymbol('C',graph);
+          zero_carbon->allowed_edges = 3; 
+          zero_carbon = assign_locant(positional_locant++,zero_carbon,ring);
+          zero_carbon->str_position = (start+i); 
+          zero_carbon->charge--; 
         }
         locant_attached = false;
         break;
@@ -2560,7 +2556,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
-              
+              new_locant->str_position = (start+i); 
               if(ch == 'P')
                 new_locant->allowed_edges = 5;
               else
@@ -2579,6 +2575,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 4;
               new_locant->inRing = true;
+              new_locant->str_position = (start+i); 
               break;
 
             case 'Z': // treat as NH2
@@ -2591,6 +2588,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 3;
               new_locant->inRing = true;
+              new_locant->str_position = (start+i); 
               break;
 
             case 'M':
@@ -2603,6 +2601,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 2;
               new_locant->inRing = true;
+              new_locant->str_position = (start+i); 
               break;
 
         
@@ -2643,6 +2642,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 new_locant = assign_locant(positional_locant,new_locant,ring);
                 new_locant->allowed_edges = 2;
                 new_locant->inRing = true;
+                new_locant->str_position = (start+i); 
               }
               else
                 new_locant = ring->locants[positional_locant];
@@ -2671,7 +2671,6 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               return Fatal(start+i,"Error: invalid character in atom assignment within ring notation");
           }
 
-          graph.string_positions[start+i] = new_locant;
           locant_attached = false; // locant is no longer primary
         }
         else if(i>0 && block[i-1] == ' '){
@@ -2920,12 +2919,8 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   if (!final_size)
     return Fatal(start+i, "Error: failed to build WLN cycle unit");
   
-  for (std::pair<unsigned char,int> &post : ring->post_charges)
-    graph.charge_additions[ring->locants[post.first]] += post.second;
-  
   if(!post_unsaturate(unsaturations,final_size,ring) || !post_saturate(saturations,final_size,ring))
     return Fatal(start+i, "Error: failed on post ring bond (un)/saturation");
-  
   
   return true;
 }
@@ -3002,7 +2997,7 @@ bool ResolveHangingBonds(WLNGraph &graph){
           sym->ch == 'N'  ||
           sym->ch ==  'P' || 
           sym->ch ==  'S') &&
-          sym->num_edges == 1 && graph.charge_additions[sym] == 0)
+          sym->num_edges == 1 && sym->charge == 0)
     {
       edge = sym->bonds; 
       if(edge && edge->order == 1){
@@ -3020,7 +3015,7 @@ bool ResolveHangingBonds(WLNGraph &graph){
             edge->child->ch ==  'P'  || 
             edge->child->ch ==  'N'  || 
             edge->child->ch ==  'S') &&
-            edge->child->num_edges == 1 && graph.charge_additions[edge->child] == 0)
+            edge->child->num_edges == 1 && edge->child->charge == 0)
         {
           while((sym->num_edges < sym->allowed_edges) && 
             (edge->child->num_edges < edge->child->allowed_edges)){
@@ -3449,6 +3444,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       // create the head 
       WLNSymbol *carbon_head = AllocateWLNSymbol('1', graph);
+      carbon_head->str_position = i-1;
       curr = create_carbon_chain(carbon_head,carbon_len,graph);
         
       if(prev){
@@ -3482,7 +3478,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else if (pending_locant){
         
         if(pending_inline_ring && prev && !prev->inRing)
-          graph.charge_additions[prev]++;
+          prev->charge++;
 
         prev = 0;
         on_locant = '0';
@@ -3614,7 +3610,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         
         branch_stack.push({0,curr});
-        graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = curr;
       }
@@ -3652,7 +3647,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         
         branch_stack.push({0,curr});
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -3700,7 +3694,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
         }
 
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -3747,7 +3740,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
         }
 
-        graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = return_object_symbol(branch_stack);
 
@@ -3799,7 +3791,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
         }
 
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -3827,7 +3818,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 3;
         curr->str_position = i;
-        graph.string_positions[i] = curr;
 
         if(prev){
 
@@ -3907,7 +3897,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         branch_stack.push({0,curr});
-        graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = curr;
       }
@@ -3954,7 +3943,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
         }
 
-        graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = curr;
       }
@@ -4004,7 +3992,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         
         branch_stack.push({0,curr});
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -4051,7 +4038,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
         }
 
-        graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = return_object_symbol(branch_stack);
         if(!prev)
@@ -4106,7 +4092,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
         }
 
-        graph.string_positions[i] = curr;
         pending_unsaturate = 0;
         prev = return_object_symbol(branch_stack);
         if(!prev)
@@ -4158,7 +4143,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }         
         
         branch_stack.push({0,curr});
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -4211,7 +4195,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         
         branch_stack.push({0,curr});
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -4258,7 +4241,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
         }
 
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -4381,8 +4363,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               break;
           }
         }
-
-        graph.string_positions[i] = curr;
 
         if(prev && prev->num_edges < prev->allowed_edges)
           curr = prev;
@@ -4595,7 +4575,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
         }
 
-        graph.string_positions[i] = curr;
         prev = curr;
       }
       cleared = false;
@@ -4923,7 +4902,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             curr->str_position = i;
 
             if(on_locant == '0'){
-              graph.charge_additions[curr]++;
+              curr->charge++;
               //on_locant = '\0';
             }
           }
@@ -4952,8 +4931,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           on_locant = '\0';
           branch_stack.push({0,curr});
-
-          graph.string_positions[first_dash+1] = curr;
+          
+          curr->str_position = first_dash+1;
           pending_unsaturate = 0;
           prev = curr;
         }
@@ -5410,8 +5389,8 @@ struct BabelGraph{
       }
 
       // ionic notation - overrides any given formal charge
-      if(graph.charge_additions[sym]){
-        charge = graph.charge_additions[sym];
+      if(sym->charge){
+        charge = sym->charge;
         if(charge != 0 && hcount)
           hcount--; // let the charges relax the hydrogens 
       }
@@ -5434,7 +5413,7 @@ struct BabelGraph{
           WLNSymbol *child = e->child;
 
           // seems a bit defensive? - patch work style coding
-          if(child->ch == 'H' && graph.charge_additions[parent] < 0)
+          if(child->ch == 'H' && parent->charge < 0)
             remove.push_back(babel_atom_lookup[child->id]);
           else{
             unsigned int bond_order = e->order;  
