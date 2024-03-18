@@ -5581,7 +5581,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph)
 
 // make all the edges point outwards from a given source node, allows full
 // graph traversal from a given starting point.
-bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
+bool FlowFromNode(WLNSymbol *node, WLNGraph &graph,std::map<WLNSymbol*,bool> &global_map){
   // build recursively, avoid all cycle nodes
   
   WLNEdge *e = 0; 
@@ -5592,7 +5592,8 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
     WLNSymbol *top = stack.top(); 
     stack.pop(); 
     seen[top] = true;
-  
+    global_map[top] = true;
+
     // is anything pointing to the node and that hasnt been seen?
     for(unsigned int i=1;i<STRUCT_COUNT;i++){
       WLNEdge *ge = graph.EDGES[i]; 
@@ -5684,14 +5685,22 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     }
   }
   
-  // if no rings, choose a starting atom and flow from each
+  // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count){
+    std::map<WLNSymbol*,bool> global_map;
     std::string last_chain;
+    std::string store; 
     for (unsigned int i=0;i<wln_graph.symbol_count;i++){
       WLNSymbol *node = wln_graph.SYMBOLS[i];
       if(!node->bonds || !node->previous){
         
-        FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
+        if(i != 0 && !global_map[node]){ // ion condition
+          store += last_chain;
+          store += " &";
+          last_chain = ""; // allows seperate canonical units 
+        }
+
+        FlowFromNode(node, wln_graph,global_map); // get the graph ordered from the point we want to write from
         
         std::string new_chain = CanonicalWLNChain(node, wln_graph);
         if(new_chain.size() < last_chain.size() || last_chain.empty())
@@ -5709,7 +5718,8 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
         
       }
     }
-    std::cout << last_chain << std::endl; 
+    store += last_chain;
+    std::cout << store << std::endl; 
   }
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
