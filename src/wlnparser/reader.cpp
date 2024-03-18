@@ -159,7 +159,7 @@ int main(int argc, char *argv[])
       return 1;
   }
   else if(!strcmp(format, "WLN")){
-    if(!WriteWLNShort(cli_inp,&mol))
+    if(!CanonicaliseWLN(cli_inp,&mol))
       return 1;
   }
   else{

@@ -5499,7 +5499,11 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph)
           sym = sym->bonds->child; 
           length++;
         }
-        buffer += std::to_string(length);
+        if(length > 1)
+          buffer += std::to_string(length);
+        else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K'))
+          buffer += std::to_string(length); // allow the methyl contractions
+
         length = 1;
         break;
       
@@ -5546,6 +5550,9 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph)
     prev = sym; // for terminator tracking
   }
   
+  // tidy up any remaining closures that do not need to be added
+  while(buffer.back() == '&')
+    buffer.pop_back(); 
 
   return buffer;
 }
@@ -5655,11 +5662,33 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
         break;
     }
   }
+  
+  // if no rings, choose a starting atom and flow from each
+  if(!wln_graph.ring_count){
+    std::string last_chain;
+    for (unsigned int i=0;i<stop;i++){
+      WLNSymbol *node = wln_graph.SYMBOLS[i];
+      if(!node->bonds){
+        FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
+        std::string new_chain = CanonicalWLNChain(node, wln_graph);
 
-  WLNSymbol *node = wln_graph.SYMBOLS[0]; 
-  FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
-  std::cout << CanonicalWLNChain(node, wln_graph) << std::endl;
-
+        if(new_chain.size() < last_chain.size() || last_chain.empty())
+          last_chain = new_chain;
+        else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
+          for(unsigned int j=0;j<new_chain.size();j++){
+            if(new_chain[j] > last_chain[j]){
+              last_chain = new_chain;
+              break;
+            }
+            else if(new_chain[j] < last_chain[j])
+              break;
+          }
+        }
+        
+      }
+    }
+    std::cout << last_chain << std::endl; 
+  }
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
