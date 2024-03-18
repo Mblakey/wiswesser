@@ -1481,8 +1481,9 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
     return false;
   }
   
-  head->num_edges--;
-  edge->child->num_edges--;
+
+  head->num_edges-= edge->order;
+  edge->child->num_edges-= edge->order;
 
   if(head->bonds == edge){
     
@@ -5465,10 +5466,13 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
         sym = sym->bonds->child; 
         length++;
       }
+
       if(length > 1)
         buffer += std::to_string(length);
       else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K'))
         buffer += std::to_string(length); // allow the methyl contractions
+      else if(!sym->previous)
+        buffer += std::to_string(length); 
 
       sym->str_position = len + buffer.size();
       length = 1;
@@ -5625,8 +5629,11 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph,std::map<WLNSymbol*,bool> &gl
       if(!ge)
         break;
       else if(ge->child == top && !seen[ge->parent]){
+        unsigned int order = ge->order;
         remove_edge(ge->parent, ge);
-        AllocateWLNEdge(ge->parent,top, graph); 
+        WLNEdge *ne = AllocateWLNEdge(ge->parent,top, graph);
+        for(unsigned int i=1;i<order;i++)
+          unsaturate_edge(ne, 1); 
       }
     }
 
@@ -5781,25 +5788,38 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     return false;
   
   // resolve step is needed first 
+  WLNEdge *e = 0; 
   unsigned int stop = wln_graph.symbol_count;
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = wln_graph.SYMBOLS[i];
-
     switch(sym->ch){
       case 'Y':
       case 'X':
       case 'K':
         resolve_methyls(sym,wln_graph);
         break;
+
+      case 'W':
+        if(sym->bonds)
+          sym->bonds->order = 1;
+        if(sym->previous){
+          for(e=sym->previous->bonds;e;e=e->nxt){
+            if(e->child == sym){
+              e->order = 1;
+              break;
+            }
+          }
+        }
+        break;
     }
   }
   
+  WriteGraph(wln_graph,"wln-graph.dot");
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count)
-    ChainOnlyCanonicalise(wln_graph); // bit more effecient 
+    std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
-    FullCanonicalise(wln_graph); 
+    std::cout << FullCanonicalise(wln_graph); 
 
-  WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
