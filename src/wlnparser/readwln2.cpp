@@ -178,7 +178,6 @@ struct WLNRing
   
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
-  std::vector<std::pair<unsigned char,int>> post_charges; 
 
   WLNRing(){
     rsize = 0;
@@ -1347,34 +1346,6 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
   return top;
 }
 
-#define DEPRECATED 0
-#if DEPRECATED
-bool RaiseBranchingSymbol(WLNSymbol *sym){
-  if(!OPT_CORRECT)
-    return false;
-
-  switch(sym->ch){
-
-    case 'M':
-      fprintf(stderr,"Warning: M branches are exceeding 2, raising to N\n");
-      sym->allowed_edges++;
-      sym->ch = 'N';
-      break;
-
-    case 'N':
-      if(!sym->inRing){
-        fprintf(stderr,"Warning: N branches are exceeding 3, raising to K\n");
-        sym->allowed_edges++;
-        sym->ch = 'K';
-      }
-      break;
-
-    default:
-      return false;
-  }
-  return true;
-}
-#endif
 
 /**********************************************************************
                           WLNEdge Functions
@@ -1552,29 +1523,11 @@ bool remove_edge(WLNSymbol *head,WLNEdge *edge){
 
 
 WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
-
   WLNSymbol *carbon = AllocateWLNSymbol('1',graph);
-  WLNSymbol *hydrogen = 0;
-  WLNEdge   *edge = 0;
-  
   if(carbon)
     carbon->allowed_edges = 4;
   else 
     return 0;
-  
-#if FULL_REP
-  for(unsigned int i=0;i<3;i++){
-    hydrogen = AllocateWLNSymbol('H',graph);
-    if(hydrogen)
-      hydrogen->allowed_edges = 1;
-    else
-      return 0;
-    edge = AllocateWLNEdge(hydrogen,carbon,graph);
-    if(!edge)
-      return 0;
-  }
-#endif
-
   WLNEdge *bond = AllocateWLNEdge(carbon,head,graph);
   return bond; 
 }
@@ -3084,92 +3037,6 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
   return ResolveHangingBonds(graph); 
 }
 
-#if DEPRECATED
-/* backwards search for tentative ionic rule procedures */
-unsigned int SearchIonic(const char *wln_ptr, unsigned int len,
-                          std::vector<std::pair<unsigned int, int>> &charges)
-{
-  unsigned int first_instance = 0;
-
-  for (unsigned int i=0;i<len;i++){
-
-    // these are required in blocks of 5
-    if(wln_ptr[i] == ' ' && wln_ptr[i+1] == '&')
-    {
-      
-      std::string position_1;
-      std::string position_2;
-
-      unsigned int local_search = i+2;
-
-      if(std::isdigit(wln_ptr[i+2])){
-
-        while(std::isdigit(wln_ptr[local_search])){
-          position_1.push_back(wln_ptr[local_search]);
-          local_search++;
-
-          if(local_search > len)
-            return first_instance;
-        }
-      }
-      else 
-        continue;
-
-      // local search should now be pointing at the '\'
-      if(wln_ptr[local_search] == '/')
-        local_search++;
-      else
-        continue;
-
-      if(std::isdigit(wln_ptr[local_search])){
-        while(std::isdigit(wln_ptr[local_search])){
-          position_2.push_back(wln_ptr[local_search]);
-          local_search++;
-
-          if(local_search > len)
-            return first_instance;
-        }
-      }
-      else 
-        continue;
-
-      
-      if(std::stoi(position_1) != 0)
-        charges.push_back({std::stoi(position_1),1});
-      
-      if(std::stoi(position_2) != 0)
-        charges.push_back({std::stoi(position_2),-1});
-
-      if(!first_instance)
-        first_instance = i;
-    }
-  }
-
-  return first_instance;
-}
-
-
-/* uses the global position map */
-bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &graph){
-  if(charges.empty())
-    return true;
-
-  for (std::pair<unsigned int, int> pos_charge : charges){
-    WLNSymbol *assignment = graph.string_positions[pos_charge.first - 1]; // reindex as wln 1 is string 0
-    if(!assignment)
-      return false;
-    else{
-      graph.charge_additions[assignment] += pos_charge.second;
-
-      if(OPT_DEBUG)
-        fprintf(stderr, "  character at position [%d] has the following charge addition - %d\n",pos_charge.first,pos_charge.second);
-
-    }
-  }
-  return true;
-}
-#endif
-
 
 /**********************************************************************
                         WLN Ring Kekulize
@@ -3381,8 +3248,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
   ObjectStack branch_stack;   // access to both rings and symbols
   //branch_stack.reserve(512);  // reasonable size given
-
-  std::vector<std::pair<unsigned int, int>> ionic_charges;
   
   WLNSymbol *curr       = 0;
   WLNSymbol *prev       = 0;
@@ -3414,22 +3279,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
   unsigned int len = strlen(wln_ptr);
 
-#if DEPRECATED
-  unsigned int zero_position = SearchIonic(wln_ptr,len,ionic_charges);
-#endif 
-
   unsigned int i=0;
   unsigned char ch = *wln_ptr;
   
   while(ch)
   {  
 
-#if DEPRECATED
-    // dont read any ionic notation
-    if(zero_position && zero_position == i)
-      break;
-#endif
-    
     // this will need to resolved at the end as well
     if(pending_carbon_chain && (ch < '0' || ch > '9') && ch != '/' ){
       if(digits_buffer.empty() || digits_buffer[0] == '0')
@@ -5075,10 +4930,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   if (pending_spiro)
     return Fatal(len, "Error: spiro ring expected at end of notation, inproper closure");
 
-#if DEPRECATED
-  if(!AssignCharges(ionic_charges,graph))
-    return Fatal(len, "Error: failed to assign post charges - likely out of range?");
-#endif
     // use this for recursion on multipliers
   return true;
 }
