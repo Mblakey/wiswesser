@@ -5299,10 +5299,13 @@ struct BabelGraph{
 struct LookAheadScore{
   WLNEdge *e;
   std::string chunk; 
-  unsigned int symbol_count; 
   bool terminates;
   bool has_ring; 
 };
+
+void debug_score(LookAheadScore *score){
+  fprintf(stderr,"%s: term:%d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_ring); 
+}
 
 void SortTerminal(LookAheadScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
@@ -5316,6 +5319,28 @@ void SortTerminal(LookAheadScore **arr,unsigned int len){
       unsigned int val = 0;      
       val = arr[i]->terminates;
       if(val <= key)
+        break;
+
+      arr[i+1] = arr[i];
+      i--;
+    }
+		arr[i+1] = s;
+	}
+}
+
+
+void SortRing(LookAheadScore **arr,unsigned int len){
+  for (unsigned int j=1;j<len;j++){
+    unsigned int key = 0; 
+    
+    LookAheadScore *s = arr[j];
+    key = s->has_ring;
+    
+		int i = j-1;
+    while(i>=0){
+      unsigned int val = 0;      
+      val = arr[i]->has_ring;
+      if(val >= key) // this does opposite ordering 
         break;
 
       arr[i+1] = arr[i];
@@ -5359,7 +5384,6 @@ LookAheadScore *RunChain(WLNEdge *edge){
   LookAheadScore *score = new LookAheadScore; // must use new for string 
   score->e = edge;
   score->chunk = ""; 
-  score->symbol_count = 0;
   score->terminates = 0;
   score->has_ring = 0; // these should be placed last when possible 
 
@@ -5379,7 +5403,6 @@ LookAheadScore *RunChain(WLNEdge *edge){
         node = node->bonds->child; 
         length++;
       }
-      score->symbol_count++;
       score->chunk += std::to_string(length);  
       length = 1;
       break;
@@ -5405,14 +5428,12 @@ LookAheadScore *RunChain(WLNEdge *edge){
       case 'I':
       case 'Q':
       case 'Z':
-        score->symbol_count++; 
         score->chunk += node->ch;
         score->terminates = true;
         return score; 
 
       default:
         score->chunk += node->ch; 
-        score->symbol_count++; 
     }
     
     if(!node->bonds) // for random ending points
@@ -5429,50 +5450,87 @@ LookAheadScore *RunChain(WLNEdge *edge){
 
 
 
-
+// forward declaration 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len); 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len);
+
+
+void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::string &buffer, unsigned int len){
+  unsigned int length = 1;
+
+  switch(sym->ch){
+  // skip through carbon chains
+    case '1':
+      while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
+        sym = sym->bonds->child; 
+        length++;
+      }
+      if(length > 1)
+        buffer += std::to_string(length);
+      else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K'))
+        buffer += std::to_string(length); // allow the methyl contractions
+
+      sym->str_position = len + buffer.size();
+      length = 1;
+      break;
+    
+    case '*':
+    case 'X':
+    case 'Y':
+    case 'K':
+    case 'P':
+    case 'S':
+      if(sym->ch == '*'){
+        buffer += '-';
+        sym->str_position = len + buffer.size()+1;
+        buffer+= sym->special; 
+        buffer += '-';
+      }
+      else{
+        buffer += sym->ch; 
+        sym->str_position = len + buffer.size();
+      }
+
+      if(sym->num_edges < sym->allowed_edges){
+        bond_stack.push((WLNEdge*)0); // should be zero 
+      }
+      break;
+
+    default:
+      buffer += sym->ch; // & gets added to open branches, can get tidyed right at the end
+      sym->str_position = len + buffer.size();
+  }
+
+  WLNEdge *e = 0; 
+  unsigned int l = 0;
+  LookAheadScore *scores[64] = {0};
+
+  for(e = sym->bonds;e;e=e->nxt)
+    scores[l++] = RunChain(e); // score each chain run
+  
+  SortChunk(scores, l); 
+  SortTerminal(scores, l); // sort by terminals, prefer them
+  SortRing(scores, l); 
+
+  for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
+    debug_score(scores[i]); 
+    bond_stack.push(scores[i]->e);
+    delete scores[i];
+  }
+}
+
+
 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len)
 {
   
   WLNSymbol *sym = node; 
   WLNSymbol *prev = 0; 
-  WLNEdge *e = 0;
-  unsigned int length = 1;
   std::string buffer = ""; 
   std::map<WLNSymbol*,bool> seen_symbols;
   std::stack<WLNEdge*> bond_stack; 
 
-  // #####################################################################################
-  switch(sym->ch){
-    case '1':
-      while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
-        sym = sym->bonds->child; 
-        length++;
-      }
-      buffer += std::to_string(length);
-      sym->str_position = len + buffer.size();
-      length = 1;
-      break;
-
-    case '*':
-      buffer += '-';
-      sym->str_position = len + buffer.size()+1; // puts this at the first letter
-      buffer+= sym->special; 
-      buffer += '-';
-      break;
-
-    default:
-      buffer += sym->ch; 
-      sym->str_position = len + buffer.size();
-      break;
-  }
-
-  for(e = sym->bonds;e;e=e->nxt)
-    bond_stack.push(e);
-
-// #####################################################################################
+  SortAndStackBonds(node, bond_stack, buffer, len); 
 
   while(!bond_stack.empty()){
     WLNEdge *top_edge = bond_stack.top();
@@ -5486,14 +5544,15 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
       buffer +='U';
 
     sym = top_edge->child;
-    if(sym->inRing){
-      buffer += '-';
-      buffer += ' '; 
-      buffer += sym->inRing->locants_ch[sym];
-      buffer += CanonicalWLNRing(sym, graph, buffer.size());
-      bond_stack.pop(); 
-      continue; 
-    }
+    // if(sym->inRing){
+    //   buffer += '-';
+    //   buffer += ' '; 
+    //   buffer += sym->inRing->locants_ch[sym];
+    //   //buffer += CanonicalWLNRing(sym, graph, buffer.size());
+    //   bond_stack.pop(); 
+    //   continue; 
+    // }
+    //
 
     if(seen_symbols[top_edge->parent]){
       if(prev && !IsTerminator(prev))
@@ -5503,69 +5562,8 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     seen_symbols[top_edge->parent] = true;
     bond_stack.pop();
 
-    switch(sym->ch){
-    // skip through carbon chains
-      case '1':
-        while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
-          sym = sym->bonds->child; 
-          length++;
-        }
-        if(length > 1)
-          buffer += std::to_string(length);
-        else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K'))
-          buffer += std::to_string(length); // allow the methyl contractions
-
-        sym->str_position = len + buffer.size();
-        length = 1;
-        break;
-      
-      case '*':
-      case 'X':
-      case 'Y':
-      case 'K':
-      case 'P':
-      case 'S':
-        if(sym->ch == '*'){
-          buffer += '-';
-          sym->str_position = len + buffer.size()+1;
-          buffer+= sym->special; 
-          buffer += '-';
-        }
-        else{
-          buffer += sym->ch; 
-          sym->str_position = len + buffer.size();
-        }
-
-        if(sym->num_edges < sym->allowed_edges){
-          bond_stack.push((WLNEdge*)0); // should be zero 
-        }
-        break;
-
-      default:
-        buffer += sym->ch; // & gets added to open branches, can get tidyed right at the end
-        sym->str_position = len + buffer.size();
-    }
-    
-
-    if(!sym->inRing){
-      // first ordering
-      unsigned int l = 0;
-      LookAheadScore *scores[64] = {0};
-
-      for(e = sym->bonds;e;e=e->nxt)
-        scores[l++] = RunChain(e); // score each chain run
-      
-      SortChunk(scores, l); 
-      SortTerminal(scores, l); // sort by terminals, prefer them
-
-      for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
-  //      debug_score(scores[i]);
-        bond_stack.push(scores[i]->e);
-        delete scores[i];
-      }
-
-      prev = sym; // for terminator tracking
-    }
+    SortAndStackBonds(sym, bond_stack, buffer, len); 
+    prev = sym; // for terminator tracking
   }
   
   // tidy up any remaining closures that do not need to be added
@@ -5592,7 +5590,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len)
         if(!e->child->inRing){
           buffer += ' '; 
           buffer += (*riter).first;
-          buffer += CanonicalWLNChain(e->child, graph,buffer.size()); 
+          buffer += CanonicalWLNChain(e->child, graph,buffer.size());
         }
       }
   }
