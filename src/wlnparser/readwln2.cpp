@@ -3345,7 +3345,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(pending_negative_charge){
         digits_buffer += ch;
-        pending_negative_charge = false;
       }
       else if (cleared){
         // null effect for positive charge
@@ -4472,13 +4471,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(pending_negative_charge){
         int negative_index = isNumber(digits_buffer); 
+        digits_buffer.clear(); 
+
         if(negative_index < 0)
           return Fatal(i, "Error: assigning non-numerical value to charge index");
         else if(negative_index != 0){
           // find the symbol and increment its charge + 1
           bool found = false;
           for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
-            if(graph.SYMBOLS[cs]->str_position == negative_index-1){
+            if(graph.SYMBOLS[cs]->str_position == (unsigned int)negative_index-1){
               graph.SYMBOLS[cs]->charge--; 
 #if OPT_DEBUG
               fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
@@ -4489,9 +4490,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           
           if(!found)
-            return Fatal(i, "Error: charge index out of range, check letter index");
+            return Fatal(i, "Error: negative charge index out of range, check letter index");
         }
-        digits_buffer.clear(); 
         pending_negative_charge = false;
       }
 
@@ -4807,13 +4807,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           return Fatal(i, "Error: opening post charge assignment without proper syntax [ &x/x ]");
         
         int positive_index = isNumber(digits_buffer); 
+        digits_buffer.clear(); 
+        
         if(positive_index < 0)
           return Fatal(i, "Error: assigning non-numerical value to charge index");
         else if (positive_index != 0){
           // find the symbol and increment its charge + 1
           bool found = false;
           for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
-            if(graph.SYMBOLS[cs]->str_position == positive_index-1){
+            if(graph.SYMBOLS[cs]->str_position == (unsigned int)positive_index-1){
               graph.SYMBOLS[cs]->charge++;
 #if OPT_DEBUG
               fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
@@ -4824,10 +4826,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           
           if(!found)
-            return Fatal(i, "Error: charge index out of range, check letter index");
+            return Fatal(i, "Error: positive charge index out of range, check letter index");
         }
 
-        digits_buffer.clear(); 
         pending_carbon_chain = false;
         pending_negative_charge = true;
       }
@@ -4894,13 +4895,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   if(pending_negative_charge){
     int negative_index = isNumber(digits_buffer); 
+    digits_buffer.clear();
+
     if(negative_index < 0)
       return Fatal(i, "Error: assigning non-numerical value to charge index");
     else if (negative_index != 0){
       // find the symbol and increment its charge + 1
       bool found = false;
       for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
-        if(graph.SYMBOLS[cs]->str_position == negative_index-1){
+        if(graph.SYMBOLS[cs]->str_position == (unsigned int)negative_index-1){
           graph.SYMBOLS[cs]->charge--; 
 #if OPT_DEBUG
           fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
@@ -4911,7 +4914,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       
       if(!found)
-        return Fatal(i, "Error: charge index out of range, check letter index");
+        return Fatal(i, "Error: negative charge index out of range, check letter index");
     }
   }
 
@@ -5657,7 +5660,37 @@ bool ChainOnlyCanonicalise(WLNGraph &wln_graph){
       
     }
   }
-  store += last_chain;
+  
+  store += last_chain; // get all ions
+
+  
+  // handle post charges, no need to check ring here
+  for(unsigned int i=0;i<wln_graph.symbol_count;i++){
+    WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
+    if(pos->charge > 0 && pos->ch != 'K'){
+      store += " &";
+      store += std::to_string(pos->str_position+1);
+      store += '/'; 
+      pos->charge--; 
+      bool fneg = false;
+      i = 0; // reset the loops
+      for(unsigned int j=0;j<wln_graph.symbol_count;j++){
+      // hunt for a negative charge
+        WLNSymbol *neg = wln_graph.SYMBOLS[j];
+        if(neg->charge < 0){
+          store += std::to_string(neg->str_position+1); 
+          neg->charge++;
+          fneg = true;
+          break;
+        }
+      }
+      if(!fneg)
+        store += '0'; 
+    }
+  }
+
+
+
   std::cout << store << std::endl; 
   return true;
 }
