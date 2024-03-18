@@ -138,7 +138,7 @@ struct WLNSymbol
   std::string special; // string for element, or ring, if value = '*'
   
   bool aromatic; 
-  bool inRing;
+  WLNRing *inRing; // allows quick lookback 
   unsigned int allowed_edges;
   unsigned int num_edges;
 
@@ -1664,7 +1664,7 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
     return 0;
   ring->locants[loc] = locant; 
   ring->locants_ch[locant] = loc;
-  locant->inRing = true;
+  locant->inRing = ring;
   return locant; 
 }  
 
@@ -1703,7 +1703,7 @@ bool set_up_broken( WLNRing *ring, WLNGraph &graph,
           allowed_connections[parent]--;
 
         WLNSymbol *broken = AllocateWLNSymbol('C',graph);
-        broken->inRing = true;
+        broken->inRing = ring;
         broken->allowed_edges = 4;
         broken = assign_locant(loc_broken,broken,ring);
         broken_lookup[parent].push_back(loc_broken);
@@ -1797,7 +1797,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         return 0;
 
       curr->allowed_edges = 4;
-      curr->inRing = true;
+      curr->inRing = ring;
       curr = assign_locant(loc,curr,ring);
     }
     else{
@@ -2516,7 +2516,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               else
                 new_locant->allowed_edges = 6;
 
-              new_locant->inRing = true;
+              new_locant->inRing = ring;
               break;
 
             case 'Y':
@@ -2528,7 +2528,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 4;
-              new_locant->inRing = true;
+              new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
               break;
 
@@ -2541,7 +2541,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 3;
-              new_locant->inRing = true;
+              new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
               break;
 
@@ -2554,7 +2554,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 2;
-              new_locant->inRing = true;
+              new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
               break;
 
@@ -2595,7 +2595,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 new_locant = AllocateWLNSymbol('C',graph);
                 new_locant = assign_locant(positional_locant,new_locant,ring);
                 new_locant->allowed_edges = 2;
-                new_locant->inRing = true;
+                new_locant->inRing = ring;
                 new_locant->str_position = (start+i+1); 
               }
               else
@@ -2606,7 +2606,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
               dioxo->allowed_edges = 3;
-              dioxo->inRing = true;
+              dioxo->inRing = ring;
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
               e = unsaturate_edge(e,2);
               if(!e)
@@ -5426,7 +5426,6 @@ LookAheadScore *RunChain(WLNEdge *edge){
 }
 
 
-
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len)
 {
   
@@ -5558,6 +5557,32 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 }
 
 
+
+std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len){
+  std::string buffer = ""; 
+
+  // expect the node to be within a ring, fetch ring and write the cycle
+  
+  buffer += node->inRing->str_notation;
+  WLNEdge *e = 0; 
+  for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
+      riter != node->inRing->locants.end(); 
+      riter++)
+  {
+    for (e=(*riter).second->bonds;e;e=e->nxt){
+      if(!e->child->inRing){
+        buffer += ' '; 
+        buffer += (*riter).first;
+        buffer += CanonicalWLNChain(e->child, graph,buffer.size()); 
+        
+      }
+    }
+  }
+
+
+  return buffer;
+}
+
 // make all the edges point outwards from a given source node, allows full
 // graph traversal from a given starting point.
 bool FlowFromNode(WLNSymbol *node, WLNGraph &graph,std::map<WLNSymbol*,bool> &global_map){
@@ -5633,7 +5658,7 @@ bool ReadWLN(const char *ptr, OBMol* mol)
 }
 
 
-bool ChainOnlyCanonicalise(WLNGraph &wln_graph){
+std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
 
   std::map<WLNSymbol*,bool> global_map;
   std::string last_chain;
@@ -5671,7 +5696,6 @@ bool ChainOnlyCanonicalise(WLNGraph &wln_graph){
   
   store += last_chain; // get all ions
 
-  
   // handle post charges, no need to check ring here
   for(unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
@@ -5698,11 +5722,40 @@ bool ChainOnlyCanonicalise(WLNGraph &wln_graph){
   }
 
 
-
-  std::cout << store << std::endl; 
-  return true;
+  return store;
 }
 
+bool FullCanonicalise(WLNGraph &graph){
+
+  std::map<WLNSymbol*,bool> global_map;
+  std::string last_chain;
+  std::string store; 
+  for (unsigned int i=0;i<graph.symbol_count;i++){
+    WLNSymbol *node = graph.SYMBOLS[i];
+    if(node->inRing && !global_map[node]){
+      store += CanonicalWLNRing(node, graph, store.size());
+      for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
+          riter != node->inRing->locants.end(); 
+          riter++)
+      {
+        global_map[(*riter).second] = true;
+      }
+
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+  std::cout << store << std::endl; 
+  return true; 
+}
 
 bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 {   
@@ -5735,7 +5788,9 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count)
-    ChainOnlyCanonicalise(wln_graph); 
+    ChainOnlyCanonicalise(wln_graph); // bit more effecient 
+  else
+    FullCanonicalise(wln_graph); 
 
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
