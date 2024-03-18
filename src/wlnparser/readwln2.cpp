@@ -5654,6 +5654,43 @@ bool ReadWLN(const char *ptr, OBMol* mol)
 }
 
 
+bool ChainOnlyCanonicalise(WLNGraph &wln_graph){
+
+  std::map<WLNSymbol*,bool> global_map;
+  std::string last_chain;
+  std::string store; 
+  for (unsigned int i=0;i<wln_graph.symbol_count;i++){
+    WLNSymbol *node = wln_graph.SYMBOLS[i];
+    if(!node->bonds || !node->previous){
+      
+      if(i != 0 && !global_map[node]){ // ion condition
+        store += last_chain;
+        store += " &";
+        last_chain = ""; // allows seperate canonical units 
+      }
+
+      FlowFromNode(node, wln_graph,global_map); // get the graph ordered from the point we want to write from
+      
+      std::string new_chain = CanonicalWLNChain(node, wln_graph);
+      if(new_chain.size() < last_chain.size() || last_chain.empty())
+        last_chain = new_chain;
+      else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
+        for(unsigned int j=0;j<new_chain.size();j++){
+          if(new_chain[j] > last_chain[j]){
+            last_chain = new_chain;
+            break;
+          }
+          else if(new_chain[j] < last_chain[j])
+            break;
+        }
+      }
+      
+    }
+  }
+  store += last_chain;
+  std::cout << store << std::endl; 
+  return true;
+}
 
 
 bool CanonicaliseWLN(const char *ptr, OBMol* mol)
@@ -5686,41 +5723,9 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   }
   
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
-  if(!wln_graph.ring_count){
-    std::map<WLNSymbol*,bool> global_map;
-    std::string last_chain;
-    std::string store; 
-    for (unsigned int i=0;i<wln_graph.symbol_count;i++){
-      WLNSymbol *node = wln_graph.SYMBOLS[i];
-      if(!node->bonds || !node->previous){
-        
-        if(i != 0 && !global_map[node]){ // ion condition
-          store += last_chain;
-          store += " &";
-          last_chain = ""; // allows seperate canonical units 
-        }
+  if(!wln_graph.ring_count)
+    ChainOnlyCanonicalise(wln_graph); 
 
-        FlowFromNode(node, wln_graph,global_map); // get the graph ordered from the point we want to write from
-        
-        std::string new_chain = CanonicalWLNChain(node, wln_graph);
-        if(new_chain.size() < last_chain.size() || last_chain.empty())
-          last_chain = new_chain;
-        else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
-          for(unsigned int j=0;j<new_chain.size();j++){
-            if(new_chain[j] > last_chain[j]){
-              last_chain = new_chain;
-              break;
-            }
-            else if(new_chain[j] < last_chain[j])
-              break;
-          }
-        }
-        
-      }
-    }
-    store += last_chain;
-    std::cout << store << std::endl; 
-  }
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
