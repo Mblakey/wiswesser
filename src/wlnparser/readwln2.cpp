@@ -22,6 +22,7 @@ GNU General Public License for more details.
 
 #include <set>
 #include <deque>
+#include <string>
 #include <vector>
 #include <map>
 
@@ -5324,36 +5325,27 @@ struct BabelGraph{
 /* used to perform a radix style sort to order bond stack pushes */
 struct LookAheadScore{
   WLNEdge *e;
-  unsigned int ascii_sum; 
+  std::string chunk; 
   unsigned int symbol_count; 
   bool terminates; 
 };
 
 void debug_score(LookAheadScore *score){
-  fprintf(stderr,"ascii: %d, symbols: %d, terminates?: %d\n",score->ascii_sum,score->symbol_count,score->terminates);
+  fprintf(stderr,"chunk: %s, symbols: %d, terminates?: %d\n",score->chunk.c_str(),score->symbol_count,score->terminates);
 }
 
 
-void ISortScores(LookAheadScore **arr,unsigned int len, unsigned int mode){
+void SortTerminal(LookAheadScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
-    if(mode == 0)
-		  key = arr[j]->ascii_sum;
-    else if (mode==1)
-      key = arr[j]->symbol_count;
-    else
-     key = arr[j]->terminates;
     
     LookAheadScore *s = arr[j];
+    key = s->terminates;
+    
 		int i = j-1;
     while(i>=0){
       unsigned int val = 0;      
-      if(mode == 0)
-        val = arr[i]->ascii_sum;
-      else if (mode==1)
-        val = arr[i]->symbol_count;
-      else
-       val = arr[i]->terminates;
+      val = arr[i]->terminates;
       if(val <= key)
         break;
 
@@ -5364,11 +5356,40 @@ void ISortScores(LookAheadScore **arr,unsigned int len, unsigned int mode){
 	}
 }
 
+
+// sort based on the letter ordering, only if symbol lens match
+void SortChunk(LookAheadScore **arr,unsigned int len){
+  for (unsigned int j=1;j<len;j++){
+    LookAheadScore *s = arr[j];
+		int i = j-1;
+    while(i>=0){
+      unsigned int k=0;
+      bool _break = false;
+      while(k<s->chunk.size() && k<arr[i]->chunk.size()){
+        if(s->chunk[k] != arr[i]->chunk[k]){
+          if(arr[i]->chunk[k] < s->chunk[k]){
+            _break = true;
+          }
+          break;
+        }
+
+        k++;
+      }
+      if(_break)
+        break;
+      arr[i+1] = arr[i];
+      i--;
+    }
+		arr[i+1] = s;
+	}
+}
+
+
 /* run the chain until either a ring atom/branch point/EOC is seen */
 LookAheadScore *RunChain(WLNEdge *edge){
-  LookAheadScore *score = (LookAheadScore*)malloc(sizeof(LookAheadScore)); 
+  LookAheadScore *score = new LookAheadScore; // must use new for string 
   score->e = edge;
-  score->ascii_sum = 0;
+  score->chunk = ""; 
   score->symbol_count = 0;
   score->terminates = 0;
   
@@ -5384,7 +5405,7 @@ LookAheadScore *RunChain(WLNEdge *edge){
         length++;
       }
       score->symbol_count++;
-      score->ascii_sum += length + '0'; 
+      score->chunk += std::to_string(length);  
       length = 1;
       break;
       // these must branch
@@ -5410,20 +5431,20 @@ LookAheadScore *RunChain(WLNEdge *edge){
       case 'Q':
       case 'Z':
         score->symbol_count++; 
-        score->ascii_sum+=node->ch;
+        score->chunk += node->ch;
         score->terminates = true;
         return score; 
 
       default:
-        score->ascii_sum += node->ch; 
+        score->chunk += node->ch; 
         score->symbol_count++; 
     }
     
     if(!node->bonds) // for random ending points
       return score;
     else{
-      for(unsigned int i=1;i<node->bonds->order;i++) // let symbol totals seperate these
-        score->ascii_sum += 'U'; 
+      for(unsigned int i=1;i<node->bonds->order;i++) // let symbol orderer sort here
+        score->chunk += 'U'; 
       node = node->bonds->child; // no need to iterate, it should only have 1.
     }
   }
@@ -5537,15 +5558,15 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph)
     for(e = sym->bonds;e;e=e->nxt)
       scores[l++] = RunChain(e); // score each chain run
     
-    ISortScores(scores, l, 0); // sort by ascii, 
-    ISortScores(scores, l, 1); // sort by symbols
-    ISortScores(scores, l, 2); // sort by terminal
+    SortChunk(scores, l); 
+    SortTerminal(scores, l); // sort by terminals, prefer them
 
     for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
 //      debug_score(scores[i]);
       bond_stack.push(scores[i]->e);
-      free(scores[i]);
+      delete scores[i];
     }
+
 
     prev = sym; // for terminator tracking
   }
@@ -5673,7 +5694,6 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
         FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
         
         std::string new_chain = CanonicalWLNChain(node, wln_graph);
-
         if(new_chain.size() < last_chain.size() || last_chain.empty())
           last_chain = new_chain;
         else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
