@@ -5467,12 +5467,14 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
         length++;
       }
 
-      if(length > 1)
-        buffer += std::to_string(length);
-      else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K'))
-        buffer += std::to_string(length); // allow the methyl contractions
-      else if(!sym->previous)
-        buffer += std::to_string(length); 
+      buffer += std::to_string(length);
+
+      // if(length > 1)
+      // else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K')){
+      //   buffer += std::to_string(length); // allow the methyl contractions
+      // } 
+      // else if(!sym->previous)
+      //   buffer += std::to_string(length); 
 
       sym->str_position = len + buffer.size();
       length = 1;
@@ -5502,6 +5504,34 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
 
       if(sym->num_edges < sym->allowed_edges){
         bond_stack.push((WLNEdge*)0); // should be zero 
+      }
+      break;
+    
+
+    case 'E':
+    case 'F':
+    case 'G':
+      if(sym->num_edges > 1){
+        buffer += '-';
+        sym->str_position = len + buffer.size()+1;
+        buffer+= sym->ch; 
+        buffer += '-';
+      }
+      else {
+        buffer += sym->ch; 
+      }
+      break; 
+
+
+    case 'O':
+      if(sym->num_edges > 2){
+        buffer += '-';
+        sym->str_position = len + buffer.size()+1;
+        buffer+= sym->ch; 
+        buffer += '-';
+      }
+      else {
+        buffer += sym->ch; 
       }
       break;
 
@@ -5760,7 +5790,7 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
   return store;
 }
 
-bool FullCanonicalise(WLNGraph &graph){
+std::string FullCanonicalise(WLNGraph &graph){
 
   std::map<WLNSymbol*,bool> global_map;
   std::string last_chain;
@@ -5773,8 +5803,7 @@ bool FullCanonicalise(WLNGraph &graph){
     }
   }
 
-  std::cout << store << std::endl; 
-  return true; 
+  return store; 
 }
 
 bool CanonicaliseWLN(const char *ptr, OBMol* mol)
