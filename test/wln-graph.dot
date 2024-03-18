@@ -1,8 +1,0 @@
-digraph WLNdigraph {
-  rankdir = LR;
-  0[shape=circle,label="O"];
-  1[shape=circle,label="c"];
-  1 -> 0
-  2[shape=circle,label="O"];
-  2 -> 1
-}
