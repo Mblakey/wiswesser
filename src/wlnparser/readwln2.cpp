@@ -5300,13 +5300,9 @@ struct LookAheadScore{
   WLNEdge *e;
   std::string chunk; 
   unsigned int symbol_count; 
-  bool terminates; 
+  bool terminates;
+  bool has_ring; 
 };
-
-void debug_score(LookAheadScore *score){
-  fprintf(stderr,"chunk: %s, symbols: %d, terminates?: %d\n",score->chunk.c_str(),score->symbol_count,score->terminates);
-}
-
 
 void SortTerminal(LookAheadScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
@@ -5365,11 +5361,17 @@ LookAheadScore *RunChain(WLNEdge *edge){
   score->chunk = ""; 
   score->symbol_count = 0;
   score->terminates = 0;
-  
+  score->has_ring = 0; // these should be placed last when possible 
+
   WLNSymbol *node = edge->child; 
   unsigned int length = 1; 
   // no stack needed as looking ahead in a linear fashion
   for(;;){
+    if(node->inRing){
+      score->has_ring = true;
+      return score; // immediate
+    }
+
     switch(node->ch){
       
     case '1':
@@ -5426,6 +5428,11 @@ LookAheadScore *RunChain(WLNEdge *edge){
 }
 
 
+
+
+std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len); 
+std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len);
+
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len)
 {
   
@@ -5479,6 +5486,15 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
       buffer +='U';
 
     sym = top_edge->child;
+    if(sym->inRing){
+      buffer += '-';
+      buffer += ' '; 
+      buffer += sym->inRing->locants_ch[sym];
+      buffer += CanonicalWLNRing(sym, graph, buffer.size());
+      bond_stack.pop(); 
+      continue; 
+    }
+
     if(seen_symbols[top_edge->parent]){
       if(prev && !IsTerminator(prev))
         buffer+='&';
@@ -5529,24 +5545,27 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         buffer += sym->ch; // & gets added to open branches, can get tidyed right at the end
         sym->str_position = len + buffer.size();
     }
-  
-    // first ordering
-    unsigned int l = 0;
-    LookAheadScore *scores[64] = {0};
-
-    for(e = sym->bonds;e;e=e->nxt)
-      scores[l++] = RunChain(e); // score each chain run
     
-    SortChunk(scores, l); 
-    SortTerminal(scores, l); // sort by terminals, prefer them
 
-    for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
-//      debug_score(scores[i]);
-      bond_stack.push(scores[i]->e);
-      delete scores[i];
+    if(!sym->inRing){
+      // first ordering
+      unsigned int l = 0;
+      LookAheadScore *scores[64] = {0};
+
+      for(e = sym->bonds;e;e=e->nxt)
+        scores[l++] = RunChain(e); // score each chain run
+      
+      SortChunk(scores, l); 
+      SortTerminal(scores, l); // sort by terminals, prefer them
+
+      for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
+  //      debug_score(scores[i]);
+        bond_stack.push(scores[i]->e);
+        delete scores[i];
+      }
+
+      prev = sym; // for terminator tracking
     }
-
-    prev = sym; // for terminator tracking
   }
   
   // tidy up any remaining closures that do not need to be added
@@ -5569,14 +5588,13 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len)
       riter != node->inRing->locants.end(); 
       riter++)
   {
-    for (e=(*riter).second->bonds;e;e=e->nxt){
-      if(!e->child->inRing){
-        buffer += ' '; 
-        buffer += (*riter).first;
-        buffer += CanonicalWLNChain(e->child, graph,buffer.size()); 
-        
+      for (e=(*riter).second->bonds;e;e=e->nxt){
+        if(!e->child->inRing){
+          buffer += ' '; 
+          buffer += (*riter).first;
+          buffer += CanonicalWLNChain(e->child, graph,buffer.size()); 
+        }
       }
-    }
   }
 
 
@@ -5743,15 +5761,6 @@ bool FullCanonicalise(WLNGraph &graph){
 
     }
   }
-
-
-
-
-
-
-
-
-
 
   std::cout << store << std::endl; 
   return true; 
