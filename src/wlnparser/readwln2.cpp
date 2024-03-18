@@ -3407,7 +3407,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
   bool no_shift = false; // stop shifting if already done
   std::string str_buffer; 
-  std::string carbon_chain_buffer; 
+  std::string digits_buffer; 
 
   unsigned char on_locant = '\0';         // locant tracking
   unsigned int pending_unsaturate = 0;    // 'U' style bonding
@@ -3436,17 +3436,16 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 #endif
     
     // this will need to resolved at the end as well
-    if(pending_carbon_chain && (ch < '0' || ch > '9') ){
-        
-      int carbon_len = isNumber(carbon_chain_buffer);
-      fprintf(stderr,"%d\n",carbon_len); 
+    if(pending_carbon_chain && (ch < '0' || ch > '9') && ch != '/' ){
+      if(digits_buffer.empty() || digits_buffer[0] == '0')
+        return Fatal(i,"Error: zero mark opened for chain length, invalid numeral"); 
 
-      carbon_chain_buffer.clear(); 
+      int carbon_len = isNumber(digits_buffer);
+      digits_buffer.clear(); 
       if(carbon_len < 0)
         return Fatal(i, "Error: non-numeric value entered for carbon length");
       else if (carbon_len > 100)
         return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
-      
 
       // create the head 
       WLNSymbol *carbon_head = AllocateWLNSymbol('1', graph);
@@ -3470,6 +3469,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
       pending_carbon_chain = false;
       prev = curr; 
+      cleared = false;
     }
 
     switch (ch)
@@ -3489,8 +3489,17 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_locant = false;
       }
       else if (pending_carbon_chain){
-        carbon_chain_buffer+= ch;
+        digits_buffer+= ch;
         break;
+      }
+      else if(pending_negative_charge){
+        digits_buffer += ch;
+        pending_negative_charge = false;
+      }
+      else if (cleared){
+        // null effect for positive charge
+        digits_buffer += ch;
+        pending_carbon_chain = true; 
       }
       else
         return Fatal(i,"Error: a lone zero mark is not allowed without positive numerals either side");
@@ -3558,17 +3567,20 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         pending_ring_in_ring = false;
         pending_inline_ring = false;
+        cleared = false;
       }
       else if (pending_carbon_chain){
-        carbon_chain_buffer += ch;  // simple resolve
+        digits_buffer += ch;  // simple resolve
         break;
+      }
+      else if (pending_negative_charge){
+        digits_buffer += ch; 
       }
       else{
         on_locant = '\0';
         pending_carbon_chain = true;
-        carbon_chain_buffer += ch; 
+        digits_buffer += ch; 
       }
-      cleared = false;
       break;
     
 
@@ -4624,6 +4636,30 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         j_skips = false;
         break;
       }
+      else if(pending_negative_charge){
+        int negative_index = isNumber(digits_buffer); 
+        if(negative_index < 0)
+          return Fatal(i, "Error: assigning non-numerical value to charge index");
+        else if(negative_index != 0){
+          // find the symbol and increment its charge + 1
+          bool found = false;
+          for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
+            if(graph.SYMBOLS[cs]->str_position == negative_index-1){
+              graph.SYMBOLS[cs]->charge--; 
+#if OPT_DEBUG
+              fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
+#endif
+              found = true;
+              break;
+            }
+          }
+          
+          if(!found)
+            return Fatal(i, "Error: charge index out of range, check letter index");
+        }
+        digits_buffer.clear(); 
+        pending_negative_charge = false;
+      }
 
       if(!branch_stack.empty() && !pending_inline_ring)
         branch_stack.pop_to_ring();
@@ -4931,9 +4967,39 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         j_skips = true;
         break;
       }
+      else if(pending_carbon_chain){ // state that this must be a charge 
+
+        if(!cleared)
+          return Fatal(i, "Error: opening post charge assignment without proper syntax [ &x/x ]");
+        
+        int positive_index = isNumber(digits_buffer); 
+        if(positive_index < 0)
+          return Fatal(i, "Error: assigning non-numerical value to charge index");
+        else if (positive_index != 0){
+          // find the symbol and increment its charge + 1
+          bool found = false;
+          for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
+            if(graph.SYMBOLS[cs]->str_position == positive_index-1){
+              graph.SYMBOLS[cs]->charge++;
+#if OPT_DEBUG
+              fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
+#endif
+              found = true;
+              break;
+            }
+          }
+          
+          if(!found)
+            return Fatal(i, "Error: charge index out of range, check letter index");
+        }
+
+        digits_buffer.clear(); 
+        pending_carbon_chain = false;
+        pending_negative_charge = true;
+      }
       else
         return Fatal(i,"Error: multipliers are not currently supported");
-      
+      cleared = false;
       break;
 
     default:
@@ -4948,12 +5014,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   }
 
 
-  if(pending_carbon_chain){
-        
-    int carbon_len = isNumber(carbon_chain_buffer);
-    fprintf(stderr,"%d\n",carbon_len); 
+  if(pending_carbon_chain){        
+    if(digits_buffer.empty() || digits_buffer[0] == '0')
+      return Fatal(i,"Error: zero mark opened for chain length, invalid numeral"); 
+    int carbon_len = isNumber(digits_buffer);
 
-    carbon_chain_buffer.clear(); 
+    digits_buffer.clear(); 
     if(carbon_len < 0)
       return Fatal(i, "Error: non-numeric value entered for carbon length");
     else if (carbon_len > 100)
@@ -4992,7 +5058,28 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     on_locant = 0;
   }
   
-
+  if(pending_negative_charge){
+    int negative_index = isNumber(digits_buffer); 
+    if(negative_index < 0)
+      return Fatal(i, "Error: assigning non-numerical value to charge index");
+    else if (negative_index != 0){
+      // find the symbol and increment its charge + 1
+      bool found = false;
+      for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
+        if(graph.SYMBOLS[cs]->str_position == negative_index-1){
+          graph.SYMBOLS[cs]->charge--; 
+#if OPT_DEBUG
+          fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
+#endif
+          found = true;
+          break;
+        }
+      }
+      
+      if(!found)
+        return Fatal(i, "Error: charge index out of range, check letter index");
+    }
+  }
 
   if (pending_J_closure)
     return Fatal(len, "Error: ring open at end of notation, inproper closure");
