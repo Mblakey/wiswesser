@@ -15,6 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
+#include <cctype>
 #include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
@@ -48,7 +49,7 @@ using namespace OpenBabel;
 #define STRUCT_COUNT 1024
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 0
+#define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
 const char *wln_string;
@@ -130,6 +131,9 @@ struct WLNEdge{
 struct WLNSymbol
 {
   unsigned int id;
+  unsigned int str_position; 
+  int charge;
+
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
   
@@ -152,6 +156,8 @@ struct WLNSymbol
     previous = 0;
     bonds = 0;
     aromatic = 0;
+    charge = 0;
+    str_position = 0; 
   }
   ~WLNSymbol(){};
 
@@ -1581,9 +1587,6 @@ WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
 
 WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &graph){
 
-  if (size > STRUCT_COUNT)
-    return 0;
-  
   head->ch = '1';
   head->allowed_edges = 4;
 
@@ -2349,8 +2352,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
               if(!new_locant)
                 return Fatal(i+start, "Error: could not create hypervalent element");
+              
 
+              new_locant->str_position = start+i+1;
               graph.string_positions[start+i + 1] = new_locant; // attaches directly
+
               if(OPT_DEBUG)
                 fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
             }
@@ -2387,6 +2393,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 return Fatal(i+start, "Error: could not create periodic code element");
 
               graph.string_positions[start+i + 1] = new_locant; // attaches directly to the starting letter
+              new_locant->str_position = start+i + 1; // attaches directly to the starting letter
 
               if(OPT_DEBUG)
                 fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
@@ -3082,7 +3089,7 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
   return ResolveHangingBonds(graph); 
 }
 
-
+#if DEPRECATED
 /* backwards search for tentative ionic rule procedures */
 unsigned int SearchIonic(const char *wln_ptr, unsigned int len,
                           std::vector<std::pair<unsigned int, int>> &charges)
@@ -3166,7 +3173,7 @@ bool AssignCharges(std::vector<std::pair<unsigned int, int>> &charges,WLNGraph &
   }
   return true;
 }
-
+#endif
 
 
 /**********************************************************************
@@ -3395,9 +3402,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_spiro            = false;
   bool pending_ring_in_ring     = false; // rings in rings
   bool pending_rir_closure      = false;
+  bool pending_negative_charge  = false; // lets get rid of a lot of waste
+  bool pending_carbon_chain     = false;
 
   bool no_shift = false; // stop shifting if already done
   std::string str_buffer; 
+  std::string carbon_chain_buffer; 
 
   unsigned char on_locant = '\0';         // locant tracking
   unsigned int pending_unsaturate = 0;    // 'U' style bonding
@@ -3408,21 +3418,59 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   unsigned int block_end = 0;
 
   unsigned int len = strlen(wln_ptr);
+
+#if DEPRECATED
   unsigned int zero_position = SearchIonic(wln_ptr,len,ionic_charges);
+#endif 
 
   unsigned int i=0;
   unsigned char ch = *wln_ptr;
   
   while(ch)
   {  
-    // fprintf(stderr,"char: %c onlocant: %c\n",ch,on_locant);
-    
-    // if(on_locant && ring)
-    //   prev = ring->locants[on_locant];
-    
+
+#if DEPRECATED
     // dont read any ionic notation
     if(zero_position && zero_position == i)
       break;
+#endif
+    
+    // this will need to resolved at the end as well
+    if(pending_carbon_chain && (ch < '0' || ch > '9') ){
+        
+      int carbon_len = isNumber(carbon_chain_buffer);
+      fprintf(stderr,"%d\n",carbon_len); 
+
+      carbon_chain_buffer.clear(); 
+      if(carbon_len < 0)
+        return Fatal(i, "Error: non-numeric value entered for carbon length");
+      else if (carbon_len > 100)
+        return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
+      
+
+      // create the head 
+      WLNSymbol *carbon_head = AllocateWLNSymbol('1', graph);
+      curr = create_carbon_chain(carbon_head,carbon_len,graph);
+        
+      if(prev){
+        if(prev == branch_stack.branch){
+          while(!branch_stack.top().second && !branch_stack.empty())
+            branch_stack.pop();
+        }
+
+        edge = AllocateWLNEdge(carbon_head,prev,graph);
+        if(!edge)
+          return Fatal(i, "Error: failed to bond to previous symbol");
+
+        if(pending_unsaturate){
+          edge = unsaturate_edge(edge,pending_unsaturate);
+          pending_unsaturate = 0;
+        }
+      }
+
+      pending_carbon_chain = false;
+      prev = curr; 
+    }
 
     switch (ch)
     {
@@ -3439,6 +3487,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         prev = 0;
         on_locant = '0';
         pending_locant = false;
+      }
+      else if (pending_carbon_chain){
+        carbon_chain_buffer+= ch;
+        break;
       }
       else
         return Fatal(i,"Error: a lone zero mark is not allowed without positive numerals either side");
@@ -3463,30 +3515,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
         
       else if(pending_locant){  // handle all multiplier contractions
-        
-        // block to hunt the multiplier maximum --> lookahead
-        // look for spaces followed by ints. 
-
-        std::string int_sequence;
-        int_sequence.push_back(ch);
-
-        while(i < len - 2){
-          if(wln_string[i+1] == ' ' && std::isdigit(wln_string[i+2])){
-            int_sequence.push_back(wln_string[i+2]);
-            i+=2;
-            wln_ptr += 2;
-          }
-          else
-            break;
-        }
-
         return Fatal(i,"Error: multipliers are not currently supported");
-
         pending_locant = false;
         on_locant = ch;
       }
       else if(pending_ring_in_ring && pending_inline_ring){
-          // onlocant holds the char needed to wrap the ring back, 
+        // onlocant holds the char needed to wrap the ring back, 
         
         if(on_locant != '0'){
           curr = wrap_ring->locants[on_locant];
@@ -3524,54 +3558,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         pending_ring_in_ring = false;
         pending_inline_ring = false;
-      } 
+      }
+      else if (pending_carbon_chain){
+        carbon_chain_buffer += ch;  // simple resolve
+        break;
+      }
       else{
         on_locant = '\0';
-        curr = AllocateWLNSymbol('1',graph);
-        curr->allowed_edges = 4;
-        graph.string_positions[i] = curr;
-
-        if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-
-          edge = AllocateWLNEdge(curr,prev,graph);
-          if(!edge)
-            return Fatal(i, "Error: failed to bond to previous symbol");
-
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
-        }
-
-        std::string int_sequence;
-        int_sequence.push_back(ch);
-        while(*(wln_ptr+1)){
-          if(!std::isdigit(*(wln_ptr+1)))
-            break;
-
-          int_sequence.push_back(*(wln_ptr+1));
-          wln_ptr++;
-          i++;
-        }
-
-        int carbon_len = isNumber(int_sequence);
-        if(carbon_len < 0)
-          return Fatal(i, "Error: non-numeric value entered for carbon length");
-        else if (carbon_len > 100)
-          return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
-        else
-          curr = create_carbon_chain(curr,carbon_len,graph);
-        
-        if(!curr)
-          return Fatal(i, "Error: failed to create carbon chain, raise algorithm issue");
-        
-
-        prev = curr;
+        pending_carbon_chain = true;
+        carbon_chain_buffer += ch; 
       }
       cleared = false;
       break;
@@ -3586,6 +3581,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 4; // change methyl addition
 
         if(prev){
@@ -3623,6 +3619,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 4;
 
         if(prev){
@@ -3672,6 +3669,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 2;
 
         if(prev){
@@ -3717,6 +3715,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 1;
 
         if(prev){
@@ -3768,7 +3767,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 2;
+        
         if(prev){
 
           if(prev == branch_stack.branch){
@@ -3813,6 +3814,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->allowed_edges = 3;
+        curr->str_position = i;
         graph.string_positions[i] = curr;
 
         if(prev){
@@ -3871,6 +3873,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 3;
 
         if(prev){
@@ -3920,6 +3923,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 2;
 
         if(prev){
@@ -3967,6 +3971,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 4;
 
         if(prev){
@@ -4014,6 +4019,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       { 
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 1;
 
         if(prev){
@@ -4067,6 +4073,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 1;
 
         if(prev){
@@ -4118,6 +4125,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       { 
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 3;
 
         if(prev){
@@ -4165,6 +4173,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       {
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         
         if(ch == 'P')
           curr->allowed_edges = 5;
@@ -4218,6 +4227,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         // set lower case for multiplier carbon
         curr = AllocateWLNSymbol('c',graph);
+        curr->str_position = i;
         curr->allowed_edges = 4;
 
         if(prev && i < len - 1){
@@ -4332,6 +4342,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else{
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
+        curr->str_position = i;
         curr->allowed_edges = 1;
   
         if(prev){
@@ -4866,12 +4877,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             curr = define_hypervalent_element(str_buffer[0],graph);
             if(!curr)
               return Fatal(i, "Error: failed to define hypervalent element");
+            curr->str_position = i;
           }
           else if(str_buffer.size() == 2){
             curr = define_element(str_buffer,graph);
             if(!curr)
               return Fatal(i, "Error: failed to define periodic element"); 
             
+            curr->str_position = i;
+
             if(on_locant == '0'){
               graph.charge_additions[curr]++;
               //on_locant = '\0';
@@ -4933,6 +4947,43 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     no_shift = false;
   }
 
+
+  if(pending_carbon_chain){
+        
+    int carbon_len = isNumber(carbon_chain_buffer);
+    fprintf(stderr,"%d\n",carbon_len); 
+
+    carbon_chain_buffer.clear(); 
+    if(carbon_len < 0)
+      return Fatal(i, "Error: non-numeric value entered for carbon length");
+    else if (carbon_len > 100)
+      return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
+    
+
+    // create the head 
+    WLNSymbol *carbon_head = AllocateWLNSymbol('1', graph);
+    curr = create_carbon_chain(carbon_head,carbon_len,graph);
+      
+    if(prev){
+      if(prev == branch_stack.branch){
+        while(!branch_stack.top().second && !branch_stack.empty())
+          branch_stack.pop();
+      }
+
+      edge = AllocateWLNEdge(carbon_head,prev,graph);
+      if(!edge)
+        return Fatal(i, "Error: failed to bond to previous symbol");
+
+      if(pending_unsaturate){
+        edge = unsaturate_edge(edge,pending_unsaturate);
+        pending_unsaturate = 0;
+      }
+    }
+
+    pending_carbon_chain = false;
+    prev = curr; 
+  }
+
   // single letter methyl branches
   if(on_locant && on_locant != '0' && !pending_inline_ring && !branch_stack.empty()){
     if(!add_methyl(branch_stack.ring->locants[on_locant],graph))
@@ -4957,10 +5008,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
   if (pending_spiro)
     return Fatal(len, "Error: spiro ring expected at end of notation, inproper closure");
-  
+
+#if DEPRECATED
   if(!AssignCharges(ionic_charges,graph))
     return Fatal(len, "Error: failed to assign post charges - likely out of range?");
-
+#endif
     // use this for recursion on multipliers
   return true;
 }
@@ -5454,7 +5506,6 @@ LookAheadScore *RunChain(WLNEdge *edge){
 
 
 
-
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph)
 {
   
@@ -5672,6 +5723,8 @@ bool ChainOnlyCanonicalise(WLNGraph &wln_graph){
       FlowFromNode(node, wln_graph,global_map); // get the graph ordered from the point we want to write from
       
       std::string new_chain = CanonicalWLNChain(node, wln_graph);
+      // add post charges to the chain
+
       if(new_chain.size() < last_chain.size() || last_chain.empty())
         last_chain = new_chain;
       else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
