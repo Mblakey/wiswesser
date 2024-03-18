@@ -5477,7 +5477,12 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
       sym->str_position = len + buffer.size();
       length = 1;
       break;
-    
+
+    case 'c':
+      buffer += 'C'; 
+      sym->str_position = len + buffer.size();
+      break;
+
     case '*':
     case 'X':
     case 'Y':
