@@ -5666,10 +5666,12 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   // if no rings, choose a starting atom and flow from each
   if(!wln_graph.ring_count){
     std::string last_chain;
-    for (unsigned int i=0;i<stop;i++){
+    for (unsigned int i=0;i<wln_graph.symbol_count;i++){
       WLNSymbol *node = wln_graph.SYMBOLS[i];
-      if(!node->bonds){
+      if(!node->bonds || !node->previous){
+        
         FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
+        
         std::string new_chain = CanonicalWLNChain(node, wln_graph);
 
         if(new_chain.size() < last_chain.size() || last_chain.empty())
