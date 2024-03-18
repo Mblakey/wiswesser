@@ -164,11 +164,11 @@ struct WLNSymbol
 
 struct WLNRing
 {
-
   unsigned int rsize;
   unsigned int aromatic_atoms;
   unsigned int *adj_matrix; 
-
+  std::string str_notation; // used for write back
+  
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
   std::vector<std::pair<unsigned char,int>> post_charges; 
@@ -2195,6 +2195,7 @@ bool post_saturate( std::vector<std::pair<unsigned char, unsigned char>> &bonds,
 
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
 bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph &graph,unsigned char spiro_atom='\0'){
+  ring->str_notation = block;
 
   bool warned             = false;  // limit warning messages to console
   bool heterocyclic       = false;  // L|T designator can throw warnings
@@ -5317,9 +5318,237 @@ struct BabelGraph{
 
 
 /**********************************************************************
-                          GRAPH MANIPULATIONS
+                          Canonical Algorithms
 **********************************************************************/
 
+/* used to perform a radix style sort to order bond stack pushes */
+struct LookAheadScore{
+  WLNEdge *e;
+  unsigned int ascii_sum; 
+  unsigned int symbol_count; 
+  bool terminates; 
+};
+
+void debug_score(LookAheadScore *score){
+  fprintf(stderr,"ascii: %d, symbols: %d, terminates?: %d\n",score->ascii_sum,score->symbol_count,score->terminates);
+}
+
+
+void ISortScores(LookAheadScore **arr,unsigned int len, unsigned int mode){
+  for (unsigned int j=1;j<len;j++){
+    unsigned int key = 0; 
+    if(mode == 0)
+		  key = arr[j]->ascii_sum;
+    else if (mode==1)
+      key = arr[j]->symbol_count;
+    else
+     key = arr[j]->terminates;
+    
+    LookAheadScore *s = arr[j];
+		int i = j-1;
+    while(i>=0){
+      unsigned int val = 0;      
+      if(mode == 0)
+        val = arr[i]->ascii_sum;
+      else if (mode==1)
+        val = arr[i]->symbol_count;
+      else
+       val = arr[i]->terminates;
+      if(val <= key)
+        break;
+
+      arr[i+1] = arr[i];
+      i--;
+    }
+		arr[i+1] = s;
+	}
+}
+
+/* run the chain until either a ring atom/branch point/EOC is seen */
+LookAheadScore *RunChain(WLNEdge *edge){
+  LookAheadScore *score = (LookAheadScore*)malloc(sizeof(LookAheadScore)); 
+  score->e = edge;
+  score->ascii_sum = 0;
+  score->symbol_count = 0;
+  score->terminates = 0;
+  
+  WLNSymbol *node = edge->child; 
+  unsigned int length = 1; 
+  // no stack needed as looking ahead in a linear fashion
+  for(;;){
+    switch(node->ch){
+      
+    case '1':
+      while(node->bonds && node->bonds->order==1 && node->bonds->child->ch == '1'){
+        node = node->bonds->child; 
+        length++;
+      }
+      score->symbol_count++;
+      score->ascii_sum += length + '0'; 
+      length = 1;
+      break;
+      // these must branch
+      case 'Y':
+      case 'X':
+      case 'K':
+        return score;
+
+      // these could branch, only split if they have
+      case '*':
+      case 'P':
+      case 'S':
+      case 'B':
+      case 'N': // further canonical rule to add to minimise this
+        return score; 
+      
+      // terminators end the branch lookahead immediately
+      case 'E':
+      case 'F':
+      case 'G':
+      case 'H':
+      case 'I':
+      case 'Q':
+      case 'Z':
+        score->symbol_count++; 
+        score->ascii_sum+=node->ch;
+        score->terminates = true;
+        return score; 
+
+      default:
+        score->ascii_sum += node->ch; 
+        score->symbol_count++; 
+    }
+    
+    if(!node->bonds) // for random ending points
+      return score;
+    else{
+      for(unsigned int i=1;i<node->bonds->order;i++) // let symbol totals seperate these
+        score->ascii_sum += 'U'; 
+      node = node->bonds->child; // no need to iterate, it should only have 1.
+    }
+  }
+
+  return score; 
+}
+
+
+
+
+std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph)
+{
+  
+  WLNSymbol *sym = node; 
+  WLNSymbol *prev = 0; 
+  WLNEdge *e = 0;
+  unsigned int length = 1;
+  std::string buffer = ""; 
+  std::map<WLNSymbol*,bool> seen_symbols;
+  std::stack<WLNEdge*> bond_stack; 
+
+  // #####################################################################################
+  switch(sym->ch){
+    case '1':
+      while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
+        sym = sym->bonds->child; 
+        length++;
+      }
+      buffer += std::to_string(length);
+      length = 1;
+      break;
+
+    case '*':
+      buffer += '-';
+      buffer+= sym->special; 
+      buffer += '-';
+      break;
+
+    default:
+      buffer += sym->ch; 
+      break;
+  }
+
+  for(e = sym->bonds;e;e=e->nxt)
+    bond_stack.push(e);
+
+// #####################################################################################
+
+  while(!bond_stack.empty()){
+    WLNEdge *top_edge = bond_stack.top();
+    if(!top_edge){
+      bond_stack.pop();
+      buffer +='&';
+      continue;
+    }
+    
+    for(unsigned int i=1;i<top_edge->order;i++)
+      buffer +='U';
+
+    sym = top_edge->child;
+    if(seen_symbols[top_edge->parent]){
+      if(prev && !IsTerminator(prev))
+        buffer+='&';
+    }
+
+    seen_symbols[top_edge->parent] = true;
+    bond_stack.pop();
+
+    switch(sym->ch){
+    // skip through carbon chains
+      case '1':
+        while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
+          sym = sym->bonds->child; 
+          length++;
+        }
+        buffer += std::to_string(length);
+        length = 1;
+        break;
+      
+      case '*':
+      case 'X':
+      case 'Y':
+      case 'K':
+      case 'P':
+      case 'S':
+        if(sym->ch == '*'){
+          buffer += '-';
+          buffer+= sym->special; 
+          buffer += '-';
+        }
+        else
+          buffer += sym->ch; 
+
+        if(sym->num_edges < sym->allowed_edges){
+          bond_stack.push((WLNEdge*)0); // should be zero 
+        }
+        break;
+
+      default:
+        buffer += sym->ch; // & gets added to open branches, can get tidyed right at the end
+    }
+  
+    // first ordering
+    unsigned int l = 0;
+    LookAheadScore *scores[64] = {0};
+
+    for(e = sym->bonds;e;e=e->nxt)
+      scores[l++] = RunChain(e); // score each chain run
+    
+    ISortScores(scores, l, 0); // sort by ascii, 
+    ISortScores(scores, l, 1); // sort by symbols
+    ISortScores(scores, l, 2); // sort by terminal
+
+    for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
+//      debug_score(scores[i]);
+      bond_stack.push(scores[i]->e);
+      free(scores[i]);
+    }
+
+    prev = sym; // for terminator tracking
+  }
+  
+
+  return buffer;
+}
 
 
 // make all the edges point outwards from a given source node, allows full
@@ -5356,120 +5585,6 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
   }
   
   return true;
-}
-
-
-/* Assumes a full DFS is possible, call FlowfromNode first to ensure,
- * at a base level, this should be able to return the WLN string read if all
- * checks are passed, any valid WLN start point should only contain 1 forward edge, 
- * unless this is a ring, then the ring must take priority and the question is how 
- * to order locants, and symbols within the locants. 
-*/
-
-
-std::string WriteFromNode(WLNSymbol *node, WLNGraph &graph){
-  std::string buffer = "";   
-  
-  WLNSymbol *sym = node; 
-  WLNSymbol *prev = 0; 
-  WLNEdge *e = 0;
-  WLNEdge *break_edge = 0; 
-  unsigned int length = 1;
-
-  std::map<WLNSymbol*,bool> seen_symbols;
-  std::stack<WLNEdge*> bond_stack;
-
-// init conditions
-// #######################################################################################
-   switch(sym->ch){
-    case '1':
-      while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
-        sym = sym->bonds->child; 
-        length++;
-      }
-      buffer += std::to_string(length);
-      length = 1;
-      break;
-
-    case '*':
-      buffer += '-';
-      buffer+= sym->special; 
-      buffer += '-';
-      break;
-
-    default:
-      buffer += sym->ch; 
-      break;
-  }
-
-  for(e = sym->bonds;e;e=e->nxt)
-    bond_stack.push(e);
-// #######################################################################################
-
-  while(!bond_stack.empty()){
-    WLNEdge *top_edge = bond_stack.top();
-    if(!top_edge){
-      bond_stack.pop();
-      buffer +='&';
-      continue;
-    }
-    
-    for(unsigned int i=1;i<top_edge->order;i++)
-      buffer +='U';
-
-    sym = top_edge->child;
-    if(seen_symbols[top_edge->parent]){
-      if(prev && !IsTerminator(prev))
-        buffer+='&';
-    }
-
-    seen_symbols[top_edge->parent] = true;
-    bond_stack.pop();
-
-
-    switch(sym->ch){
-    // skip through carbon chains
-      case '1':
-        while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
-          sym = sym->bonds->child; 
-          length++;
-        }
-        buffer += std::to_string(length);
-        length = 1;
-        break;
-      
-      case '*':
-      case 'X':
-      case 'Y':
-      case 'K':
-      case 'P':
-      case 'S':
-        if(sym->ch == '*'){
-          buffer += '-';
-          buffer+= sym->special; 
-          buffer += '-';
-        }
-        else
-          buffer += sym->ch; 
-
-        if(sym->num_edges < sym->allowed_edges){
-          bond_stack.push(break_edge); // should be zero 
-        }
-        break;
-
-      default:
-        buffer += sym->ch; // & gets added to open branches, can get tidyed right at the end
-    }
-   
-    
-    for(e = sym->bonds;e;e=e->nxt){
-      bond_stack.push(e);
-    }
-
-    prev = sym; // for terminator tracking
-  }
-
-  return buffer;
 }
 
 /**********************************************************************
@@ -5512,7 +5627,7 @@ bool ReadWLN(const char *ptr, OBMol* mol)
 
 
 
-bool WriteWLNShort(const char *ptr, OBMol* mol)
+bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 {   
   if(!ptr){
     fprintf(stderr,"Error: could not read wln string pointer\n");
@@ -5541,12 +5656,9 @@ bool WriteWLNShort(const char *ptr, OBMol* mol)
     }
   }
 
-
   WLNSymbol *node = wln_graph.SYMBOLS[0]; 
   FlowFromNode(node, wln_graph); // get the graph ordered from the point we want to write from
-  
-  std::string test = WriteFromNode(node, wln_graph); 
-  std::cout << test << std::endl; 
+  std::cout << CanonicalWLNChain(node, wln_graph) << std::endl;
 
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
