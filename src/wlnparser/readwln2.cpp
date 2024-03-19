@@ -49,7 +49,7 @@ using namespace OpenBabel;
 #define STRUCT_COUNT 1024
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 0
+#define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
 const char *wln_string;
@@ -181,11 +181,20 @@ struct WLNRing
   
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
+  
+  bool spiro; 
+  unsigned int multi_points;
+  unsigned int pseudo_points;
+  unsigned int bridge_points;
 
   WLNRing(){
     rsize = 0;
     aromatic_atoms = 0;
     adj_matrix = 0;
+    spiro = 0;
+    multi_points = 0;
+    pseudo_points = 0;
+    bridge_points = 0; 
   }
   ~WLNRing(){
     if(adj_matrix)
@@ -5318,22 +5327,23 @@ struct BabelGraph{
 **********************************************************************/
 
 /* used to perform a radix style sort to order bond stack pushes */
-struct LookAheadScore{
+struct LookAheadSymbol{
   WLNEdge *e;
   std::string chunk; 
   bool terminates;
   bool has_ring; 
 };
 
-void debug_score(LookAheadScore *score){
+
+void debug_score(LookAheadSymbol *score){
   fprintf(stderr,"%s: term:%d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_ring); 
 }
 
-void SortTerminal(LookAheadScore **arr,unsigned int len){
+void SortTerminal(LookAheadSymbol **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
-    LookAheadScore *s = arr[j];
+    LookAheadSymbol *s = arr[j];
     key = s->terminates;
     
 		int i = j-1;
@@ -5351,11 +5361,11 @@ void SortTerminal(LookAheadScore **arr,unsigned int len){
 }
 
 
-void SortRing(LookAheadScore **arr,unsigned int len){
+void SortRing(LookAheadSymbol **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
-    LookAheadScore *s = arr[j];
+    LookAheadSymbol *s = arr[j];
     key = s->has_ring;
     
 		int i = j-1;
@@ -5374,9 +5384,9 @@ void SortRing(LookAheadScore **arr,unsigned int len){
 
 
 // sort based on the letter ordering, only if symbol lens match
-void SortChunk(LookAheadScore **arr,unsigned int len){
+void SortChunk(LookAheadSymbol **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
-    LookAheadScore *s = arr[j];
+    LookAheadSymbol *s = arr[j];
 		int i = j-1;
     while(i>=0){
       unsigned int k=0;
@@ -5402,8 +5412,8 @@ void SortChunk(LookAheadScore **arr,unsigned int len){
 
 
 /* run the chain until either a ring atom/branch point/EOC is seen */
-LookAheadScore *RunChain(WLNEdge *edge){
-  LookAheadScore *score = new LookAheadScore; // must use new for string 
+LookAheadSymbol *RunChain(WLNEdge *edge){
+  LookAheadSymbol *score = new LookAheadSymbol; // must use new for string 
   score->e = edge;
   score->chunk = ""; 
   score->terminates = 0;
@@ -5470,6 +5480,31 @@ LookAheadScore *RunChain(WLNEdge *edge){
   return score; 
 }
 
+
+void SortCycles(WLNRing **arr, unsigned int len){
+  
+  // sort by how many locants, most major
+
+#if LOC
+  for (unsigned int j=1;j<len;j++){
+    WLNRing *s = arr[j];
+    unsigned int key = 0; 
+    for(unsigned char ch = 'A';ch<'A'+s->rsize;ch++){
+      ;
+    }
+		int i = j-1;
+    while(i>=0){
+      unsigned int val = 0;      
+      //val = arr[i]->terminates;
+      if(val <= key)
+        break;
+      arr[i+1] = arr[i];
+      i--;
+    }
+		arr[i+1] = s;
+	}
+#endif
+}
 
 // forward declaration 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len,unsigned int cycle_num); 
@@ -5568,7 +5603,7 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
 
   WLNEdge *e = 0; 
   unsigned int l = 0;
-  LookAheadScore *scores[64] = {0};
+  LookAheadSymbol *scores[64] = {0};
 
   for(e = sym->bonds;e;e=e->nxt){
     scores[l++] = RunChain(e); // score each chain run
@@ -5904,11 +5939,22 @@ std::string FullCanonicalise(WLNGraph &graph){
   std::string last_chain;
   std::string store; 
   bool first_write = false;
+  
+  unsigned int r = 0; 
+  WLNRing *sorted_rings[128] = {0};
+  for (unsigned int i=0;i<graph.ring_count;i++)
+    sorted_rings[r++] = graph.RINGS[i];
 
+  SortCycles(sorted_rings, r); 
 
+#if OPT_DEBUG
+  for (unsigned int i=0;i<r;i++){
+    fprintf(stderr,"ring-size:%d, locants: %d, hetero_atoms: %d\n",sorted_rings[i]->rsize,0,0); 
+  }
+#endif
 
-  for (unsigned int i=0;i<graph.ring_count;i++){
-    WLNRing *ring = graph.RINGS[i];
+  for (unsigned int i=0;i<r;i++){
+    WLNRing *ring = sorted_rings[i];
     if(!graph.global_rings[ring]){
       WLNSymbol *node = ring->locants['A']; 
 
