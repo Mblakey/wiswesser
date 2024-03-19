@@ -1319,14 +1319,14 @@ unsigned int special_element_atm(std::string &special){
 unsigned int count_children(WLNSymbol *sym){
   WLNEdge *edge = 0; 
   unsigned int count = 0;
+  if(sym->num_edges == sym->allowed_edges) // quick shortcut
+    return sym->num_edges;
+ 
   for(edge=sym->bonds;edge;edge=edge->nxt)
     count++;
 
   if(sym->previous)
     count++;
-
-  if(sym->num_edges == sym->allowed_edges)
-    return sym->num_edges;
 
   return count; 
 }
@@ -1560,6 +1560,18 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
   return prev;
 }
 
+
+bool has_dioxo(WLNSymbol *node){
+  if(node->previous && node->previous->ch == 'W')
+    return true;
+  
+  for(WLNEdge *e = node->bonds;e;e=e->nxt)
+    if(e->child->ch == 'W')
+      return true;
+  
+  return false;
+}
+
 bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
   WLNEdge *edge = 0;
@@ -1609,8 +1621,6 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   if(!edge || !sedge)
     return false;
   
-    
-
   return true;
 }
 
@@ -4222,8 +4232,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
         }
 
-        if(prev && prev->num_edges < prev->allowed_edges)
+        if(prev && (prev->ch == 'V' || prev->ch == 'M')){
           curr = prev;
+        }
         else
           prev = return_object_symbol(branch_stack);
         
@@ -4550,8 +4561,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           prev = curr;
         }
       }
+#if DEPRECATED
       else if (i < len-1 && wln_string[i+1] == ' '){
         // this must be a ring pop, no matter what
+        // technically not true!
         
         if(branch_stack.empty() || !branch_stack.ring)
           return Fatal(i, "Error: '&' followed by a space indicates a ring pop, are there any rings?"); 
@@ -4566,6 +4579,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             prev = branch_stack.branch;
         }
       }
+#endif
       else if(!branch_stack.empty())
       {
 
@@ -5501,9 +5515,14 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
         buffer += sym->ch; 
         sym->str_position = len + buffer.size();
       }
+      
 
-      if(sym->num_edges < sym->allowed_edges){
-        bond_stack.push((WLNEdge*)0); // should be zero 
+      if( sym->num_edges < sym->allowed_edges) {
+        
+        if (sym->num_edges==sym->allowed_edges-1 && has_dioxo(sym))
+          break;
+        else
+         bond_stack.push((WLNEdge*)0); // should be zero 
       }
       break;
     
@@ -5552,7 +5571,9 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
   SortRing(scores, l); 
 
   for(unsigned int i=0;i<l;i++){ // sort the chains (radix style) to get high priorities first
+#if OPT_DEBUG
     debug_score(scores[i]); 
+#endif
     bond_stack.push(scores[i]->e);
     delete scores[i];
   }
@@ -5578,13 +5599,13 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
       continue;
     }
     
-    for(unsigned int i=1;i<top_edge->order;i++)
-      buffer +='U';
-
     if(seen_symbols[top_edge->parent]){
       if(prev && !IsTerminator(prev))
         buffer+='&';
     }
+    
+    for(unsigned int i=1;i<top_edge->order;i++)
+      buffer +='U';
 
     sym = top_edge->child;
     if(sym->inRing){
@@ -5653,7 +5674,14 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
           buffer += '-';
           buffer += ' ';
           buffer += e->child->inRing->locants_ch[e->child]; 
-          buffer += CanonicalWLNRing(e->child, graph,buffer.size(),last_cycle_seen);
+          buffer += CanonicalWLNRing(e->child, graph,buffer.size(),last_cycle_seen+1);
+
+          if(last_cycle_seen > cycle_num){
+            for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
+              buffer+='&';
+            }
+          }
+          last_cycle_seen = cycle_num;
         }
       }
   }
@@ -5752,6 +5780,10 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
       
       if(i != 0 && !global_map[node]){ // ion condition
         store += last_chain;
+
+       while(store.back() == '&') // trail cleaning
+         store.pop_back(); 
+
         store += " &";
         last_chain = ""; // allows seperate canonical units 
       }
@@ -5805,6 +5837,9 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
   }
 
 
+ while(store.back() == '&') // trail cleaning
+   store.pop_back(); 
+  // tidy up any remaining closures that do not need to be added
   return store;
 }
 
@@ -5848,9 +5883,18 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
   
-  // resolve step is needed first 
+  // more minimal resolve step for certain groups, W removal
   WLNEdge *e = 0; 
   unsigned int stop = wln_graph.symbol_count;
+
+  // for (unsigned int i=0;i<stop;i++){
+  //   WLNSymbol *sym = wln_graph.SYMBOLS[i];
+  //   if(sym->ch == 'W' && !add_dioxo(sym,wln_graph))
+  //     return false;
+  // }
+
+  stop = wln_graph.symbol_count;
+
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = wln_graph.SYMBOLS[i];
     switch(sym->ch){
@@ -5875,13 +5919,13 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     }
   }
   
-  WriteGraph(wln_graph,"wln-graph.dot");
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count)
     std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
     std::cout << FullCanonicalise(wln_graph); 
   
+  WriteGraph(wln_graph,"wln-graph.dot");
   std::cout << std::endl; 
   return true;
 }
