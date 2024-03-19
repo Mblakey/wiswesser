@@ -42,6 +42,7 @@ GNU General Public License for more details.
 #include <openbabel/obmolecformat.h>
 #include <openbabel/graphsym.h>
 
+#include "ctree.h"
 #include "parser.h"
 
 using namespace OpenBabel; 
@@ -179,13 +180,16 @@ struct WLNRing
   unsigned int *adj_matrix; 
   std::string str_notation; // used for write back
   
+  std::vector<unsigned char> assignment_locants;
+  std::vector<unsigned int> assignment_digits;
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
-  
+
   bool spiro; 
   unsigned int multi_points;
   unsigned int pseudo_points;
   unsigned int bridge_points;
+  unsigned int loc_count;
 
   WLNRing(){
     rsize = 0;
@@ -195,6 +199,7 @@ struct WLNRing
     multi_points = 0;
     pseudo_points = 0;
     bridge_points = 0; 
+    loc_count = 0; 
   }
   ~WLNRing(){
     if(adj_matrix)
@@ -1341,6 +1346,33 @@ unsigned int count_children(WLNSymbol *sym){
 
   if(sym->previous)
     count++;
+
+  return count; 
+}
+
+
+/* counts both incoming and outgoing locants, spiro
+ * will count doubley and is a good seperator, 
+ * single connected outer rings follow expected behaviour,
+ * will deprecate once ticker placed in ring loop */
+unsigned int count_locants(WLNRing *ring, WLNGraph &graph){
+  unsigned int count = 0; 
+  
+  for(std::map<unsigned char, WLNSymbol*>::iterator riter=ring->locants.begin(); riter != ring->locants.end();riter++){
+    WLNSymbol *locant = (*riter).second; 
+    for(WLNEdge *e=locant->bonds;e;e=e->nxt){
+      if(e->child->inRing != ring)
+        count++; 
+    }
+  }
+
+  for(unsigned int i=1;i<=graph.edge_count;i++){
+    WLNEdge *gedge = graph.EDGES[i];
+    if(gedge && gedge->child){
+      if(gedge->child->inRing == ring && gedge->parent->inRing != ring)
+        count++;
+    }
+  }
 
   return count; 
 }
@@ -2896,7 +2928,17 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                                 ring,
                                 graph);
 
-  ring->rsize = final_size; 
+  ring->rsize = final_size;
+  ring->multi_points = multicyclic_locants.size(); 
+  ring->pseudo_points = pseudo_locants.size(); 
+  ring->bridge_points = bridge_locants.size(); 
+  
+
+  for (std::pair<unsigned int, unsigned char> comp : ring_components){    
+      ring->assignment_locants.push_back(comp.second); 
+      ring->assignment_digits.push_back(comp.first); 
+    } 
+
   if (!final_size)
     return Fatal(start+i, "Error: failed to build WLN cycle unit");
   
@@ -5482,28 +5524,17 @@ LookAheadSymbol *RunChain(WLNEdge *edge){
 
 
 void SortCycles(WLNRing **arr, unsigned int len){
-  
-  // sort by how many locants, most major
-
-#if LOC
+  // sort by how many locants, inverse order will likely give the shorter string
   for (unsigned int j=1;j<len;j++){
     WLNRing *s = arr[j];
-    unsigned int key = 0; 
-    for(unsigned char ch = 'A';ch<'A'+s->rsize;ch++){
-      ;
-    }
+    unsigned int key = s->loc_count; 
 		int i = j-1;
-    while(i>=0){
-      unsigned int val = 0;      
-      //val = arr[i]->terminates;
-      if(val <= key)
-        break;
+    while(i>=0 && arr[i]->loc_count >= key){
       arr[i+1] = arr[i];
       i--;
     }
 		arr[i+1] = s;
 	}
-#endif
 }
 
 // forward declaration 
@@ -5681,6 +5712,44 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
   return buffer;
 }
 
+// make all the edges point outwards from a given source node, allows full
+// graph traversal from a given starting point.
+bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
+  // build recursively, avoid all cycle nodes
+  
+  WLNEdge *e = 0; 
+  std::map<WLNSymbol*,bool> seen; 
+  std::stack<WLNSymbol*> stack; 
+  stack.push(node); 
+  while(!stack.empty()){
+    WLNSymbol *top = stack.top(); 
+    stack.pop(); 
+    seen[top] = true;
+
+    // is anything pointing to the node and that hasnt been seen?
+    for(unsigned int i=1;i<STRUCT_COUNT;i++){
+      WLNEdge *ge = graph.EDGES[i]; 
+      if(!ge)
+        break;
+      else if(ge->child == top && !seen[ge->parent]){
+        unsigned int order = ge->order;
+        remove_edge(ge->parent, ge);
+        WLNEdge *ne = AllocateWLNEdge(ge->parent,top, graph);
+        for(unsigned int i=1;i<order;i++)
+          unsaturate_edge(ne, 1); 
+      }
+    }
+
+    for(e = top->bonds;e;e=e->nxt){
+      if(!seen[e->child] && !e->child->inRing){
+        stack.push(e->child);
+      }
+    }
+  }
+
+  
+  return true;
+}
 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num){
  
@@ -5690,7 +5759,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   // expect the node to be within a ring, fetch ring and write the cycle
   buffer += node->inRing->str_notation;
   graph.global_rings[node->inRing] = true;
-
   WLNEdge *e = 0; 
   for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
       riter != node->inRing->locants.end(); 
@@ -5701,6 +5769,8 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
     unsigned char locant = (*riter).first;
 
     if(!graph.global_symbols[position]){ // if not seen before, iterate all non-cyclic edges that a position may have 
+
+      FlowFromNode(position, graph); 
 
       for (e=position->bonds;e;e=e->nxt){
         if(!e->child->inRing && !graph.global_symbols[e->child]){
@@ -5741,44 +5811,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   return buffer;
 }
 
-// make all the edges point outwards from a given source node, allows full
-// graph traversal from a given starting point.
-bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
-  // build recursively, avoid all cycle nodes
-  
-  WLNEdge *e = 0; 
-  std::map<WLNSymbol*,bool> seen; 
-  std::stack<WLNSymbol*> stack; 
-  stack.push(node); 
-  while(!stack.empty()){
-    WLNSymbol *top = stack.top(); 
-    stack.pop(); 
-    seen[top] = true;
-
-    // is anything pointing to the node and that hasnt been seen?
-    for(unsigned int i=1;i<STRUCT_COUNT;i++){
-      WLNEdge *ge = graph.EDGES[i]; 
-      if(!ge)
-        break;
-      else if(ge->child == top && !seen[ge->parent] && !ge->parent->inRing){
-        unsigned int order = ge->order;
-        remove_edge(ge->parent, ge);
-        WLNEdge *ne = AllocateWLNEdge(ge->parent,top, graph);
-        for(unsigned int i=1;i<order;i++)
-          unsaturate_edge(ne, 1); 
-      }
-    }
-
-    for(e = top->bonds;e;e=e->nxt){
-      if(!seen[e->child] &&  !e->child->inRing){
-        stack.push(e->child);
-      }
-    }
-
-  }
-  
-  return true;
-}
 
 
 bool FlowFromNodeWithSet(WLNSymbol *node, WLNGraph &graph, std::set<WLNSymbol*> &local_set){
@@ -5942,14 +5974,21 @@ std::string FullCanonicalise(WLNGraph &graph){
   
   unsigned int r = 0; 
   WLNRing *sorted_rings[128] = {0};
-  for (unsigned int i=0;i<graph.ring_count;i++)
-    sorted_rings[r++] = graph.RINGS[i];
 
+  for (unsigned int i=0;i<graph.ring_count;i++){
+    graph.RINGS[i]->loc_count = count_locants(graph.RINGS[i], graph); 
+    sorted_rings[r++] = graph.RINGS[i];
+  }
+  
   SortCycles(sorted_rings, r); 
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
-    fprintf(stderr,"ring-size:%d, locants: %d, hetero_atoms: %d\n",sorted_rings[i]->rsize,0,0); 
+    fprintf(stderr,"ring-size:%d, locants: %d, hetero_atoms: %d\n",
+          sorted_rings[i]->rsize,
+          sorted_rings[i]->loc_count,
+          0
+        ); 
   }
 #endif
 
@@ -5965,13 +6004,6 @@ std::string FullCanonicalise(WLNGraph &graph){
         store += " &";
       }
       
-      for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
-        riter != node->inRing->locants.end(); 
-        riter++)
-      {
-        FlowFromNode((*riter).second, graph); 
-      }
-
       store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen);
       first_write = true;
     }
