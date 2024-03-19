@@ -5653,19 +5653,23 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
   // expect the node to be within a ring, fetch ring and write the cycle
   buffer += node->inRing->str_notation;
-  graph.global_map[node] = true;
   
   WLNEdge *e = 0; 
   for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
       riter != node->inRing->locants.end(); 
       riter++)
   {
-      graph.global_map[(*riter).second] = true; // mark as true
-      for (e=(*riter).second->bonds;e;e=e->nxt){
 
+    WLNSymbol *position = (*riter).second; 
+    unsigned char locant = (*riter).first;
+
+    if(!graph.global_map[position]){ // if not seen before, iterate all non-cyclic edges that a position may have 
+      fprintf(stderr,"iterating: %c\n",locant); 
+
+      for (e=position->bonds;e;e=e->nxt){
         if(!e->child->inRing && !graph.global_map[e->child]){
           buffer += ' '; 
-          buffer += (*riter).first;
+          buffer += locant;
           
           for(unsigned int i=1;i<e->order;i++)
             buffer += 'U';
@@ -5674,33 +5678,15 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         }
         else if (e->child->inRing != node->inRing){
           buffer += ' '; 
-          buffer += (*riter).first;
+          buffer += locant;
           
-          WLNRing *pointing_to = e->child->inRing;
-
-          // check for spiro here
-          unsigned int pc = 0; 
-          for(WLNEdge *se=(*riter).second->bonds;se;se=se->nxt){
-            if(se->child->inRing == pointing_to)
-              pc++;
-          }
-
-          if(pc == 2){
-            buffer += "-& ";
-            buffer += (*riter).first;
-              
-            fprintf(stderr,"spiro!\n");
-            //buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1);
-          }
-          else{
-            for(unsigned int i=1;i<e->order;i++)
-              buffer += 'U';
-          
-            buffer += '-';
-            buffer += ' ';
-            buffer += e->child->inRing->locants_ch[e->child]; 
-            buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1);
-          }
+          for(unsigned int i=1;i<e->order;i++)
+            buffer += 'U';
+        
+          buffer += '-';
+          buffer += ' ';
+          buffer += e->child->inRing->locants_ch[e->child]; 
+          buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1);
 
           if(graph.last_cycle_seen > cycle_num){
             for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
@@ -5709,10 +5695,12 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
           }
           graph.last_cycle_seen = cycle_num;
         }
-      
-        graph.global_map[e->child] = true;
       }
+    }
+
+    graph.global_map[position] = true; // cant look back
   }
+  
 
   return buffer;
 }
@@ -5915,11 +5903,15 @@ std::string FullCanonicalise(WLNGraph &graph){
   std::string last_chain;
   std::string store; 
   bool first_write = false;
-  std::map<WLNSymbol*,bool> local_set; 
   for (unsigned int i=0;i<graph.symbol_count;i++){
     WLNSymbol *node = graph.SYMBOLS[i];
     if(node->inRing && !graph.global_map[node]){
       
+      if(node->ch == 'W'){
+        graph.global_map[node] = true;
+        continue;
+      }
+
       if(first_write)
         store += " &";
       
