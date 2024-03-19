@@ -70,4 +70,3 @@ main(){
 
 process_arguments "$@"
 main
-e
