@@ -5581,8 +5581,15 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     for(unsigned int i=1;i<top_edge->order;i++)
       buffer +='U';
 
+    if(seen_symbols[top_edge->parent]){
+      if(prev && !IsTerminator(prev))
+        buffer+='&';
+    }
+
     sym = top_edge->child;
     if(sym->inRing){
+      
+
       buffer += '-';
       buffer += ' '; 
       buffer += sym->inRing->locants_ch[sym];
@@ -5598,10 +5605,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     }
 
 
-    if(seen_symbols[top_edge->parent]){
-      if(prev && !IsTerminator(prev))
-        buffer+='&';
-    }
 
     seen_symbols[top_edge->parent] = true;
     bond_stack.pop();
@@ -5663,7 +5666,7 @@ bool FlowFromNode(WLNSymbol *node, WLNGraph &graph,std::map<WLNSymbol*,bool> &gl
       WLNEdge *ge = graph.EDGES[i]; 
       if(!ge)
         break;
-      else if(ge->child == top && !seen[ge->parent]){
+      else if(ge->child == top && !seen[ge->parent] && !ge->parent->inRing){
         unsigned int order = ge->order;
         remove_edge(ge->parent, ge);
         WLNEdge *ne = AllocateWLNEdge(ge->parent,top, graph);
@@ -5798,6 +5801,15 @@ std::string FullCanonicalise(WLNGraph &graph){
   for (unsigned int i=0;i<graph.symbol_count;i++){
     WLNSymbol *node = graph.SYMBOLS[i];
     if(node->inRing && !global_map[node]){
+
+      
+      for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
+        riter != node->inRing->locants.end(); 
+        riter++)
+      {
+        FlowFromNode((*riter).second, graph, global_map); 
+      }
+
       store += CanonicalWLNRing(node, graph, store.size(),last_cycle_seen);
       break;
     }
@@ -5854,6 +5866,7 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
     std::cout << FullCanonicalise(wln_graph); 
-
+  
+  std::cout << std::endl; 
   return true;
 }
