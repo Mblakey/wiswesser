@@ -5588,8 +5588,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 
     sym = top_edge->child;
     if(sym->inRing){
-      
-
       buffer += '-';
       buffer += ' '; 
       buffer += sym->inRing->locants_ch[sym];
@@ -5638,7 +5636,24 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         if(!e->child->inRing){
           buffer += ' '; 
           buffer += (*riter).first;
+          
+          for(unsigned int i=1;i<e->order;i++)
+            buffer += 'U';
+
           buffer += CanonicalWLNChain(e->child, graph,buffer.size(),last_cycle_seen);
+        }
+        else if (e->child->inRing != node->inRing){
+          buffer += ' '; 
+          buffer += (*riter).first;
+      
+          
+          for(unsigned int i=1;i<e->order;i++)
+            buffer += 'U';
+        
+          buffer += '-';
+          buffer += ' ';
+          buffer += e->child->inRing->locants_ch[e->child]; 
+          buffer += CanonicalWLNRing(e->child, graph,buffer.size(),last_cycle_seen);
         }
       }
   }
