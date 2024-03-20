@@ -449,8 +449,6 @@ struct WLNGraph
   WLNRing   *RINGS  [STRUCT_COUNT];
   
   unsigned int last_cycle_seen=0;  
-  std::map<WLNSymbol*,bool> global_symbols; 
-  std::map<WLNRing*,bool> global_rings; 
 
   WLNGraph(){
     symbol_count = 0;
@@ -5469,11 +5467,9 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
     case '1':
 
       while(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1'){
-        graph.global_symbols[sym] = true;
         sym = sym->bond_array[0].child; 
         length++;
       }
-      graph.global_symbols[sym] = true; 
       buffer += std::to_string(length);
 
       // if(length > 1)
@@ -5575,7 +5571,6 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num)
 {
-  graph.global_symbols[node] = true;
 
   std::string buffer = ""; 
   WLNSymbol *sym = node; 
@@ -5619,9 +5614,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 
     seen_symbols[top_edge->parent] = true;
 
-    graph.global_symbols[top_edge->child] = true; // no overwrite
-    graph.global_symbols[top_edge->parent] = true;
-
     bond_stack.pop();
     SortAndStackBonds(sym, bond_stack, buffer, graph,len); 
     prev = sym; // for terminator tracking
@@ -5640,7 +5632,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
   // expect the node to be within a ring, fetch ring and write the cycle
   buffer += node->inRing->str_notation;
-  graph.global_rings[node->inRing] = true;
   for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
       riter != node->inRing->locants.end(); 
       riter++)
@@ -5649,43 +5640,38 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
     WLNSymbol *position = (*riter).second; 
     unsigned char locant = (*riter).first;
 
-    if(!graph.global_symbols[position]){ // if not seen before, iterate all non-cyclic edges that a position may have 
-
-
-      for (unsigned int ei=0;ei<position->barr_n;ei++){
-        WLNEdge *e = &position->bond_array[ei]; 
-        if(!e->child->inRing && !graph.global_symbols[e->child]){
-          buffer += ' '; 
-          buffer += locant;
-          
-          for(unsigned int i=1;i<e->order;i++)
-            buffer += 'U';
-
-          buffer += CanonicalWLNChain(e->child, graph,buffer.size(),graph.last_cycle_seen);
-        }
-        else if (e->child->inRing != node->inRing){
-          buffer += ' '; 
-          buffer += locant;
-          
-          for(unsigned int i=1;i<e->order;i++)
-            buffer += 'U';
+    for (unsigned int ei=0;ei<position->barr_n;ei++){
+      WLNEdge *e = &position->bond_array[ei]; 
+      if(!e->child->inRing){
+        buffer += ' '; 
+        buffer += locant;
         
-          buffer += '-';
-          buffer += ' ';
-          buffer += e->child->inRing->locants_ch[e->child]; 
-          buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1);
+        for(unsigned int i=1;i<e->order;i++)
+          buffer += 'U';
 
-          if(graph.last_cycle_seen > cycle_num){
-            for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
-              buffer+='&';
-            }
+        buffer += CanonicalWLNChain(e->child, graph,buffer.size(),graph.last_cycle_seen);
+      }
+      else if (e->child->inRing != node->inRing){
+        buffer += ' '; 
+        buffer += locant;
+        
+        for(unsigned int i=1;i<e->order;i++)
+          buffer += 'U';
+      
+        buffer += '-';
+        buffer += ' ';
+        buffer += e->child->inRing->locants_ch[e->child]; 
+        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1);
+
+        if(graph.last_cycle_seen > cycle_num){
+          for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
+            buffer+='&';
           }
-          graph.last_cycle_seen = cycle_num;
         }
+        graph.last_cycle_seen = cycle_num;
       }
     }
 
-    graph.global_symbols[position] = true; // cant look back
   }
   
 
@@ -5698,7 +5684,7 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
   bool ion_write = false;
   for (unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
-    if( (!node->barr_n || !node->parr_n) && !node->inRing  && !wln_graph.global_symbols[node]){
+    if( (!node->barr_n || !node->parr_n) && !node->inRing){
 
       // create a local set, iterate through the set
       if(ion_write){ // ion condition
@@ -5793,19 +5779,17 @@ std::string FullCanonicalise(WLNGraph &graph){
 
   for (unsigned int i=0;i<r;i++){
     WLNRing *ring = sorted_rings[i];
-    if(!graph.global_rings[ring]){
-      WLNSymbol *node = ring->locants['A']; 
+    WLNSymbol *node = ring->locants['A']; 
 
-      if(first_write){
-        while(store.back() == '&')
-          store.pop_back(); 
+    if(first_write){
+      while(store.back() == '&')
+        store.pop_back(); 
 
-        store += " &";
-      }
-
-      store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen);
-      first_write = true;
+      store += " &";
     }
+
+    store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen);
+    first_write = true;
   }
 
   store += " &";  
