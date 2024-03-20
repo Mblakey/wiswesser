@@ -47,6 +47,7 @@ GNU General Public License for more details.
 using namespace OpenBabel; 
 
 #define STRUCT_COUNT 1024
+#define MAX_EDGES 16
 
 // --- DEV OPTIONS  ---
 #define OPT_DEBUG 1
@@ -144,6 +145,9 @@ struct WLNSymbol
   WLNRing *inRing; // allows quick lookback 
   unsigned int allowed_edges;
   unsigned int num_edges;
+  
+  unsigned int barr_n;
+  WLNEdge bond_array[MAX_EDGES]; // move to undirected 
 
   WLNSymbol *previous;
   WLNEdge   *bonds; // array of bonds
@@ -161,6 +165,7 @@ struct WLNSymbol
     aromatic = 0;
     charge = 0;
     str_position = 0; 
+    barr_n = 0; 
   }
   ~WLNSymbol(){};
 
@@ -1479,7 +1484,7 @@ WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
   return 0;
 }
 
-WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
+bool unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
   if(!edge)
     return 0;
   
@@ -1502,72 +1507,23 @@ WLNEdge *unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
     return 0;
   }
 
-  return edge;
+  return true;
 }
 
-WLNEdge *saturate_edge(WLNEdge *edge,unsigned int n){
+bool saturate_edge(WLNEdge *edge,unsigned int n){
   if(!edge)
-    return 0;
+    return false;
   
   if(edge->order < 2)
-    return edge;
+    return true;
   
   edge->order -= n; 
   edge->parent->num_edges -= n;
   edge->child->num_edges -= n;
 
-  return edge;
-}
-
-
-bool remove_edge(WLNSymbol *head,WLNEdge *edge){
-  if(!head || !edge){
-    fprintf(stderr,"Error: trying to remove edge on invalid pointers\n"); 
-    return false;
-  }
-  
-
-  head->num_edges-= edge->order;
-  edge->child->num_edges-= edge->order;
-
-  if(head->bonds == edge){
-    
-    if(edge->nxt)
-      head->bonds = edge->nxt;
-    else
-      head->bonds = 0;
-    
-    edge->nxt = 0; 
-    edge->child = 0; // use for mark and sweep out  
-    return true;
-  }
-
-  bool found = false;
-  WLNEdge *search = head->bonds;
-
-  WLNEdge *prev = 0;
-  while(search){
-    if(search == edge){ 
-      found = true;
-      break;
-    }
-    prev = search; 
-    search = search->nxt;
-  }
-
-  if(!found){
-    return false;
-  }
-  else{
-    WLNEdge *tmp = edge->nxt;
-    prev->nxt = tmp;
-    // dont null the edges as we use the mempool to release them
-  }
-
-  edge->child = 0; // use for mark and sweep out  
-  edge->nxt = 0; 
   return true;
 }
+
 
 
 WLNEdge* add_methyl(WLNSymbol *head, WLNGraph &graph){
@@ -1637,8 +1593,10 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
     WLNEdge *e = 0; 
     for(e=binded_symbol->bonds;e;e=e->nxt){
-      if(e->child == head)
+      if(e->child == head){
         edge = e;
+        break;
+      }
     }
   }
 
@@ -1652,13 +1610,15 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   // should still be double bonded. 
   oxygen = AllocateWLNSymbol('O',graph);
   oxygen->allowed_edges = 2;
-  edge = saturate_edge(edge,1);
+  if(!saturate_edge(edge,1))
+    return false;
 
 
   WLNEdge *sedge = AllocateWLNEdge(oxygen,binded_symbol,graph);
   
   if(binded_symbol->num_edges < binded_symbol->allowed_edges)
-    sedge = unsaturate_edge(sedge,1); 
+    if(!unsaturate_edge(sedge,1))
+      return false;
   
   if(binded_symbol->ch == 'N')
     binded_symbol->charge++;
@@ -2162,16 +2122,12 @@ bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds
     WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
     if(!edge)
       return false;
-    else
-      edge = unsaturate_edge(edge,1);
-
-    if(edge){
-      edge->aromatic = 0;
-      // edge->child->aromatic = 0;
-      // edge->parent->aromatic = 0;
-    }
-    else
+    else if(!unsaturate_edge(edge,1))
       return false;
+
+    edge->aromatic = 0;
+    // edge->child->aromatic = 0;
+    // edge->parent->aromatic = 0;
   }
 
   return true;
@@ -2666,8 +2622,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               dioxo->allowed_edges = 3;
               dioxo->inRing = ring;
               WLNEdge *e = AllocateWLNEdge(dioxo,new_locant,graph);
-              e = unsaturate_edge(e,2);
-              if(!e)
+              if(!unsaturate_edge(e,2))
                 return Fatal(start+i,"Error: failed to unsaturate edge");
               
               break;
@@ -3061,7 +3016,7 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = graph.SYMBOLS[i];
     if(sym->ch == 'W' && !add_dioxo(sym,graph))
-      return false;
+      return Fatal(len, "Error: failed on past handling of W dioxo symbol");
 
     // unsaturated carbons with C
     if(sym->ch == 'c'){
@@ -3091,8 +3046,7 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
         oxygen->allowed_edges = 2;
         
         WLNEdge *e = AllocateWLNEdge(oxygen,sym,graph);
-        e = unsaturate_edge(e,1);
-        if(!e)
+        if(!unsaturate_edge(e,1))
           return Fatal(len,"Error: failed on post expansion on 'V' symbol");
         
         break;
@@ -3281,13 +3235,9 @@ bool WLNKekulize(WLNGraph &graph){
           WLNSymbol *s = wring->locants[int_to_locant(MatchR[i]+1)];
           if(f && s){
             WLNEdge *edge = search_edge(f,s);
-            if(edge && edge->order == 1)
-              edge = unsaturate_edge(edge,1);
-            
-            if(!edge)
+            if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
               return false;
             
-
             MatchR[MatchR[i]] = 0; // remove from matching
           }
         }
@@ -3380,9 +3330,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         edge = AllocateWLNEdge(carbon_head,prev,graph);
         if(!edge)
           return Fatal(i, "Error: failed to bond to previous symbol");
-
-        if(pending_unsaturate){
-          edge = unsaturate_edge(edge,pending_unsaturate);
+        else if(pending_unsaturate){
+          if(!unsaturate_edge(edge,pending_unsaturate))
+            return Fatal(i, "Error: failed to unsaturate bond"); 
           pending_unsaturate = 0;
         }
       }
@@ -3463,12 +3413,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             }
 
             edge = AllocateWLNEdge(curr,prev,graph);
-            if(pending_unsaturate){
-              edge = unsaturate_edge(edge,pending_unsaturate);
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            else if(pending_unsaturate){
+              if(!unsaturate_edge(edge,pending_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
               pending_unsaturate = 0;
             }
-            if(!edge)
-              return Fatal(i, "Error: failed to unsaturate edge");
+
           }
           else
             return Fatal(i,"Error: no previous symbol for inline ring defintion");
@@ -3525,9 +3477,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
             pending_unsaturate = 0;
           }
         }
@@ -3562,9 +3514,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           edge = AllocateWLNEdge(curr,prev,graph);
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
             pending_unsaturate = 0;
           }
         }
@@ -3609,12 +3561,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         prev = curr;
@@ -3654,13 +3607,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         pending_unsaturate = 0;
@@ -3705,13 +3658,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
-          
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          } 
         }
 
         prev = curr;
@@ -3753,12 +3706,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          edge = unsaturate_edge(edge,2); // at minimum dioxo must take 3 bonds
+          if(!edge || !unsaturate_edge(edge, 2))
+            return Fatal(i, "Error: failed to bond to previous symbol");
           if(pending_unsaturate)
             return Fatal(i,"Error: a bond unsaturation followed by dioxo is undefined notation");
-          
-          if(!edge)
-            return Fatal(i, "Error: failed to bond to previous symbol");
         }
         else
           pending_unsaturate = 2;
@@ -3811,12 +3762,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
           
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         branch_stack.push({0,curr});
@@ -3858,12 +3810,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){ 
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         pending_unsaturate = 0;
@@ -3905,12 +3858,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
           
         }
         
@@ -3952,12 +3906,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
           
         }
 
@@ -4005,14 +3960,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
-          
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         pending_unsaturate = 0;
@@ -4056,13 +4010,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
-        
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }         
         
         branch_stack.push({0,curr});
@@ -4107,16 +4061,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
-      
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
-        
         branch_stack.push({0,curr});
         prev = curr;
       }
@@ -4156,12 +4108,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         prev = curr;
@@ -4270,12 +4223,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           }
 
           edge = AllocateWLNEdge(curr,prev,graph);
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
 
           switch(prev->ch){
             case 'Z':
@@ -4348,8 +4302,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             WLNSymbol *shift = 0;
             for (e = prev->bonds;e;e = e->nxt){
               if (e->order == 2){
-                e = saturate_edge(e,1);
-                if(!e)
+                if(!saturate_edge(e,1))
                   return Fatal(i, "Error: could not shift aromaticity for spiro ring addition");
 
                 shift = e->child;
@@ -4365,8 +4318,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               next_loc = 'A'; // must of done the full loop
 
             e = search_edge(branch_stack.ring->locants[next_loc],shift);
-            e = unsaturate_edge(e,1);
-            if(!e)
+            if(!e && !unsaturate_edge(e, 1))
               return Fatal(i, "Error: failed to re-aromatise previous ring");
           }
           
@@ -4392,12 +4344,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         {
           if (ring->locants[on_locant]){
             edge = AllocateWLNEdge(ring->locants[on_locant],prev,graph);
-            if(pending_unsaturate){
-              edge = unsaturate_edge(edge,pending_unsaturate);
-              pending_unsaturate = 0;
-            }
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
+            else if(pending_unsaturate){
+              if(!unsaturate_edge(edge,pending_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              pending_unsaturate = 0;
+            }
           }   
           else
             return Fatal(i,"Error: attaching inline ring with out of bounds locant assignment");
@@ -4491,12 +4444,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(prev){
           edge = AllocateWLNEdge(curr,prev,graph);
           
-          if(pending_unsaturate){
-            edge = unsaturate_edge(edge,pending_unsaturate);
-            pending_unsaturate = 0;
-          }
           if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          else if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
         }
 
         prev = curr;
@@ -4737,12 +4691,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             }
 
             edge = AllocateWLNEdge(curr,prev,graph);
-            if(pending_unsaturate){
-              edge = unsaturate_edge(edge,pending_unsaturate);
-              pending_unsaturate = 0;
-            }
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
+            else if(pending_unsaturate){
+              if(!unsaturate_edge(edge,pending_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              pending_unsaturate = 0;
+            }
           }
           else
             return Fatal(i,"Error: no previous symbol for inline ring defintion");
@@ -4849,12 +4804,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               edge = AllocateWLNEdge(curr,prev,graph);
             }
               
-            if(pending_unsaturate){
-              edge = unsaturate_edge(edge,pending_unsaturate);
-              pending_unsaturate = 0;
-            }
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
+            else if(pending_unsaturate){
+              if(!unsaturate_edge(edge,pending_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              pending_unsaturate = 0;
+            }
             
           }
           on_locant = '\0';
@@ -4947,9 +4903,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       edge = AllocateWLNEdge(carbon_head,prev,graph);
       if(!edge)
         return Fatal(i, "Error: failed to bond to previous symbol");
-
-      if(pending_unsaturate){
-        edge = unsaturate_edge(edge,pending_unsaturate);
+      else if(pending_unsaturate){
+        if(!unsaturate_edge(edge,pending_unsaturate))
+          return Fatal(i, "Error: failed to unsaturate bond"); 
         pending_unsaturate = 0;
       }
     }
