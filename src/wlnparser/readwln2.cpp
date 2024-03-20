@@ -1509,7 +1509,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   }
   else if(head->parr_n){
     binded_symbol = head->prev_array[0].child;
-    edge = search_edge(head, binded_symbol); 
+    edge = &head->prev_array[0]; 
   }
 
   if(!binded_symbol || edge->order != 3){
@@ -1534,8 +1534,9 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     if(!unsaturate_edge(sedge,1))
       return false;
   
-  if(binded_symbol->ch == 'N')
+  if(binded_symbol->ch == 'N'){
     binded_symbol->charge++;
+  }
 
   if(!edge || !sedge)
     return false;
@@ -2841,9 +2842,9 @@ bool multiply_carbon(WLNSymbol *sym){
   // that if the forward facing symbol can take a triple bond, we do it
   
   // this cannot be done for alkyl numbers, so.. turn off the chain edges
-  if(std::isdigit(back->ch))
+  if(back->ch == '#')
     back_edges = 1;
-  if(std::isdigit(forward->ch))
+  if(forward->ch == '#')
     forward_edges = 1;
 
   // experimental rule, if a triple bond will completely saturate an, atom, 
@@ -5097,6 +5098,8 @@ struct BabelGraph{
           hcount++;
           sym->num_edges++;
         }
+        if(sym->charge < 0 && hcount > 0)
+          hcount--; 
         break;
       
       case 'X':
@@ -5213,6 +5216,9 @@ struct BabelGraph{
       default:
         return 0;
     }
+    
+    if(sym->charge)
+      charge = sym->charge; // override
 
     OBAtom *atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
     return atom; 
