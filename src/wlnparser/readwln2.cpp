@@ -42,6 +42,7 @@ GNU General Public License for more details.
 #include <openbabel/obmolecformat.h>
 #include <openbabel/graphsym.h>
 
+#include "openbabel/parsmart.h"
 #include "parser.h"
 
 using namespace OpenBabel; 
@@ -1436,14 +1437,14 @@ bool unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
 #if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->child->ch,edge->child->num_edges, edge->child->allowed_edges);
 #endif
-    return 0;
+    return false;
   }
 
   if( (edge->parent->num_edges > edge->parent->allowed_edges)){
 #if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", edge->parent->ch,edge->parent->num_edges, edge->parent->allowed_edges);
 #endif
-    return 0;
+    return false;
   }
 
   return true;
@@ -1473,30 +1474,6 @@ bool add_methyl(WLNSymbol *head, WLNGraph &graph){
 
   return AddEdge(carbon, head); 
 }
-
-
-WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &graph){
-
-  head->ch = '1';
-  head->allowed_edges = 4;
-
-  if(size == 1)
-    return head;
-  
-  WLNSymbol *prev = head;
-  for(unsigned int i=0;i<size-1;i++){
-    WLNSymbol* carbon = AllocateWLNSymbol('1',graph);
-    if(!carbon)
-      return 0;
-    carbon->allowed_edges = 4; // allows hydrogen resolve
-    if(!AddEdge(carbon,prev))
-      return 0;
-    prev = carbon;
-  } 
-
-  return prev;
-}
-
 
 bool has_dioxo(WLNSymbol *node){
   if(node->parr_n && node->prev_array[0].child->ch == 'W')
@@ -3244,17 +3221,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
 
       // create the head 
-      WLNSymbol *carbon_head = AllocateWLNSymbol('1', graph);
-      carbon_head->str_position = i;
-      curr = create_carbon_chain(carbon_head,carbon_len,graph);
-        
+      WLNSymbol *curr = AllocateWLNSymbol('#', graph);
+      curr->str_position = i;
+      curr->special = std::to_string(carbon_len); 
+      curr->allowed_edges = 4; 
+
       if(prev){
         if(prev == branch_stack.branch){
           while(!branch_stack.top().second && !branch_stack.empty())
             branch_stack.pop();
         }
         
-        if(!AddEdge(carbon_head, prev))
+        if(!AddEdge(curr, prev))
           return Fatal(i, "Error: failed to bond to previous symbol");
 
         edge = &prev->bond_array[prev->barr_n-1]; 
@@ -4847,16 +4825,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     
 
     // create the head 
-    WLNSymbol *carbon_head = AllocateWLNSymbol('1', graph);
-    curr = create_carbon_chain(carbon_head,carbon_len,graph);
-      
+    WLNSymbol *curr = AllocateWLNSymbol('#', graph);
+    curr->str_position = i;
+    curr->special = std::to_string(carbon_len); 
+    curr->allowed_edges = 4; 
+    
     if(prev){
       if(prev == branch_stack.branch){
         while(!branch_stack.top().second && !branch_stack.empty())
           branch_stack.pop();
       }
 
-      if(!AddEdge(carbon_head, prev))
+      if(!AddEdge(curr, prev))
         return Fatal(i, "Error: failed to bond to previous symbol");
       edge = &prev->bond_array[prev->barr_n-1]; 
       
@@ -4936,7 +4916,7 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
       continue;
 
     fprintf(fp, "  %d", node->id);
-    if (node->ch == '*')
+    if (node->ch == '*' || node->ch == '#')
       fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
     else if (node->inRing)
       fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
@@ -5012,8 +4992,6 @@ bool WriteGraph(WLNGraph &graph,const char*filename){
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
 
-  std::map<unsigned int,OBAtom*> babel_atom_lookup;
-
   BabelGraph(){};
   ~BabelGraph(){};
 
@@ -5056,6 +5034,20 @@ struct BabelGraph{
     bptr = mol->GetBond(mol->NumBonds() - 1);
     return bptr;
   }
+  
+  /* creates a carbon chain, from an inited node. */
+  OBAtom *OBMolCarbonChain(OBMol *mol, OBAtom *head, unsigned int size){
+    OBAtom *prev = head; 
+    OBAtom *carbon = 0; 
+    for(unsigned int i=0;i<size;i++){
+      carbon = NMOBMolNewAtom(mol, 6, 0, 2); 
+      NMOBMolNewBond(mol, prev, carbon, 1); 
+      prev = carbon; 
+    }
+
+    carbon->SetImplicitHCount(3); 
+    return carbon; // head of the chain
+  }
 
 
   void NMOBSanitizeMol(OBMol* mol)
@@ -5074,190 +5066,212 @@ struct BabelGraph{
 
     mol->DeleteHydrogens();
   }
+  
+  OBAtom *WLNSymbolToAtom(OBMol* mol, WLNSymbol*sym){
+    int charge = 0; 
+    unsigned int atomic_num = 0;
+    unsigned int hcount = 0;
+    
+    switch(sym->ch){
+      case 'H':
+        atomic_num = 1;
+        hcount = 0;
+        break; 
+
+      case 'B':
+        atomic_num = 5;
+        break;
+
+      case '1': 
+      case 'C':
+        atomic_num = 6;
+        while(sym->num_edges < sym->allowed_edges){
+          hcount++;
+          sym->num_edges++;
+        }
+        break;
+      
+      case 'X':
+        atomic_num = 6;
+        break;
+
+      case 'Y':{
+        atomic_num = 6;
+        unsigned int orders = 0; 
+        if(!sym->inRing){
+          for(unsigned int ei=0;ei<sym->barr_n;ei++)
+            orders += sym->bond_array[ei].order;
+          
+          if(sym->parr_n){
+            WLNEdge *e = search_edge(sym,sym->prev_array[0].child);
+            orders += e->order;
+          }
+            
+          if(orders < 4)
+            hcount = 1;
+        }
+        break;
+      }
+
+      case 'N':
+        atomic_num = 7;
+        if(sym->inRing)
+          sym->allowed_edges = 3;
+
+        while(sym->num_edges < sym->allowed_edges){
+          hcount++;
+          sym->num_edges++;
+        }
+        break;
+
+      case 'M':
+        atomic_num = 7;
+        hcount = 1;
+        break;
+
+      case 'Z':
+        atomic_num = 7; 
+        hcount = 2;
+        break;
+
+      case 'K':
+        atomic_num = 7;
+        charge = 1; 
+        hcount = 0;
+        break;
+
+      case 'O':
+        atomic_num = 8;
+        if(sym->num_edges == 1)
+          charge = -1;
+        if(!sym->num_edges)
+          charge = -2; 
+        break;
+
+      case 'Q':
+        if(sym->num_edges == 0)
+          charge = -1;
+        atomic_num = 8;
+        hcount = 1;
+        break;
+
+      case 'F':
+        atomic_num = 9;
+        if(!sym->num_edges)
+          charge = -1;
+        break;
+      
+      case 'P':
+        atomic_num = 15;
+        while(sym->num_edges % 2 == 0){ // 3 and 5 valence
+          hcount++;
+          sym->num_edges++;
+        }
+        break;
+      
+      case 'S':
+        atomic_num = 16;
+        while(sym->num_edges % 2 != 0){ // 2,4 and6 valence
+          hcount++;
+          sym->num_edges++;
+        }
+        break;
+
+      case 'G':
+        atomic_num = 17;
+        if(!sym->num_edges)
+          charge = -1;
+        break;
+
+      case 'E':
+        atomic_num = 35;
+        if(!sym->num_edges)
+          charge = -1;
+        break;
+
+      case 'I':
+        atomic_num = 53;
+        if(!sym->num_edges)
+          charge = -1;
+        break;
+    
+      case '*':
+        atomic_num = special_element_atm(sym->special);
+        break;
+      
+      case '#': // should make a dummy atom
+        break;
+
+      default:
+        return 0;
+    }
+
+    OBAtom *atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
+    return atom; 
+  }
 
 
   bool ConvertFromWLN(OBMol* mol,WLNGraph &graph, unsigned int len){
-
     if(OPT_DEBUG)
       fprintf(stderr,"Converting wln to obabel mol object: \n");
+    // doing this depth first might make more sense now
+    
+    std::map<WLNSymbol*,std::pair<OBAtom*,OBAtom*>> chain_pairs; // ooffh, STL is probably super slow 
+    std::map<WLNSymbol*, OBAtom*> atom_map;
 
-    // set up atoms
     for (unsigned int i=0; i<graph.symbol_count;i++){
       WLNSymbol *sym = graph.SYMBOLS[i];
-      OBAtom *atom = 0;
-
-      if(!sym)
-        return Fatal(len,"Error: formation of obabel atom object");
-
-      int charge = 0; 
-      unsigned int atomic_num = 0;
-      unsigned int hcount = 0;
-
-      switch(sym->ch){
-
-        case 'H':
-          atomic_num = 1;
-          hcount = 0;
-          break; 
-
-        case 'B':
-          atomic_num = 5;
-          break;
-
-        case '1': 
-        case 'C':
-          atomic_num = 6;
-          while(sym->num_edges < sym->allowed_edges){
-            hcount++;
-            sym->num_edges++;
-          }
-          break;
-        
-        case 'X':
-          atomic_num = 6;
-          break;
-
-        case 'Y':{
-          atomic_num = 6;
-          unsigned int orders = 0; 
-          if(!sym->inRing){
-            for(unsigned int ei=0;ei<sym->barr_n;ei++)
-              orders += sym->bond_array[ei].order;
-            
-            if(sym->parr_n){
-              WLNEdge *e = search_edge(sym,sym->prev_array[0].child);
-              orders += e->order;
-            }
-              
-            if(orders < 4)
-              hcount = 1;
-          }
-          break;
-        }
-
-        case 'N':
-          atomic_num = 7;
-          if(sym->inRing)
-            sym->allowed_edges = 3;
-
-          while(sym->num_edges < sym->allowed_edges){
-            hcount++;
-            sym->num_edges++;
-          }
-          break;
-
-        case 'M':
-          atomic_num = 7;
-          hcount = 1;
-          break;
-
-        case 'Z':
-          atomic_num = 7; 
-          hcount = 2;
-          break;
-
-        case 'K':
-          atomic_num = 7;
-          charge = 1; 
-          hcount = 0;
-          break;
-
-        case 'O':
-          atomic_num = 8;
-          if(sym->num_edges == 1)
-            charge = -1;
-          if(!sym->num_edges)
-            charge = -2; 
-          break;
-
-        case 'Q':
-          if(sym->num_edges == 0)
-            charge = -1;
-          atomic_num = 8;
-          hcount = 1;
-          break;
-
-        case 'F':
-          atomic_num = 9;
-          if(!sym->num_edges)
-            charge = -1;
-          break;
-        
-        case 'P':
-          atomic_num = 15;
-          while(sym->num_edges % 2 == 0){ // 3 and 5 valence
-            hcount++;
-            sym->num_edges++;
-          }
-          break;
-        
-        case 'S':
-          atomic_num = 16;
-          while(sym->num_edges % 2 != 0){ // 2,4 and6 valence
-            hcount++;
-            sym->num_edges++;
-          }
-          break;
-
-        case 'G':
-          atomic_num = 17;
-          if(!sym->num_edges)
-            charge = -1;
-          break;
-
-        case 'E':
-          atomic_num = 35;
-          if(!sym->num_edges)
-            charge = -1;
-          break;
-
-        case 'I':
-          atomic_num = 53;
-          if(!sym->num_edges)
-            charge = -1;
-          break;
       
-        case '*':
-          atomic_num = special_element_atm(sym->special);
-          break;
-
-        default:
-          return Fatal(len, "Error: unrecognised WLNSymbol* char in obabel mol build");
+      // handle any '#' carbon chains
+      if(sym->ch == '#' && isNumber(sym->special) > 1 ){
+        OBAtom *chain_head = NMOBMolNewAtom(mol, 6, 0, 3); // might need to be upped if terminal
+        OBAtom *chain_end = OBMolCarbonChain(mol, chain_head, isNumber(sym->special)-1); 
+        chain_pairs[sym] = {chain_head,chain_end}; 
       }
-
-      // ionic notation - overrides any given formal charge
-      if(sym->charge){
-        charge = sym->charge;
-        if(charge != 0 && hcount)
-          hcount--; // let the charges relax the hydrogens 
+      else if (sym->ch == '#'){
+        sym->ch = '1';
+        OBAtom *atom = WLNSymbolToAtom(mol, sym);
+        atom_map[sym] = atom;  
       }
-        
-      atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
-      if(!atom)
-        return Fatal(len,"Error: formation of obabel atom object");
-
-      babel_atom_lookup[sym->id] = atom;
+      else{
+        OBAtom *atom = WLNSymbolToAtom(mol, sym);
+        atom_map[sym] = atom;  
+      }
     }
 
     // create edges 
     std::vector<OBAtom*> remove; 
-    std::map<WLNEdge*, OBBond*> bond_map; 
     for(unsigned int i=0;i<graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
       if(parent->barr_n){
         for (unsigned int ei=0;ei<parent->barr_n;ei++){
           WLNEdge *e = &parent->bond_array[ei];
           WLNSymbol *child = e->child;
+          unsigned int bond_order = e->order;  
+          
+          OBAtom *catom = 0;
+          OBAtom *patom = 0; 
+          if(parent->ch == '#'){
+            patom = chain_pairs[parent].second; 
+            patom->SetImplicitHCount(patom->GetImplicitHCount()-bond_order); 
+          }
+          
+          if(child->ch == '#'){
+            catom = chain_pairs[child].first; 
+            catom->SetImplicitHCount(catom->GetImplicitHCount()-bond_order); 
+          }
 
-          // seems a bit defensive? - patch work style coding
-          if(child->ch == 'H' && parent->charge < 0)
-            remove.push_back(babel_atom_lookup[child->id]);
+          if(child->ch == 'H' && parent->charge < 0) // not a fan of this condition
+            remove.push_back(atom_map[child]); 
           else{
-            unsigned int bond_order = e->order;  
-            OBBond *bptr = NMOBMolNewBond(mol,babel_atom_lookup[parent->id],babel_atom_lookup[child->id],bond_order);
+            if(!catom)
+              catom = atom_map[child];
+            if(!patom)
+              patom = atom_map[parent]; 
+
+            OBBond *bptr = NMOBMolNewBond(mol,patom,catom,bond_order);
             if(!bptr)  
               return false;
-            bond_map[e] = bptr; 
           }
         }
       }
@@ -5265,7 +5279,6 @@ struct BabelGraph{
 
     for(OBAtom *r : remove)
       mol->DeleteAtom(r); 
-
     return true;
   }
 
@@ -5362,15 +5375,15 @@ void SortChunk(ChainScore **arr,unsigned int len){
 }
 
 
-/* run the chain until either a ring atom/branch point/EOC is seen */
-ChainScore *RunChain(WLNEdge *edge){
+/* run the chain until either a ring atom/branch point/EOC is seen,
+ * prototype does have a map copy which is irrating */
+ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
   ChainScore *score = new ChainScore; // must use new for string 
   score->e = edge;
   score->chunk = ""; 
   score->terminates = 0;
   score->has_ring = 0; // these should be placed last when possible 
   
-  std::map<WLNSymbol*,bool> seen;
   WLNSymbol *node = edge->child; 
   unsigned int length = 1; 
   // no stack needed as looking ahead in a linear fashion
@@ -5383,11 +5396,23 @@ ChainScore *RunChain(WLNEdge *edge){
 
     switch(node->ch){
     case '1':
-      while(node->barr_n && node->bond_array[0].order==1 && node->bond_array[0].child->ch == '1'){
-        seen[node] = true;
-        node = node->bond_array[0].child; 
-        length++;
+#if DEPRECATE
+      if(node->barr_n && node->bond_array[0].order==1 && node->bond_array[0].child->ch == '1' && !seen[node->bond_array[0].child]){
+        while(node->barr_n && node->bond_array[0].order==1 && node->bond_array[0].child->ch == '1' && !seen[node->bond_array[0].child]){
+          seen[node] = true;
+          node = node->bond_array[0].child; 
+          length++;
+        }
       }
+      else if (node->parr_n && node->prev_array[0].order==1 && node->prev_array[0].child->ch == '1' && !seen[node->prev_array[0].child]){
+        // reverse chain
+        while(node->parr_n && node->prev_array[0].order==1 && node->prev_array[0].child->ch == '1' && !seen[node->prev_array[0].child]){
+          seen[node] = true;
+          node = node->prev_array[0].child; 
+          length++;
+        }
+      }
+#endif
       score->chunk += std::to_string(length);  
       length = 1;
       break;
@@ -5422,19 +5447,21 @@ ChainScore *RunChain(WLNEdge *edge){
         score->chunk += node->ch; 
     }
    
-#if IMPLEMENT_LB
-    if(!node->barr_n && (node->previous && seen[node->previous])) // for random ending points
-      return score;
-#else
-    if(!node->barr_n)
-      return score;
-#endif
-    else{
+    if(node->barr_n){
       for(unsigned int i=1;i<node->bond_array[0].order;i++) // let symbol orderer sort here
         score->chunk += 'U';
 
       node = node->bond_array[0].child; // no need to iterate, it should only have 1.
     }
+    else if (node->parr_n && !seen[node->prev_array[0].child]){
+      for(unsigned int i=1;i<node->prev_array[0].order;i++) // let symbol orderer sort here
+        score->chunk += 'U';
+
+      node = node->prev_array[0].child; // no need to iterate, it should only have 1.
+    }
+    else 
+      return score;
+
   }
 
   return score; 
@@ -5460,16 +5487,32 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,unsigned int cycle_num);
 
 
-void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::string &buffer, WLNGraph &graph,unsigned int len){
+/* sorts the bonds of any given chain, function will look through both previous and forward bonds in order to continue the parse, 
+as such, it requires a seen map to avoid looping back to areas its previously been  */
+void SortAndStackBonds( WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::map<WLNSymbol*,bool> &seen, 
+                        std::string &buffer,unsigned int len)
+{
   unsigned int length = 1; 
   switch(sym->ch){
   // skip through carbon chains
     case '1':
+      // forward and backward traversal through the chains
+      if(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1' && !seen[sym->bond_array[0].child]){
+        while(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1'&& !seen[sym->bond_array[0].child]){
+          seen[sym] = true;
+          sym = sym->bond_array[0].child; 
+          length++;
+        }
 
-      while(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1'){
-        sym = sym->bond_array[0].child; 
-        length++;
       }
+      else if (sym->parr_n && sym->prev_array[0].order==1 && sym->prev_array[0].child->ch == '1' && !seen[sym->prev_array[0].child]){
+        while(sym->parr_n && sym->prev_array[0].order==1 && sym->prev_array[0].child->ch == '1' && !seen[sym->prev_array[0].child]){
+          seen[sym] = true;
+          sym = sym->prev_array[0].child; 
+          length++;
+        }
+      }
+
       buffer += std::to_string(length);
 
       // if(length > 1)
@@ -5505,9 +5548,7 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
         sym->str_position = len + buffer.size();
       }
       
-
       if( sym->num_edges < sym->allowed_edges) {
-        
         if (sym->num_edges==sym->allowed_edges-1 && has_dioxo(sym))
           break;
         else
@@ -5551,7 +5592,15 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
   unsigned int l = 0;
   ChainScore *scores[64] = {0};
   for(unsigned int ei=0;ei<sym->barr_n;ei++){
-    scores[l++] = RunChain(&sym->bond_array[ei]); // score each chain run
+    WLNEdge *e =  &sym->bond_array[ei]; 
+    if(!seen[e->child])
+      scores[l++] = RunChain(e,seen); // score each chain run
+  }
+
+  for(unsigned int ei=0;ei<sym->parr_n;ei++){
+    WLNEdge *e =  &sym->prev_array[ei];
+    if(!seen[e->child])
+      scores[l++] = RunChain(e,seen); // score each chain run
   }
 
   SortChunk(scores, l); 
@@ -5571,14 +5620,13 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num)
 {
-
   std::string buffer = ""; 
   WLNSymbol *sym = node; 
   WLNSymbol *prev = 0; 
   std::map<WLNSymbol*,bool> seen_symbols;
   std::stack<WLNEdge*> bond_stack; 
 
-  SortAndStackBonds(node, bond_stack, buffer, graph,len); 
+  SortAndStackBonds(node, bond_stack, seen_symbols,buffer, len); 
 
   while(!bond_stack.empty()){
     WLNEdge *top_edge = bond_stack.top();
@@ -5615,7 +5663,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     seen_symbols[top_edge->parent] = true;
 
     bond_stack.pop();
-    SortAndStackBonds(sym, bond_stack, buffer, graph,len); 
+    SortAndStackBonds(sym, bond_stack, seen_symbols,buffer,len); 
     prev = sym; // for terminator tracking
   }
   
@@ -5686,17 +5734,19 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
     if( (!node->barr_n || !node->parr_n) && !node->inRing){
 
+#if IMPLEMENT_LP
       // create a local set, iterate through the set
       if(ion_write){ // ion condition
         while(store.back() == '&') // trail cleaning
           store.pop_back(); 
         store += " &";
       }
-
+#endif
       std::string last_chain;
       std::set<WLNSymbol*> local_set;
 
       std::string new_chain = CanonicalWLNChain(node, wln_graph, store.size(),0); // this marks all atoms globally
+      std::cout << new_chain << std::endl; 
       if(new_chain.size() < last_chain.size() || last_chain.empty())
         last_chain = new_chain;
       else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
@@ -5710,7 +5760,7 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
         }
       }
 
-      store += last_chain; 
+//      store += last_chain; 
       ion_write = true;
     }
 
@@ -5861,17 +5911,9 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     return false; 
 
   // more minimal resolve step for certain groups, W removal
-  WLNEdge *e = 0; 
   unsigned int stop = wln_graph.symbol_count;
 
-  // for (unsigned int i=0;i<stop;i++){
-  //   WLNSymbol *sym = wln_graph.SYMBOLS[i];
-  //   if(sym->ch == 'W' && !add_dioxo(sym,wln_graph))
-  //     return false;
-  // }
-
   stop = wln_graph.symbol_count;
-  
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = wln_graph.SYMBOLS[i];
     switch(sym->ch){
@@ -5893,14 +5935,18 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     }
   }
   
+  
+
+#if ON
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count)
     std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
     std::cout << FullCanonicalise(wln_graph); 
+#endif 
+
 
   WriteGraph(wln_graph,"wln-graph.dot");
-  std::cout << std::endl; 
   return true;
 }
 
