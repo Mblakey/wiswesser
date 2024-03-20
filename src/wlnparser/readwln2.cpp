@@ -117,7 +117,6 @@ bool Fatal(unsigned int pos, const char *message)
 struct WLNEdge{
   WLNSymbol *parent;
   WLNSymbol *child;
-//  WLNEdge *nxt;
   unsigned int order;
   bool aromatic;
 
@@ -125,7 +124,6 @@ struct WLNEdge{
     parent   = 0;
     child    = 0;
     order    = 0;
-//    nxt      = 0;
     aromatic = 0;
   }
   ~WLNEdge(){};
@@ -150,7 +148,6 @@ struct WLNSymbol
   WLNEdge bond_array[MAX_EDGES]; // move to undirected 
 
   WLNSymbol *previous;
-//  WLNEdge   *bonds; // array of bonds
 
   // if default needed
   WLNSymbol()
@@ -161,7 +158,6 @@ struct WLNSymbol
     num_edges = 0;
     inRing = 0;
     previous = 0;
-//    bonds = 0;
     aromatic = 0;
     charge = 0;
     str_position = 0; 
@@ -445,12 +441,10 @@ struct WLNGraph
   
   WLNSymbol *root;
 
-  unsigned int edge_count;
   unsigned int symbol_count;
   unsigned int ring_count;
 
   WLNSymbol *SYMBOLS[STRUCT_COUNT];
-  WLNEdge   *EDGES  [STRUCT_COUNT];
   WLNRing   *RINGS  [STRUCT_COUNT];
   
   unsigned int last_cycle_seen=0;  
@@ -458,7 +452,6 @@ struct WLNGraph
   std::map<WLNRing*,bool> global_rings; 
 
   WLNGraph(){
-    edge_count   = 0;
     symbol_count = 0;
     ring_count   = 0;
 
@@ -466,7 +459,6 @@ struct WLNGraph
     root = 0;
     for (unsigned int i = 0; i < STRUCT_COUNT;i++){
       SYMBOLS[i] = 0;
-      EDGES[i] = 0;
       RINGS[i] = 0;
     }
   };
@@ -474,7 +466,6 @@ struct WLNGraph
   ~WLNGraph(){
     for (unsigned int i = 0; i < STRUCT_COUNT;i++){
       delete SYMBOLS[i];
-      delete EDGES[i];
       delete RINGS[i];
     }
   }
