@@ -132,19 +132,19 @@ struct WLNEdge{
 
 struct WLNSymbol
 {
-  unsigned int id;
+  unsigned short int id;
   unsigned int str_position; 
-  int charge;
+  short int charge;
 
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
   
   bool aromatic; 
   WLNRing *inRing; // allows quick lookback 
-  unsigned int allowed_edges;
-  unsigned int num_edges;
+  unsigned char allowed_edges; // save the bits here as well
+  unsigned char num_edges;
   
-  unsigned int barr_n;
+  unsigned char barr_n; // doesnt need to be large
   WLNEdge bond_array[MAX_EDGES]; // move to undirected 
 
   WLNSymbol *previous;
