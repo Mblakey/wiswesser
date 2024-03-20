@@ -119,6 +119,7 @@ bool Fatal(unsigned int pos, const char *message)
 struct WLNEdge{
   WLNSymbol *parent;
   WLNSymbol *child;
+  WLNEdge *reverse; // points to its backwards edge 
   unsigned char order;
   bool aromatic;
 
@@ -1393,17 +1394,22 @@ bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
   child->num_edges++;
   parent->num_edges++;
   
-  parent->bond_array[parent->barr_n].child = child; 
-  parent->bond_array[parent->barr_n].parent = parent; 
-  parent->bond_array[parent->barr_n].order = 1;
+  WLNEdge *forward = &parent->bond_array[parent->barr_n];
+  forward->child = child;
+  forward->parent = parent;
+  forward->order = 1; 
   parent->barr_n++;
-
+  
+  WLNEdge *backward = &child->prev_array[child->parr_n]; 
   // store the reverse in the prev array
-  child->prev_array[child->parr_n].child = parent; 
-  child->prev_array[child->parr_n].parent = child; 
-  child->prev_array[child->parr_n].order = 1;
+  backward->child = parent; 
+  backward->parent = child; 
+  backward->order = 1;
   child->parr_n++; 
 
+  forward->reverse = backward;
+  backward->reverse = forward; 
+  
   return true;
 }
 
@@ -1429,7 +1435,8 @@ bool unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
   if(!edge)
     return 0;
   
-  edge->order += n; 
+  edge->order += n;
+  edge->reverse->order = edge->order; 
   edge->parent->num_edges += n;
   edge->child->num_edges+= n;
 
@@ -1458,6 +1465,7 @@ bool saturate_edge(WLNEdge *edge,unsigned int n){
     return true;
   
   edge->order -= n; 
+  edge->reverse->order = edge->order; 
   edge->parent->num_edges -= n;
   edge->child->num_edges -= n;
 
