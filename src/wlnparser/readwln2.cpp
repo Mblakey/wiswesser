@@ -47,7 +47,7 @@ GNU General Public License for more details.
 using namespace OpenBabel; 
 
 #define STRUCT_COUNT 1024
-#define MAX_EDGES 16
+#define MAX_EDGES 8
 
 // --- DEV OPTIONS  ---
 #define OPT_DEBUG 1
@@ -118,7 +118,7 @@ bool Fatal(unsigned int pos, const char *message)
 struct WLNEdge{
   WLNSymbol *parent;
   WLNSymbol *child;
-  unsigned int order;
+  unsigned char order;
   bool aromatic;
 
   WLNEdge(){
@@ -146,9 +146,9 @@ struct WLNSymbol
   unsigned char num_edges;
   
   unsigned char barr_n; // doesnt need to be large
+  unsigned char parr_n; // doesnt need to be large
   WLNEdge bond_array[MAX_EDGES]; // move to undirected 
-
-  WLNSymbol *previous;
+  WLNEdge prev_array[MAX_EDGES]; // points backwards 
 
   // if default needed
   WLNSymbol()
@@ -158,11 +158,11 @@ struct WLNSymbol
     allowed_edges = 0;
     num_edges = 0;
     inRing = 0;
-    previous = 0;
     aromatic = 0;
     charge = 0;
     str_position = 0; 
     barr_n = 0; 
+    parr_n = 0; 
   }
   ~WLNSymbol(){};
 
@@ -1330,19 +1330,12 @@ unsigned int special_element_atm(std::string &special){
   return 0;
 }
 
-
 unsigned int count_children(WLNSymbol *sym){
   unsigned int count = 0;
-  if(sym->num_edges == sym->allowed_edges) // quick shortcut
-    return sym->num_edges;
-  
-  count = sym->barr_n; 
-  if(sym->previous)
-    count++;
-
+  count += sym->barr_n; 
+  count += sym->parr_n;
   return count; 
 }
-
 
 
 // this one pops based on bond numbers
@@ -1398,9 +1391,6 @@ bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
     return 0;
   }
 
-  // set the previous for look back
-  child->previous = parent; 
-
   child->num_edges++;
   parent->num_edges++;
   
@@ -1408,6 +1398,13 @@ bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
   parent->bond_array[parent->barr_n].parent = parent; 
   parent->bond_array[parent->barr_n].order = 1;
   parent->barr_n++;
+
+  // store the reverse in the prev array
+  child->prev_array[child->parr_n].child = parent; 
+  child->prev_array[child->parr_n].parent = child; 
+  child->prev_array[child->parr_n].order = 1;
+  child->parr_n++; 
+
   return true;
 }
 
@@ -1504,7 +1501,7 @@ WLNSymbol* create_carbon_chain(WLNSymbol *head,unsigned int size, WLNGraph &grap
 
 
 bool has_dioxo(WLNSymbol *node){
-  if(node->previous && node->previous->ch == 'W')
+  if(node->parr_n && node->prev_array[0].child->ch == 'W')
     return true;
   
   for(unsigned int ei=0;ei<node->barr_n;ei++)
@@ -1527,11 +1524,8 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     binded_symbol = head->bond_array[0].child;
     edge = &head->bond_array[0]; 
   }
-  else{
-    binded_symbol = head->previous;
-    if(!binded_symbol)
-      return false;
-    
+  else if(head->parr_n){
+    binded_symbol = head->prev_array[0].child;
     edge = search_edge(head, binded_symbol); 
   }
 
@@ -2838,12 +2832,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 }
 
 bool multiply_carbon(WLNSymbol *sym){
-  
-  WLNSymbol *back     = sym->previous; 
-  WLNEdge   *fedge    = &sym->bond_array[0];
-  
-  if(!back||!fedge)
+  if(!sym->parr_n || !sym->barr_n)
     return false;
+  
+  WLNSymbol *back     = sym->prev_array[0].child; 
+  WLNEdge   *fedge    = &sym->bond_array[0];
   
   WLNSymbol *forward  = fedge->child;
   WLNEdge *bedge = 0;
@@ -5133,8 +5126,8 @@ struct BabelGraph{
             for(unsigned int ei=0;ei<sym->barr_n;ei++)
               orders += sym->bond_array[ei].order;
             
-            if(sym->previous){
-              WLNEdge *e = search_edge(sym,sym->previous);
+            if(sym->parr_n){
+              WLNEdge *e = search_edge(sym,sym->prev_array[0].child);
               orders += e->order;
             }
               
@@ -5705,7 +5698,7 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
   bool ion_write = false;
   for (unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
-    if( (!node->barr_n || !node->previous) && !node->inRing  && !wln_graph.global_symbols[node]){
+    if( (!node->barr_n || !node->parr_n) && !node->inRing  && !wln_graph.global_symbols[node]){
 
       // create a local set, iterate through the set
       if(ion_write){ // ion condition
@@ -5718,7 +5711,6 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
       std::set<WLNSymbol*> local_set;
 
       std::string new_chain = CanonicalWLNChain(node, wln_graph, store.size(),0); // this marks all atoms globally
-      std::cout << new_chain << std::endl; 
       if(new_chain.size() < last_chain.size() || last_chain.empty())
         last_chain = new_chain;
       else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
@@ -5908,8 +5900,9 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
       case 'W':
         if(sym->barr_n)
           sym->bond_array[0].order = 1;
-        if(sym->previous){
-          WLNEdge *se = search_edge(sym, sym->previous);
+        if(sym->parr_n){
+          WLNEdge *se = search_edge(sym, sym->prev_array[0].child);
+          
           se->order = 1; 
         }
         break;
