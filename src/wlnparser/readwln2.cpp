@@ -51,7 +51,7 @@ using namespace OpenBabel;
 #define MAX_EDGES 8
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 1
+#define OPT_DEBUG 0
 #define OPT_CORRECT 0
 
 
@@ -2974,6 +2974,30 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
 }
 
 
+/* uses dfs style traversal to see what is reachble from a given start
+ * will use both types of edges */
+void Reachable(WLNSymbol *node, std::set<WLNSymbol*> &reachable){
+  std::stack<WLNSymbol*> stack;
+  std::map<WLNSymbol*,bool> seen;
+  stack.push(node); 
+  while(!stack.empty()){
+    WLNSymbol *top = stack.top(); 
+    stack.pop(); 
+    seen[top] = true;
+    reachable.insert(top); 
+
+    for(unsigned int ei=0;ei<top->barr_n;ei++){
+      if(!seen[top->bond_array[ei].child])
+        stack.push(top->bond_array[ei].child); 
+    }
+
+    for(unsigned int ei=0;ei<top->parr_n;ei++){
+      if(!seen[top->prev_array[ei].child])
+        stack.push(top->prev_array[ei].child); 
+    }
+  }
+}
+
 /**********************************************************************
                         WLN Ring Kekulize
 **********************************************************************/
@@ -5639,6 +5663,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     }
 
     seen_symbols[top_edge->parent] = true;
+    //seen_symbols[top_edge->child] = true; // causes two many pops
 
     bond_stack.pop();
     SortAndStackBonds(sym, bond_stack, seen_symbols,buffer,len); 
@@ -5707,45 +5732,55 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
 
   std::string store;
+  std::set<WLNSymbol*> whole_set; 
   bool ion_write = false;
   for (unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
-    if( (!node->barr_n || !node->parr_n) && !node->inRing){
+    if( (!node->barr_n || !node->parr_n) && !node->inRing && !(whole_set.count(node)) ){
 
-#if IMPLEMENT_LP
       // create a local set, iterate through the set
       if(ion_write){ // ion condition
         while(store.back() == '&') // trail cleaning
           store.pop_back(); 
         store += " &";
       }
-#endif
+      
+      std::set<WLNSymbol*> symbol_set; 
+      Reachable(node, symbol_set); 
+      
       std::string last_chain;
-      std::set<WLNSymbol*> local_set;
-
-      std::string new_chain = CanonicalWLNChain(node, wln_graph, store.size(),0); // this marks all atoms globally
-      std::cout << new_chain << std::endl; 
-      if(new_chain.size() < last_chain.size() || last_chain.empty())
-        last_chain = new_chain;
-      else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
-        for(unsigned int j=0;j<new_chain.size();j++){
-          if(new_chain[j] > last_chain[j]){
+      for(std::set<WLNSymbol*>::iterator siter = symbol_set.begin();siter != symbol_set.end(); siter++){
+        if( (!(*siter)->barr_n || !(*siter)->parr_n) && !(*siter)->inRing){
+          std::string new_chain = CanonicalWLNChain(*siter, wln_graph, store.size(),0); 
+          while(new_chain.back() == '&') // trail cleaning
+            new_chain.pop_back(); 
+#if OPT_DEBUG
+          std::cout << new_chain << std::endl; 
+#endif
+          if(new_chain.size() < last_chain.size() || last_chain.empty())
             last_chain = new_chain;
-            break;
+          else if(new_chain.size() == last_chain.size()){ // take the highest ascii character, actually follows rule 2 order
+            for(unsigned int j=0;j<new_chain.size();j++){
+              if(new_chain[j] > last_chain[j]){
+                last_chain = new_chain;
+                break;
+              }
+              else if(new_chain[j] < last_chain[j])
+                break;
+            }
           }
-          else if(new_chain[j] < last_chain[j])
-            break;
         }
       }
-
-//      store += last_chain; 
+      
+      whole_set.insert(symbol_set.begin(),symbol_set.end()); 
       ion_write = true;
+      store += last_chain; 
     }
-
+    
   }
+  
 
-#if IMPLEMENT_LP
-  // handle post charges, no need to check ring here
+  // handle post charges, no need to check ring here, solid function
   for(unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
     if(pos->charge > 0 && pos->ch != 'K'){
@@ -5769,7 +5804,6 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
         store += '0'; 
     }
   }
-#endif
 
   while(store.back() == '&') // trail cleaning
     store.pop_back(); 
