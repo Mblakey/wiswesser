@@ -5409,26 +5409,8 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
     }
 
     switch(node->ch){
-    case '1':
-#if DEPRECATE
-      if(node->barr_n && node->bond_array[0].order==1 && node->bond_array[0].child->ch == '1' && !seen[node->bond_array[0].child]){
-        while(node->barr_n && node->bond_array[0].order==1 && node->bond_array[0].child->ch == '1' && !seen[node->bond_array[0].child]){
-          seen[node] = true;
-          node = node->bond_array[0].child; 
-          length++;
-        }
-      }
-      else if (node->parr_n && node->prev_array[0].order==1 && node->prev_array[0].child->ch == '1' && !seen[node->prev_array[0].child]){
-        // reverse chain
-        while(node->parr_n && node->prev_array[0].order==1 && node->prev_array[0].child->ch == '1' && !seen[node->prev_array[0].child]){
-          seen[node] = true;
-          node = node->prev_array[0].child; 
-          length++;
-        }
-      }
-#endif
-      score->chunk += std::to_string(length);  
-      length = 1;
+    case '#':
+      score->chunk += node->special;  
       break;
 
       // these must branch
@@ -5506,28 +5488,11 @@ as such, it requires a seen map to avoid looping back to areas its previously be
 void SortAndStackBonds( WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::map<WLNSymbol*,bool> &seen, 
                         std::string &buffer,unsigned int len)
 {
-  unsigned int length = 1; 
   switch(sym->ch){
   // skip through carbon chains
-    case '1':
+    case '#':
       // forward and backward traversal through the chains
-      if(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1' && !seen[sym->bond_array[0].child]){
-        while(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1'&& !seen[sym->bond_array[0].child]){
-          seen[sym] = true;
-          sym = sym->bond_array[0].child; 
-          length++;
-        }
-
-      }
-      else if (sym->parr_n && sym->prev_array[0].order==1 && sym->prev_array[0].child->ch == '1' && !seen[sym->prev_array[0].child]){
-        while(sym->parr_n && sym->prev_array[0].order==1 && sym->prev_array[0].child->ch == '1' && !seen[sym->prev_array[0].child]){
-          seen[sym] = true;
-          sym = sym->prev_array[0].child; 
-          length++;
-        }
-      }
-
-      buffer += std::to_string(length);
+      buffer += sym->special;
 
       // if(length > 1)
       // else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K')){
@@ -5537,7 +5502,6 @@ void SortAndStackBonds( WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::m
       //   buffer += std::to_string(length); 
 
       sym->str_position = len + buffer.size();
-      length = 1;
       break;
 
     case 'c':
@@ -5938,19 +5902,20 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
         break;
 
       case 'W':
-        if(sym->barr_n)
-          sym->bond_array[0].order = 1;
+        if(sym->barr_n){
+          while(sym->bond_array[0].order > 1)
+            unsaturate_edge(&sym->bond_array[0], 1); 
+        }
         if(sym->parr_n){
-          WLNEdge *se = search_edge(sym, sym->prev_array[0].child);
-          
-          se->order = 1; 
+          while(sym->prev_array[0].order > 1)
+            unsaturate_edge(&sym->prev_array[0], 1); 
         }
         break;
     }
   }
   
   
-
+#define ON 1 
 #if ON
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count)
