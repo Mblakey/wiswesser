@@ -1355,31 +1355,6 @@ unsigned int count_children(WLNSymbol *sym){
 }
 
 
-/* counts both incoming and outgoing locants, spiro
- * will count doubley and is a good seperator, 
- * single connected outer rings follow expected behaviour,
- * will deprecate once ticker placed in ring loop */
-unsigned int count_locants(WLNRing *ring, WLNGraph &graph){
-  unsigned int count = 0; 
-  
-  for(std::map<unsigned char, WLNSymbol*>::iterator riter=ring->locants.begin(); riter != ring->locants.end();riter++){
-    WLNSymbol *locant = (*riter).second; 
-    for(WLNEdge *e=locant->bonds;e;e=e->nxt){
-      if(e->child->inRing != ring)
-        count++; 
-    }
-  }
-
-  for(unsigned int i=1;i<=graph.edge_count;i++){
-    WLNEdge *gedge = graph.EDGES[i];
-    if(gedge && gedge->child){
-      if(gedge->child->inRing == ring && gedge->parent->inRing != ring)
-        count++;
-    }
-  }
-
-  return count; 
-}
 
 // this one pops based on bond numbers
 WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
@@ -1403,6 +1378,48 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
                           WLNEdge Functions
 **********************************************************************/
 
+bool AddEdge(WLNSymbol *child, WLNSymbol *parent, WLNGraph &graph)
+{
+  if(!child || !parent || child == parent){
+#if ERRORS == 1 
+    fprintf(stderr,"Error: binding invalid nodes\n"); 
+#endif
+    return 0;
+  }
+  
+  if(parent->barr_n >= MAX_EDGES){
+#if ERRORS == 1 
+    fprintf(stderr,"Error: creating more %d bonds on a singular symbol - is this reasonable?\n",MAX_EDGES);
+#endif
+    return 0;
+  }
+  
+  if ( ((child->num_edges + 1) > child->allowed_edges)){
+#if ERRORS == 1
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
+#endif
+    return 0;
+  }
+  
+  if ( ((parent->num_edges + 1) > parent->allowed_edges)){
+#if ERRORS == 1
+    fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
+#endif
+    return 0;
+  }
+
+  // set the previous for look back
+  child->previous = parent; 
+
+  child->num_edges++;
+  parent->num_edges++;
+  
+  parent->bond_array[parent->barr_n].child = child; 
+  parent->bond_array[parent->barr_n].order = 1;
+  parent->barr_n++;
+ 
+  return true;
+}
 
 WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
 
@@ -1413,7 +1430,6 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
     return 0;
   }
   
-  graph.edge_count++;
   if(graph.edge_count >= STRUCT_COUNT){
 #if ERRORS == 1 
     fprintf(stderr,"Error: creating more than 1024 wln symbols - is this reasonable?\n");
@@ -1436,7 +1452,7 @@ WLNEdge *AllocateWLNEdge(WLNSymbol *child, WLNSymbol *parent,WLNGraph &graph){
   }
 
   WLNEdge *edge = new WLNEdge;
-  graph.EDGES[graph.edge_count] = edge;
+  graph.EDGES[graph.edge_count++] = edge;
   WLNEdge *curr = parent->bonds;
   if(curr){
     
