@@ -53,6 +53,7 @@ using namespace OpenBabel;
 #define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
+
 const char *wln_string;
 struct WLNSymbol;
 struct WLNEdge; 
@@ -5285,10 +5286,8 @@ struct BabelGraph{
                           Canonical Algorithms
 **********************************************************************/
 
-#if CANONICAL
-
 /* used to perform a radix style sort to order bond stack pushes */
-struct LookAheadSymbol{
+struct ChainScore{
   WLNEdge *e;
   std::string chunk; 
   bool terminates;
@@ -5296,15 +5295,15 @@ struct LookAheadSymbol{
 };
 
 
-void debug_score(LookAheadSymbol *score){
+void debug_score(ChainScore *score){
   fprintf(stderr,"%s: term:%d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_ring); 
 }
 
-void SortTerminal(LookAheadSymbol **arr,unsigned int len){
+void SortTerminal(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
-    LookAheadSymbol *s = arr[j];
+    ChainScore *s = arr[j];
     key = s->terminates;
     
 		int i = j-1;
@@ -5322,11 +5321,11 @@ void SortTerminal(LookAheadSymbol **arr,unsigned int len){
 }
 
 
-void SortRing(LookAheadSymbol **arr,unsigned int len){
+void SortRing(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
-    LookAheadSymbol *s = arr[j];
+    ChainScore *s = arr[j];
     key = s->has_ring;
     
 		int i = j-1;
@@ -5345,9 +5344,9 @@ void SortRing(LookAheadSymbol **arr,unsigned int len){
 
 
 // sort based on the letter ordering, only if symbol lens match
-void SortChunk(LookAheadSymbol **arr,unsigned int len){
+void SortChunk(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
-    LookAheadSymbol *s = arr[j];
+    ChainScore *s = arr[j];
 		int i = j-1;
     while(i>=0){
       unsigned int k=0;
@@ -5373,32 +5372,35 @@ void SortChunk(LookAheadSymbol **arr,unsigned int len){
 
 
 /* run the chain until either a ring atom/branch point/EOC is seen */
-LookAheadSymbol *RunChain(WLNEdge *edge){
-  LookAheadSymbol *score = new LookAheadSymbol; // must use new for string 
+ChainScore *RunChain(WLNEdge *edge){
+  ChainScore *score = new ChainScore; // must use new for string 
   score->e = edge;
   score->chunk = ""; 
   score->terminates = 0;
   score->has_ring = 0; // these should be placed last when possible 
-
+  
+  std::map<WLNSymbol*,bool> seen;
   WLNSymbol *node = edge->child; 
   unsigned int length = 1; 
   // no stack needed as looking ahead in a linear fashion
   for(;;){
+    seen[node] = true;
     if(node->inRing){
       score->has_ring = true;
       return score; // immediate
     }
 
     switch(node->ch){
-      
     case '1':
-      while(node->bonds && node->bonds->order==1 && node->bonds->child->ch == '1'){
-        node = node->bonds->child; 
+      while(node->barr_n && node->bond_array[0].order==1 && node->bond_array[0].child->ch == '1'){
+        seen[node] = true;
+        node = node->bond_array[0].child; 
         length++;
       }
       score->chunk += std::to_string(length);  
       length = 1;
       break;
+
       // these must branch
       case 'Y':
       case 'X':
@@ -5428,13 +5430,19 @@ LookAheadSymbol *RunChain(WLNEdge *edge){
       default:
         score->chunk += node->ch; 
     }
-    
-    if(!node->bonds) // for random ending points
+   
+#if IMPLEMENT_LB
+    if(!node->barr_n && (node->previous && seen[node->previous])) // for random ending points
       return score;
+#else
+    if(!node->barr_n)
+      return score;
+#endif
     else{
-      for(unsigned int i=1;i<node->bonds->order;i++) // let symbol orderer sort here
-        score->chunk += 'U'; 
-      node = node->bonds->child; // no need to iterate, it should only have 1.
+      for(unsigned int i=1;i<node->bond_array[0].order;i++) // let symbol orderer sort here
+        score->chunk += 'U';
+
+      node = node->bond_array[0].child; // no need to iterate, it should only have 1.
     }
   }
 
@@ -5466,12 +5474,12 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
   switch(sym->ch){
   // skip through carbon chains
     case '1':
-      while(sym->bonds && sym->bonds->order==1 && sym->bonds->child->ch == '1'){
+
+      while(sym->barr_n && sym->bond_array[0].order==1 && sym->bond_array[0].child->ch == '1'){
         graph.global_symbols[sym] = true;
-        sym = sym->bonds->child; 
+        sym = sym->bond_array[0].child; 
         length++;
       }
-      
       graph.global_symbols[sym] = true; 
       buffer += std::to_string(length);
 
@@ -5551,12 +5559,10 @@ void SortAndStackBonds(WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::st
       sym->str_position = len + buffer.size();
   }
 
-  WLNEdge *e = 0; 
   unsigned int l = 0;
-  LookAheadSymbol *scores[64] = {0};
-
-  for(e = sym->bonds;e;e=e->nxt){
-    scores[l++] = RunChain(e); // score each chain run
+  ChainScore *scores[64] = {0};
+  for(unsigned int ei=0;ei<sym->barr_n;ei++){
+    scores[l++] = RunChain(&sym->bond_array[ei]); // score each chain run
   }
 
   SortChunk(scores, l); 
@@ -5642,7 +5648,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   // expect the node to be within a ring, fetch ring and write the cycle
   buffer += node->inRing->str_notation;
   graph.global_rings[node->inRing] = true;
-  WLNEdge *e = 0; 
   for(std::map<unsigned char, WLNSymbol*>::iterator riter = node->inRing->locants.begin(); 
       riter != node->inRing->locants.end(); 
       riter++)
@@ -5653,9 +5658,9 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
     if(!graph.global_symbols[position]){ // if not seen before, iterate all non-cyclic edges that a position may have 
 
-//      FlowFromNode(position, graph); 
 
-      for (e=position->bonds;e;e=e->nxt){
+      for (unsigned int ei=0;ei<position->barr_n;ei++){
+        WLNEdge *e = &position->bond_array[ei]; 
         if(!e->child->inRing && !graph.global_symbols[e->child]){
           buffer += ' '; 
           buffer += locant;
@@ -5694,7 +5699,130 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   return buffer;
 }
 
+std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
+
+  std::string store;
+  bool ion_write = false;
+  for (unsigned int i=0;i<wln_graph.symbol_count;i++){
+    WLNSymbol *node = wln_graph.SYMBOLS[i];
+    if( (!node->barr_n || !node->previous) && !node->inRing  && !wln_graph.global_symbols[node]){
+
+      // create a local set, iterate through the set
+      if(ion_write){ // ion condition
+        while(store.back() == '&') // trail cleaning
+          store.pop_back(); 
+        store += " &";
+      }
+
+      std::string last_chain;
+      std::set<WLNSymbol*> local_set;
+
+      std::string new_chain = CanonicalWLNChain(node, wln_graph, store.size(),0); // this marks all atoms globally
+      std::cout << new_chain << std::endl; 
+      if(new_chain.size() < last_chain.size() || last_chain.empty())
+        last_chain = new_chain;
+      else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
+        for(unsigned int j=0;j<new_chain.size();j++){
+          if(new_chain[j] > last_chain[j]){
+            last_chain = new_chain;
+            break;
+          }
+          else if(new_chain[j] < last_chain[j])
+            break;
+        }
+      }
+
+      store += last_chain; 
+      ion_write = true;
+    }
+
+  }
+
+#if IMPLEMENT_LP
+  // handle post charges, no need to check ring here
+  for(unsigned int i=0;i<wln_graph.symbol_count;i++){
+    WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
+    if(pos->charge > 0 && pos->ch != 'K'){
+      store += " &";
+      store += std::to_string(pos->str_position);
+      store += '/'; 
+      pos->charge--; 
+      bool fneg = false;
+      i = 0; // reset the loops
+      for(unsigned int j=0;j<wln_graph.symbol_count;j++){
+        // hunt for a negative charge
+        WLNSymbol *neg = wln_graph.SYMBOLS[j];
+        if(neg->charge < 0){
+          store += std::to_string(neg->str_position); 
+          neg->charge++;
+          fneg = true;
+          break;
+        }
+      }
+      if(!fneg)
+        store += '0'; 
+    }
+  }
 #endif
+
+  while(store.back() == '&') // trail cleaning
+    store.pop_back(); 
+  // tidy up any remaining closures that do not need to be added
+  return store;
+}
+
+
+std::string FullCanonicalise(WLNGraph &graph){
+
+  std::string last_chain;
+  std::string store; 
+  bool first_write = false;
+
+  unsigned int r = 0; 
+  WLNRing *sorted_rings[128] = {0};
+
+#if DEPRECATED
+  for (unsigned int i=0;i<graph.ring_count;i++){
+    graph.RINGS[i]->loc_count = count_locants(graph.RINGS[i], graph); 
+    sorted_rings[r++] = graph.RINGS[i];
+  }
+#endif
+  SortCycles(sorted_rings, r); 
+
+#if OPT_DEBUG
+  for (unsigned int i=0;i<r;i++){
+    fprintf(stderr,"ring-size:%d, locants: %d, hetero_atoms: %d\n",
+        sorted_rings[i]->rsize,
+        sorted_rings[i]->loc_count,
+        0
+        ); 
+  }
+#endif
+
+  for (unsigned int i=0;i<r;i++){
+    WLNRing *ring = sorted_rings[i];
+    if(!graph.global_rings[ring]){
+      WLNSymbol *node = ring->locants['A']; 
+
+      if(first_write){
+        while(store.back() == '&')
+          store.pop_back(); 
+
+        store += " &";
+      }
+
+      store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen);
+      first_write = true;
+    }
+  }
+
+  store += " &";  
+  store += ChainOnlyCanonicalise(graph); 
+
+  while(store.back() == '&' || store.back() == ' ')
+    store.pop_back();
+  return store; 
+}
 
 /**********************************************************************
                          API FUNCTION
@@ -5736,136 +5864,8 @@ bool ReadWLN(const char *ptr, OBMol* mol)
 }
 
 
-#if DEPRECATED
-std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
 
-  std::string store;
-  bool ion_write = false;
-  for (unsigned int i=0;i<wln_graph.symbol_count;i++){
-    WLNSymbol *node = wln_graph.SYMBOLS[i];
-    if( (!node->bonds || !node->previous) && !node->inRing  && !wln_graph.global_symbols[node]){
-      
-      // create a local set, iterate through the set
-      if(ion_write){ // ion condition
-        while(store.back() == '&') // trail cleaning
-          store.pop_back(); 
-        store += " &";
-      }
 
-      std::string last_chain;
-      std::set<WLNSymbol*> local_set;
-
-      for(std::set<WLNSymbol*>::iterator set_iter = local_set.begin(); set_iter != local_set.end(); set_iter++){ // iterate set for starting points
-        WLNSymbol *lnode = *set_iter; 
-        if( (!lnode->bonds || !lnode->previous) && !lnode->inRing){
-          FlowFromNode(lnode, wln_graph); // get the graph ordered from the point we want to write from
-          
-          std::string new_chain = CanonicalWLNChain(lnode, wln_graph, store.size(),0); // this marks all atoms globally
-
-          if(new_chain.size() < last_chain.size() || last_chain.empty())
-            last_chain = new_chain;
-          else if(new_chain.size() == last_chain.size()){ // take the highest ascii character
-            for(unsigned int j=0;j<new_chain.size();j++){
-              if(new_chain[j] > last_chain[j]){
-                last_chain = new_chain;
-                break;
-              }
-              else if(new_chain[j] < last_chain[j])
-                break;
-            }
-          }
-        }
-      }
-
-      store += last_chain; 
-      ion_write = true;
-    }
-
-  }
-  
-  // handle post charges, no need to check ring here
-  for(unsigned int i=0;i<wln_graph.symbol_count;i++){
-    WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
-    if(pos->charge > 0 && pos->ch != 'K'){
-      store += " &";
-      store += std::to_string(pos->str_position);
-      store += '/'; 
-      pos->charge--; 
-      bool fneg = false;
-      i = 0; // reset the loops
-      for(unsigned int j=0;j<wln_graph.symbol_count;j++){
-      // hunt for a negative charge
-        WLNSymbol *neg = wln_graph.SYMBOLS[j];
-        if(neg->charge < 0){
-          store += std::to_string(neg->str_position); 
-          neg->charge++;
-          fneg = true;
-          break;
-        }
-      }
-      if(!fneg)
-        store += '0'; 
-    }
-  }
-
- while(store.back() == '&') // trail cleaning
-   store.pop_back(); 
-  // tidy up any remaining closures that do not need to be added
-  return store;
-}
-
-std::string FullCanonicalise(WLNGraph &graph){
-
-  std::string last_chain;
-  std::string store; 
-  bool first_write = false;
-  
-  unsigned int r = 0; 
-  WLNRing *sorted_rings[128] = {0};
-
-  for (unsigned int i=0;i<graph.ring_count;i++){
-    graph.RINGS[i]->loc_count = count_locants(graph.RINGS[i], graph); 
-    sorted_rings[r++] = graph.RINGS[i];
-  }
-  
-  SortCycles(sorted_rings, r); 
-
-#if OPT_DEBUG
-  for (unsigned int i=0;i<r;i++){
-    fprintf(stderr,"ring-size:%d, locants: %d, hetero_atoms: %d\n",
-          sorted_rings[i]->rsize,
-          sorted_rings[i]->loc_count,
-          0
-        ); 
-  }
-#endif
-
-  for (unsigned int i=0;i<r;i++){
-    WLNRing *ring = sorted_rings[i];
-    if(!graph.global_rings[ring]){
-      WLNSymbol *node = ring->locants['A']; 
-
-      if(first_write){
-        while(store.back() == '&')
-          store.pop_back(); 
-
-        store += " &";
-      }
-      
-      store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen);
-      first_write = true;
-    }
-  }
-  
-  store += " &";  
-  store += ChainOnlyCanonicalise(graph); 
-
-  while(store.back() == '&' || store.back() == ' ')
-    store.pop_back();
-  return store; 
-}
-
-#endif
 bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 {   
   if(!ptr){
@@ -5905,28 +5905,22 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
         resolve_methyls(sym,wln_graph);
         break;
 
-      // case 'W':
-      //   if(sym->bonds)
-      //     sym->bonds->order = 1;
-      //   if(sym->previous){
-      //     for(e=sym->previous->bonds;e;e=e->nxt){
-      //       if(e->child == sym){
-      //         e->order = 1;
-      //         break;
-      //       }
-      //     }
-      //   }
-      //   break;
+      case 'W':
+        if(sym->barr_n)
+          sym->bond_array[0].order = 1;
+        if(sym->previous){
+          WLNEdge *se = search_edge(sym, sym->previous);
+          se->order = 1; 
+        }
+        break;
     }
   }
   
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
-#if OFF
   if(!wln_graph.ring_count)
     std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
     std::cout << FullCanonicalise(wln_graph); 
-#endif 
 
   WriteGraph(wln_graph,"wln-graph.dot");
   std::cout << std::endl; 
