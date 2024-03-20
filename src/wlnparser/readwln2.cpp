@@ -42,7 +42,6 @@ GNU General Public License for more details.
 #include <openbabel/obmolecformat.h>
 #include <openbabel/graphsym.h>
 
-#include "ctree.h"
 #include "parser.h"
 
 using namespace OpenBabel; 
@@ -5714,42 +5713,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 
 // make all the edges point outwards from a given source node, allows full
 // graph traversal from a given starting point.
-bool FlowFromNode(WLNSymbol *node, WLNGraph &graph){
-  // build recursively, avoid all cycle nodes
-  
-  WLNEdge *e = 0; 
-  std::map<WLNSymbol*,bool> seen; 
-  std::stack<WLNSymbol*> stack; 
-  stack.push(node); 
-  while(!stack.empty()){
-    WLNSymbol *top = stack.top(); 
-    stack.pop(); 
-    seen[top] = true;
-
-    // is anything pointing to the node and that hasnt been seen?
-    for(unsigned int i=1;i<STRUCT_COUNT;i++){
-      WLNEdge *ge = graph.EDGES[i]; 
-      if(!ge)
-        break;
-      else if(ge->child == top && !seen[ge->parent]){
-        unsigned int order = ge->order;
-        remove_edge(ge->parent, ge);
-        WLNEdge *ne = AllocateWLNEdge(ge->parent,top, graph);
-        for(unsigned int i=1;i<order;i++)
-          unsaturate_edge(ne, 1); 
-      }
-    }
-
-    for(e = top->bonds;e;e=e->nxt){
-      if(!seen[e->child] && !e->child->inRing){
-        stack.push(e->child);
-      }
-    }
-  }
-
-  
-  return true;
-}
 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num){
  
@@ -5770,7 +5733,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
     if(!graph.global_symbols[position]){ // if not seen before, iterate all non-cyclic edges that a position may have 
 
-      FlowFromNode(position, graph); 
+//      FlowFromNode(position, graph); 
 
       for (e=position->bonds;e;e=e->nxt){
         if(!e->child->inRing && !graph.global_symbols[e->child]){
@@ -5813,41 +5776,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
 
 
-bool FlowFromNodeWithSet(WLNSymbol *node, WLNGraph &graph, std::set<WLNSymbol*> &local_set){
-  // build recursively, avoid all cycle nodes
-  WLNEdge *e = 0; 
-  std::map<WLNSymbol*,bool> seen; 
-  std::stack<WLNSymbol*> stack; 
-  stack.push(node); 
-  while(!stack.empty()){
-    WLNSymbol *top = stack.top(); 
-    stack.pop(); 
-    seen[top] = true;
-    local_set.insert(top); 
-    // is anything pointing to the node and that hasnt been seen?
-    for(unsigned int i=1;i<STRUCT_COUNT;i++){
-      WLNEdge *ge = graph.EDGES[i]; 
-      if(!ge)
-        break;
-      else if(ge->child == top && !seen[ge->parent] && !ge->parent->inRing){
-        unsigned int order = ge->order;
-        remove_edge(ge->parent, ge);
-        WLNEdge *ne = AllocateWLNEdge(ge->parent,top, graph);
-        for(unsigned int i=1;i<order;i++)
-          unsaturate_edge(ne, 1); 
-      }
-    }
-
-    for(e = top->bonds;e;e=e->nxt){
-      if(!seen[e->child] &&  !e->child->inRing){
-        stack.push(e->child);
-      }
-    }
-
-  }
-  
-  return true;
-}
 /**********************************************************************
                          API FUNCTION
 **********************************************************************/
@@ -5888,6 +5816,7 @@ bool ReadWLN(const char *ptr, OBMol* mol)
 }
 
 
+#if DEPRECATED
 std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
 
   std::string store;
@@ -5905,7 +5834,6 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
 
       std::string last_chain;
       std::set<WLNSymbol*> local_set;
-      FlowFromNodeWithSet(node, wln_graph, local_set); // set up the set
 
       for(std::set<WLNSymbol*>::iterator set_iter = local_set.begin(); set_iter != local_set.end(); set_iter++){ // iterate set for starting points
         WLNSymbol *lnode = *set_iter; 
@@ -6017,6 +5945,7 @@ std::string FullCanonicalise(WLNGraph &graph){
   return store; 
 }
 
+#endif
 bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 {   
   if(!ptr){
@@ -6072,12 +6001,15 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   }
   
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
+#if OFF
   if(!wln_graph.ring_count)
     std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
     std::cout << FullCanonicalise(wln_graph); 
-  
+#endif 
+
   WriteGraph(wln_graph,"wln-graph.dot");
   std::cout << std::endl; 
   return true;
 }
+
