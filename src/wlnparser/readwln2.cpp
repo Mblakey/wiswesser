@@ -2797,8 +2797,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
   ring->pseudo_points = pseudo_locants.size(); 
-  ring->bridge_points = bridge_locants.size(); 
   
+    for (unsigned int i=0;i<252;i++){
+      if(bridge_locants[i])
+        ring->bridge_points++; 
+    }
 
   for (std::pair<unsigned int, unsigned char> comp : ring_components){    
       ring->assignment_locants.push_back(comp.second); 
@@ -5861,35 +5864,45 @@ std::string FullCanonicalise(WLNGraph &graph){
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
-    fprintf(stderr,"ring-size:%d, locants: %d, hetero_atoms: %d\n",
+    fprintf(stderr,"ring-size:%d, locants: %d, multi-points: %d, bridges: %d\n",
         sorted_rings[i]->rsize,
         sorted_rings[i]->loc_count,
-        0
+        sorted_rings[i]->multi_points,
+        sorted_rings[i]->bridge_points
         ); 
   }
 #endif
-
+  
+  std::map<WLNRing*, bool> seen_rings;  
   for (unsigned int i=0;i<r;i++){
     WLNRing *ring = sorted_rings[i];
     WLNSymbol *node = ring->locants['A']; 
-    if(first_write){
-      while(store.back() == '&')
-        store.pop_back(); 
+    if(!seen_rings[ring]){
+      std::set<WLNSymbol*> reachable; 
+      Reachable(node, reachable); 
+      for(std::set<WLNSymbol*>::iterator siter = reachable.begin();siter!=reachable.end();siter++){
+        if( (*siter)->inRing )
+          seen_rings[ (*siter)->inRing ] = true;
+      }
 
-      store += " &";
+      if(first_write){
+        while(store.back() == '&')
+          store.pop_back(); 
+
+        store += " &";
+      }
+
+      store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen,0);
+      first_write = true;
     }
-
-    store += CanonicalWLNRing(node, graph, store.size(),graph.last_cycle_seen,0);
-    first_write = true;
   }
 
 #if ON
   store += " &";  
   store += ChainOnlyCanonicalise(graph); 
-
+#endif
   while(store.back() == '&' || store.back() == ' ')
     store.pop_back();
-#endif
   return store; 
 }
 
