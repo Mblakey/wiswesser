@@ -3480,7 +3480,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           curr = ring->locants[ch];
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
-          
+          ring->loc_count++;  
           prev = curr;
         }
 
@@ -3528,6 +3528,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
 
@@ -3580,6 +3581,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
 
@@ -3627,6 +3629,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -3687,6 +3690,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
 
@@ -3739,6 +3743,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -3787,6 +3792,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
         
+          ring->loc_count++;  
           prev = curr;
         }
 
@@ -3836,6 +3842,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
       
@@ -3892,6 +3899,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -3943,6 +3951,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -3991,6 +4000,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4042,6 +4052,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4090,6 +4101,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
 
+          ring->loc_count++;  
           prev = curr;
         }
 
@@ -4114,6 +4126,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4160,6 +4173,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4229,6 +4243,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4301,7 +4316,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         else if (prev && on_locant && on_locant != '0')
         {
           if (ring->locants[on_locant]){
-            
+                    
             if(!AddEdge(ring->locants[on_locant], prev))
               return Fatal(i, "Error: failed to bond to previous symbol");
 
@@ -4311,6 +4326,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
                 return Fatal(i, "Error: failed to unsaturate bond"); 
               pending_unsaturate = 0;
             }
+            ring->loc_count++; //in-line locant assumed
           }   
           else
             return Fatal(i,"Error: attaching inline ring with out of bounds locant assignment");
@@ -4340,6 +4356,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4386,6 +4403,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4432,6 +4450,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: accessing locants out of range");
           
+          ring->loc_count++;  
           prev = curr;
         }
         pending_locant = false;
@@ -4490,6 +4509,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!branch_stack.ring || !add_methyl(branch_stack.ring->locants[on_locant],graph))
             return Fatal(i, "Error: could not attach implied methyl to ring");
           
+          branch_stack.ring->loc_count++;  
           on_locant = '\0';
         }
         
@@ -5836,6 +5856,7 @@ std::string FullCanonicalise(WLNGraph &graph){
   for (unsigned int i=0;i<graph.ring_count;i++){
     sorted_rings[r++] = graph.RINGS[i];
   }
+
   SortCycles(sorted_rings, r); 
 
 #if OPT_DEBUG
