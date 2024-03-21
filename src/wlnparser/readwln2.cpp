@@ -181,18 +181,19 @@ struct WLNRing
   unsigned int rsize;
   unsigned int aromatic_atoms;
   unsigned int *adj_matrix; 
-  std::string str_notation; // used for write back
   
   std::vector<unsigned char> assignment_locants;
   std::vector<unsigned int> assignment_digits;
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
 
-  bool spiro; 
+  bool spiro;
+  unsigned int ranking; // saves the ranking for inline canonical choice
   unsigned int multi_points;
   unsigned int pseudo_points;
   unsigned int bridge_points;
   unsigned int loc_count;
+  std::string str_notation; // used for write back
 
   WLNRing(){
     rsize = 0;
@@ -203,6 +204,7 @@ struct WLNRing
     pseudo_points = 0;
     bridge_points = 0; 
     loc_count = 0; 
+    ranking = 0; 
   }
   ~WLNRing(){
     if(adj_matrix)
@@ -5521,6 +5523,8 @@ void SortCycles(WLNRing **arr, unsigned int len){
     }
 		arr[i+1] = s;
 	}
+
+  // more sorting needed here
 }
 
 // forward declaration 
@@ -5672,7 +5676,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
       buffer += '-';
       buffer += ' '; 
       buffer += sym->inRing->locants_ch[sym];
-      buffer += CanonicalWLNRing(sym, graph, buffer.size(),cycle_num+1, sym);
+      buffer += CanonicalWLNRing(sym, graph, buffer.size(),cycle_num+1, top_edge->parent);
       if(graph.last_cycle_seen > cycle_num){
         for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
         buffer+='&';
@@ -5708,20 +5712,18 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++)
   {
     WLNSymbol *locant = ring->locants[ch]; 
-    if(locant == ignore)
-      continue; 
 
     unsigned int pe = 0; 
     WLNEdge *possible_edges[255] = {0}; 
     for (unsigned int ei=0;ei<locant->barr_n;ei++){
       WLNEdge *fe = &locant->bond_array[ei];
-      if(fe->child->inRing != ring)
+      if(fe->child->inRing != ring && fe->child != ignore)
         possible_edges[pe++] = fe;
     }
 
     for (unsigned int ei=0;ei<locant->parr_n;ei++){
       WLNEdge *be = &locant->prev_array[ei];
-      if(be->child->inRing != ring)
+      if(be->child->inRing != ring && be->child != ignore)
         possible_edges[pe++] = be; 
     }
 
@@ -5736,7 +5738,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
         buffer += CanonicalWLNChain(e->child, graph,buffer.size(),graph.last_cycle_seen,locant);
       }
-#if ON
       else if (e->child->inRing != node->inRing){
         buffer += ' '; 
         buffer += ch;
@@ -5747,7 +5748,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         buffer += '-';
         buffer += ' ';
         buffer += ring->locants_ch[e->child]; 
-        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1);
+        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1,locant); // ignore where we've come from
 
         if(graph.last_cycle_seen > cycle_num){
           for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
@@ -5757,7 +5758,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
         graph.last_cycle_seen = cycle_num;
       }
-#endif
     }
   }
   
@@ -5858,6 +5858,7 @@ std::string FullCanonicalise(WLNGraph &graph){
 
   for (unsigned int i=0;i<graph.ring_count;i++){
     sorted_rings[r++] = graph.RINGS[i];
+    graph.RINGS[i]->ranking = r; 
   }
 
   SortCycles(sorted_rings, r); 
@@ -5872,7 +5873,6 @@ std::string FullCanonicalise(WLNGraph &graph){
         ); 
   }
 #endif
-  
   std::map<WLNRing*, bool> seen_rings;  
   for (unsigned int i=0;i<r;i++){
     WLNRing *ring = sorted_rings[i];
@@ -5901,6 +5901,7 @@ std::string FullCanonicalise(WLNGraph &graph){
   store += " &";  
   store += ChainOnlyCanonicalise(graph); 
 #endif
+
   while(store.back() == '&' || store.back() == ' ')
     store.pop_back();
   return store; 
