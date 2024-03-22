@@ -4974,7 +4974,7 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
 
     fprintf(fp, "  %d", node->id);
     if (node->ch == '*' || node->ch == '#')
-      fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+      fprintf(fp, "[shape=circle,label=\"*:%s\"];\n", node->special.c_str());
     else if (node->inRing)
       fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
     else{
@@ -5538,18 +5538,42 @@ void SortAndStackBonds( WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::m
                         std::string &buffer,unsigned int len, WLNSymbol *ignore)
 {
   switch(sym->ch){
-  // skip through carbon chains
-    case '#':
+
+#define CONTRACT 1
+#if CONTRACT
+
+    case '1':
       // forward and backward traversal through the chains
+        // check for methyl contraction 
+      if(!sym->barr_n && sym->parr_n==1 ){
+        switch(sym->prev_array[0].child->ch){
+          case 'X':
+          case 'Y':
+          case 'K':
+            break;
+          default:
+            buffer += '1'; 
+        }
+      }
+      else if (!sym->parr_n && sym->barr_n==1){
+        switch(sym->bond_array[0].child->ch){
+          case 'X':
+          case 'Y':
+          case 'K':
+            break;
+          default:
+            buffer += '1'; 
+        }
+      }
+      else
+        buffer += '1'; 
+
+      sym->str_position = len + buffer.size();
+      break;
+
+#endif
+    case '#':
       buffer += sym->special;
-
-      // if(length > 1)
-      // else if (sym->previous && (sym->previous->ch != 'X' && sym->previous->ch != 'Y' && sym->previous->ch != 'K')){
-      //   buffer += std::to_string(length); // allow the methyl contractions
-      // } 
-      // else if(!sym->previous)
-      //   buffer += std::to_string(length); 
-
       sym->str_position = len + buffer.size();
       break;
 
@@ -6001,9 +6025,11 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
   else
     std::cout << FullCanonicalise(wln_graph); 
+  
+  std::cout << std::endl; 
 #endif 
 
-
+  
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
 }
