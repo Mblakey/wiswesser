@@ -5358,11 +5358,12 @@ struct ChainScore{
   std::string chunk; 
   bool terminates;
   bool has_ring; 
+  bool has_branch; 
 };
 
 
 void debug_score(ChainScore *score){
-  fprintf(stderr,"%s: term:%d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_ring); 
+  fprintf(stderr,"%s: term:%d, branch: %d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_branch,score->has_ring); 
 }
 
 void SortTerminal(ChainScore **arr,unsigned int len){
@@ -5386,6 +5387,26 @@ void SortTerminal(ChainScore **arr,unsigned int len){
 	}
 }
 
+void SortBranch(ChainScore **arr,unsigned int len){
+  for (unsigned int j=1;j<len;j++){
+    unsigned int key = 0; 
+    
+    ChainScore *s = arr[j];
+    key = s->has_branch;
+    
+		int i = j-1;
+    while(i>=0){
+      unsigned int val = 0;      
+      val = arr[i]->has_branch;
+      if(val <= key)
+        break;
+
+      arr[i+1] = arr[i];
+      i--;
+    }
+		arr[i+1] = s;
+	}
+}
 
 void SortRing(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
@@ -5410,7 +5431,7 @@ void SortRing(ChainScore **arr,unsigned int len){
 
 
 // sort based on the letter ordering, only if symbol lens match
-void SortChunk(ChainScore **arr,unsigned int len){
+void SortRule2(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     ChainScore *s = arr[j];
 		int i = j-1;
@@ -5464,6 +5485,8 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
       case 'Y':
       case 'X':
       case 'K':
+        score->chunk += node->ch;
+        score->has_branch = true;
         return score;
 
       // these could branch, only split if they have
@@ -5472,6 +5495,8 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
       case 'S':
       case 'B':
       case 'N': // further canonical rule to add to minimise this
+        score->chunk += node->ch;
+        score->has_branch = true;
         return score; 
       
       // terminators end the branch lookahead immediately
@@ -5654,7 +5679,8 @@ void SortAndStackBonds( WLNSymbol *sym, std::stack<WLNEdge*> &bond_stack, std::m
       scores[l++] = RunChain(e,seen); // score each chain run
   }
 
-  SortChunk(scores, l); 
+  SortRule2(scores, l); 
+  SortBranch(scores, l); 
   SortTerminal(scores, l); // sort by terminals, prefer them
   SortRing(scores, l); 
 
