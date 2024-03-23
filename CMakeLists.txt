@@ -17,7 +17,6 @@ add_executable(readwln
   ${PROJECT_SOURCE_DIR}/src/wlnparser/reader.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlnparser/wln-nextmove.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlnparser/wlnshort.cpp
 )
 
 add_executable(writewln 
@@ -25,6 +24,10 @@ add_executable(writewln
   ${PROJECT_SOURCE_DIR}/src/wlnparser/writewln2.cpp 
 )
 
+
+add_executable(wlntree 
+  ${PROJECT_SOURCE_DIR}/src/wlnparser/wlnFT.cpp 
+)
 
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/wlnparser/obcomp.cpp)
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
@@ -39,19 +42,19 @@ add_executable(wlnzip
 )
 
 
-add_executable(compareFP
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/compareFP.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/FPMetric.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnlingo.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/alignment.cpp 
-)
+#add_executable(compareFP
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/compareFP.cpp
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/FPMetric.cpp
+#  ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnlingo.cpp 
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/alignment.cpp 
+#)
 
-add_executable(wlndesc  
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlndesc.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
-)
+#add_executable(wlndesc  
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlndesc.cpp
+#  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
+#)
 
 
 include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/build/include/")
@@ -63,17 +66,18 @@ elseif(APPLE)
   target_link_libraries(readwln  "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(obcomp "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
-  target_link_libraries(compareFP "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
+  #target_link_libraries(compareFP "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   #  target_link_libraries(wlngen "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
 elseif(UNIX)
   target_link_libraries(readwln  "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
   target_link_libraries(obcomp "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
-  target_link_libraries(compareFP "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
+  #target_link_libraries(compareFP "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
   #  target_link_libraries(wlngen "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.so.7")
 endif()
 
 
 target_compile_definitions(readwln PRIVATE ERRORS=1)
+target_compile_definitions(wlntree PRIVATE ERRORS=1)
 #target_compile_definitions(wlngen PRIVATE ERRORS=0)
 
