@@ -2100,11 +2100,11 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
             fprintf(stderr,"  placing pi bond charge on locant - %c\n",positional_locant);
 
           
-          WLNSymbol *zero_carbon = AllocateWLNSymbol('C',graph);
-          zero_carbon->allowed_edges = 3; 
-          zero_carbon = assign_locant(positional_locant++,zero_carbon,ring);
-          zero_carbon->str_position = (start+i+1); 
-          zero_carbon->charge--; 
+//          WLNSymbol *zero_carbon = AllocateWLNSymbol('C',graph);
+//          zero_carbon->allowed_edges = 3; 
+//          zero_carbon = assign_locant(positional_locant++,zero_carbon,ring);
+//          zero_carbon->str_position = (start+i+1); 
+//          zero_carbon->charge--; 
         }
         locant_attached = false;
         break;
@@ -2235,6 +2235,7 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               if(!heterocyclic)
                 warned = true;
 
+#if ALLOCATE_HETERO
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->str_position = (start+i+1); 
@@ -2245,6 +2246,7 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
                 new_locant->allowed_edges = 6;
 
               new_locant->inRing = ring;
+#endif
               break;
 
             case 'Y':
@@ -2253,11 +2255,13 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               if(!heterocyclic && ch=='K')
                 warned = true;
 
+#if ALLOCATE_HETERO
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 4;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+#endif
               break;
 
             case 'Z': // treat as NH2
@@ -2266,11 +2270,13 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               if(!heterocyclic)
                 warned = true;
 
+#if ALLOCATE_HETERO
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+#endif
               break;
 
             case 'M':
@@ -2279,16 +2285,19 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               if(!heterocyclic && (ch == 'M' || ch == 'O'))
                 warned = true;
 
+#if ALLOCATE_HETERO
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 2;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+#endif
               break;
 
         
             case 'U':{
               // no need to put this in implied, it has to be specified
+#if ALLOCATE_HETERO
               if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
                 
                 // can double bond to a amped locant
@@ -2307,6 +2316,7 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               
               if(i < len && block[i+1] != 'U')
                 positional_locant++;
+#endif
               break;
             }
 
@@ -2315,6 +2325,7 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               if(!heterocyclic)
                 warned = true;
 
+#if ALLOCATE_HETERO
               if(positional_locant > 'A')
                 positional_locant--;
 
@@ -2341,13 +2352,13 @@ bool FormWLNRingLazy(WLNRing *ring,std::string &block, unsigned int start, WLNGr
               WLNEdge *e = &new_locant->bond_array[new_locant->barr_n-1];  
               if(!unsaturate_edge(e,2))
                 return Fatal(start+i,"Error: failed to unsaturate edge");
-              
+#endif              
               break;
             }
 
             // has the effect of unaromatising a bond, remove from edge consideration
             case 'H':
-              saturations.push_back({positional_locant,positional_locant+1});
+              //saturations.push_back({positional_locant,positional_locant+1});
               break;
 
 
