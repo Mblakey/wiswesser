@@ -638,6 +638,28 @@ bool IsTerminator(WLNSymbol *symbol){
   return false;
 }
 
+bool IsBranching(WLNSymbol *symbol){
+  switch (symbol->ch) {
+    case 'S':
+    case 'P':
+    case 'Y':
+    case 'X':
+    case 'K':
+    case 'N':
+    case 'B':
+    case '*':
+      return true;
+
+    case 'G':
+    case 'F':
+    case 'I':
+      if(symbol->allowed_edges > 1)
+        return true;
+  }
+
+  return false;
+}
+
 WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
 
   WLNSymbol *new_symbol = 0;
@@ -5363,8 +5385,6 @@ struct ChainScore{
 };
 
 struct SortedEdges{
-  WLNSymbol *symbol;
-  WLNEdge *parent_edge;
   WLNEdge *edges[MAX_EDGES*2];
   unsigned char e_n;
   unsigned char e_max;
@@ -5375,7 +5395,7 @@ void debug_score(ChainScore *score){
   fprintf(stderr,"%s: term:%d, branch: %d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_branch,score->has_ring); 
 }
 
-void SortTerminal(ChainScore **arr,unsigned int len){
+void SortByTerminal(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
@@ -5396,7 +5416,7 @@ void SortTerminal(ChainScore **arr,unsigned int len){
 	}
 }
 
-void SortBranch(ChainScore **arr,unsigned int len){
+void SortByBranch(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
@@ -5417,7 +5437,7 @@ void SortBranch(ChainScore **arr,unsigned int len){
 	}
 }
 
-void SortRing(ChainScore **arr,unsigned int len){
+void SortByRing(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     unsigned int key = 0; 
     
@@ -5439,7 +5459,7 @@ void SortRing(ChainScore **arr,unsigned int len){
 }
 
 // sort based on the letter ordering, only if symbol lens match
-void SortRule2(ChainScore **arr,unsigned int len){
+void SortByRule2(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
     ChainScore *s = arr[j];
 		int i = j-1;
@@ -5594,16 +5614,14 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
 /* sorts the bonds of any given chain, function will look through both previous and forward bonds in order to continue the parse, 
 as such, it requires a seen map to avoid looping back to areas its previously been  */
-SortedEdges* SortAndStackBonds( WLNSymbol *sym, WLNEdge*pe, std::map<WLNSymbol*,bool> &seen, WLNSymbol *ignore)
+SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNSymbol *ignore)
 {
   SortedEdges *se = (SortedEdges*)malloc(sizeof(SortedEdges));
-  se->symbol = sym; 
-  se->parent_edge = pe; 
-  se->e_n = 0; 
-  se->e_max = 0;
 
   unsigned int l = 0;
   ChainScore *scores[64] = {0};
+  
+  
   for(unsigned int ei=0;ei<sym->barr_n;ei++){
     WLNEdge *e =  &sym->bond_array[ei]; 
     if(!seen[e->child] && e->child != ignore)
@@ -5616,12 +5634,12 @@ SortedEdges* SortAndStackBonds( WLNSymbol *sym, WLNEdge*pe, std::map<WLNSymbol*,
       scores[l++] = RunChain(e,seen); // score each chain run
   }
 
-  SortRule2(scores, l); 
-  SortBranch(scores, l); 
-  SortTerminal(scores, l); // sort by terminals, prefer them
-  SortRing(scores, l); 
+  SortByRule2(scores, l); 
+  SortByBranch(scores, l); 
+  SortByTerminal(scores, l); // sort by terminals, prefer them
+  SortByRing(scores, l); 
   
-  se->e_max = l; 
+
   for(int i=l-1;i>=0;i--){ // sort the chains (radix style) to get high priorities first
 #if OPT_DEBUG
     debug_score(scores[i]); 
@@ -5629,40 +5647,117 @@ SortedEdges* SortAndStackBonds( WLNSymbol *sym, WLNEdge*pe, std::map<WLNSymbol*,
     se->edges[i] = scores[i]->e; 
     delete scores[i];
   }
+ 
+  if(IsBranching(sym) && sym->num_edges < sym->allowed_edges)
+    scores[l++] = 0; // adds a forcable pop 
 
+  se->e_n = 0; 
+  se->e_max = l; 
   return se; 
+}
+
+void WriteCharacter(WLNSymbol *sym, std::string &buffer){
+  switch (sym->ch) {
+    case '#':
+      buffer += sym->special;
+      break;
+
+    case '*':
+      buffer += '-';
+      buffer += sym->special;
+      buffer += '-';
+      break;
+
+    case 'E':
+    case 'F':
+    case 'G':
+    case 'H':
+    case 'I':
+      if(sym->allowed_edges>1){
+        buffer += '-';
+        buffer += sym->ch;
+        buffer += '-';
+      }
+      else
+        buffer += sym->ch;
+      break;
+
+    case 'Q':
+    case 'Z':
+      buffer += sym->ch;
+      break;
+    
+    case 'c':
+      buffer += 'C';
+      break;
+
+    default:
+      buffer += sym->ch;
+  };
 }
 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num, WLNSymbol *ignore){
   std::string buffer = ""; 
-  std::stack<SortedEdges*> symbol_stack; // contains symbol, and what child its on. 
-  std::map<WLNSymbol*,bool> seen_symbols;
+  std::map<WLNSymbol*,SortedEdges*> sorted_edges;
+  std::map<WLNSymbol*,bool> seen_symbols; 
+  std::stack<WLNSymbol*> branching_symbols;
+
+  WLNEdge *edge = 0; 
+  SortedEdges *se = ArrangeBonds(node, seen_symbols, ignore);
+  sorted_edges[node] = se; 
+  seen_symbols[node] = true;
+  WriteCharacter(node,buffer); 
   
-  bool terminated = false; 
-  SortedEdges *top = SortAndStackBonds(node, 0,seen_symbols, ignore); 
-  symbol_stack.push(top); 
-  
-  while(!symbol_stack.empty()){
-    top = symbol_stack.top();
-    
-    if(!seen_symbols[top->symbol]){
+  for(;;){
+    se = sorted_edges[node]; 
+    if(se->e_max > 0){
+      edge = se->edges[se->e_n++];
       
-      if(top->parent_edge){
-        for(unsigned int i=1;i<top->parent_edge->order;i++)
-          buffer += 'U'; 
+      if(!edge){
+        if(!branching_symbols.empty()){
+          buffer += '&';
+          branching_symbols.pop(); 
+        }
+
+        if(!branching_symbols.empty()){
+          node = branching_symbols.top();
+          continue;
+        }
+        else 
+          break;
       }
 
-      switch (top->symbol->ch) {
-        case '#':
-          buffer += top->symbol->special;
-          break;
+      for(unsigned int i=1;i<edge->order;i++)
+        buffer += 'U';
 
+      node = edge->child;
+      WriteCharacter(node, buffer); 
+      sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
+      seen_symbols[node] = true;
+  
+      switch (node->ch) {
+        case 'S':
+        case 'P':
+        case 'B':
+        case 'X':
+        case 'Y':
+        case 'K':
+        case 'N':
         case '*':
-          buffer += '-';
-          buffer += top->symbol->special;
-          buffer += '-';
+          branching_symbols.push(node);
           break;
 
+        case 'G':
+        case 'F':
+        case 'I':
+          if(node->allowed_edges > 1)
+            branching_symbols.push(node);
+          break;
+      }
+    }
+    else if (!branching_symbols.empty()){
+      // return to something on the branch stack here
+      switch (node->ch) {
         case 'E':
         case 'F':
         case 'G':
@@ -5670,37 +5765,27 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         case 'I':
         case 'Q':
         case 'Z':
-          buffer += top->symbol->ch;
-          terminated = true; 
           break;
-        
-        case 'c':
-          buffer += 'C';
-          break;
-
         default:
-          buffer += top->symbol->ch;
-      };
-    }
-    
-    seen_symbols[top->symbol] = true;
-    
-    if(top->e_n == top->e_max){
-      while(!symbol_stack.empty() && symbol_stack.top()->e_n == symbol_stack.top()->e_max){
-        if(!terminated)
-          buffer += '&';
-
-        free(symbol_stack.top()); 
-        symbol_stack.pop();
-        terminated = false; 
+          buffer+= '&'; 
       }
-    }
-    else{
-      SortedEdges* next_term = SortAndStackBonds(top->edges[top->e_n++]->child, top->edges[top->e_n-1],seen_symbols, ignore); 
-      symbol_stack.push(next_term);
-    }
-  }
 
+      while(  !branching_symbols.empty() && 
+              sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
+      {
+        //buffer += '&';
+        branching_symbols.pop(); 
+      }
+
+      if(branching_symbols.empty())
+        break;
+      else
+        node = branching_symbols.top();
+    }
+    else
+      break;
+  }
+  
   
   return buffer; 
 }
@@ -5716,7 +5801,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
   std::stack<WLNEdge*> bond_stack; 
   std::stack<WLNSymbol*> chain_stack; 
 
-  SortAndStackBonds(node, bond_stack, seen_symbols,buffer, len,ignore); 
+  ArrangeBonds(node, bond_stack, seen_symbols,buffer, len,ignore); 
   chain_stack.push(node); 
 
   while(!bond_stack.empty()){
@@ -5766,7 +5851,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     //seen_symbols[top_edge->child] = true; // causes two many pops
 
     bond_stack.pop();
-    SortAndStackBonds(sym, bond_stack, seen_symbols,buffer,len,ignore); 
+    ArrangeBonds(sym, bond_stack, seen_symbols,buffer,len,ignore); 
     prev = sym; // for terminator tracking
     chain_stack.push(sym); 
   }
