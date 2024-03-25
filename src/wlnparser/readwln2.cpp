@@ -5709,12 +5709,14 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
   std::stack<WLNSymbol*> branching_symbols;
 
   WLNEdge *edge = 0; 
-  WLNSymbol *prev= 0;
   SortedEdges *se = ArrangeBonds(node, seen_symbols, ignore);
   sorted_edges[node] = se; 
   seen_symbols[node] = true;
   WriteCharacter(node,buffer); 
-  
+  if(IsBranching(node)){
+    branching_symbols.push(node);
+  }
+
   for(;;){
     se = sorted_edges[node];
     if(se->e_max > 0){
@@ -5731,7 +5733,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
           continue;
         }
         else 
-          break;
+          return buffer;
       }
 
       for(unsigned int i=1;i<edge->order;i++)
@@ -5740,14 +5742,25 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
       if(edge->child->inRing){
         buffer += '-';
         buffer += ' '; 
-        buffer += edge->child->inRing->locants_ch[node];
+        buffer += edge->child->inRing->locants_ch[edge->child];
         buffer += CanonicalWLNRing(edge->child, graph, buffer.size(),cycle_num+1, edge->parent);
         
         while(graph.last_cycle_seen > cycle_num){
           buffer+='&';
           graph.last_cycle_seen--;
-        } 
+        }
         
+        while(  !branching_symbols.empty() && 
+                sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
+        {
+          //buffer += '&';
+          branching_symbols.pop(); 
+        }
+
+        if(!branching_symbols.empty())
+          node = branching_symbols.top();
+        else
+         return buffer;
       }
       else{
         node = edge->child;
@@ -5755,14 +5768,13 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
         seen_symbols[node] = true;
         
-        if(IsBranching(node))
-          branching_symbols.push(node); 
+        if(IsBranching(node)){
+          branching_symbols.push(node);
+        }
       }
     }
     else if (!branching_symbols.empty()){
       // return to something on the branch stack here
-      if(! (IsTerminator(node) || node->ch == 'W') )
-          buffer+= '&'; 
 
       while(  !branching_symbols.empty() && 
               sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
@@ -5771,13 +5783,17 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         branching_symbols.pop(); 
       }
 
-      if(branching_symbols.empty())
-        break;
-      else
+      if(!branching_symbols.empty()){
+        if(! (IsTerminator(node) || node->ch == 'W') )
+          buffer+= '&';
+
         node = branching_symbols.top();
+      }
+      else
+        return buffer; // this can return a ring system, use break as break_point
     }
     else
-      break;
+      return buffer;
 
   }
   
