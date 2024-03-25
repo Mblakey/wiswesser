@@ -5825,7 +5825,9 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
       
         buffer += '-';
         buffer += ' ';
-        buffer += ring->locants_ch[e->child]; 
+        buffer += e->child->inRing->locants_ch[e->child];
+
+        fprintf(stderr,"here?\n"); 
         buffer += CanonicalWLNRing(e->child, graph,buffer.size(),cycle_num+1,locant); // ignore where we've come from
         while(graph.last_cycle_seen > cycle_num){
           buffer+='&';
