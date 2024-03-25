@@ -4219,9 +4219,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             while(!branch_stack.top().second && !branch_stack.empty())
               branch_stack.pop();
           }
-
-          if(!AddEdge(curr, prev))
+          
+          if(!prev->barr_n && !prev->parr_n){
+            if(!AddEdge(prev, curr))
+              return Fatal(i, "Error: failed to bond to previous symbol");
+          }
+          else if (!AddEdge(curr, prev)){
             return Fatal(i, "Error: failed to bond to previous symbol");
+          }
 
           edge = &prev->bond_array[prev->barr_n-1]; 
           if(pending_unsaturate){
