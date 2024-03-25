@@ -5812,7 +5812,11 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
   std::stack<WLNEdge*> bond_stack; 
   std::stack<WLNSymbol*> chain_stack; 
 
+<<<<<<< HEAD
   ArrangeBonds(node, bond_stack, seen_symbols,buffer, len,ignore); 
+=======
+  SortAndStackBonds(node, bond_stack, seen_symbols,buffer, len,ignore); 
+>>>>>>> 9d824dcb5572fa1ae898bbef00428f59d1cbbf95
   chain_stack.push(node); 
 
   while(!bond_stack.empty()){
