@@ -5536,6 +5536,33 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
 }
 
 
+/* return the ring ranking that can be used in search, otherwise 0 for no ring */
+unsigned int RunLocant(WLNSymbol *node){
+  std::stack<WLNSymbol*> stack;
+  std::map<WLNSymbol*,bool> seen;
+  stack.push(node); 
+  while(!stack.empty()){
+    WLNSymbol *top = stack.top(); 
+    stack.pop(); 
+    seen[top] = true;
+    
+    if(top->inRing)
+      return top->inRing->ranking; 
+
+    for(unsigned int ei=0;ei<top->barr_n;ei++){
+      if(!seen[top->bond_array[ei].child])
+        stack.push(top->bond_array[ei].child); 
+    }
+
+    for(unsigned int ei=0;ei<top->parr_n;ei++){
+      if(!seen[top->prev_array[ei].child])
+        stack.push(top->prev_array[ei].child); 
+    }
+  }
+
+  return 0; 
+}
+
 void SortCycles(WLNRing **arr, unsigned int len){
   // sort by how many locants, inverse order will likely give the shorter string
   for (unsigned int j=1;j<len;j++){
