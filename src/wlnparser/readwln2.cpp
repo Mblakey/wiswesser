@@ -5770,6 +5770,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         case 'I':
         case 'Q':
         case 'Z':
+        case 'W':
           break;
         default:
           buffer+= '&'; 
