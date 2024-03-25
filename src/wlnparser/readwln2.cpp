@@ -51,7 +51,7 @@ using namespace OpenBabel;
 #define MAX_EDGES 8
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 1
+#define OPT_DEBUG 0
 #define OPT_CORRECT 0
 
 
@@ -5734,35 +5734,36 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 
   while(!bond_stack.empty()){
     WLNEdge *top_edge = bond_stack.top();
+    
     if(!top_edge){
       bond_stack.pop();
       buffer +='&';
       continue;
     }
+    else
+      sym = top_edge->child;
     
-    if(seen_symbols[top_edge->parent]){
-      if(prev && !IsTerminator(prev))
-        buffer+='&';
-    }
-    
-    for(unsigned int i=1;i<top_edge->order;i++)
-      buffer +='U';
-
-    sym = top_edge->child;
     if(sym->inRing){
       buffer += '-';
       buffer += ' '; 
       buffer += sym->inRing->locants_ch[sym];
       buffer += CanonicalWLNRing(sym, graph, buffer.size(),cycle_num+1, top_edge->parent);
-      if(graph.last_cycle_seen > cycle_num){
-        for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
+      
+      while(graph.last_cycle_seen > cycle_num){
         buffer+='&';
-        }
-      }
-      graph.last_cycle_seen = cycle_num;
+        graph.last_cycle_seen--;
+      }  
       bond_stack.pop(); 
       continue; 
     }
+
+    if(seen_symbols[top_edge->parent]){
+      if(prev && !IsTerminator(prev))
+        buffer+='&';
+    }
+
+    for(unsigned int i=1;i<top_edge->order;i++)
+      buffer +='U';
 
     seen_symbols[top_edge->parent] = true;
     //seen_symbols[top_edge->child] = true; // causes two many pops
@@ -5779,7 +5780,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 // graph traversal from a given starting point.
 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num, WLNSymbol *ignore){
- 
   graph.last_cycle_seen = cycle_num;  
   std::string buffer = ""; 
 
@@ -5813,7 +5813,8 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         for(unsigned int i=1;i<e->order;i++)
           buffer += 'U';
 
-        buffer += CanonicalWLNChain(e->child, graph,buffer.size(),graph.last_cycle_seen,locant);
+        buffer += CanonicalWLNChain(e->child, graph,buffer.size(),cycle_num,locant);
+  
       }
       else if (e->child->inRing != node->inRing){
         buffer += ' '; 
@@ -5825,19 +5826,16 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         buffer += '-';
         buffer += ' ';
         buffer += ring->locants_ch[e->child]; 
-        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),graph.last_cycle_seen+1,locant); // ignore where we've come from
-
-        if(graph.last_cycle_seen > cycle_num){
-          for(unsigned int i=0;i<(graph.last_cycle_seen-cycle_num);i++){
-            buffer+='&';
-          }
-        }
-
-        graph.last_cycle_seen = cycle_num;
+        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),cycle_num+1,locant); // ignore where we've come from
+        while(graph.last_cycle_seen > cycle_num){
+          buffer+='&';
+          graph.last_cycle_seen--;
+        }  
       }
     }
   }
-  
+ 
+
   return buffer;
 }
 
@@ -6059,12 +6057,12 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 
       case 'W':
         if(sym->barr_n){
-          while(sym->bond_array[0].order > 1)
-            unsaturate_edge(&sym->bond_array[0], 1); 
+          sym->bond_array[0].order = 1;
+          sym->bond_array[0].reverse->order = 1; 
         }
         if(sym->parr_n){
-          while(sym->prev_array[0].order > 1)
-            unsaturate_edge(&sym->prev_array[0], 1); 
+          sym->prev_array[0].order = 1;
+          sym->prev_array[0].reverse->order = 1; 
         }
         break;
     }
