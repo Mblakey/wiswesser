@@ -5729,8 +5729,10 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
   WLNSymbol *prev = 0; 
   std::map<WLNSymbol*,bool> seen_symbols;
   std::stack<WLNEdge*> bond_stack; 
+  std::stack<WLNSymbol*> chain_stack; 
 
   SortAndStackBonds(node, bond_stack, seen_symbols,buffer, len,ignore); 
+  chain_stack.push(node); 
 
   while(!bond_stack.empty()){
     WLNEdge *top_edge = bond_stack.top();
@@ -5738,11 +5740,18 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     if(!top_edge){
       bond_stack.pop();
       buffer +='&';
+      if(!chain_stack.empty())
+        chain_stack.pop();
+
+      if(!chain_stack.empty()){
+        prev = chain_stack.top();
+      }
       continue;
     }
     else
       sym = top_edge->child;
     
+    fprintf(stderr,"on: %c\n", top_edge->child->ch); 
     if(sym->inRing){
       buffer += '-';
       buffer += ' '; 
@@ -5756,10 +5765,13 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
       bond_stack.pop(); 
       continue; 
     }
+    
 
     if(seen_symbols[top_edge->parent]){
-      if(prev && !IsTerminator(prev))
+      //fprintf(stderr,"%c (%p) --> %c (%p) vs prev (%p): %c\n",top_edge->parent->ch,top_edge->parent,top_edge->child->ch,top_edge->child,prev,prev->ch); 
+      if(prev && !IsTerminator(prev) && prev != top_edge->parent){
         buffer+='&';
+      }
     }
 
     for(unsigned int i=1;i<top_edge->order;i++)
@@ -5771,8 +5783,10 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     bond_stack.pop();
     SortAndStackBonds(sym, bond_stack, seen_symbols,buffer,len,ignore); 
     prev = sym; // for terminator tracking
+    chain_stack.push(sym); 
   }
-  
+ 
+  fprintf(stderr,"%s\n",buffer.c_str()); 
   return buffer;
 }
 
