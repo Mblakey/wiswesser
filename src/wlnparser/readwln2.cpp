@@ -5717,6 +5717,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer){
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len, unsigned int cycle_num, WLNSymbol *ignore){
   std::string buffer = ""; 
   std::map<WLNSymbol*,SortedEdges*> sorted_edges;
+  std::set<SortedEdges*> se_memory_hold; 
   std::map<WLNSymbol*,bool> seen_symbols; 
   std::stack<WLNSymbol*> branching_symbols;
 
@@ -5725,13 +5726,14 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
 
   seen_symbols[node] = true;
   sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
-  
+
   WriteCharacter(node,buffer); 
   if(IsBranching(node))
     branching_symbols.push(node);
   
   for(;;){
     se = sorted_edges[node];
+    se_memory_hold.insert(se); 
     if(se->e_max > 0){
       edge = se->edges[se->e_n++];
       
@@ -5746,7 +5748,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
           continue;
         }
         else 
-          return buffer;
+          break;
       }
 
       for(unsigned int i=1;i<edge->order;i++)
@@ -5773,7 +5775,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         if(!branching_symbols.empty())
           node = branching_symbols.top();
         else
-         return buffer;
+         break;
       }
       else{
         node = edge->child;
@@ -5803,13 +5805,14 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         node = branching_symbols.top();
       }
       else
-        return buffer; // this can return a ring system, use break as break_point
+        break; // this can return a ring system, use break as break_point
     }
     else
-      return buffer;
-
+      break;
   }
   
+  for(std::set<SortedEdges*>::iterator miter=se_memory_hold.begin();miter!=se_memory_hold.end();miter++)
+    free( (*miter) ); 
   
   return buffer; 
 }
@@ -5821,6 +5824,9 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   // expect the node to be within a ring, fetch ring and write the cycle
   WLNRing *ring = node->inRing; 
   buffer += ring->str_notation; 
+  
+
+  // From the arranged locants, arrange the bonds
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
     WLNSymbol *locant = ring->locants[ch]; 
@@ -5854,8 +5860,9 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
           graph.last_cycle_seen--;
         }  
       }
-
     }
+
+    free(ring_se); 
   }
  
   return buffer;
