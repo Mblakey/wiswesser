@@ -5654,7 +5654,9 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
   SortByBranch(scores, l); 
   SortByRing(scores, l); 
 
-  // sort by ring will cluster the spiro rings together
+  // sort by ring will cluster the spiro rings together, remove 1
+#define DELETE_SPIRO 1
+#if DELETE_SPIRO
   if(locant->spiro){
     for(unsigned int i=0;i<l-1;i++){
       if(scores[i]->ring_ranking == scores[i+1]->ring_ranking){
@@ -5664,6 +5666,8 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
       }
     }
   }
+#endif
+
 
   unsigned char a = 0; 
   for(int i=l-1;i>=0;i--){ // sort the chains (radix style) to get high priorities first
@@ -5858,12 +5862,11 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   {
 
     WLNSymbol *locant = ring->locants[ch]; 
+    if(locant->spiro && locant == ignore)
+      continue;
+
     SortedEdges *ring_se = ArrangeRingBonds(locant,ring,seen_locants ,ignore);
     
-    if(locant->spiro)
-      exit(1); 
-
-
     for(unsigned int i=0;i<ring_se->e_max;i++){
       WLNEdge *e = ring_se->edges[i];
 
@@ -5876,6 +5879,19 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         }
 
         buffer += CanonicalWLNChain(e->child, graph,buffer.size(),cycle_num,locant);
+      }
+      else if(locant->spiro && e->child->inRing->locants_ch[locant]){
+        buffer += ' ';
+        buffer += ch;
+        buffer += "-&"; 
+        buffer += ' '; 
+        buffer += e->child->inRing->locants_ch[locant];
+
+        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),cycle_num+1,locant); // ignore where we've come from
+        while(graph.last_cycle_seen > cycle_num){
+          buffer+='&'; // this may need to have the order decided
+          graph.last_cycle_seen--;
+        }  
       }
       else if (e->child->inRing != node->inRing){
         buffer += ' '; 
