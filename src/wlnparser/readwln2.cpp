@@ -660,6 +660,9 @@ bool IsBranching(WLNSymbol *symbol){
     case 'I':
       if(symbol->allowed_edges > 1)
         return true;
+    case 'O':
+      if(symbol->allowed_edges > 2)
+        return true;
   }
 
   return false;
@@ -5716,6 +5719,32 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
     case 'H':
     case 'I':
       if(sym->allowed_edges>1){
+        buffer += '-';
+        buffer += sym->ch;
+        sym->str_position = buffer.size(); 
+        buffer += '-';
+      }
+      else{
+        buffer += sym->ch;
+        sym->str_position = buffer.size(); 
+      }
+      break;
+
+    case 'O':
+      if(sym->allowed_edges>2){
+        buffer += '-';
+        buffer += sym->ch;
+        sym->str_position = buffer.size(); 
+        buffer += '-';
+      }
+      else{
+        buffer += sym->ch;
+        sym->str_position = buffer.size(); 
+      }
+      break;
+
+    case 'B':
+      if(sym->allowed_edges>2){
         buffer += '-';
         buffer += sym->ch;
         sym->str_position = buffer.size(); 
