@@ -5006,6 +5006,8 @@ void WLNDumpToDot(FILE *fp, WLNGraph &graph)
     fprintf(fp, "  %d", node->id);
     if (node->ch == '*' || node->ch == '#')
       fprintf(fp, "[shape=circle,label=\"*:%s\"];\n", node->special.c_str());
+    else if (node->spiro)
+      fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
     else if (node->inRing)
       fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
     else{
@@ -5638,14 +5640,14 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
   
   for (unsigned int ei=0;ei<locant->barr_n;ei++){
     WLNEdge *fe = &locant->bond_array[ei];
-    if(fe->child->inRing != ring && fe->child != ignore){
+    if(fe->child->inRing != ring && fe->child != ignore && !seen[fe->child]){
       scores[l++] = RunChain(fe, seen);
     }
   }
 
   for (unsigned int ei=0;ei<locant->parr_n;ei++){
     WLNEdge *be = &locant->prev_array[ei];
-    if(be->child->inRing != ring && be->child != ignore){
+    if(be->child->inRing != ring && be->child != ignore && !seen[be->child]){
       scores[l++] = RunChain(be, seen);
     }
   }
@@ -5655,8 +5657,6 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
   SortByRing(scores, l); 
 
   // sort by ring will cluster the spiro rings together, remove 1
-#define DELETE_SPIRO 1
-#if DELETE_SPIRO
   if(locant->spiro){
     for(unsigned int i=0;i<l-1;i++){
       if(scores[i]->ring_ranking == scores[i+1]->ring_ranking){
@@ -5666,8 +5666,6 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
       }
     }
   }
-#endif
-
 
   unsigned char a = 0; 
   for(int i=l-1;i>=0;i--){ // sort the chains (radix style) to get high priorities first
@@ -5757,7 +5755,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     se_memory_hold.insert(se); 
     if(se->e_max > 0 && se->e_n < se->e_max){
       edge = se->edges[se->e_n++];
-      fprintf(stderr,"%p\n",edge); 
 
       if(!edge){
         if(!branching_symbols.empty()){
@@ -5860,10 +5857,11 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
     // From the arranged locants, arrange the bonds
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
-
+    
     WLNSymbol *locant = ring->locants[ch]; 
-    if(locant->spiro && locant == ignore)
+    if(locant->spiro && locant == ignore){
       continue;
+    }
 
     SortedEdges *ring_se = ArrangeRingBonds(locant,ring,seen_locants ,ignore);
     
