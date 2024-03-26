@@ -457,14 +457,16 @@ struct WLNGraph
   WLNSymbol *SYMBOLS[STRUCT_COUNT];
   WLNRing   *RINGS  [STRUCT_COUNT];
   
+  unsigned int string_offset;
   unsigned int last_cycle_seen;  
   
   WLNGraph(){
-    symbol_count = 0;
-    ring_count   = 0;
-    last_cycle_seen=0;  
+    symbol_count    = 0;
+    ring_count      = 0;
+    last_cycle_seen = 0;  
+    string_offset   = 0;  
+    root            = 0;
 
-    root = 0;
     for (unsigned int i = 0; i < STRUCT_COUNT;i++){
       SYMBOLS[i] = 0;
       RINGS[i] = 0;
@@ -5696,16 +5698,16 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
 }
 
 
-void WriteCharacter(WLNSymbol *sym, std::string &buffer){
+void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
   switch (sym->ch) {
     case '#':
-      sym->str_position = buffer.size()+1; // place on first number 
+      sym->str_position = buffer.size()+1 + graph.string_offset; // place on first number 
       buffer += sym->special;
       break;
 
     case '*':
       buffer += '-';
-      sym->str_position = buffer.size()+1; // place on first letter
+      sym->str_position = buffer.size()+1 + graph.string_offset; // place on first letter
       buffer += sym->special;
       buffer += '-';
       break;
@@ -5718,29 +5720,29 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer){
       if(sym->allowed_edges>1){
         buffer += '-';
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
+        sym->str_position = buffer.size() + graph.string_offset; 
         buffer += '-';
       }
       else{
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
+        sym->str_position = buffer.size()+ graph.string_offset; 
       }
       break;
 
     case 'Q':
     case 'Z':
       buffer += sym->ch;
-      sym->str_position = buffer.size(); 
+      sym->str_position = buffer.size()+ graph.string_offset; 
       break;
     
     case 'c':
       buffer += 'C';
-      sym->str_position = buffer.size(); 
+      sym->str_position = buffer.size()+ graph.string_offset; 
       break;
 
     default:
       buffer += sym->ch;
-      sym->str_position = buffer.size(); 
+      sym->str_position = buffer.size()+ graph.string_offset; 
   };
 
 }
@@ -5759,7 +5761,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int cyc
   seen_symbols[node] = true;
   sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
 
-  WriteCharacter(node,buffer); 
+  WriteCharacter(node,buffer,graph); 
   if(IsBranching(node))
     branching_symbols.push(node);
   
@@ -5817,7 +5819,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int cyc
         }
         else{
           node = edge->child;
-          WriteCharacter(node, buffer); 
+          WriteCharacter(node, buffer,graph); 
           seen_symbols[node] = true;
           sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
           
@@ -5860,7 +5862,7 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int cyc
 }
 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int cycle_num, WLNSymbol *ignore){
-  graph.last_cycle_seen = cycle_num;  
+  graph.last_cycle_seen = cycle_num; 
   std::string buffer = ""; 
 
   // expect the node to be within a ring, fetch ring and write the cycle
@@ -5872,7 +5874,8 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int cycl
   }
   
   buffer += ring->str_notation; 
-   
+  graph.string_offset = buffer.size();
+
   // add all the locants to the seen map, prevents back tracking within the ring structure
   std::map<WLNSymbol*,bool> seen_locants; 
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) 
@@ -5946,6 +5949,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int cycl
     }
 
     free(ring_se); 
+    graph.string_offset = buffer.size(); // after each locant set the buffer 
   }
   
   return buffer;
@@ -5986,6 +5990,7 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &who
         while(store.back() == '&') // trail cleaning
           store.pop_back(); 
         store += " &";
+        wln_graph.string_offset = store.size(); 
       }
       
       std::set<WLNSymbol*> symbol_set; 
@@ -6022,16 +6027,18 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &who
 
       // write out the final string, this sets all the charge positions to where they should be
       store += CanonicalWLNChain(best_start_point, wln_graph, 0, 0); 
+      wln_graph.string_offset = store.size(); 
+
       whole_set.insert(symbol_set.begin(),symbol_set.end()); 
       ion_write = true;
     }
   }
   
-
   while(store.back() == '&') // trail cleaning
     store.pop_back(); 
 
   // tidy up any remaining closures that do not need to be added
+  wln_graph.string_offset = store.size(); 
   return store;
 }
 
@@ -6109,6 +6116,7 @@ std::string FullCanonicalise(WLNGraph &graph){
           store.pop_back(); 
 
         store += " &";
+        graph.string_offset = store.size(); 
       }
 
       store += CanonicalWLNRing(node, graph,graph.last_cycle_seen,0);
@@ -6118,6 +6126,7 @@ std::string FullCanonicalise(WLNGraph &graph){
 
 
   store += " &";  
+  graph.string_offset = store.size(); 
   store += ChainOnlyCanonicalise(graph,all_symbols); 
 
   while(store.back() == '&' || store.back() == ' ')
