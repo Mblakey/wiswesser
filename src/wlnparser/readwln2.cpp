@@ -5476,6 +5476,8 @@ void SortByRule2(ChainScore **arr,unsigned int len){
     while(i>=0){
       unsigned int k=0;
       bool _break = false;
+      
+      // if one string is longer, global rule 2 will sort the strings
       while(k<s->chunk.size() && k<arr[i]->chunk.size()){
         if(s->chunk[k] != arr[i]->chunk[k]){
           if(arr[i]->chunk[k] < s->chunk[k]){
@@ -5586,6 +5588,8 @@ as such, it requires a seen map to avoid looping back to areas its previously be
 SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNSymbol *ignore)
 {
   SortedEdges *se = (SortedEdges*)malloc(sizeof(SortedEdges));
+  for(unsigned int i=0;i<MAX_EDGES*2;i++)
+    se->edges[i] = 0; 
 
   unsigned int l = 0;
   ChainScore *scores[64] = {0};
@@ -5607,7 +5611,6 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
   SortByTerminal(scores, l); // sort by terminals, prefer them
   SortByRing(scores, l); 
   
-  
   unsigned char a = 0; 
   for(int i=l-1;i>=0;i--){ // sort the chains (radix style) to get high priorities first
 #if OPT_DEBUG
@@ -5618,10 +5621,10 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
   }
    
   if(IsBranching(sym) && sym->num_edges < sym->allowed_edges)
-    scores[l++] = 0; // adds a forcable pop 
+    scores[a++] = 0; // adds a forcable pop 
 
   se->e_n = 0; 
-  se->e_max = l; 
+  se->e_max = a;
   return se; 
 }
 
@@ -5732,59 +5735,62 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
     branching_symbols.push(node);
   
   for(;;){
+    if(!node)
+      break;
+
     se = sorted_edges[node];
     se_memory_hold.insert(se); 
-    if(se->e_max > 0){
+    if(se->e_max > 0 && se->e_n < se->e_max){
       edge = se->edges[se->e_n++];
-      
+      fprintf(stderr,"%p\n",edge); 
+
       if(!edge){
         if(!branching_symbols.empty()){
           buffer += '&';
           branching_symbols.pop(); 
         }
 
-        if(!branching_symbols.empty()){
-          node = branching_symbols.top();
-          continue;
-        }
-        else 
-          break;
-      }
-
-      for(unsigned int i=1;i<edge->order;i++)
-        buffer += 'U';
-
-      if(edge->child->inRing){
-        buffer += '-';
-        buffer += ' '; 
-        buffer += edge->child->inRing->locants_ch[edge->child];
-        buffer += CanonicalWLNRing(edge->child, graph, buffer.size(),cycle_num+1, edge->parent);
-        
-        while(graph.last_cycle_seen > cycle_num){
-          buffer+='&';
-          graph.last_cycle_seen--;
-        }
-        
-        while(  !branching_symbols.empty() && 
-                sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
-        {
-          //buffer += '&';
-          branching_symbols.pop(); 
-        }
-
         if(!branching_symbols.empty())
           node = branching_symbols.top();
-        else
-         break;
+        else 
+          node = 0; 
       }
-      else{
-        node = edge->child;
-        WriteCharacter(node, buffer); 
-        seen_symbols[node] = true;
-        sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
-        
-        if(IsBranching(node)){
-          branching_symbols.push(node);
+      else{ 
+        for(unsigned int i=1;i<edge->order;i++)
+          buffer += 'U';
+
+        if(edge->child->inRing){
+          buffer += '-';
+          buffer += ' '; 
+          buffer += edge->child->inRing->locants_ch[edge->child];
+          buffer += CanonicalWLNRing(edge->child, graph, buffer.size(),cycle_num+1, edge->parent);
+          
+          while(graph.last_cycle_seen > cycle_num){
+            buffer+='&';
+            graph.last_cycle_seen--;
+          }
+          
+          while(  !branching_symbols.empty() && 
+                  sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
+          {
+            //buffer += '&';
+            branching_symbols.pop(); 
+          }
+
+          if(!branching_symbols.empty())
+            node = branching_symbols.top();
+          else
+            node = 0; 
+        }
+        else{
+          node = edge->child;
+          WriteCharacter(node, buffer); 
+          seen_symbols[node] = true;
+          sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
+          
+          if(IsBranching(node)){
+            branching_symbols.push(node);
+          }
         }
       }
     }
@@ -5805,14 +5811,22 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
         node = branching_symbols.top();
       }
       else
-        break; // this can return a ring system, use break as break_point
+        node = 0; 
     }
     else
-      break;
+      node = 0; 
   }
   
-  for(std::set<SortedEdges*>::iterator miter=se_memory_hold.begin();miter!=se_memory_hold.end();miter++)
-    free( (*miter) ); 
+  for(std::set<SortedEdges*>::iterator miter=se_memory_hold.begin();miter!=se_memory_hold.end();miter++){
+    SortedEdges *free_edge = (*miter);
+#define EXTRA 1
+#if EXTRA
+    for(unsigned int i=0;i<free_edge->e_max;i++)
+      free_edge->edges[i] = 0; 
+#endif
+    free(free_edge);
+    free_edge = 0; 
+  }
   
   return buffer; 
 }
@@ -5824,22 +5838,24 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   // expect the node to be within a ring, fetch ring and write the cycle
   WLNRing *ring = node->inRing; 
   buffer += ring->str_notation; 
-  
-
+ 
   // From the arranged locants, arrange the bonds
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
+
     WLNSymbol *locant = ring->locants[ch]; 
     SortedEdges *ring_se = ArrangeRingBonds(locant,ring, ignore);
 
     for(unsigned int i=0;i<ring_se->e_max;i++){
-      WLNEdge *e = ring_se->edges[i]; 
+      WLNEdge *e = ring_se->edges[i];
+
       if(!e->child->inRing){
         buffer += ' '; 
-        buffer += ch;
+        buffer += ch; 
         
-        for(unsigned int i=1;i<e->order;i++)
+        for(unsigned int i=1;i<e->order;i++){
           buffer += 'U';
+        }
 
         buffer += CanonicalWLNChain(e->child, graph,buffer.size(),cycle_num,locant);
       }
@@ -5856,7 +5872,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
         buffer += CanonicalWLNRing(e->child, graph,buffer.size(),cycle_num+1,locant); // ignore where we've come from
         while(graph.last_cycle_seen > cycle_num){
-          buffer+='&';
+          buffer+='&'; // this may need to have the order decided
           graph.last_cycle_seen--;
         }  
       }
@@ -5864,7 +5880,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
     free(ring_se); 
   }
- 
+  
   return buffer;
 }
 
