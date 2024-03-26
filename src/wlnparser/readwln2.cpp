@@ -5734,6 +5734,8 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer){
     default:
       buffer += sym->ch;
   };
+
+  sym->str_position = buffer.size();
 }
 
 
@@ -5942,28 +5944,26 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   return buffer;
 }
 
-std::string WritePostCharges(WLNGraph &wln_graph){
-  std::string store; 
+void WritePostCharges(WLNGraph &wln_graph, std::string &buffer){
   // handle post charges, no need to check ring here, solid function
   for(unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
     if(pos->charge > 0 && pos->ch != 'K'){  
       for(unsigned int i=0;i<pos->charge;i++){
-        store += " &";
-        store += std::to_string(pos->str_position);
-        store += "/0"; 
+        buffer += " &";
+        buffer += std::to_string(pos->str_position);
+        buffer += "/0"; 
       }
     }
     else if (pos->charge < 0){
       for(unsigned int i=0;i<abs(pos->charge);i++){
-        store += " &0/";
-        store += std::to_string(pos->str_position);
-        store += "/0"; 
+        buffer += " &0/";
+        buffer += std::to_string(pos->str_position);
+        buffer += "/0"; 
       }
 
     }
   }
-  return store; 
 }
 
 std::string ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set){
@@ -6210,15 +6210,14 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   if(!wln_graph.ring_count){
     std::set<WLNSymbol*> seen_set;
     res = ChainOnlyCanonicalise(wln_graph,seen_set); // bit more effecient 
-    res += WritePostCharges(wln_graph);  
+    WritePostCharges(wln_graph,res);  
   }
   else{
     res = FullCanonicalise(wln_graph); 
-    res += WritePostCharges(wln_graph);  
+    WritePostCharges(wln_graph,res);  
   }
   std::cout << res << std::endl; 
 #endif 
-
   
   WriteGraph(wln_graph,"wln-graph.dot");
   return true;
