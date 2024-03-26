@@ -24,7 +24,6 @@
 const char *smiles_1; 
 const char *smiles_2; 
 
-
 static void DisplayUsage()
 {
   fprintf(stderr, "obcomp <smiles> <smiles>\n");
@@ -33,39 +32,16 @@ static void DisplayUsage()
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
-
-  const char *ptr = 0;
-  int i, j;
-
   smiles_1 = (const char *)0;
+  smiles_2 = (const char *)0;
 
   if (argc < 3){
     fprintf(stderr,"Error: not enough args\n");
     DisplayUsage();
   }
-    
 
-  j = 0;
-  for (i = 1; i < argc; i++)
-  {
-    ptr = argv[i];
-    if (ptr[0] == '-' && ptr[1]){
-      fprintf(stderr,"Error: no options for obabel canonical\n");
-      DisplayUsage();
-    }
-    else{
-      switch(j){
-        case 0:
-          smiles_1 = ptr;
-          break;
-        case 1:
-          smiles_2 = ptr;
-          break;
-      }
-      j++;
-    }
-  }
-
+  smiles_1 = argv[1]; 
+  smiles_2 = argv[2]; 
   return;
 }
 
@@ -73,8 +49,6 @@ using namespace OpenBabel;
 
 int main(int argc, char *argv[]){
   ProcessCommandLine(argc,argv);
-  
-  const double epsilon = std::numeric_limits<double>::epsilon(); 
 
   OpenBabel::OBMol mol_1;
   OpenBabel::OBMol mol_2;
@@ -93,7 +67,7 @@ int main(int argc, char *argv[]){
 
   std::string smi_1 = conv.WriteString(&mol_1);
   std::string smi_2 = conv.WriteString(&mol_2);
-
+  
   int res = smi_1.compare(smi_2);
   if(res==0){
     fprintf(stdout,"%d",1);

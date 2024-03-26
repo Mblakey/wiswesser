@@ -63,38 +63,39 @@ main(){
     elif [ $MODE -eq 2 ]; then 
       # guarentee the round trip, slow but accurate
       OUT=$($WRITE -ican "${ENTRY}" 2> /dev/null)
-      RT=$($READ -osmi "${OUT}" 2> /dev/null)      
+      RT=$($READ -ocan "${OUT}" 2> /dev/null)      
       if [ -z "$RT" ]; then
-        OUT=""
+        echo -ne "FAIL RNDT:\t${ENTRY}\t${OUT}\n"
+        continue
       fi
 
       SAME=$($COMP "$ENTRY" "$RT")
       if [[ "$SAME" != "1" ]]; then
-        OUT=""
+        echo -ne "FAIL SCMP:\t${ENTRY}\t${OUT}\n"
+        continue
       fi;
     
     elif [ $MODE -eq 3 ]; then 
       OUT=$($READ -owln "${ENTRY}" 2> /dev/null)
       if [ -z "$OUT" ]; then
-        OUT=""
+        echo -ne "FAIL READ:\t${ENTRY}\t${OUT}\n"
+        continue
       fi
       
-      SMI_1=$($READ -osmi "${OUT}" 2> /dev/null)      
-      SMI_2=$($READ -osmi "${ENTRY}" 2> /dev/null)      
+      SMI_1=$($READ -ocan "${OUT}" 2> /dev/null)      
+      SMI_2=$($READ -ocan "${ENTRY}" 2> /dev/null)      
 
       SAME=$($COMP "$SMI_1" "$SMI_2")
       if [[ "$SAME" != "1" ]]; then
-        OUT=""
+        echo -ne "FAIL SCMP:\t${ENTRY}\t${OUT}\n"
+        continue
       fi;
     fi;
 
-    if [ -n "$OUT" ]; then  
-      if [ $FO -eq 0 ]; then
+    if [ $FO -eq 0 ]; then
        echo -ne "${OUT}\n"
-      fi
-    else
-      echo -ne "FAIL: ${ENTRY}\n"
     fi
+
   done <$FILE
   exit 0
 }
