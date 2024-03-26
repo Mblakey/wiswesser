@@ -5870,10 +5870,9 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 }
 
 
-std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
+std::string ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set){
 
   std::string store;
-  std::set<WLNSymbol*> whole_set; 
   bool ion_write = false;
   for (unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
@@ -5917,10 +5916,8 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph){
       ion_write = true;
       store += last_chain; 
     }
-    
   }
   
-
   // handle post charges, no need to check ring here, solid function
   for(unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
@@ -5967,7 +5964,7 @@ std::string FullCanonicalise(WLNGraph &graph){
     graph.RINGS[i]->ranking = r; 
   }
 
-  SortCycles(sorted_rings, r); 
+  SortCycles(sorted_rings, r);  // this needs working out properly based on locants, etc
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
@@ -5979,13 +5976,18 @@ std::string FullCanonicalise(WLNGraph &graph){
         ); 
   }
 #endif
-  std::map<WLNRing*, bool> seen_rings;  
+
+  std::map<WLNRing*, bool> seen_rings;
+  std::set<WLNSymbol*> all_symbols; 
   for (unsigned int i=0;i<r;i++){
     WLNRing *ring = sorted_rings[i];
     WLNSymbol *node = ring->locants['A']; 
     if(!seen_rings[ring]){
+
       std::set<WLNSymbol*> reachable; 
       Reachable(node, reachable); 
+      all_symbols.insert(reachable.begin(),reachable.end()); 
+
       for(std::set<WLNSymbol*>::iterator siter = reachable.begin();siter!=reachable.end();siter++){
         if( (*siter)->inRing )
           seen_rings[ (*siter)->inRing ] = true;
@@ -6003,10 +6005,9 @@ std::string FullCanonicalise(WLNGraph &graph){
     }
   }
 
-#if ON
+
   store += " &";  
-  store += ChainOnlyCanonicalise(graph); 
-#endif
+  store += ChainOnlyCanonicalise(graph,all_symbols); 
 
   while(store.back() == '&' || store.back() == ' ')
     store.pop_back();
@@ -6103,8 +6104,10 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 #define ON 1 
 #if ON
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
-  if(!wln_graph.ring_count)
-    std::cout << ChainOnlyCanonicalise(wln_graph); // bit more effecient 
+  if(!wln_graph.ring_count){
+    std::set<WLNSymbol*> seen_set;
+    std::cout << ChainOnlyCanonicalise(wln_graph,seen_set); // bit more effecient 
+  }
   else
     std::cout << FullCanonicalise(wln_graph); 
   
