@@ -5504,6 +5504,7 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
   score->chunk = ""; 
   score->terminates = 0;
   score->has_ring = 0; // these should be placed last when possible 
+  score->has_branch = 0; // also takes a lower priority?
   
   WLNSymbol *node = edge->child; 
   // no stack needed as looking ahead in a linear fashion
@@ -5661,7 +5662,6 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
    
   if(IsBranching(sym) && sym->num_edges < sym->allowed_edges)
     scores[l++] = 0; // adds a forcable pop 
-  
 
   se->e_n = 0; 
   se->e_max = l; 
