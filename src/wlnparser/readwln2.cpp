@@ -5514,7 +5514,7 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
   for(;;){
     seen[node] = true;
     if(node->inRing){
-      score->ring_ranking = true;
+      score->ring_ranking = node->inRing->ranking;
       return score; // immediate
     }
 
@@ -5628,16 +5628,14 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
   return se; 
 }
 
-SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, WLNSymbol *ignore)
+SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymbol*,bool> seen,WLNSymbol *ignore)
 {
 
-  std::map<WLNSymbol*,bool> seen;
-  seen[locant] = true; 
   SortedEdges *se = (SortedEdges*)malloc(sizeof(SortedEdges));
 
   unsigned int l = 0;
   ChainScore *scores[64] = {0};
- 
+  
   for (unsigned int ei=0;ei<locant->barr_n;ei++){
     WLNEdge *fe = &locant->bond_array[ei];
     if(fe->child->inRing != ring && fe->child != ignore){
@@ -5655,14 +5653,27 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, WLNSymbol *ignor
   SortByRule2(scores, l); 
   SortByBranch(scores, l); 
   SortByRing(scores, l); 
-  
+
+  // sort by ring will cluster the spiro rings together
+  if(locant->spiro){
+    for(unsigned int i=0;i<l-1;i++){
+      if(scores[i]->ring_ranking == scores[i+1]->ring_ranking){
+        delete scores[i];
+        scores[i] = 0;
+        break;
+      }
+    }
+  }
+
   unsigned char a = 0; 
   for(int i=l-1;i>=0;i--){ // sort the chains (radix style) to get high priorities first
+    if(scores[i]){
 #if OPT_DEBUG
-    debug_score(scores[i]); 
+      debug_score(scores[i]); 
 #endif
-    se->edges[a++] = scores[i]->e; 
-    delete scores[i];
+      se->edges[a++] = scores[i]->e; 
+      delete scores[i];
+    }
   }
 
 #if OPT_DEBUG
@@ -5671,7 +5682,7 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, WLNSymbol *ignor
 #endif
 
   se->e_n = 0; 
-  se->e_max = l; 
+  se->e_max = a; 
   return se; 
 }
 
@@ -5819,11 +5830,6 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
   
   for(std::set<SortedEdges*>::iterator miter=se_memory_hold.begin();miter!=se_memory_hold.end();miter++){
     SortedEdges *free_edge = (*miter);
-#define EXTRA 1
-#if EXTRA
-    for(unsigned int i=0;i<free_edge->e_max;i++)
-      free_edge->edges[i] = 0; 
-#endif
     free(free_edge);
     free_edge = 0; 
   }
@@ -5839,12 +5845,24 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   WLNRing *ring = node->inRing; 
   buffer += ring->str_notation; 
  
-  // From the arranged locants, arrange the bonds
+  // add all the locants to the seen map, prevents back tracking within the ring structure
+  std::map<WLNSymbol*,bool> seen_locants; 
+  for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) 
+    seen_locants[ring->locants[ch]] = true; 
+  
+  // spiro can then be sorted with a ignore clause on the locant atom, as the first ring instance can handle
+  // the R groups. 
+
+    // From the arranged locants, arrange the bonds
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
 
     WLNSymbol *locant = ring->locants[ch]; 
-    SortedEdges *ring_se = ArrangeRingBonds(locant,ring, ignore);
+    SortedEdges *ring_se = ArrangeRingBonds(locant,ring,seen_locants ,ignore);
+    
+    if(locant->spiro)
+      exit(1); 
+
 
     for(unsigned int i=0;i<ring_se->e_max;i++){
       WLNEdge *e = ring_se->edges[i];
