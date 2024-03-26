@@ -6,6 +6,7 @@ WRITE="${SCRIPT_DIR}/../build/writewln"
 COMP="${SCRIPT_DIR}/../build/obcomp"
 FILE=""
 MODE=0
+FO=0
 
 process_arguments() {
   # Loop through all the arguments
@@ -15,8 +16,10 @@ process_arguments() {
         # Display a help message
         echo "Usage: file.sh <options> <file>"
         echo "options"
-        echo "  -r, --read     read wln to smiles"
-        echo "  -w, --write    write smiles to wln"
+        echo "  -r, --read       read wln to smiles"
+        echo "  -w, --write      write smiles to wln"
+        echo "  -c, --canonical  read wln and canonicalise"
+        echo "  -fo,--fail-only  only show fails to stdout"
         exit 0;
         ;;
       -r|--read)
@@ -24,6 +27,12 @@ process_arguments() {
         ;;
       -w|--write)
         MODE=2
+        ;;
+      -c|--canonical)
+        MODE=3
+        ;;
+      -fo|--fail-only)
+        FO=1
         ;;
       *)
         FILE=$arg
@@ -63,10 +72,26 @@ main(){
       if [[ "$SAME" != "1" ]]; then
         OUT=""
       fi;
-    fi; 
+    
+    elif [ $MODE -eq 3 ]; then 
+      OUT=$($READ -owln "${ENTRY}" 2> /dev/null)
+      if [ -z "$OUT" ]; then
+        OUT=""
+      fi
+      
+      SMI_1=$($READ -osmi "${OUT}" 2> /dev/null)      
+      SMI_2=$($READ -osmi "${ENTRY}" 2> /dev/null)      
 
-    if [ -n "$OUT" ]; then
-      echo -ne "${OUT}\n"
+      SAME=$($COMP "$SMI_1" "$SMI_2")
+      if [[ "$SAME" != "1" ]]; then
+        OUT=""
+      fi;
+    fi;
+
+    if [ -n "$OUT" ]; then  
+      if [ $FO -eq 0 ]; then
+       echo -ne "${OUT}\n"
+      fi
     else
       echo -ne "FAIL: ${ENTRY}\n"
     fi
