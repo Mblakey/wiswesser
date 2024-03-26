@@ -3292,7 +3292,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       WLNSymbol *curr = AllocateWLNSymbol('#', graph);
       curr->str_position = i;
       curr->special = std::to_string(carbon_len); 
-      curr->allowed_edges = 4; 
+      curr->allowed_edges = 6; // can hold a triple bond on either side
 
       if(prev){
         if(prev == branch_stack.branch){
@@ -4926,7 +4926,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     WLNSymbol *curr = AllocateWLNSymbol('#', graph);
     curr->str_position = i;
     curr->special = std::to_string(carbon_len); 
-    curr->allowed_edges = 4; 
+    curr->allowed_edges = 6; // can hold a triple bond on either side
     
     if(prev){
       if(prev == branch_stack.branch){
