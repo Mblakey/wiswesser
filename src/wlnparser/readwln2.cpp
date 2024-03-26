@@ -5388,7 +5388,7 @@ struct ChainScore{
   WLNEdge *e;
   std::string chunk; 
   bool terminates;
-  bool has_ring; 
+  unsigned int ring_ranking; 
   bool has_branch; 
 };
 
@@ -5400,7 +5400,7 @@ struct SortedEdges{
 
 
 void debug_score(ChainScore *score){
-  fprintf(stderr,"%s: term:%d, branch: %d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_branch,score->has_ring); 
+  fprintf(stderr,"%s: term:%d, branch: %d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_branch,score->ring_ranking); 
 }
 
 void debug_sorted_edges(SortedEdges *se){
@@ -5455,12 +5455,12 @@ void SortByRing(ChainScore **arr,unsigned int len){
     unsigned int key = 0; 
     
     ChainScore *s = arr[j];
-    key = s->has_ring;
+    key = s->ring_ranking;
     
 		int i = j-1;
     while(i>=0){
       unsigned int val = 0;      
-      val = arr[i]->has_ring;
+      val = arr[i]->ring_ranking;
       if(val >= key) // this does opposite ordering 
         break;
 
@@ -5506,7 +5506,7 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
   score->e = edge;
   score->chunk = ""; 
   score->terminates = 0;
-  score->has_ring = 0; // these should be placed last when possible 
+  score->ring_ranking = 0; // these should be placed last when possible 
   score->has_branch = 0; // also takes a lower priority?
   
   WLNSymbol *node = edge->child; 
@@ -5514,7 +5514,7 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
   for(;;){
     seen[node] = true;
     if(node->inRing){
-      score->has_ring = true;
+      score->ring_ranking = true;
       return score; // immediate
     }
 
@@ -5578,33 +5578,6 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
 }
 
 
-/* return the ring ranking that can be used in search, otherwise 0 for no ring */
-unsigned int RunLocant(WLNSymbol *node){
-  std::stack<WLNSymbol*> stack;
-  std::map<WLNSymbol*,bool> seen;
-  stack.push(node); 
-  while(!stack.empty()){
-    WLNSymbol *top = stack.top(); 
-    stack.pop(); 
-    seen[top] = true;
-    
-    if(top->inRing)
-      return top->inRing->ranking; 
-
-    for(unsigned int ei=0;ei<top->barr_n;ei++){
-      if(!seen[top->bond_array[ei].child])
-        stack.push(top->bond_array[ei].child); 
-    }
-
-    for(unsigned int ei=0;ei<top->parr_n;ei++){
-      if(!seen[top->prev_array[ei].child])
-        stack.push(top->prev_array[ei].child); 
-    }
-  }
-
-  return 0; 
-}
-
 // forward declaration 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len,unsigned int cycle_num, WLNSymbol *ignore); 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,unsigned int cycle_num, WLNSymbol *ignore);
@@ -5618,7 +5591,6 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
 
   unsigned int l = 0;
   ChainScore *scores[64] = {0};
-  
   
   for(unsigned int ei=0;ei<sym->barr_n;ei++){
     WLNEdge *e =  &sym->bond_array[ei]; 
@@ -5654,6 +5626,44 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
   se->e_max = l; 
   return se; 
 }
+
+SortedEdges* ArrangeRingBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNSymbol *ignore)
+{
+  SortedEdges *se = (SortedEdges*)malloc(sizeof(SortedEdges));
+
+  unsigned int l = 0;
+  ChainScore *scores[64] = {0};
+  
+  for(unsigned int ei=0;ei<sym->barr_n;ei++){
+    WLNEdge *e =  &sym->bond_array[ei]; 
+    if(!seen[e->child] && e->child != ignore)
+      scores[l++] = RunChain(e,seen); // score each chain run
+  }
+
+  for(unsigned int ei=0;ei<sym->parr_n;ei++){
+    WLNEdge *e =  &sym->prev_array[ei];
+    if(!seen[e->child] && e->child != ignore)
+      scores[l++] = RunChain(e,seen); // score each chain run
+  }
+
+  SortByRule2(scores, l); 
+  SortByBranch(scores, l); 
+  SortByRing(scores, l); 
+  
+  unsigned char a = 0; 
+  for(int i=l-1;i>=0;i--){ // sort the chains (radix style) to get high priorities first
+#if OPT_DEBUG
+    debug_score(scores[i]); 
+#endif
+    se->edges[a++] = scores[i]->e; 
+    delete scores[i];
+  }
+   
+  se->e_n = 0; 
+  se->e_max = l; 
+  return se; 
+}
+
 
 void WriteCharacter(WLNSymbol *sym, std::string &buffer){
   switch (sym->ch) {
@@ -5823,6 +5833,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
       }
     }
     
+
 
 
     for(unsigned int i=0;i<pe;i++){
