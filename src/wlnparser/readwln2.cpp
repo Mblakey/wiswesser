@@ -5400,13 +5400,10 @@ struct SortedEdges{
 
 
 void debug_score(ChainScore *score){
-  fprintf(stderr,"%s: term:%d, branch: %d, ring:%d\n",score->chunk.c_str(),score->terminates,score->has_branch,score->ring_ranking); 
+  fprintf(stderr,"%c --> %c: %s",score->e->parent->ch, score->e->child->ch,score->chunk.c_str()); 
+  fprintf(stderr,"\tterm:%d, branch: %d, ring:%d\n",score->terminates,score->has_branch,score->ring_ranking); 
 }
 
-void debug_sorted_edges(SortedEdges *se){
-  for(unsigned int i=0;i<se->e_max;i++)
-    fprintf(stderr,"%d: %c --> %c\n",i,se->edges[i]->parent->ch, se->edges[i]->child->ch); 
-}
 
 void SortByTerminal(ChainScore **arr,unsigned int len){
   for (unsigned int j=1;j<len;j++){
@@ -5502,6 +5499,7 @@ void SortByRule2(ChainScore **arr,unsigned int len){
 /* run the chain until either a ring atom/branch point/EOC is seen,
  * prototype does have a map copy which is irrating */
 ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
+  
   ChainScore *score = new ChainScore; // must use new for string 
   score->e = edge;
   score->chunk = ""; 
@@ -5627,23 +5625,28 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
   return se; 
 }
 
-SortedEdges* ArrangeRingBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNSymbol *ignore)
+SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, WLNSymbol *ignore)
 {
+
+  std::map<WLNSymbol*,bool> seen;
+  seen[locant] = true; 
   SortedEdges *se = (SortedEdges*)malloc(sizeof(SortedEdges));
 
   unsigned int l = 0;
   ChainScore *scores[64] = {0};
-  
-  for(unsigned int ei=0;ei<sym->barr_n;ei++){
-    WLNEdge *e =  &sym->bond_array[ei]; 
-    if(!seen[e->child] && e->child != ignore)
-      scores[l++] = RunChain(e,seen); // score each chain run
+ 
+  for (unsigned int ei=0;ei<locant->barr_n;ei++){
+    WLNEdge *fe = &locant->bond_array[ei];
+    if(fe->child->inRing != ring && fe->child != ignore){
+      scores[l++] = RunChain(fe, seen);
+    }
   }
 
-  for(unsigned int ei=0;ei<sym->parr_n;ei++){
-    WLNEdge *e =  &sym->prev_array[ei];
-    if(!seen[e->child] && e->child != ignore)
-      scores[l++] = RunChain(e,seen); // score each chain run
+  for (unsigned int ei=0;ei<locant->parr_n;ei++){
+    WLNEdge *be = &locant->prev_array[ei];
+    if(be->child->inRing != ring && be->child != ignore){
+      scores[l++] = RunChain(be, seen);
+    }
   }
 
   SortByRule2(scores, l); 
@@ -5658,7 +5661,12 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, 
     se->edges[a++] = scores[i]->e; 
     delete scores[i];
   }
-   
+
+#if OPT_DEBUG
+  if(l)
+    fprintf(stderr,"\n");
+#endif
+
   se->e_n = 0; 
   se->e_max = l; 
   return se; 
@@ -5816,28 +5824,10 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
     WLNSymbol *locant = ring->locants[ch]; 
-    
-    unsigned int pe = 0;
-    WLNEdge *possible_edges[255] = {0}; 
-    for (unsigned int ei=0;ei<locant->barr_n;ei++){
-      WLNEdge *fe = &locant->bond_array[ei];
-      if(fe->child->inRing != ring && fe->child != ignore){
-        possible_edges[pe++] = fe;
-      }
-    }
+    SortedEdges *ring_se = ArrangeRingBonds(locant,ring, ignore);
 
-    for (unsigned int ei=0;ei<locant->parr_n;ei++){
-      WLNEdge *be = &locant->prev_array[ei];
-      if(be->child->inRing != ring && be->child != ignore){
-        possible_edges[pe++] = be;
-      }
-    }
-    
-
-
-
-    for(unsigned int i=0;i<pe;i++){
-      WLNEdge *e = possible_edges[i]; 
+    for(unsigned int i=0;i<ring_se->e_max;i++){
+      WLNEdge *e = ring_se->edges[i]; 
       if(!e->child->inRing){
         buffer += ' '; 
         buffer += ch;
@@ -5868,7 +5858,6 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
     }
   }
  
-
   return buffer;
 }
 
@@ -5982,7 +5971,8 @@ std::string FullCanonicalise(WLNGraph &graph){
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
-    fprintf(stderr,"ring-size:%d, locants: %d, multi-points: %d, bridges: %d\n",
+    fprintf(stderr,"%d: ring-size:%d, locants: %d, multi-points: %d, bridges: %d\n",
+        sorted_rings[i]->ranking,
         sorted_rings[i]->rsize,
         sorted_rings[i]->loc_count,
         sorted_rings[i]->multi_points,
@@ -6087,6 +6077,10 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   
   if(!WLNKekulize(wln_graph))
     return false; 
+
+#if OPT_DEBUG
+  fprintf(stderr,"\n-----------canonicalise -----------\n"); 
+#endif 
 
   // more minimal resolve step for certain groups, W removal
   unsigned int stop = wln_graph.symbol_count;
