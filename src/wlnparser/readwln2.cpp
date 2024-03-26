@@ -5912,7 +5912,7 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int cycle_num, 
         buffer += ' '; 
         buffer += e->child->inRing->locants_ch[locant];
 
-        buffer += CanonicalWLNRing(e->child, graph,cycle_num+1,locant,buffer); // ignore where we've come from
+        CanonicalWLNRing(e->child, graph,cycle_num+1,locant,buffer); // ignore where we've come from
         while(graph.last_cycle_seen > cycle_num){
           buffer+='&'; // this may need to have the order decided
           graph.last_cycle_seen--;
@@ -5930,7 +5930,7 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int cycle_num, 
         buffer += e->child->inRing->locants_ch[e->child];
         
         if(e != e->child->inRing->macro_return && e->reverse != e->child->inRing->macro_return){
-          buffer += CanonicalWLNRing(e->child, graph,cycle_num+1,locant,buffer); // ignore where we've come from
+          CanonicalWLNRing(e->child, graph,cycle_num+1,locant,buffer); // ignore where we've come from
         
           while(graph.last_cycle_seen > cycle_num){
             buffer+='&'; // this may need to have the order decided
@@ -5971,7 +5971,6 @@ void WritePostCharges(WLNGraph &wln_graph, std::string &buffer){
 }
 
 bool ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set,std::string &store){
-
   bool ion_write = false;
   for (unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
