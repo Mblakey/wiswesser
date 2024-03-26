@@ -5816,22 +5816,42 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   // expect the node to be within a ring, fetch ring and write the cycle
   WLNRing *ring = node->inRing; 
   buffer += ring->str_notation; 
-  for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++)
+  for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
     WLNSymbol *locant = ring->locants[ch]; 
 
-    unsigned int pe = 0; 
+    unsigned int pe = 0;
+    bool spiro_bonds = 0; 
+    WLNRing *spiro_track = 0;
     WLNEdge *possible_edges[255] = {0}; 
     for (unsigned int ei=0;ei<locant->barr_n;ei++){
       WLNEdge *fe = &locant->bond_array[ei];
-      if(fe->child->inRing != ring && fe->child != ignore)
+      if(fe->child->inRing != ring && fe->child != ignore){
         possible_edges[pe++] = fe;
+
+        if(fe->child->inRing && !spiro_track)
+          spiro_track = fe->child->inRing;
+        else if (spiro_track && fe->child->inRing == spiro_track)
+          spiro_bonds = true;
+        
+      }
     }
 
     for (unsigned int ei=0;ei<locant->parr_n;ei++){
       WLNEdge *be = &locant->prev_array[ei];
-      if(be->child->inRing != ring && be->child != ignore)
-        possible_edges[pe++] = be; 
+      if(be->child->inRing != ring && be->child != ignore){
+        possible_edges[pe++] = be;
+
+        if(be->child->inRing && !spiro_track)
+          spiro_track = be->child->inRing;
+        else if (spiro_track && be->child->inRing == spiro_track)
+          spiro_bonds = true;
+      }
+    }
+
+    if(spiro_bonds){
+      fprintf(stderr,"got it\n"); 
+      exit(1); 
     }
 
     for(unsigned int i=0;i<pe;i++){
@@ -5862,6 +5882,7 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
           graph.last_cycle_seen--;
         }  
       }
+
     }
   }
  
