@@ -71,7 +71,7 @@ main(){
 
       SAME=$($COMP "$ENTRY" "$RT")
       if [[ "$SAME" != "1" ]]; then
-        echo -ne "FAIL SCMP:\t${ENTRY}\t${OUT}\n"
+        echo -ne "FAIL SCMP:\t${ENTRY}\t${RT}\n"
         continue
       fi;
     
