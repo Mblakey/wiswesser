@@ -5921,12 +5921,18 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
         buffer += '-';
         buffer += ' ';
         buffer += e->child->inRing->locants_ch[e->child];
-
-        buffer += CanonicalWLNRing(e->child, graph,buffer.size(),cycle_num+1,locant); // ignore where we've come from
-        while(graph.last_cycle_seen > cycle_num){
-          buffer+='&'; // this may need to have the order decided
-          graph.last_cycle_seen--;
-        }  
+        
+        if(e != e->child->inRing->macro_return && e->reverse != e->child->inRing->macro_return){
+          buffer += CanonicalWLNRing(e->child, graph,buffer.size(),cycle_num+1,locant); // ignore where we've come from
+        
+          while(graph.last_cycle_seen > cycle_num){
+            buffer+='&'; // this may need to have the order decided
+            graph.last_cycle_seen--;
+          }
+        }
+        else{
+          buffer += "-x-J"; 
+        }
       }
     }
 
@@ -5936,6 +5942,28 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   return buffer;
 }
 
+std::string WritePostCharges(WLNGraph &wln_graph){
+  std::string store; 
+  // handle post charges, no need to check ring here, solid function
+  for(unsigned int i=0;i<wln_graph.symbol_count;i++){
+    WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
+    if(pos->charge > 0 && pos->ch != 'K'){  
+      for(unsigned int i=0;i<pos->charge;i++){
+        store += " &";
+        store += std::to_string(pos->str_position);
+        store += "/0"; 
+      }
+    }
+    else if (pos->charge < 0){
+      for(unsigned int i=0;i<abs(pos->charge);i++){
+        store += " &0/";
+        store += std::to_string(pos->str_position);
+      }
+
+    }
+  }
+  return store; 
+}
 
 std::string ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set){
 
@@ -5985,30 +6013,6 @@ std::string ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &who
     }
   }
   
-  // handle post charges, no need to check ring here, solid function
-  for(unsigned int i=0;i<wln_graph.symbol_count;i++){
-    WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
-    if(pos->charge > 0 && pos->ch != 'K'){
-      store += " &";
-      store += std::to_string(pos->str_position);
-      store += '/'; 
-      pos->charge--; 
-      bool fneg = false;
-      i = 0; // reset the loops
-      for(unsigned int j=0;j<wln_graph.symbol_count;j++){
-        // hunt for a negative charge
-        WLNSymbol *neg = wln_graph.SYMBOLS[j];
-        if(neg->charge < 0){
-          store += std::to_string(neg->str_position); 
-          neg->charge++;
-          fneg = true;
-          break;
-        }
-      }
-      if(!fneg)
-        store += '0'; 
-    }
-  }
 
   while(store.back() == '&') // trail cleaning
     store.pop_back(); 
@@ -6199,15 +6203,18 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   
 #define ON 1 
 #if ON
+  std::string res; 
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count){
     std::set<WLNSymbol*> seen_set;
-    std::cout << ChainOnlyCanonicalise(wln_graph,seen_set); // bit more effecient 
+    res = ChainOnlyCanonicalise(wln_graph,seen_set); // bit more effecient 
+    res += WritePostCharges(wln_graph);  
   }
-  else
-    std::cout << FullCanonicalise(wln_graph); 
-  
-  std::cout << std::endl; 
+  else{
+    res = FullCanonicalise(wln_graph); 
+    res += WritePostCharges(wln_graph);  
+  }
+  std::cout << res << std::endl; 
 #endif 
 
   
