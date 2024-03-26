@@ -143,7 +143,8 @@ struct WLNSymbol
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
   
-  bool aromatic; 
+  bool aromatic;
+  bool spiro;
   WLNRing *inRing; // allows quick lookback 
   unsigned char allowed_edges; // save the bits here as well
   unsigned char num_edges;
@@ -162,6 +163,7 @@ struct WLNSymbol
     num_edges = 0;
     inRing = 0;
     aromatic = 0;
+    spiro = 0; 
     charge = 0;
     str_position = 0; 
     barr_n = 0; 
@@ -4296,9 +4298,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           if(!prev)
             Fatal(i,"Error: sprio notation opened without a previous atom");
-          else
+          else{
             ring->locants[on_locant] = prev;
-
+            prev->spiro = true; 
+          }
           // check for an aromaticity bond move?
           if(prev && (prev->allowed_edges - prev->num_edges) < 2){
 
@@ -5602,22 +5605,6 @@ unsigned int RunLocant(WLNSymbol *node){
   return 0; 
 }
 
-void SortCycles(WLNRing **arr, unsigned int len){
-  // sort by how many locants, inverse order will likely give the shorter string
-  for (unsigned int j=1;j<len;j++){
-    WLNRing *s = arr[j];
-    unsigned int key = s->loc_count; 
-		int i = j-1;
-    while(i>=0 && arr[i]->loc_count >= key){
-      arr[i+1] = arr[i];
-      i--;
-    }
-		arr[i+1] = s;
-	}
-
-  // more sorting needed here
-}
-
 // forward declaration 
 std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len,unsigned int cycle_num, WLNSymbol *ignore); 
 std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,unsigned int cycle_num, WLNSymbol *ignore);
@@ -5819,21 +5806,13 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) // locant sorting can be done after spiro
   {
     WLNSymbol *locant = ring->locants[ch]; 
-
+    
     unsigned int pe = 0;
-    bool spiro_bonds = 0; 
-    WLNRing *spiro_track = 0;
     WLNEdge *possible_edges[255] = {0}; 
     for (unsigned int ei=0;ei<locant->barr_n;ei++){
       WLNEdge *fe = &locant->bond_array[ei];
       if(fe->child->inRing != ring && fe->child != ignore){
         possible_edges[pe++] = fe;
-
-        if(fe->child->inRing && !spiro_track)
-          spiro_track = fe->child->inRing;
-        else if (spiro_track && fe->child->inRing == spiro_track)
-          spiro_bonds = true;
-        
       }
     }
 
@@ -5841,18 +5820,10 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
       WLNEdge *be = &locant->prev_array[ei];
       if(be->child->inRing != ring && be->child != ignore){
         possible_edges[pe++] = be;
-
-        if(be->child->inRing && !spiro_track)
-          spiro_track = be->child->inRing;
-        else if (spiro_track && be->child->inRing == spiro_track)
-          spiro_bonds = true;
       }
     }
+    
 
-    if(spiro_bonds){
-      fprintf(stderr,"got it\n"); 
-      exit(1); 
-    }
 
     for(unsigned int i=0;i<pe;i++){
       WLNEdge *e = possible_edges[i]; 
@@ -5985,7 +5956,18 @@ std::string FullCanonicalise(WLNGraph &graph){
     graph.RINGS[i]->ranking = r; 
   }
 
-  SortCycles(sorted_rings, r);  // this needs working out properly based on locants, etc
+  // sort by how many locants, inverse order will likely give the shorter string
+  for (unsigned int j=1;j<r;j++){
+    WLNRing *s = sorted_rings[j];
+    unsigned int key = s->loc_count; 
+		int i = j-1;
+    while(i>=0 && sorted_rings[i]->loc_count >= key){
+      sorted_rings[i+1] = sorted_rings[i];
+      i--;
+    }
+		sorted_rings[i+1] = s;
+	}
+
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
