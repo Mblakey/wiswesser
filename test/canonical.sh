@@ -61,6 +61,8 @@ main(){
     SAME_NEW=$($COMP "$SMILES" "$RE_SMILES" 2> /dev/null)
     if [ -z $SAME_NEW ] || [[ "$SAME_NEW" == "0" ]]; then
       echo -ne "$WLN failed canonicalisation - $CAN_WLN\n";
+    elif [ ${#WLN} -gt ${#CAN_WLN} ]; then
+      echo -ne "$CAN_WLN passes but is longer than $WLN\n"
     fi;
 
     echo -ne "\r"
