@@ -191,6 +191,8 @@ struct WLNRing
   std::map<WLNSymbol*,unsigned char>        locants_ch;
 
   bool spiro;
+  WLNEdge *macro_return;
+
   unsigned int ranking; // saves the ranking for inline canonical choice
   unsigned int multi_points;
   unsigned int pseudo_points;
@@ -203,6 +205,7 @@ struct WLNRing
     aromatic_atoms = 0;
     adj_matrix = 0;
     spiro = 0;
+    macro_return = 0; 
     multi_points = 0;
     pseudo_points = 0;
     bridge_points = 0; 
@@ -3373,8 +3376,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!curr)
             return Fatal(i,"Error: cannot access looping ring structure");
           
+          
           if(prev){
-
             if(prev == branch_stack.branch){
               while(!branch_stack.top().second && !branch_stack.empty())
                 branch_stack.pop();
@@ -3383,7 +3386,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             if(!AddEdge(curr, prev))
               return Fatal(i, "Error: failed to bond to previous symbol");
             
-            edge = &prev->bond_array[prev->barr_n-1]; 
+            edge = &prev->bond_array[prev->barr_n-1];
+            wrap_ring->macro_return = edge; 
+            
             if(pending_unsaturate){
               if(!unsaturate_edge(edge,pending_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -4339,8 +4344,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return false;
         }
 
-        if(pending_ring_in_ring && !wrap_ring)
+        if(pending_ring_in_ring && !wrap_ring){
           wrap_ring = ring; // instant back access
+        }
 
         branch_stack.push({ring,0});
         block_start = 0;
@@ -4710,6 +4716,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               return Fatal(i, "Error: failed to bond to previous symbol");
 
             edge = &prev->bond_array[prev->barr_n-1]; 
+            wrap_ring->macro_return = edge; 
             if(pending_unsaturate){
               if(!unsaturate_edge(edge,pending_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -5772,11 +5779,16 @@ std::string CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, unsigned int len
           buffer += 'U';
 
         if(edge->child->inRing){
+          
           buffer += '-';
           buffer += ' '; 
           buffer += edge->child->inRing->locants_ch[edge->child];
-          buffer += CanonicalWLNRing(edge->child, graph, buffer.size(),cycle_num+1, edge->parent);
           
+          if(edge == edge->child->inRing->macro_return || edge->reverse == edge->child->inRing->macro_return)
+            buffer += "-x-J";
+          else 
+            buffer += CanonicalWLNRing(edge->child, graph, buffer.size(),cycle_num+1, edge->parent);
+
           while(graph.last_cycle_seen > cycle_num){
             buffer+='&';
             graph.last_cycle_seen--;
@@ -5844,8 +5856,14 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
 
   // expect the node to be within a ring, fetch ring and write the cycle
   WLNRing *ring = node->inRing; 
+  
+  if(ring->macro_return){
+    buffer += ring->str_notation[0];
+    buffer += '-'; 
+  }
+  
   buffer += ring->str_notation; 
- 
+   
   // add all the locants to the seen map, prevents back tracking within the ring structure
   std::map<WLNSymbol*,bool> seen_locants; 
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) 
@@ -5864,9 +5882,11 @@ std::string CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph, unsigned int len,
     }
 
     SortedEdges *ring_se = ArrangeRingBonds(locant,ring,seen_locants ,ignore);
-    
     for(unsigned int i=0;i<ring_se->e_max;i++){
       WLNEdge *e = ring_se->edges[i];
+      if(e == ring->macro_return || e->reverse == ring->macro_return){
+        continue; 
+      }
 
       if(!e->child->inRing){
         buffer += ' '; 
@@ -6023,6 +6043,18 @@ std::string FullCanonicalise(WLNGraph &graph){
 		sorted_rings[i+1] = s;
 	}
 
+  // if a ring has a macrocycle present, place at the front
+  for (unsigned int j=1;j<r;j++){
+    WLNRing *s = sorted_rings[j];
+    unsigned int key = s->macro_return ? 1:0; 
+		int i = j-1;
+    while(i>=0 && (sorted_rings[i]->macro_return ? 1:0) <= key){
+      sorted_rings[i+1] = sorted_rings[i];
+      i--;
+    }
+		sorted_rings[i+1] = s;
+	}
+
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
@@ -6034,6 +6066,7 @@ std::string FullCanonicalise(WLNGraph &graph){
         sorted_rings[i]->bridge_points
         ); 
   }
+
 #endif
 
   std::map<WLNRing*, bool> seen_rings;
