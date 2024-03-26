@@ -57,11 +57,14 @@ main(){
     SMILES=$($PARSE -ocan "${WLN}" 2> /dev/null)
     CAN_WLN=$($PARSE -owln "${WLN}" 2> /dev/null) 
     RE_SMILES=$($PARSE -ocan "${CAN_WLN}" 2> /dev/null) 
-          
+    
+    WLN_LEN=${#WLN}   
+    CAN_LEN=${#CAN_WLN}
+
     SAME_NEW=$($COMP "$SMILES" "$RE_SMILES" 2> /dev/null)
     if [ -z $SAME_NEW ] || [[ "$SAME_NEW" == "0" ]]; then
       echo -ne "$WLN failed canonicalisation - $CAN_WLN\n";
-    elif [ ${#WLN} -gt ${#CAN_WLN} ]; then
+    elif [ $CAN_LEN -gt $WLN_LEN ]; then
       echo -ne "$CAN_WLN passes but is longer than $WLN\n"
     fi;
 
