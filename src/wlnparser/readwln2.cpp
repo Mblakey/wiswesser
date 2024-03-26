@@ -1589,7 +1589,7 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
       break;
 
     case 'Y':
-      while(count_children(target) < 3){
+      while(count_children(target) < 3 && target->num_edges < target->allowed_edges){
         if(!add_methyl(target,graph))
           return false;
       }
@@ -5958,6 +5958,7 @@ std::string WritePostCharges(WLNGraph &wln_graph){
       for(unsigned int i=0;i<abs(pos->charge);i++){
         store += " &0/";
         store += std::to_string(pos->str_position);
+        store += "/0"; 
       }
 
     }
@@ -6184,7 +6185,8 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
       case 'Y':
       case 'X':
       case 'K':
-        resolve_methyls(sym,wln_graph);
+        if(!resolve_methyls(sym,wln_graph))
+          return false;
         break;
 
       case 'W':
