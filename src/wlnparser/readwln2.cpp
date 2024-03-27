@@ -3217,11 +3217,30 @@ bool WLNKekulize(WLNGraph &graph){
           WLNSymbol *f = wring->locants[int_to_locant(i+1)];
           WLNSymbol *s = wring->locants[int_to_locant(MatchR[i]+1)];
           if(f && s){
-            WLNEdge *edge = search_edge(f,s);
-            if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
-              return false;
-            
-            MatchR[MatchR[i]] = 0; // remove from matching
+            bool pass = true;
+            for(unsigned int k=0;k< s->barr_n;k++){
+              WLNEdge *edge = &s->bond_array[k]; 
+              if(edge->order > 1)
+                pass = false; 
+            }
+
+            for(unsigned int k=0;k< s->parr_n;k++){
+              WLNEdge *edge = &s->prev_array[k]; 
+              if(edge->order > 1)
+                pass = false; 
+            }
+
+            if(pass){
+                // check if already surrounded by a double bond  
+#if OPT_DEBUG
+          fprintf(stderr,"  aromatic locants: %c --> %c\n",int_to_locant(i+1),int_to_locant(MatchR[i]+1)); 
+#endif
+              WLNEdge *edge = search_edge(f,s);
+              if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
+                return false;
+
+              MatchR[MatchR[i]] = 0; // remove from matching
+            }
           }
         }
       }
@@ -5200,6 +5219,7 @@ struct BabelGraph{
           hcount++;
           sym->num_edges++;
         }
+        
         if(sym->charge < 0 && hcount > 0)
           hcount--; 
         break;
@@ -5231,7 +5251,7 @@ struct BabelGraph{
         if(sym->inRing)
           sym->allowed_edges = 3;
 
-        while(sym->num_edges < sym->allowed_edges){
+        while(sym->num_edges < sym->allowed_edges && sym->num_edges < 4){
           hcount++;
           sym->num_edges++;
         }

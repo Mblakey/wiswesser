@@ -893,11 +893,11 @@ struct BabelGraph{
           return 'X';
       
       case 7:
-        if(orders == 0 || orders == 1)
+        if( (orders == 0 || orders == 1) && atom->GetFormalCharge()==0)
             return 'Z'; 
-        else if(orders == 2)
+        else if(orders == 2 && atom->GetFormalCharge()==0)
             return 'M';
-        else if(orders == 3)
+        else if(orders == 3 && atom->GetFormalCharge()==0)
           return 'N';
         else if(atom->GetFormalCharge() == +1 && orders <= 4)
           return 'K';
