@@ -955,7 +955,6 @@ struct BabelGraph{
   }
 
   void WriteSpecial(OBAtom *atom, std::string &buffer){
-
     if(!atom)
       Fatal("writing notation from dead atom ptr");
     // all special elemental cases
@@ -965,7 +964,8 @@ struct BabelGraph{
       buffer += "<";
     else
       buffer += "-";
-
+    
+    string_position[atom] = buffer.size()+1; // always first character 
     switch(atom->GetAtomicNum()){
       case 5:
         buffer += "B";
@@ -1441,7 +1441,8 @@ struct BabelGraph{
     }
     else
      buffer+='-';
-
+    
+    return; 
   }
 
 #if WLNSYMBOL
@@ -1743,7 +1744,7 @@ struct BabelGraph{
 
           // K now given for all positive nitrogen
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 4 && atom->GetFormalCharge()==0){
+          if(atom->GetExplicitValence() < 4){
             for(unsigned int i=atom->GetExplicitValence();i<4;i++){
               buffer += 'H';
               wln_character = 'H'; 
@@ -1809,7 +1810,6 @@ struct BabelGraph{
           }
 
           prev = atom; 
-          string_position[atom] = buffer.size()+2;          
           WriteSpecial(atom,buffer);
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 5 - correction; 
@@ -2228,7 +2228,6 @@ struct BabelGraph{
             string_position[locant_path[i]] = buffer.size();
           }else{
             WriteSpecial(locant_path[i],buffer); 
-            string_position[locant_path[i]] = buffer.size()+2;
           }
           for(unsigned int w=0;w<Wgroups;w++)
             buffer+='W';
@@ -2247,11 +2246,10 @@ struct BabelGraph{
               locant_path[i]->SetFormalCharge(0);
 
             buffer+=het_char;
-            string_position[locant_path[i]] = buffer.size(); 
+            string_position[locant_path[i]] = buffer.size();
           }
           else{
             WriteSpecial(locant_path[i],buffer); 
-            string_position[locant_path[i]] = buffer.size()+2;
           }
 
           last_locant++;

@@ -696,7 +696,7 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
     case 'B':
       new_symbol = AllocateWLNSymbol(sym,graph);
       if(new_symbol)
-        new_symbol->allowed_edges = 6;         // allows FCl6
+        new_symbol->allowed_edges = 8;         // allows FCl6, Ive seen [CL](=O)(=O)(=O)(O-)
       break;
   }
   
