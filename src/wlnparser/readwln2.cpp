@@ -4611,33 +4611,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           prev = curr;
         }
       }
-#if DEPRECATED
-      else if (i < len-1 && wln_string[i+1] == ' '){
-        // this must be a ring pop, no matter what
-        // technically not true!
-        
-        if(branch_stack.empty() || !branch_stack.ring)
-          return Fatal(i, "Error: '&' followed by a space indicates a ring pop, are there any rings?"); 
-        
-        else if(!branch_stack.empty()){
-          branch_stack.pop_to_ring();
-          branch_stack.pop(); // pop whats open
-          ring = branch_stack.ring; // assign the previous ring
-          
-          prev = return_object_symbol(branch_stack);
-          if(!prev)
-            prev = branch_stack.branch;
-        }
-      }
-#endif
       else if(!branch_stack.empty())
       {
-
         if(branch_stack.top().first){
           branch_stack.pop();
           prev = return_object_symbol(branch_stack);
           if(!prev)
             prev = branch_stack.branch;
+
           ring = branch_stack.ring;
         }
 
@@ -4682,6 +4663,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               // no contractions possible, we pop the stack
               default:
                 // default pop
+                prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
                 branch_stack.pop();
                 prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
                 if(!prev)
@@ -4695,7 +4677,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             prev = return_object_symbol(branch_stack);
             if(branch_stack.top().first)
               branch_stack.pop();
-            
               
             if(!prev)
               prev = branch_stack.branch; // catches branching ring closure
