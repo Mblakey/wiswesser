@@ -2277,7 +2277,6 @@ struct BabelGraph{
 
       // for now dont worry about positions, only that we get the double bonds
       // we can condense later
-      bool bonds = false;
       OBAtom *first   = 0;
       OBAtom *second  = 0;
       // handles sequential locant unsaturations, when not aromatic
@@ -2288,20 +2287,13 @@ struct BabelGraph{
         second = locant_path[0];
 
       OBBond *locant_bond = first->GetBond(second);
-      
-      if(locant_bond){
-        bonds_checked[locant_bond] = true;
-        for(unsigned int k=0;k<ring_order.size();k++){
-          if(!ring_order[k]->IsAromatic() && ring_order[k]->IsMember(locant_bond))
-            bonds = true; 
-        }
+      bonds_checked[locant_bond] = true;
 
-        if(bonds && locant_bond && locant_bond->GetBondOrder() > 1){
-          buffer += ' ';
-          write_locant(locant,buffer);
-          for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
-            buffer += 'U';
-        }
+      if(locant_bond && !locant_bond->IsAromatic() && locant_bond->GetBondOrder()>1){
+        buffer += ' ';
+        write_locant(locant,buffer);
+        for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
+          buffer += 'U';
       }
     }
 

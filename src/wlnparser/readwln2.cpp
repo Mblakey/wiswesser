@@ -237,8 +237,9 @@ struct WLNRing
       WLNSymbol *rsym = locants[loc_a]; 
       if(rsym->ch == 'S') // for now lets see
         continue;
-
+      
       if(rsym->aromatic && rsym->num_edges < rsym->allowed_edges){
+        
         for(unsigned int ei = 0;ei < rsym->barr_n;ei++){
           WLNEdge *redge = &rsym->bond_array[ei];
           WLNSymbol *csym = redge->child; 
@@ -3217,32 +3218,17 @@ bool WLNKekulize(WLNGraph &graph){
           WLNSymbol *f = wring->locants[int_to_locant(i+1)];
           WLNSymbol *s = wring->locants[int_to_locant(MatchR[i]+1)];
           if(f && s){
-            bool pass = true;
-            for(unsigned int k=0;k< s->barr_n;k++){
-              WLNEdge *edge = &s->bond_array[k]; 
-              if(edge->order > 1)
-                pass = false; 
-            }
-
-            for(unsigned int k=0;k< s->parr_n;k++){
-              WLNEdge *edge = &s->prev_array[k]; 
-              if(edge->order > 1)
-                pass = false; 
-            }
-
-            if(pass){
-                // check if already surrounded by a double bond  
 #if OPT_DEBUG
           fprintf(stderr,"  aromatic locants: %c --> %c\n",int_to_locant(i+1),int_to_locant(MatchR[i]+1)); 
 #endif
-              WLNEdge *edge = search_edge(f,s);
-              if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
-                return false;
-
-              MatchR[MatchR[i]] = 0; // remove from matching
-            }
+            WLNEdge *edge = search_edge(f,s);
+            if(!edge)
+              fprintf(stderr,"invalid search"); 
+            if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
+              return false;
           }
         }
+        MatchR[MatchR[i]] = 0; // remove from matching
       }
       
       if(MatchR)
