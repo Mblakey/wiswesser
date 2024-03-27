@@ -4663,7 +4663,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               // no contractions possible, we pop the stack
               default:
                 // default pop
-                prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
                 branch_stack.pop();
                 prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
                 if(!prev)

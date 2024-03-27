@@ -26,6 +26,7 @@ GNU General Public License for more details.
 
 #include <utility> // std::pair
 #include <iterator>
+#include <algorithm>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -368,6 +369,24 @@ bool ReachableFromEntry(OBAtom *entry, std::set<OBAtom*> &ring_atoms, std::set<O
   return (seen == ring_atoms);
 }
 
+// helper function whenever we need the ring bonds
+void FillRingBonds(OBMol *mol,OBRing* obring, std::set<OBBond*> &ring_bonds){
+  
+  for(unsigned int i=0;i<obring->Size()-1;i++){
+    OBAtom *satom = mol->GetAtom(obring->_path[i]);    
+    OBAtom *eatom = mol->GetAtom(obring->_path[i+1]);
+    OBBond *bond = mol->GetBond(satom,eatom); 
+    if(bond)
+      ring_bonds.insert(bond); 
+  }
+
+  OBAtom *satom = mol->GetAtom(obring->_path[0]);    
+  OBAtom *eatom = mol->GetAtom(obring->_path[obring->Size()-1]);
+  OBBond *bond = mol->GetBond(satom,eatom); 
+  if(bond)
+    ring_bonds.insert(bond); 
+}
+
 /* read locant path algorithm, we return the number of non consecutive blocks,
 pseudo check will add determined pairs and check notation is viable for read */
 unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
@@ -611,6 +630,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 find a multicyclic path thats stable with disjoined pericyclic points */
 OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
+                            std::set<OBBond*>               &ring_bonds,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
                             std::map<OBAtom*,bool>          &bridge_atoms, // rule 30f.
                             std::set<OBRing*>               &local_SSSR,
@@ -696,8 +716,6 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
       fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
 #endif 
 
-
-
           if(score < lowest_score){ // rule 30(d and e).
             lowest_score = score;
             lowest_fsum = fsum;
@@ -758,9 +776,10 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           std::set_difference(ring_atoms.begin(), ring_atoms.end(), local_atoms.begin(), local_atoms.end(),
                               std::inserter(difference, difference.begin()));
           
-          best_path = NPLocantPath(mol, difference.size(), difference, atom_shares, bridge_atoms, local_SSSR, 1); 
+          best_path = NPLocantPath(mol, difference.size(), difference, ring_bonds,atom_shares, bridge_atoms, local_SSSR, 1); 
           if(best_path){
             // remove ring from the local SSSR, mark all the local_atoms set as non cyclic
+            // and non-aromatic!
             for(std::set<OBAtom*>::iterator laiter=local_atoms.begin(); laiter != local_atoms.end();laiter++){
               (*laiter)->SetInRing(false);
               bridge_atoms[*laiter] = false;
@@ -773,11 +792,18 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
                 bridge_atoms[latom] = false;
             }
       
- 
-
-
             std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), pos); 
             local_SSSR.erase(it);
+            
+            // remove any aromaticty contraints so bonds get written
+            std::set<OBBond*> local_ring_bonds; 
+            FillRingBonds(mol, obring, local_ring_bonds); 
+            for(std::set<OBBond*>::iterator biter=local_ring_bonds.begin(); biter != local_ring_bonds.end();biter++){
+              // these need to erased from the ring
+              (*biter)->SetAromatic(false); 
+              std::set<OBBond*>::iterator gpos = std::find(ring_bonds.begin(),ring_bonds.end(), *biter);   
+              ring_bonds.erase(gpos); 
+            }
 
             ring_atoms = difference;  // set the ring atoms to what we expect 
             return best_path;
@@ -855,12 +881,10 @@ struct BabelGraph{
   std::map<OBAtom*,unsigned int> string_position; // essential for writing post charges. 
 
   // recursion tracking
-  unsigned int cycle_count; 
   unsigned int last_cycle_seen;
   bool modern; 
 
   BabelGraph(){
-    cycle_count = 0; 
     last_cycle_seen = 0; 
     modern = 0; 
   };
@@ -1530,13 +1554,11 @@ struct BabelGraph{
     //      INDIRECT RECURSION TRACKING
 
     if(last_cycle_seen > cycle_num){
-      for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
+      while(last_cycle_seen != cycle_num){
         buffer+='&';
-        if(cycle_count)
-          cycle_count--; // once a ring is closed can you ever get back? - GOOD
+        last_cycle_seen--; 
       }
     }
-    last_cycle_seen = cycle_num;
 
     if(locant && locant != '0' && b_order > 0){ // allows OM through
       buffer+=' ';
@@ -1553,7 +1575,7 @@ struct BabelGraph{
     OBAtom* atom = start_atom;
     OBAtom* prev = 0; 
     OBBond *bond = 0; 
-
+   
     std::stack<OBAtom*> atom_stack; 
     std::stack<OBAtom*> branch_stack;
     std::map<OBAtom*,bool> branching_atom; 
@@ -1578,7 +1600,6 @@ struct BabelGraph{
             buffer += '&'; // requires a closure 
           while(!branch_stack.empty()){
             prev = branch_stack.top();
-
             if(mol->GetBond(atom,prev)){
               bond = mol->GetBond(atom,prev); 
               break;
@@ -1592,16 +1613,13 @@ struct BabelGraph{
           }
         }
 
-        if(!bond)
-          Fatal("failure to read branched bond segment");
-
         remaining_branches[prev]--; // reduce the branches remaining  
         for(unsigned int i=1;i<bond->GetBondOrder();i++){
           if(carbon_chain){
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
-
+          
           buffer += 'U';
           if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
             remaining_branches[prev]--;
@@ -1614,30 +1632,25 @@ struct BabelGraph{
           carbon_chain = 0;
         }
 
-        cycle_count++;
         if(locant == '0' && b_order == 0){
           buffer += '-';
           buffer += ' ';
           buffer += '0';
-          if(!RecursiveParse(atom,spawned_from,mol,false,buffer,cycle_count))
+          if(!RecursiveParse(atom,spawned_from,mol,false,buffer,cycle_num+1))
             Fatal("failed to make pi bonded ring");
         }
         else{
-          if(!RecursiveParse(atom,spawned_from,mol,true,buffer,cycle_count))
+          if(!RecursiveParse(atom,spawned_from,mol,true,buffer,cycle_num+1))
             Fatal("failed to make inline ring");
         }
 
         if(!atom_stack.empty()){
-
           if(last_cycle_seen > cycle_num){
-            for(unsigned int i=0;i<(last_cycle_seen-cycle_num);i++){
+            while(last_cycle_seen != cycle_num){
               buffer+='&';
-              if(cycle_count)
-                cycle_count--; // once a ring is closed can you ever get back? - GOOD
+              last_cycle_seen--; 
             }
           }
-
-          last_cycle_seen = cycle_count;
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
         }
@@ -1709,9 +1722,9 @@ struct BabelGraph{
           else{
             buffer += wln_character;
             if(wln_character == 'X')
-              remaining_branches[atom] = 3;
+              remaining_branches[atom] += 3;
             else
-              remaining_branches[atom] = 2; 
+              remaining_branches[atom] += 2; 
 
             branching_atom[atom] = true;
             branch_stack.push(atom);
@@ -1720,6 +1733,22 @@ struct BabelGraph{
           break;
 
         case 'N':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom; 
+          buffer += wln_character;
+
+          if(atom->GetTotalDegree() > 1){
+            remaining_branches[atom] += 2; - correction; 
+            branch_stack.push(atom);
+          }
+          string_position[atom] = buffer.size();
+          break;
+
+
         case 'B':
           if(carbon_chain){
             buffer += std::to_string(carbon_chain);
@@ -1730,7 +1759,7 @@ struct BabelGraph{
           buffer += wln_character;
 
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] = 2 - correction; 
+            remaining_branches[atom] += 2 - correction; 
             branch_stack.push(atom);
           }
           string_position[atom] = buffer.size();
@@ -1756,7 +1785,7 @@ struct BabelGraph{
           }
 
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] = 3 - correction;
+            remaining_branches[atom] += 3 - correction;
             branching_atom[atom] = true; 
             branch_stack.push(atom);
           }
@@ -1778,7 +1807,7 @@ struct BabelGraph{
           }
           
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] = 4 - correction; 
+            remaining_branches[atom] += 4 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
@@ -1800,7 +1829,7 @@ struct BabelGraph{
           
           // maybe, let the H fully pop the symbol
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] = 5 - correction; 
+            remaining_branches[atom] += 5 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }          
@@ -1815,7 +1844,7 @@ struct BabelGraph{
           prev = atom; 
           WriteSpecial(atom,buffer);
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] = 5 - correction; 
+            remaining_branches[atom] += 5 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
@@ -1865,12 +1894,9 @@ struct BabelGraph{
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
           
-          // H does something unique if used as a closure
-
           string_position[atom] = buffer.size();
           break;
 
-        
         default:
           fprintf(stderr,"Error: unhandled char %c\n",wln_character); 
           return 0; 
@@ -1904,6 +1930,10 @@ struct BabelGraph{
               carbon_chain = 0;
             }
 
+            OBBond *macro_bond = mol->GetBond(atom, nbor);
+            if(macro_bond->GetBondOrder() > 1)
+              buffer += 'U'; 
+
             buffer += '-';
             buffer += ' ';
             
@@ -1931,7 +1961,6 @@ struct BabelGraph{
         if(!atoms_seen[&(*a)])
           atom_stack.push(&(*a));
       }
-
     }
 
     if(carbon_chain){
@@ -1945,11 +1974,10 @@ struct BabelGraph{
 
     // burn the branch stack here, recursion takes care of the rest 
     // may be over cautious
-    
-
+        
     if(!branch_stack.empty()){
       OBAtom *last_stack = return_open_branch(branch_stack);
-      if(last_stack){
+      if(last_stack && last_stack != prev){
         switch (wln_character) {
           case 'E':
           case 'F':
@@ -1960,12 +1988,24 @@ struct BabelGraph{
           case 'Z':
           case 'W':
             break;
+
+          case '1':
+          case 'M':
+          case 'V':
+          case 'O':
+            if(atom->GetExplicitDegree() < 2){
+              fprintf(stderr,"first here!\n"); 
+              buffer += '&'; 
+            }
+            break;
+
           default:
-            buffer += '&'; 
+            buffer += '&';
         }
       }
 
       while(!branch_stack.empty()){
+        fprintf(stderr,"one here!\n"); 
         if(remaining_branches[branch_stack.top()] > 0)
           buffer += '&';
         branch_stack.pop(); 
@@ -2297,28 +2337,23 @@ struct BabelGraph{
       }
     }
 
+
     for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end();biter++){
       OBBond *fbond = *biter; 
-      if(!bonds_checked[fbond] && fbond->GetBondOrder() > 1){
-
-        for(unsigned int k=0;k<ring_order.size();k++){
-          if(!ring_order[k]->IsAromatic() && ring_order[k]->IsMember(fbond)){
-            
-            unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
-            unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
-            
-            buffer += ' ';
-            write_locant(floc,buffer);
-            for(unsigned int b=1;b<fbond->GetBondOrder();b++)
-              buffer += 'U';
-            buffer+='-';
-            buffer+=' ';
-            write_locant(bloc,buffer);
-            break;
-          }
-        }
+      
+      if(!bonds_checked[fbond] && fbond->GetBondOrder() > 1 && !fbond->IsAromatic()){
+        unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        
+        buffer += ' ';
+        write_locant(floc,buffer);
+        for(unsigned int b=1;b<fbond->GetBondOrder();b++)
+          buffer += 'U';
+        buffer+='-';
+        buffer+=' ';
+        write_locant(bloc,buffer);
+        break;
       }
-      bonds_checked[fbond] = true;
     }
     
     return true;
@@ -2378,87 +2413,10 @@ struct BabelGraph{
     else if(!multi && !bridging)
       locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,0);
+      locant_path = NPLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR,0);
 
-#if MACROTOOL
-    if(!locant_path){
-        
-      // a ring in ring, has a target ring to cleave out
-      
-      // first of all we cant remove the ring we are currently in, so ring_root eliminates one. 
-      // it has to have at least some atoms with ring shares == 1 ( could maximise on this? ) 
-      
-      // otherwise cleave based on next ring position with the following conditions:
-      // 1. has to be a middle ring i.e atoms share >= 2 unique other rings
-      // 2. if there are singular shared atoms, prefer this as easier to cleave
-      // 3. else, de-ring the OBBond object and recalculate a local SSSR. 
-      // 4. this can only be done once, so if local SSSR and path fails here, return fail
-      
-      // size is often good enough when unrestricted. 
-      
-      if(!spawned_from){
-
-        unsigned int pos = 0; 
-        unsigned int best_pos = 0; 
-        unsigned int best_size = 0;
-        for(std::set<OBRing*>::iterator riter=local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-          if((*riter)->Size() > best_size){
-            best_size = (*riter)->Size();
-            best_pos = pos; 
-          }
-          pos++;
-          rings_seen[(*riter)] = false;
-        }
-        fprintf(stderr,"%d: best size: %d\n",best_pos,best_size);
-        
-        std::set<OBRing*>::iterator it = std::next(local_SSSR.begin(), best_pos); 
-        OBRing *ring_splice = *it; 
-
-        for(unsigned int i=0;i<ring_splice->Size();i++){
-          OBAtom *ratom = mol->GetAtom(ring_splice->_path[i]);
-          if(atom_shares[ratom] == 1){
-            ratom->SetInRing(false);
-            if(ratom == ring_root)
-              fprintf(stderr,"debug: shift need in macro recalculation\n");  
-              // if this is the case we need to shift it out of the ring
-          }
-        }
-        
-        // re-try with macro notation
-        local_SSSR.clear();
-        ring_atoms.clear();
-        atom_shares.clear();
-        bridge_atoms.clear();
-
-        if(!ConstructLocalSSRS(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR, LocalSSRS_data)){
-          Fatal("failed to write ring with macro cheat"); 
-        }
-
-        fprintf(stderr,"local SSSR size: %d\n",local_SSSR.size());
-         
-        multi = LocalSSRS_data.multi;
-        hetero = LocalSSRS_data.hetero;
-        bridging = LocalSSRS_data.bridging;
-        path_size = LocalSSRS_data.path_size;
-        macro_ring = true; 
-
-        // try again
-        if(local_SSSR.size() == 1)
-          locant_path = MonoPath(mol,path_size,local_SSSR);
-        else if(!multi && !bridging)
-          locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR); 
-        else 
-          locant_path = NPLocantPath(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,0);
-      
-        if(!locant_path) 
-          Fatal("no locant path could be determined"); 
-      }
-    }
-#else
     if(!locant_path)
       return Fatal("no locant path could be determined");
-#endif
-
 
     // here a reduction condition must of been set.      
     if(ring_atoms.size() != path_size){
@@ -2693,7 +2651,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
       if(!obabel.rings_seen[&(*r)]){
         if(started){
           buffer += " &"; // ionic species
-          obabel.cycle_count = 0;
           obabel.last_cycle_seen = 0;
         }
         
@@ -2705,7 +2662,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
     }
     
     // handles additional ionic atoms here
-    obabel.cycle_count = 0;
     obabel.last_cycle_seen = 0;
     FOR_ATOMS_OF_MOL(a,mol_copy){
       OBAtom *satom = &(*a); 
