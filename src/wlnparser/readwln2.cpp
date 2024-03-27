@@ -5313,8 +5313,10 @@ struct BabelGraph{
         return 0;
     }
     
-    if(sym->charge)
+    if(sym->charge){
       charge = sym->charge; // override
+      hcount = 0; 
+    }
 
     OBAtom *atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
     return atom; 

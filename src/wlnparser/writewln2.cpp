@@ -1743,7 +1743,7 @@ struct BabelGraph{
 
           // K now given for all positive nitrogen
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 4){
+          if(atom->GetExplicitValence() < 4 && atom->GetFormalCharge()==0){
             for(unsigned int i=atom->GetExplicitValence();i<4;i++){
               buffer += 'H';
               wln_character = 'H'; 
@@ -1768,7 +1768,7 @@ struct BabelGraph{
           prev = atom;
           buffer += wln_character;
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 2){
+          if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge()==0){
             buffer += 'H';
             wln_character = 'H'; 
           }
@@ -1789,7 +1789,7 @@ struct BabelGraph{
           prev = atom;
           buffer += wln_character;
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 2){
+          if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge()==0){
             buffer += 'H';
             wln_character = 'H'; 
           }
@@ -1816,6 +1816,7 @@ struct BabelGraph{
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
+          
 
           for(unsigned int i=0;i<atom->GetImplicitHCount();i++){
             buffer += 'H';
