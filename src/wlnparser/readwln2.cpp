@@ -682,6 +682,12 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
         new_symbol->allowed_edges = 3;
       break;
 
+    case 'N':
+      new_symbol = AllocateWLNSymbol(sym,graph);
+      if(new_symbol)
+        new_symbol->allowed_edges = 6; // tautomeric possibility 
+      break;
+
     case 'P':
     case 'S':
       new_symbol = AllocateWLNSymbol(sym,graph);

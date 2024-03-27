@@ -893,17 +893,16 @@ struct BabelGraph{
           return 'X';
       
       case 7:
-        if(atom->GetFormalCharge() == +1)
-          return 'K';
-        
         if(orders == 0 || orders == 1)
             return 'Z'; 
         else if(orders == 2)
             return 'M';
         else if(orders == 3)
           return 'N';
-        else 
+        else if(atom->GetFormalCharge() == +1 && orders <= 4)
           return 'K';
+        else 
+          return '*';
       
       case 8:
         if(neighbours == 1 && orders==1 && atom->GetFormalCharge() == 0)
@@ -971,6 +970,10 @@ struct BabelGraph{
         buffer += "B";
         break;
 
+      case 7:
+        buffer += "N";
+        break;
+      
       case 8:
         buffer += "O";
         break;
