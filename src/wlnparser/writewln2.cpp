@@ -1538,6 +1538,7 @@ struct BabelGraph{
     //##################################
 
     unsigned int carbon_chain = 0;
+    unsigned char wln_character = 0; 
 
     OBAtom* atom = start_atom;
     OBAtom* prev = 0; 
@@ -1636,7 +1637,7 @@ struct BabelGraph{
                
        // remaining_branches are -1, we only look forward
       unsigned int correction = 0; 
-      unsigned char wln_character =  WriteSingleChar(atom);
+      wln_character =  WriteSingleChar(atom);
       unsigned int Wgroups = CountDioxo(atom);
 
     
@@ -1735,6 +1736,7 @@ struct BabelGraph{
           if(atom->GetExplicitValence() < 4){
             for(unsigned int i=atom->GetExplicitValence();i<4;i++){
               buffer += 'H';
+              wln_character = 'H'; 
               correction++;
             }
           }
@@ -1756,8 +1758,10 @@ struct BabelGraph{
           prev = atom;
           buffer += wln_character;
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 2)
+          if(atom->GetExplicitValence() < 2){
             buffer += 'H';
+            wln_character = 'H'; 
+          }
           
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 4 - correction; 
@@ -1775,9 +1779,12 @@ struct BabelGraph{
           prev = atom;
           buffer += wln_character;
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 2)
+          if(atom->GetExplicitValence() < 2){
             buffer += 'H';
-
+            wln_character = 'H'; 
+          }
+          
+          // maybe, let the H fully pop the symbol
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] = 5 - correction; 
             branching_atom[atom] = true;
@@ -1800,8 +1807,10 @@ struct BabelGraph{
             branch_stack.push(atom);
           }
 
-          for(unsigned int i=0;i<atom->GetImplicitHCount();i++)
+          for(unsigned int i=0;i<atom->GetImplicitHCount();i++){
             buffer += 'H';
+            wln_character = 'H'; 
+          }
           
           break;
           
@@ -1819,8 +1828,10 @@ struct BabelGraph{
 
           buffer += wln_character; 
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
+          if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0){
             buffer += 'H';
+            wln_character = 'H'; 
+          }
 
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
@@ -1839,6 +1850,8 @@ struct BabelGraph{
           buffer += wln_character;
           if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
             buffer += 'H';
+          
+          // H does something unique if used as a closure
 
           string_position[atom] = buffer.size();
           break;
@@ -1913,6 +1926,35 @@ struct BabelGraph{
 
     if(require_macro_closure)
       buffer += 'J';
+    
+
+    // burn the branch stack here, recursion takes care of the rest 
+    // may be over cautious
+    
+
+    if(!branch_stack.empty()){
+      OBAtom *last_stack = return_open_branch(branch_stack);
+      if(last_stack){
+        switch (wln_character) {
+          case 'E':
+          case 'F':
+          case 'G':
+          case 'H':
+          case 'I':
+          case 'Q':
+          case 'Z':
+            break;
+          default:
+            buffer += '&'; 
+        }
+      }
+
+      while(!branch_stack.empty()){
+        if(remaining_branches[branch_stack.top()] > 0)
+          buffer += '&';
+        branch_stack.pop(); 
+      }
+    }
 
     return atom; 
   }
