@@ -917,16 +917,30 @@ struct BabelGraph{
           return 'X';
       
       case 7:
-        if( (orders == 0 || orders == 1) && atom->GetFormalCharge()==0)
-            return 'Z'; 
-        else if(orders == 2 && atom->GetFormalCharge()==0)
+
+        if(!atom->IsInRing()){
+          if( (orders == 0 || orders == 1))
+              return 'Z'; 
+          else if(orders == 2 && atom->GetFormalCharge()==0)
+              return 'M';
+          else if(orders == 3 && atom->GetFormalCharge()==0)
+            return 'N';
+          else if(atom->GetFormalCharge() == +1 && orders <= 4)
+            return 'K';
+          else 
+            return '*';
+        }
+        else{
+          orders = atom->GetTotalDegree();
+          if(orders == 2)
             return 'M';
-        else if(orders == 3 && atom->GetFormalCharge()==0)
-          return 'N';
-        else if(atom->GetFormalCharge() == +1 && orders <= 4)
-          return 'K';
-        else 
-          return '*';
+          else if (orders == 3)
+            return 'N';
+          else if (orders == 4 && atom->GetFormalCharge()==1) 
+            return 'K';
+          else
+           return '*';
+        }
       
       case 8:
         if(neighbours == 1 && orders==1 && atom->GetFormalCharge() == 0)
@@ -1742,7 +1756,7 @@ struct BabelGraph{
           buffer += wln_character;
 
           if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 2; - correction; 
+            remaining_branches[atom] += 2 - correction; 
             branch_stack.push(atom);
           }
           string_position[atom] = buffer.size();
@@ -2005,7 +2019,6 @@ struct BabelGraph{
       }
 
       while(!branch_stack.empty()){
-        fprintf(stderr,"one here!\n"); 
         if(remaining_branches[branch_stack.top()] > 0)
           buffer += '&';
         branch_stack.pop(); 
@@ -2217,7 +2230,6 @@ struct BabelGraph{
                               std::string &buffer)
   {
 
-    
     unsigned char locant = 0;
     unsigned char last_locant = 'A'; 
     std::map<OBBond*,bool> bonds_checked; 
@@ -2619,7 +2631,10 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
 {   
   if(modern)
     MODERN = 1;
-
+  
+  FOR_ATOMS_OF_MOL(a, mol)
+    fprintf(stderr,"%d has %d implicit H\n",a->GetAtomicNum(),a->GetImplicitHCount());  
+  
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
   
@@ -2632,7 +2647,6 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
     WriteBabelDotGraph(mol_copy);
 
   if(!cyclic){
-    
     FOR_ATOMS_OF_MOL(a,mol_copy){
       OBAtom *satom = &(*a); 
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){

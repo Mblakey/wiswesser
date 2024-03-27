@@ -1,8 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
-#include <limits.h>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -144,7 +142,7 @@ int main(int argc, char *argv[])
   bool res;
   OBMol mol;
   OBConversion conv;
-
+  
   conv.SetInFormat(format);  
   if(!strcmp(format,"mol"))
     res = conv.ReadFile(&mol, cli_inp);

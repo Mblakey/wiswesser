@@ -4253,6 +4253,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           else if (!AddEdge(curr, prev)){
             return Fatal(i, "Error: failed to bond to previous symbol");
           }
+          
+          // definitely cheating, but their my rules now, allows explicit hydrogen writes      
+          if(prev->inRing)
+            prev->allowed_edges++;
 
           edge = &prev->bond_array[prev->barr_n-1]; 
           if(pending_unsaturate){
