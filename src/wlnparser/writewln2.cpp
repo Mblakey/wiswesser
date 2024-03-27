@@ -1396,6 +1396,10 @@ struct BabelGraph{
       case 23:
         buffer += "VA";
         break;
+      
+      case 74:
+        buffer += "WT";
+        break;
 
       case 54:
         buffer += "XE";
@@ -1865,6 +1869,7 @@ struct BabelGraph{
       if(Wgroups){
         for(unsigned int i=0;i<Wgroups;i++){
           buffer+='W';
+          wln_character = 'W'; 
           remaining_branches[atom] += -3;
         }
         OBAtom *ret = return_open_branch(branch_stack);
@@ -1943,6 +1948,7 @@ struct BabelGraph{
           case 'I':
           case 'Q':
           case 'Z':
+          case 'W':
             break;
           default:
             buffer += '&'; 

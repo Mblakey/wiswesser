@@ -1334,6 +1334,11 @@ unsigned int special_element_atm(std::string &special){
       if(special[1] == 'A')
         return 23;
       break;
+  
+    case 'W':
+      if(special[1] == 'T')
+        return 74;
+      break; 
 
     case 'X':
       if (special[1] == 'E')
