@@ -1444,6 +1444,7 @@ struct BabelGraph{
 
   }
 
+#if WLNSYMBOL
   unsigned int CountDioxo(OBAtom *atom){
     if(!atom)
       Fatal("count dioxo on dead atom ptr");
@@ -1483,6 +1484,7 @@ struct BabelGraph{
     }
     return Ws;
   }
+#endif
 
   bool CheckCarbonyl(OBAtom *atom){
     if(!atom)
@@ -1642,8 +1644,12 @@ struct BabelGraph{
        // remaining_branches are -1, we only look forward
       unsigned int correction = 0; 
       wln_character =  WriteSingleChar(atom);
-      unsigned int Wgroups = CountDioxo(atom);
 
+#if WSYMBOL
+      unsigned int Wgroups = CountDioxo(atom);
+#else
+      unsigned int Wgroups = 0; 
+#endif
     
       if(prev && bond)
         correction = bond->GetBondOrder() - 1;
@@ -2182,7 +2188,12 @@ struct BabelGraph{
 
       unsigned char het_char = 0;
       locant = int_to_locant(i+1);
+#if WSYMBOL
       unsigned int Wgroups = CountDioxo(locant_path[i]);
+#else
+      unsigned int Wgroups = 0; 
+#endif 
+
       bool carbonyl = CheckCarbonyl(locant_path[i]);
 
       if( !carbonyl && !Wgroups && 
