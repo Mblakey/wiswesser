@@ -483,7 +483,8 @@ struct WLNGraph
 };
 
 
-// needs to be able to hold both a WLNSymbol and WLNRing for branch returns
+// needs to be able to hold both a WLNSymbol and WLNRing for branch returns,
+// first is the WLNRing, second is the branching WLN symbol 
 struct ObjectStack{  
   std::vector<std::pair<WLNRing*,WLNSymbol*>> stack; // vector so i can iterate down and instant access
   WLNRing   *ring;
@@ -1391,7 +1392,7 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
       return top; // only iterate to the next
     else if(top->ch == 'Y' && count_children(top)==3)
       branch_stack.pop();
-    else if(top->num_edges == top->allowed_edges)
+    else if(top->num_edges >= top->allowed_edges)
       branch_stack.pop();
     else
       return top;
@@ -4654,23 +4655,69 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else if(!branch_stack.empty())
       {
         // for implied closures:
-        // If we are on the last branch that a symbol could have, a '&' also pops it off the stack
+        // If we are on the last branch that a symbol could have, a '&' also pops it off the stack and returns the next item
+        // ring or not ring
 
         // options that happen here; 
         // 1 ) close a branch and return to the top of the branch stack
         // 2 ) we are already at the top of the branch stack, in which case we pop it off
         // 3 ) there is no symbol in the branch stack, in which case we pop a ring
+        
+        // check whats going on. 
+        WLNSymbol *branch_top = return_object_symbol(branch_stack); 
+        
+        if(branch_top){
+          // this must be a pop, unless its a methyl contraction
+          if(prev == branch_top){
+            
+            switch(prev->ch){
+              case 'X':
+              case 'K':
+                if( (prev->num_edges + prev->explicit_H) < prev->allowed_edges){
+                  if(!add_methyl(prev,graph))
+                    return Fatal(i, "Error: failed to add methyl group on methyl contraction");
+                
+                  prev = return_object_symbol(branch_stack); // if its the last one pop it 
+                }
+                else{ 
+                  branch_stack.pop();
+                  prev = return_object_symbol(branch_stack);
+                }
+                break;
+               
+              case 'Y':
+                if(count_children(prev) < 3){
+                  if(!add_methyl(prev,graph))
+                    return Fatal(i, "Error: failed to add methyl group on methyl contraction");
 
+                  prev = return_object_symbol(branch_stack);
+                }
+                else{ 
+                  // we pop,
+                  branch_stack.pop();
+                  prev = return_object_symbol(branch_stack);
+                }
+                break;
 
-        if(branch_stack.top().first){
-          branch_stack.pop();
-          prev = return_object_symbol(branch_stack);
-          if(!prev)
-            prev = branch_stack.branch;
-
-          ring = branch_stack.ring;
+              default:
+                branch_stack.pop(); 
+                prev = return_object_symbol(branch_stack);
+            }
+          }
+          else // else its a simple return
+            prev = branch_top; 
+        }
+        else if (!branch_stack.empty() && branch_stack.top().first){
+          // there either must be a ring here to pop, or the branch stack is empty and we error
+          branch_stack.pop(); // pop off the ring
+          prev = return_object_symbol(branch_stack); // return to any open branches
+          ring = branch_stack.ring; // assign the ring
+        }
+        else{
+          return Fatal(i, "Error: popping too many rings|symbols, check '&' count");
         }
 
+#if OLD
         else if(branch_stack.top().second){
           WLNSymbol *top = 0;
           top = branch_stack.top().second;
@@ -4730,10 +4777,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               prev = branch_stack.branch; // catches branching ring closure
           }
         }
+#endif 
       }
       else
         return Fatal(i, "Error: popping too many rings|symbols, check '&' count");
-        
       break;
 
 
@@ -5018,7 +5065,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         if(graph.SYMBOLS[cs]->str_position == (unsigned int)negative_index){
           graph.SYMBOLS[cs]->charge--; 
 #if OPT_DEBUG
-          fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
+          fprintf(stderr,"  assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
 #endif
           found = true;
           break;
