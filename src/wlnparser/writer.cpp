@@ -74,6 +74,11 @@ static void ProcessCommandLine(int argc, char *argv[])
             format = "smi";
             break;
           }
+          else if (!strcmp(ptr, "-ismy"))
+          {
+            format = "smy";
+            break;
+          }
           else if (!strcmp(ptr, "-iinchi"))
           {
             format = "inchi";
@@ -90,7 +95,7 @@ static void ProcessCommandLine(int argc, char *argv[])
             break;
           }
           else{
-            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can','mol']\n");
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','smy','inchi','can','mol']\n");
             DisplayUsage();
           }
 

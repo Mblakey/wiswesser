@@ -121,7 +121,7 @@ struct WLNEdge{
   WLNSymbol *parent;
   WLNSymbol *child;
   WLNEdge *reverse; // points to its backwards edge 
-  unsigned char order;
+  unsigned int order;
   bool aromatic;
 
   WLNEdge(){
@@ -139,6 +139,7 @@ struct WLNSymbol
   unsigned short int id;
   unsigned int str_position; 
   short int charge;
+  unsigned int explicit_H; // if explicit, take the value, else we calculate the fill valence?
 
   unsigned char ch;
   std::string special; // string for element, or ring, if value = '*'
@@ -165,6 +166,7 @@ struct WLNSymbol
     aromatic = 0;
     spiro = 0; 
     charge = 0;
+    explicit_H = 0; 
     str_position = 0; 
     barr_n = 0; 
     parr_n = 0; 
@@ -626,7 +628,6 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
   wln->id = graph.symbol_count++;
   graph.SYMBOLS[wln->id] = wln;
   wln->ch = ch;
- 
   return wln;
 }
 
@@ -635,7 +636,6 @@ bool IsTerminator(WLNSymbol *symbol){
     case 'E':
     case 'F':
     case 'G':
-    case 'H':
     case 'I':
     case 'Q':
     case 'Z':
@@ -1478,7 +1478,13 @@ WLNEdge *search_edge(WLNSymbol *child, WLNSymbol*parent){
 bool unsaturate_edge(WLNEdge *edge,unsigned int n, unsigned int pos=0){
   if(!edge)
     return 0;
-  
+#if ERRORS == 1
+  if(edge->order == 3){
+    fprintf(stderr,"Error: attempting a quadruple bond - not allowed\n"); 
+    return false;
+  }
+#endif 
+
   edge->order += n;
   edge->reverse->order = edge->order; 
   edge->parent->num_edges += n;
@@ -1600,7 +1606,6 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
         if(!add_methyl(target,graph))
           return false;
       }
-      target->num_edges = target->allowed_edges;
       break;
 
     case 'Y':
@@ -1608,7 +1613,6 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
         if(!add_methyl(target,graph))
           return false;
       }
-      target->num_edges = target->allowed_edges;
       break;
 
     default:
@@ -2492,7 +2496,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             case 'K':
               if(!heterocyclic && ch=='K')
                 warned = true;
-
+            
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 4;
@@ -2501,6 +2505,17 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
             case 'Z': // treat as NH2
+              if(!heterocyclic)
+                warned = true;
+
+              new_locant = AllocateWLNSymbol(ch,graph);
+              new_locant = assign_locant(positional_locant++,new_locant,ring);
+              new_locant->allowed_edges = 3;
+              new_locant->inRing = ring;
+              new_locant->str_position = (start+i+1); 
+              new_locant->explicit_H = 2; 
+              break;
+
             case 'N':
             case 'B':
               if(!heterocyclic)
@@ -2514,9 +2529,17 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               break;
 
             case 'M':
+              new_locant = AllocateWLNSymbol(ch,graph);
+              new_locant = assign_locant(positional_locant++,new_locant,ring);
+              new_locant->allowed_edges = 2;
+              new_locant->inRing = ring;
+              new_locant->str_position = (start+i+1);
+              new_locant->explicit_H = 1; 
+              break;
+
             case 'O':
             case 'V':
-              if(!heterocyclic && (ch == 'M' || ch == 'O'))
+              if(!heterocyclic && ch == 'O')
                 warned = true;
 
               new_locant = AllocateWLNSymbol(ch,graph);
@@ -2927,35 +2950,37 @@ bool ResolveHangingBonds(WLNGraph &graph){
     WLNSymbol *sym = graph.SYMBOLS[i];
     WLNEdge *edge = 0; 
 
-    if( ( sym->ch == 'O'  ||
-          sym->ch == 'N'  ||
-          sym->ch ==  'P' || 
-          sym->ch ==  'S') &&
-          sym->num_edges == 1 && sym->charge == 0)
-    {
-      edge = &sym->bond_array[0]; 
-      if(edge && edge->order == 1){
-        while((sym->num_edges < sym->allowed_edges) && 
-        (edge->child->num_edges < edge->child->allowed_edges)){
+    if(sym->ch == '#')
+      continue; 
+
+    for(unsigned int ei=0;ei<sym->barr_n;ei++){
+      edge = &sym->bond_array[ei]; 
+      if( (edge->child->ch == 'O' ||
+          edge->child->ch ==  'P'  || 
+          edge->child->ch ==  'N'  || 
+          edge->child->ch ==  'S') &&
+          edge->child->num_edges == 1 && edge->child->charge == 0)
+      {
+        while((sym->num_edges < sym->allowed_edges && edge->order < 3) && 
+          (edge->child->num_edges < edge->child->allowed_edges)){
           if(!unsaturate_edge(edge,1))
             return false;
         }
       }
-    } 
-    else{
-      for(unsigned int ei=0;ei<sym->barr_n;ei++){
-        edge = &sym->bond_array[ei]; 
-        if( (edge->child->ch == 'O' ||
-            edge->child->ch ==  'P'  || 
-            edge->child->ch ==  'N'  || 
-            edge->child->ch ==  'S') &&
-            edge->child->num_edges == 1 && edge->child->charge == 0)
-        {
-          while((sym->num_edges < sym->allowed_edges) && 
-            (edge->child->num_edges < edge->child->allowed_edges)){
-            if(!unsaturate_edge(edge,1))
-              return false;
-          }
+    }
+
+    for(unsigned int ei=0;ei<sym->parr_n;ei++){
+      edge = &sym->prev_array[ei]; 
+      if( (edge->child->ch == 'O' ||
+          edge->child->ch ==  'P'  || 
+          edge->child->ch ==  'N'  || 
+          edge->child->ch ==  'S') &&
+          edge->child->num_edges == 1 && edge->child->charge == 0)
+      {
+        while((sym->num_edges < sym->allowed_edges && edge->order < 3) && 
+          (edge->child->num_edges < edge->child->allowed_edges)){
+          if(!unsaturate_edge(edge,1))
+            return false;
         }
       }
     }
@@ -3459,7 +3484,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 4; // change methyl addition
-
         if(prev){
 
           if(prev == branch_stack.branch){
@@ -3595,6 +3619,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 1;
+        curr->explicit_H = 1; 
 
         if(prev){
 
@@ -3697,7 +3722,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->str_position = i+1;
 
         if(prev){
-
+          
           if(prev->ch == 'N')
             prev->allowed_edges++;
 
@@ -3809,6 +3834,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 2;
+        curr->explicit_H = 1; 
 
         if(prev){
 
@@ -3909,6 +3935,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 1;
+        curr->explicit_H = 2; // this should be a better way
 
         if(prev){
 
@@ -4234,11 +4261,27 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = ch;
       }
       else{
+        // treat like the W or U symbol, modify the last symbol if possible, else create H explicit
         on_locant = '\0';
-        curr = AllocateWLNSymbol(ch,graph);
-        curr->str_position = i+1;
-        curr->allowed_edges = 1;
-  
+        if(!prev){
+          curr = AllocateWLNSymbol(ch,graph);
+          curr->str_position = i+1;
+          curr->allowed_edges = 1;
+          prev = curr; 
+        }
+        else if (prev && prev->ch == 'c'){
+          curr = AllocateWLNSymbol(ch,graph);
+          curr->str_position = i+1;
+          curr->allowed_edges = 1;
+          if(!AddEdge(curr, prev)) 
+            return Fatal(i, "Error: failed to bond to previous symbol");
+          prev = curr; 
+        }
+        else
+          prev->explicit_H++; 
+        
+        break;
+#if OLD_H
         if(prev){
 
           if(prev == branch_stack.branch){
@@ -4282,7 +4325,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           prev = return_object_symbol(branch_stack);
         
         if(!prev)
-          prev = curr; // failsafe to starting hydrogen
+          prev = curr; // failsafe to starting hydrogens
+#endif
       }
       cleared = false;
       break;
@@ -5103,8 +5147,8 @@ struct BabelGraph{
       return 0;
 
     result->SetAtomicNum(elem);
-    result->SetImplicitHCount(hcount);
     result->SetFormalCharge(charge);
+    result->SetImplicitHCount(hcount);
     return result;
   }
 
@@ -5145,7 +5189,7 @@ struct BabelGraph{
       prev = carbon; 
     }
 
-    carbon->SetImplicitHCount(3); 
+    carbon->SetImplicitHCount(0); 
     return carbon; // head of the chain
   }
 
@@ -5170,8 +5214,8 @@ struct BabelGraph{
   OBAtom *WLNSymbolToAtom(OBMol* mol, WLNSymbol*sym){
     int charge = 0; 
     unsigned int atomic_num = 0;
-    unsigned int hcount = 0;
-    
+    unsigned int hcount = sym->explicit_H;
+
     switch(sym->ch){
       case 'H':
         atomic_num = 1;
@@ -5180,140 +5224,120 @@ struct BabelGraph{
 
       case 'B':
         atomic_num = 5;
+        charge = sym->charge; 
         break;
 
       case '1': 
       case 'C':
         atomic_num = 6;
-        while(sym->num_edges < sym->allowed_edges && sym->num_edges < 4){
-          hcount++;
-          sym->num_edges++;
-        }
-        
+        hcount = 4- sym->num_edges;
+        charge = sym->charge; 
+        break; 
+
         if(sym->charge < 0 && hcount > 0)
           hcount--; 
         break;
       
       case 'X':
         atomic_num = 6;
+        charge = sym->charge; 
         break;
 
-      case 'Y':{
+      case 'Y':
         atomic_num = 6;
-        unsigned int orders = 0; 
-        if(!sym->inRing){
-          for(unsigned int ei=0;ei<sym->barr_n;ei++)
-            orders += sym->bond_array[ei].order;
-          
-          if(sym->parr_n){
-            WLNEdge *e = search_edge(sym,sym->prev_array[0].child);
-            orders += e->order;
-          }
-            
-          if(orders < 4)
-            hcount = 1;
-        }
+        hcount = 4 - sym->num_edges;
         break;
-      }
 
       case 'N':
         atomic_num = 7;
         if(sym->inRing)
           sym->allowed_edges = 3;
+        charge = sym->charge; 
 
-        while(sym->num_edges < sym->allowed_edges && sym->num_edges < 4){
-          hcount++;
-          sym->num_edges++;
-        }
+        if(!hcount && sym->aromatic && sym->num_edges < sym->allowed_edges)
+          hcount = 1; // allows allow 1 H in aromatic species 
         break;
 
       case 'M':
         atomic_num = 7;
-        hcount = 1;
+        charge = sym->charge; 
         break;
 
       case 'Z':
         atomic_num = 7; 
-        hcount = 2;
+        charge = sym->charge; 
         break;
 
       case 'K':
         atomic_num = 7;
         charge = 1; 
-        hcount = 0;
         break;
 
       case 'O':
         atomic_num = 8;
-        if(sym->num_edges == 1)
+        if(sym->num_edges==1 && !hcount)
           charge = -1;
-        if(!sym->num_edges)
+        if(!sym->num_edges && !hcount)
           charge = -2; 
         break;
 
       case 'Q':
-        if(sym->num_edges == 0)
-          charge = -1;
         atomic_num = 8;
-        hcount = 1;
+        if(!sym->num_edges && hcount == 1)
+          charge = -1;
         break;
 
       case 'F':
         atomic_num = 9;
-        if(!sym->num_edges)
+        if(!sym->num_edges && !hcount)
           charge = -1;
         break;
       
       case 'P':
-        atomic_num = 15;
-        while(sym->num_edges % 2 == 0){ // 3 and 5 valence
-          hcount++;
-          sym->num_edges++;
-        }
+        atomic_num = 15; 
+        charge = sym->charge; 
+        if(!hcount && sym->aromatic && sym->num_edges < 3)
+          hcount = 3-sym->num_edges; // allows allow 1 H in aromatic species 
         break;
       
       case 'S':
         atomic_num = 16;
-        while(sym->num_edges % 2 != 0){ // 2,4 and6 valence
-          hcount++;
-          sym->num_edges++;
-        }
+        charge = sym->charge; 
+        if(!hcount && sym->aromatic && sym->num_edges < 2)
+          hcount = 2-sym->num_edges; // allows allow 1 H in aromatic species 
         break;
 
       case 'G':
         atomic_num = 17;
-        if(!sym->num_edges)
+        if(!sym->num_edges && !hcount)
           charge = -1;
         break;
 
       case 'E':
         atomic_num = 35;
-        if(!sym->num_edges)
+        if(!sym->num_edges && !hcount)
           charge = -1;
         break;
 
       case 'I':
         atomic_num = 53;
-        if(!sym->num_edges)
+        if(!sym->num_edges && !hcount)
           charge = -1;
         break;
     
       case '*':
         atomic_num = special_element_atm(sym->special);
+        charge = sym->charge; 
         break;
       
       case '#': // should make a dummy atom
+        hcount = 0; 
         break;
 
       default:
         return 0;
     }
     
-    if(sym->charge){
-      charge = sym->charge; // override
-      hcount = 0; 
-    }
-
     OBAtom *atom = NMOBMolNewAtom(mol,atomic_num,charge,hcount);
     return atom; 
   }
@@ -5332,8 +5356,23 @@ struct BabelGraph{
       
       // handle any '#' carbon chains
       if(sym->ch == '#' && isNumber(sym->special) > 1 ){
-        OBAtom *chain_head = NMOBMolNewAtom(mol, 6, 0, 3); // might need to be upped if terminal
-        OBAtom *chain_end = OBMolCarbonChain(mol, chain_head, isNumber(sym->special)-1); 
+        OBAtom *chain_head = NMOBMolNewAtom(mol, 6, 0, 0); // might need to be upped if terminal
+        OBAtom *chain_end = OBMolCarbonChain(mol, chain_head, isNumber(sym->special)-1);  
+        
+        int order = 3; 
+        for(unsigned int h=0;h<sym->parr_n;h++){
+          order -= sym->prev_array[h].order;
+        }
+        if(order >= 0)
+          chain_head->SetImplicitHCount(order); 
+       
+        // for bonds going forward, we assume head bond, for backward end bond, 
+        order = 3; // assume a single bond is made to the chain 
+        for(unsigned int h=0;h<sym->barr_n;h++)
+          order -= sym->bond_array[h].order;
+        if(order >= 0)
+          chain_end->SetImplicitHCount(order); 
+        
         chain_pairs[sym] = {chain_head,chain_end}; 
       }
       else if (sym->ch == '#'){
@@ -5348,7 +5387,6 @@ struct BabelGraph{
     }
 
     // create edges 
-    std::vector<OBAtom*> remove; 
     for(unsigned int i=0;i<graph.symbol_count;i++){
       WLNSymbol *parent = graph.SYMBOLS[i];
       if(parent->barr_n){
@@ -5359,34 +5397,26 @@ struct BabelGraph{
           
           OBAtom *catom = 0;
           OBAtom *patom = 0; 
-          if(parent->ch == '#'){
-            patom = chain_pairs[parent].second; 
-            patom->SetImplicitHCount(patom->GetImplicitHCount()-bond_order); 
-          }
+          if(parent->ch == '#')
+            patom = chain_pairs[parent].second;
           
-          if(child->ch == '#'){
+          if(child->ch == '#')
             catom = chain_pairs[child].first; 
-            catom->SetImplicitHCount(catom->GetImplicitHCount()-bond_order); 
-          }
 
-          if(child->ch == 'H' && parent->charge < 0) // not a fan of this condition
-            remove.push_back(atom_map[child]); 
-          else{
-            if(!catom)
-              catom = atom_map[child];
-            if(!patom)
-              patom = atom_map[parent]; 
+          if(!catom)
+            catom = atom_map[child];
+          if(!patom)
+            patom = atom_map[parent]; 
 
-            OBBond *bptr = NMOBMolNewBond(mol,patom,catom,bond_order);
-            if(!bptr)  
-              return false;
-          }
+          OBBond *bptr = NMOBMolNewBond(mol,patom,catom,bond_order);
+          if(!bptr)  
+            return false;
         }
       }
     }
 
-    for(OBAtom *r : remove)
-      mol->DeleteAtom(r); 
+
+
     return true;
   }
 
@@ -5560,7 +5590,6 @@ ChainScore *RunChain(WLNEdge *edge,std::map<WLNSymbol*,bool> seen){
       case 'E':
       case 'F':
       case 'G':
-      case 'H':
       case 'I':
       case 'Q':
       case 'Z':

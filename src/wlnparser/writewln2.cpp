@@ -874,7 +874,8 @@ bool WriteBabelDotGraph(OBMol *mol){
 // holds all the functions for WLN graph conversion, mol object is assumed ALIVE AT ALL TIMES
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
-
+  
+  OBMol *glob_mol; 
   std::map<OBAtom*,bool> atoms_seen;
   std::map<OBRing*,bool> rings_seen; 
   std::map<OBAtom*,int>  remaining_branches; // tracking for branch pop
@@ -885,10 +886,23 @@ struct BabelGraph{
   bool modern; 
 
   BabelGraph(){
+    glob_mol = 0; 
     last_cycle_seen = 0; 
     modern = 0; 
   };
   ~BabelGraph(){};
+  
+  // To place extra hydrogens in WLN, they must be explicit. 
+  unsigned int TotalHydrogenCount(OBAtom *atom){
+    return atom->ExplicitHydrogenCount() + atom->GetImplicitHCount();
+  }
+  
+  void SwapImplicitExplicit(OBAtom *atom){
+    atom->SetImplicitHCount(atom->GetImplicitHCount()-1);
+    OBAtom* hydrogen = glob_mol->NewAtom();
+    hydrogen->SetAtomicNum(1);
+    glob_mol->AddBond(atom->GetIdx(),hydrogen->GetIdx(),1); 
+  }
 
   unsigned char WriteSingleChar(OBAtom* atom){
 
@@ -917,10 +931,9 @@ struct BabelGraph{
           return 'X';
       
       case 7:
-
-        if(!atom->IsInRing()){
-          if( (orders == 0 || orders == 1))
-              return 'Z'; 
+          if( (orders == 0 || orders == 1)){
+            return 'Z'; 
+          }
           else if(orders == 2 && atom->GetFormalCharge()==0)
               return 'M';
           else if(orders == 3 && atom->GetFormalCharge()==0)
@@ -929,18 +942,6 @@ struct BabelGraph{
             return 'K';
           else 
             return '*';
-        }
-        else{
-          orders = atom->GetTotalDegree();
-          if(orders == 2)
-            return 'M';
-          else if (orders == 3)
-            return 'N';
-          else if (orders == 4 && atom->GetFormalCharge()==1) 
-            return 'K';
-          else
-           return '*';
-        }
       
       case 8:
         if(neighbours == 1 && orders==1 && atom->GetFormalCharge() == 0)
@@ -2633,11 +2634,12 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
     MODERN = 1;
   
   FOR_ATOMS_OF_MOL(a, mol)
-    fprintf(stderr,"%d has %d implicit H\n",a->GetAtomicNum(),a->GetImplicitHCount());  
+    fprintf(stderr,"%d has %d implicit H, explicit H %d\n",a->GetAtomicNum(),a->GetImplicitHCount(),a->ExplicitHydrogenCount());  
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
-  
+  obabel.glob_mol = mol_copy; 
+
   unsigned int cyclic = 0;
   bool started = false; 
   FOR_RINGS_OF_MOL(r,mol_copy)
