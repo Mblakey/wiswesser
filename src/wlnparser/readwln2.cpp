@@ -4716,68 +4716,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         else{
           return Fatal(i, "Error: popping too many rings|symbols, check '&' count");
         }
-
-#if OLD
-        else if(branch_stack.top().second){
-          WLNSymbol *top = 0;
-          top = branch_stack.top().second;
-
-            // this means a <Y|X|..>'&' so handle methyl
-          if(prev && prev == top){
-            switch(prev->ch){
-              // methyl contractions
-
-              case 'Y':
-                if(count_children(prev) < 3){
-                  if(!add_methyl(prev,graph))
-                    return Fatal(i, "Error: failed to add methyl group on methyl contraction");
-
-                  prev = return_object_symbol(branch_stack);
-                }
-                else{ 
-                  // we pop,
-                  branch_stack.pop();
-                  prev = branch_stack.branch; 
-                }
-                break;
-
-              case 'X':
-              case 'K':
-                if( (prev->num_edges + prev->explicit_H) < prev->allowed_edges){
-                  if(!add_methyl(prev,graph))
-                    return Fatal(i, "Error: failed to add methyl group on methyl contraction");
-
-                  prev = return_object_symbol(branch_stack);
-                }
-                else{ 
-                  // we pop, 
-                  branch_stack.pop();
-                  prev = branch_stack.branch; 
-                }
-                break;
-
-              // no contractions possible, we pop the stack
-              default:
-                // default pop
-                branch_stack.pop();
-                prev = return_object_symbol(branch_stack); // if prev is nulled, then a ring is active
-                if(!prev)
-                  prev = branch_stack.branch;
-
-                break;
-            }
-          }
-          else{
-            // means a closure is done, we return to the first avaliable symbol on the branch stack
-            prev = return_object_symbol(branch_stack);
-            if(branch_stack.top().first)
-              branch_stack.pop();
-              
-            if(!prev)
-              prev = branch_stack.branch; // catches branching ring closure
-          }
-        }
-#endif 
       }
       else
         return Fatal(i, "Error: popping too many rings|symbols, check '&' count");
