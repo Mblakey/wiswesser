@@ -892,18 +892,6 @@ struct BabelGraph{
   };
   ~BabelGraph(){};
   
-  // To place extra hydrogens in WLN, they must be explicit. 
-  unsigned int TotalHydrogenCount(OBAtom *atom){
-    return atom->ExplicitHydrogenCount() + atom->GetImplicitHCount();
-  }
-  
-  void SwapImplicitExplicit(OBAtom *atom){
-    atom->SetImplicitHCount(atom->GetImplicitHCount()-1);
-    OBAtom* hydrogen = glob_mol->NewAtom();
-    hydrogen->SetAtomicNum(1);
-    glob_mol->AddBond(atom->GetIdx(),hydrogen->GetIdx(),1); 
-  }
-
   unsigned char WriteSingleChar(OBAtom* atom){
 
     if(!atom)
@@ -1755,12 +1743,15 @@ struct BabelGraph{
 
           prev = atom; 
           buffer += wln_character;
+          string_position[atom] = buffer.size();
+          
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
 
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 2 - correction; 
             branch_stack.push(atom);
           }
-          string_position[atom] = buffer.size();
           break;
 
 
@@ -1772,12 +1763,15 @@ struct BabelGraph{
 
           prev = atom; 
           buffer += wln_character;
+          string_position[atom] = buffer.size();
+          
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
 
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 2 - correction; 
             branch_stack.push(atom);
           }
-          string_position[atom] = buffer.size();
           break;
 
         case 'K':
@@ -1788,17 +1782,12 @@ struct BabelGraph{
 
           prev = atom;
           buffer += wln_character;
-
-          // K now given for all positive nitrogen
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 4){
-            for(unsigned int i=atom->GetExplicitValence();i<4;i++){
-              buffer += 'H';
-              wln_character = 'H'; 
-              correction++;
-            }
-          }
 
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+          
+          // K now given for all positive nitrogen
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 3 - correction;
             branching_atom[atom] = true; 
@@ -1816,10 +1805,9 @@ struct BabelGraph{
           prev = atom;
           buffer += wln_character;
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge()==0){
-            buffer += 'H';
-            wln_character = 'H'; 
-          }
+          
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
           
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 4 - correction; 
@@ -1837,12 +1825,9 @@ struct BabelGraph{
           prev = atom;
           buffer += wln_character;
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() < 2 && atom->GetFormalCharge()==0){
-            buffer += 'H';
-            wln_character = 'H'; 
-          }
-          
-          // maybe, let the H fully pop the symbol
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 5 - correction; 
             branching_atom[atom] = true;
@@ -1858,23 +1843,54 @@ struct BabelGraph{
 
           prev = atom; 
           WriteSpecial(atom,buffer);
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+          
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 5 - correction; 
             branching_atom[atom] = true;
             branch_stack.push(atom);
           }
-          
-
-          for(unsigned int i=0;i<atom->GetImplicitHCount();i++){
-            buffer += 'H';
-            wln_character = 'H'; 
-          }
-          
           break;
           
 // terminators
         case 'Q':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          buffer += wln_character; 
+          string_position[atom] = buffer.size();
+          for(unsigned int h=1;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
+          if(!branch_stack.empty())
+            prev = return_open_branch(branch_stack);
+
+          if(atom->GetExplicitDegree() == 0)
+            atom->SetFormalCharge(0); // notational implied, do not write ionic code
+
+          break;
+
         case 'Z':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          buffer += wln_character; 
+          string_position[atom] = buffer.size();
+          for(unsigned int h=2;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
+          if(!branch_stack.empty())
+            prev = return_open_branch(branch_stack);
+
+          if(atom->GetExplicitDegree() == 0)
+            atom->SetFormalCharge(0); // notational implied, do not write ionic code
+          break;
+
         case 'E':
         case 'F':
         case 'G':
@@ -1886,17 +1902,15 @@ struct BabelGraph{
 
           buffer += wln_character; 
           string_position[atom] = buffer.size();
-          if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0){
-            buffer += 'H';
-            wln_character = 'H'; 
-          }
 
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
 
           if(atom->GetExplicitDegree() == 0)
             atom->SetFormalCharge(0); // notational implied, do not write ionic code
-
+          
+          if(atom->GetImplicitHCount())
+            buffer += 'H'; 
           break;
 
         case 'H':
@@ -1906,9 +1920,6 @@ struct BabelGraph{
           }
 
           buffer += wln_character;
-          if(atom->GetExplicitValence() == 0 && atom->GetFormalCharge() == 0)
-            buffer += 'H';
-          
           string_position[atom] = buffer.size();
           break;
 
@@ -2549,9 +2560,49 @@ struct BabelGraph{
       fprintf(stderr,"Error: failed on cyclic parse\n");
       return false;
     }
-
-    for(unsigned int i=0;i<pd.path_size;i++)
+    
+    // handle hydrogens here
+    for(unsigned int i=0;i<pd.path_size;i++){
       atoms_seen[pd.locant_path[i]] = true;
+      OBAtom *lc = pd.locant_path[i];
+      switch(lc->GetAtomicNum()){
+        case 6:
+        case 7: 
+          break;
+       
+        case 15:
+          if(lc->GetExplicitValence() & 1)
+            break;
+          else{
+            for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
+              buffer += " ";
+              buffer += int_to_locant(i+1);
+              buffer += 'H';
+            }
+          }
+          break;
+
+        case 16:
+          if( !(lc->GetExplicitValence() & 1))
+            break;
+          else{
+            for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
+              buffer += " ";
+              buffer += int_to_locant(i+1);
+              buffer += 'H';
+            }
+          }
+          break;
+
+        default:
+          for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
+            buffer += " ";
+            buffer += int_to_locant(i+1);
+            buffer += 'H';
+          }
+          break;
+      }
+    }
       
     for(unsigned int i=0;i<pd.path_size;i++){
       FOR_NBORS_OF_ATOM(iter,pd.locant_path[i]){
@@ -2633,12 +2684,8 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   if(modern)
     MODERN = 1;
   
-  FOR_ATOMS_OF_MOL(a, mol)
-    fprintf(stderr,"%d has %d implicit H, explicit H %d\n",a->GetAtomicNum(),a->GetImplicitHCount(),a->ExplicitHydrogenCount());  
-  
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
-  obabel.glob_mol = mol_copy; 
 
   unsigned int cyclic = 0;
   bool started = false; 
