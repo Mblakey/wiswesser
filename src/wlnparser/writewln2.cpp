@@ -1887,7 +1887,7 @@ struct BabelGraph{
           if(!branch_stack.empty())
             prev = return_open_branch(branch_stack);
 
-          if(atom->GetExplicitDegree() == 0)
+          if(atom->GetExplicitDegree() == 0 && !atom->GetImplicitHCount())
             atom->SetFormalCharge(0); // notational implied, do not write ionic code
           break;
 
@@ -2020,7 +2020,6 @@ struct BabelGraph{
           case 'V':
           case 'O':
             if(atom->GetExplicitDegree() < 2){
-              fprintf(stderr,"first here!\n"); 
               buffer += '&'; 
             }
             break;

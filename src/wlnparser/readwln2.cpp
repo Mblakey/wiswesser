@@ -1602,7 +1602,8 @@ bool resolve_methyls(WLNSymbol *target, WLNGraph &graph){
 
     case 'X':
     case 'K':
-      while(target->num_edges < target->allowed_edges){
+      
+      while( (target->num_edges + target->explicit_H) < target->allowed_edges){
         if(!add_methyl(target,graph))
           return false;
       }
@@ -3283,6 +3284,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   WLNSymbol *curr       = 0;
   WLNSymbol *prev       = 0;
+  WLNSymbol *last       = 0; // last handled, ignores terminators
   WLNEdge   *edge       = 0;
   WLNRing   *ring       = 0;
   WLNRing   *wrap_ring  = 0;
@@ -3316,7 +3318,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   while(ch)
   {  
-
     // this will need to resolved at the end as well
     if(pending_carbon_chain && (ch < '0' || ch > '9') && ch != '/' ){
       if(digits_buffer.empty() || digits_buffer[0] == '0')
@@ -3353,7 +3354,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
 
       pending_carbon_chain = false;
-      prev = curr; 
+      prev = curr;
+      last = curr; 
+      last = prev; 
       cleared = false;
     }
 
@@ -3505,6 +3508,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         branch_stack.push({0,curr});
         pending_unsaturate = 0;
         prev = curr;
+        last = prev; 
       }
       cleared = false;
       break;
@@ -3542,6 +3546,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         branch_stack.push({0,curr});
         prev = curr;
+        last = prev; 
       }
       cleared = false;
       break;
@@ -3560,6 +3565,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i,"Error: accessing locants out of range");
           ring->loc_count++;  
           prev = curr;
+          last = prev; 
         }
 
         pending_locant = false;
@@ -3591,6 +3597,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         prev = curr;
+        last = prev; 
       }
       cleared = false;
       break;
@@ -3608,6 +3615,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = prev; 
         }
 
         pending_locant = false;
@@ -3640,6 +3648,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         pending_unsaturate = 0;
+        last = curr; 
         prev = return_object_symbol(branch_stack);
 
         if(!prev)
@@ -3662,6 +3671,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
 
         pending_locant = false;
@@ -3693,6 +3703,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -3710,6 +3721,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -3746,6 +3758,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         // if there is no prev, this is then a character we go from, 
         // else do not update.
+        
+        last = curr; 
         if(!prev)
           prev = curr;
         else
@@ -3771,6 +3785,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
 
         pending_locant = false;
@@ -3806,6 +3821,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         branch_stack.push({0,curr});
         pending_unsaturate = 0;
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -3824,6 +3840,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -3856,6 +3873,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         pending_unsaturate = 0;
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -3874,6 +3892,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
 
         pending_locant = false;
@@ -3907,6 +3926,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         branch_stack.push({0,curr});
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -3924,6 +3944,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
       
         pending_locant = false;
@@ -3957,6 +3978,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         pending_unsaturate = 0;
+        last = curr; 
         prev = return_object_symbol(branch_stack);
         if(!prev)
           prev = curr;
@@ -3982,6 +4004,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4012,6 +4035,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         pending_unsaturate = 0;
+        last = curr; 
         prev = return_object_symbol(branch_stack);
         if(!prev)
           prev = curr;
@@ -4034,6 +4058,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4065,6 +4090,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         branch_stack.push({0,curr});
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -4083,6 +4109,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4117,6 +4144,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         branch_stack.push({0,curr});
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -4135,6 +4163,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4166,6 +4195,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -4184,6 +4214,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
 
         pending_locant = false;
@@ -4209,6 +4240,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4241,7 +4273,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         
     // hydrogens explicit
-
     case 'H':
       if (pending_J_closure)
         break;
@@ -4256,6 +4287,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4268,6 +4300,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           curr->str_position = i+1;
           curr->allowed_edges = 1;
           prev = curr; 
+          last = curr; 
         }
         else if (prev && prev->ch == 'c'){
           curr = AllocateWLNSymbol(ch,graph);
@@ -4276,57 +4309,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(!AddEdge(curr, prev)) 
             return Fatal(i, "Error: failed to bond to previous symbol");
           prev = curr; 
+          last = curr; 
         }
-        else
-          prev->explicit_H++; 
+        else if (last)
+          last->explicit_H++; 
         
         break;
-#if OLD_H
-        if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-          
-          if(!prev->barr_n && !prev->parr_n){
-            if(!AddEdge(prev, curr))
-              return Fatal(i, "Error: failed to bond to previous symbol");
-          }
-          else if (!AddEdge(curr, prev)){
-            return Fatal(i, "Error: failed to bond to previous symbol");
-          }
-          
-          // definitely cheating, but their my rules now, allows explicit hydrogen writes      
-          if(prev->inRing)
-            prev->allowed_edges++;
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
-              return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
-          }
-
-          switch(prev->ch){
-            case 'Z':
-                //graph.charge_additions[prev]++;
-                prev->allowed_edges++;
-                break;
-            default:
-              break;
-          }
-        }
-
-        if(prev && (prev->ch == 'V' || prev->ch == 'M')){
-          curr = prev;
-        }
-        else
-          prev = return_object_symbol(branch_stack);
-        
-        if(!prev)
-          prev = curr; // failsafe to starting hydrogens
-#endif
       }
       cleared = false;
       break;
@@ -4351,6 +4339,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i,"Error: accessing locants out of range");
           
           ring->loc_count++;  
+          last = curr; 
           prev = curr;
         }
         pending_locant = false;
@@ -4445,8 +4434,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         pending_J_closure = false;
       }
-    //  else
-     //   return Fatal(i, "Error: J character in unrecognised state"); 
       
       cleared = false;
       break;
@@ -4467,6 +4454,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4514,6 +4502,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4541,6 +4530,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
 
         prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
@@ -4561,6 +4551,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           ring->loc_count++;  
           prev = curr;
+          last = curr; 
         }
         pending_locant = false;
         on_locant = ch;
@@ -4594,7 +4585,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             if(graph.SYMBOLS[cs]->str_position == (unsigned int)negative_index){
               graph.SYMBOLS[cs]->charge--; 
 #if OPT_DEBUG
-              fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
+              fprintf(stderr,"  assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
 #endif
               found = true;
               break;
@@ -4657,6 +4648,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: could not fetch expanded locant position - out of range");
           
           prev = curr;
+          last = curr; 
         }
       }
       else if(!branch_stack.empty())
@@ -4695,7 +4687,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
               case 'X':
               case 'K':
-                if(prev->num_edges < prev->allowed_edges){
+                if( (prev->num_edges + prev->explicit_H) < prev->allowed_edges){
                   if(!add_methyl(prev,graph))
                     return Fatal(i, "Error: failed to add methyl group on methyl contraction");
 
@@ -4895,6 +4887,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           curr->str_position = first_dash+1+1;
           pending_unsaturate = 0;
           prev = curr;
+          last = curr; 
         }
       }
       cleared = false;
@@ -4991,6 +4984,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
     pending_carbon_chain = false;
     prev = curr; 
+    last = curr; 
+
   }
 
   // single letter methyl branches
@@ -5220,6 +5215,7 @@ struct BabelGraph{
       case 'H':
         atomic_num = 1;
         hcount = 0;
+        charge = sym->charge; 
         break; 
 
       case 'B':
@@ -5265,7 +5261,7 @@ struct BabelGraph{
 
       case 'Z':
         atomic_num = 7; 
-        charge = sym->charge; 
+        charge = sym->charge;
         break;
 
       case 'K':
@@ -5275,10 +5271,15 @@ struct BabelGraph{
 
       case 'O':
         atomic_num = 8;
-        if(sym->num_edges==1 && !hcount)
-          charge = -1;
-        if(!sym->num_edges && !hcount)
-          charge = -2; 
+        if(!sym->charge){
+          if(sym->num_edges==1 && !hcount)
+            charge = -1;
+          if(!sym->num_edges && !hcount)
+            charge = -2;
+        }
+        else {
+          charge = sym->charge; 
+        }
         break;
 
       case 'Q':
