@@ -877,6 +877,7 @@ struct BabelGraph{
   
   bool modern; 
   std::map<OBAtom*,bool> atoms_seen;
+  std::map<OBAtom*,unsigned char> atom_chars;
   std::map<OBRing*,bool> rings_seen; 
   std::map<OBAtom*,int>  remaining_branches; // tracking for branch pop
   std::map<OBAtom*,unsigned int> string_position; // essential for writing post charges. 
@@ -916,14 +917,14 @@ struct BabelGraph{
           if( (orders == 0 || orders == 1)){
             return 'Z'; 
           }
-          else if(orders == 2 && atom->GetFormalCharge()<=0)
+          else if (orders > 4)
+            return '*';
+          else if(orders == 2 && atom->GetImplicitHCount() == 1)
               return 'M';
-          else if(orders == 3 && atom->GetFormalCharge()<=0)
-            return 'N';
-          else if(atom->GetFormalCharge() == +1 && orders <= 4)
+          else if(atom->GetFormalCharge() == +1 && orders == 4)
             return 'K';
           else 
-            return '*';
+            return 'N';
       
       case 8:
         if(neighbours == 1 && orders==1 && atom->GetFormalCharge() == 0)
@@ -1649,7 +1650,7 @@ struct BabelGraph{
        // remaining_branches are -1, we only look forward
       unsigned int correction = 0; 
       wln_character =  WriteSingleChar(atom);
-
+      atom_chars[atom] = wln_character; 
 #if WSYMBOL
       unsigned int Wgroups = CountDioxo(atom);
 #else
@@ -2232,15 +2233,10 @@ struct BabelGraph{
 
       unsigned char het_char = 0;
       locant = int_to_locant(i+1);
-#if WSYMBOL
-      unsigned int Wgroups = CountDioxo(locant_path[i]);
-#else
-      unsigned int Wgroups = 0; 
-#endif 
 
       bool carbonyl = CheckCarbonyl(locant_path[i]);
 
-      if( !carbonyl && !Wgroups && 
+      if( !carbonyl &&  
         locant_path[i]->GetAtomicNum() == 6 &&
         locant_path[i]->GetFormalCharge() == -1){
         // organometallics logic 
@@ -2253,37 +2249,25 @@ struct BabelGraph{
         buffer += '0';
         locant_path[i]->SetFormalCharge(0);
       }
+      
+      if(locant_path[i]->GetAtomicNum() == 6)
+        atom_chars[locant_path[i]] = '1'; 
 
-      if(carbonyl || Wgroups || locant_path[i]->GetAtomicNum() != 6){
+      if(carbonyl || locant_path[i]->GetAtomicNum() != 6){
         if(locant != last_locant){
           buffer += ' ';
           write_locant(locant,buffer);
           last_locant = locant;
         } 
-        if(Wgroups){
-          het_char = WriteSingleChar(locant_path[i]);
-          
-          if(het_char != '*'){
-            if(het_char == 'K')
-              locant_path[i]->SetFormalCharge(0);
-
-            buffer+=het_char; 
-            string_position[locant_path[i]] = buffer.size();
-          }else{
-            WriteSpecial(locant_path[i],buffer); 
-          }
-          for(unsigned int w=0;w<Wgroups;w++)
-            buffer+='W';
-
-          last_locant++;
-        }
-        else if(carbonyl){
+        
+        if(carbonyl){
           buffer += 'V';
           string_position[locant_path[i]] = buffer.size();
           last_locant++;
         }
         else{
           het_char = WriteSingleChar(locant_path[i]);
+          atom_chars[locant_path[i]] = het_char; 
           if(het_char != '*'){
             if(het_char == 'K')
               locant_path[i]->SetFormalCharge(0);
@@ -2540,12 +2524,29 @@ struct BabelGraph{
     for(unsigned int i=0;i<pd.path_size;i++){
       atoms_seen[pd.locant_path[i]] = true;
       OBAtom *lc = pd.locant_path[i];
-      switch(lc->GetAtomicNum()){
-        case 6:
-        case 7: 
+      
+      switch(atom_chars[lc]){
+        case '1':
+          break; // ring carbons
+
+        case 'M':
+          for(unsigned int h=1;h<lc->GetImplicitHCount();h++){
+            buffer += " ";
+            buffer += int_to_locant(i+1);
+            buffer += 'H';
+          }
           break;
-       
-        case 15:
+
+
+        case 'Z':
+          for(unsigned int h=2;h<lc->GetImplicitHCount();h++){
+            buffer += " ";
+            buffer += int_to_locant(i+1);
+            buffer += 'H';
+          }
+          break;
+
+        case 'P':
           if(lc->GetExplicitValence() & 1)
             break;
           else{
@@ -2557,7 +2558,7 @@ struct BabelGraph{
           }
           break;
 
-        case 16:
+        case 'S':
           if( !(lc->GetExplicitValence() & 1))
             break;
           else{

@@ -2952,39 +2952,44 @@ bool ResolveHangingBonds(WLNGraph &graph){
     WLNSymbol *sym = graph.SYMBOLS[i];
     WLNEdge *edge = 0; 
 
-    if(sym->ch == '#')
-      continue; 
+    switch (sym->ch){
+      case 'X':
+      case 'Y':
+      case '#':
+        break;
 
-    for(unsigned int ei=0;ei<sym->barr_n;ei++){
-      edge = &sym->bond_array[ei]; 
-      if( (edge->child->ch == 'O' ||
-          edge->child->ch ==  'P'  || 
-          edge->child->ch ==  'N'  || 
-          edge->child->ch ==  'S') &&
-          edge->child->num_edges == 1 && edge->child->charge == 0)
-      {
-        while((sym->num_edges < sym->allowed_edges && edge->order < 3) && 
-          (edge->child->num_edges < edge->child->allowed_edges)){
-          if(!unsaturate_edge(edge,1))
-            return false;
+      default:
+        for(unsigned int ei=0;ei<sym->barr_n;ei++){
+          edge = &sym->bond_array[ei]; 
+          if( (edge->child->ch == 'O' ||
+              edge->child->ch ==  'P'  || 
+              edge->child->ch ==  'N'  || 
+              edge->child->ch ==  'S') &&
+              edge->child->num_edges == 1 && edge->child->charge == 0)
+          {
+            while((sym->num_edges < sym->allowed_edges && edge->order < 3) && 
+              (edge->child->num_edges < edge->child->allowed_edges)){
+              if(!unsaturate_edge(edge,1))
+                return false;
+            }
+          }
         }
-      }
-    }
 
-    for(unsigned int ei=0;ei<sym->parr_n;ei++){
-      edge = &sym->prev_array[ei]; 
-      if( (edge->child->ch == 'O' ||
-          edge->child->ch ==  'P'  || 
-          edge->child->ch ==  'N'  || 
-          edge->child->ch ==  'S') &&
-          edge->child->num_edges == 1 && edge->child->charge == 0)
-      {
-        while((sym->num_edges < sym->allowed_edges && edge->order < 3) && 
-          (edge->child->num_edges < edge->child->allowed_edges)){
-          if(!unsaturate_edge(edge,1))
-            return false;
+        for(unsigned int ei=0;ei<sym->parr_n;ei++){
+          edge = &sym->prev_array[ei]; 
+          if( (edge->child->ch == 'O' ||
+              edge->child->ch ==  'P'  || 
+              edge->child->ch ==  'N'  || 
+              edge->child->ch ==  'S') &&
+              edge->child->num_edges == 1 && edge->child->charge == 0)
+          {
+            while((sym->num_edges < sym->allowed_edges && edge->order < 3) && 
+              (edge->child->num_edges < edge->child->allowed_edges)){
+              if(!unsaturate_edge(edge,1))
+                return false;
+            }
+          }
         }
-      }
     }
   }
   return true;
