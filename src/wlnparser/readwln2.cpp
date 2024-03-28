@@ -4653,6 +4653,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(!branch_stack.empty())
       {
+        // for implied closures:
+        // If we are on the last branch that a symbol could have, a '&' also pops it off the stack
+
+        // options that happen here; 
+        // 1 ) close a branch and return to the top of the branch stack
+        // 2 ) we are already at the top of the branch stack, in which case we pop it off
+        // 3 ) there is no symbol in the branch stack, in which case we pop a ring
+
+
         if(branch_stack.top().first){
           branch_stack.pop();
           prev = return_object_symbol(branch_stack);
@@ -4916,7 +4925,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             if(graph.SYMBOLS[cs]->str_position == (unsigned int)positive_index){
               graph.SYMBOLS[cs]->charge++;
 #if OPT_DEBUG
-              fprintf(stderr,"assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
+              fprintf(stderr,"  assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
 #endif
               found = true;
               break;
@@ -5228,6 +5237,8 @@ struct BabelGraph{
         atomic_num = 6;
         hcount = 4- sym->num_edges;
         charge = sym->charge; 
+        if(charge < 0)
+          hcount+= charge; 
         break; 
 
         if(sym->charge < 0 && hcount > 0)
@@ -5241,7 +5252,13 @@ struct BabelGraph{
 
       case 'Y':
         atomic_num = 6;
-        hcount = 4 - sym->num_edges;
+        charge = sym->charge; 
+        hcount = 4 - sym->num_edges + sym->explicit_H;
+        if(charge > 0){
+          for(unsigned int c=0;c<charge;c++)
+            if(hcount > 0)
+              hcount--; 
+        }
         break;
 
       case 'N':
@@ -5250,7 +5267,7 @@ struct BabelGraph{
           sym->allowed_edges = 3;
         charge = sym->charge; 
 
-        if(!hcount && sym->aromatic && sym->num_edges < sym->allowed_edges)
+        if(!hcount && sym->aromatic && sym->num_edges < sym->allowed_edges && sym->charge==0)
           hcount = 1; // allows allow 1 H in aromatic species 
         break;
 

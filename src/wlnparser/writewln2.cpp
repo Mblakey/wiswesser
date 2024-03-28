@@ -875,7 +875,7 @@ bool WriteBabelDotGraph(OBMol *mol){
 // uses old NM functions from previous methods: Copyright (C) NextMove Software 2019-present
 struct BabelGraph{
   
-  OBMol *glob_mol; 
+  bool modern; 
   std::map<OBAtom*,bool> atoms_seen;
   std::map<OBRing*,bool> rings_seen; 
   std::map<OBAtom*,int>  remaining_branches; // tracking for branch pop
@@ -883,11 +883,11 @@ struct BabelGraph{
 
   // recursion tracking
   unsigned int last_cycle_seen;
-  bool modern; 
+  unsigned int stack_burn;
 
   BabelGraph(){
-    glob_mol = 0; 
     last_cycle_seen = 0; 
+    stack_burn = 0; 
     modern = 0; 
   };
   ~BabelGraph(){};
@@ -922,9 +922,9 @@ struct BabelGraph{
           if( (orders == 0 || orders == 1)){
             return 'Z'; 
           }
-          else if(orders == 2 && atom->GetFormalCharge()==0)
+          else if(orders == 2 && atom->GetFormalCharge()<=0)
               return 'M';
-          else if(orders == 3 && atom->GetFormalCharge()==0)
+          else if(orders == 3 && atom->GetFormalCharge()<=0)
             return 'N';
           else if(atom->GetFormalCharge() == +1 && orders <= 4)
             return 'K';
@@ -1553,6 +1553,8 @@ struct BabelGraph{
                       OBAtom **locant_path, unsigned int path_size){
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
+
+#if RING_RECURSION
     //##################################
     //      INDIRECT RECURSION TRACKING
 
@@ -1562,7 +1564,7 @@ struct BabelGraph{
         last_cycle_seen--; 
       }
     }
-
+#endif
     if(locant && locant != '0' && b_order > 0){ // allows OM through
       buffer+=' ';
       write_locant(locant,buffer);
@@ -1590,7 +1592,7 @@ struct BabelGraph{
       atom = atom_stack.top(); 
       atom_stack.pop();
       atoms_seen[atom] = true;
-
+    
       if(prev){
         bond = mol->GetBond(prev,atom); 
         if(!bond && !branch_stack.empty()){
@@ -1647,6 +1649,7 @@ struct BabelGraph{
             Fatal("failed to make inline ring");
         }
 
+#if RING_RECURSION
         if(!atom_stack.empty()){
           if(last_cycle_seen > cycle_num){
             while(last_cycle_seen != cycle_num){
@@ -1654,9 +1657,10 @@ struct BabelGraph{
               last_cycle_seen--; 
             }
           }
-          if(!branch_stack.empty())
-            prev = return_open_branch(branch_stack);
-        }
+#endif
+        if(!branch_stack.empty())
+          prev = return_open_branch(branch_stack);
+        
         continue;
       }
         
@@ -1997,41 +2001,32 @@ struct BabelGraph{
     if(require_macro_closure)
       buffer += 'J';
     
-
     // burn the branch stack here, recursion takes care of the rest 
     // may be over cautious
         
     if(!branch_stack.empty()){
-      OBAtom *last_stack = return_open_branch(branch_stack);
-      if(last_stack && last_stack != prev){
+      OBAtom *top = return_open_branch(branch_stack);
+      if(top && atom != top){
         switch (wln_character) {
-          case 'E':
-          case 'F':
-          case 'G':
-          case 'H':
-          case 'I':
-          case 'Q':
-          case 'Z':
-          case 'W':
-            break;
+            case 'E':
+            case 'F':
+            case 'G':
+            case 'H':
+            case 'I':
+            case 'Q':
+            case 'Z':
+            case 'W':
+              break;
 
-          case '1':
-          case 'M':
-          case 'V':
-          case 'O':
-            if(atom->GetExplicitDegree() < 2){
-              buffer += '&'; 
-            }
-            break;
-
-          default:
-            buffer += '&';
+            default:
+              buffer += '&';
         }
       }
 
       while(!branch_stack.empty()){
-        if(remaining_branches[branch_stack.top()] > 0)
+        if(remaining_branches[branch_stack.top()] > 0){
           buffer += '&';
+        }
         branch_stack.pop(); 
       }
     }
@@ -2665,6 +2660,10 @@ struct BabelGraph{
 
     }
     
+
+    // lets try this
+    buffer += '&'; // close the ring everytime 
+
     free(pd.locant_path);  
     return true;
   }
