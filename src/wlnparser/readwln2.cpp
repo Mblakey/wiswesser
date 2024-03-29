@@ -187,10 +187,13 @@ struct WLNRing
   unsigned int aromatic_atoms;
   unsigned int *adj_matrix; 
   
+  // quick ring perception
   std::vector<unsigned char> assignment_locants;
   std::vector<unsigned int> assignment_digits;
+  
   std::map<unsigned char, WLNSymbol *>      locants; 
   std::map<WLNSymbol*,unsigned char>        locants_ch;
+  std::map<WLNSymbol*,unsigned int>         position_offset; // gives hetero position in the string
 
   bool spiro;
   WLNEdge *macro_return;
@@ -200,6 +203,7 @@ struct WLNRing
   unsigned int pseudo_points;
   unsigned int bridge_points;
   unsigned int loc_count;
+
   std::string str_notation; // used for write back
 
   WLNRing(){
@@ -2346,7 +2350,8 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           WLNSymbol *zero_carbon = AllocateWLNSymbol('C',graph);
           zero_carbon->allowed_edges = 3; 
           zero_carbon = assign_locant(positional_locant++,zero_carbon,ring);
-          zero_carbon->str_position = (start+i+1); 
+          zero_carbon->str_position = (start+i+1);
+          ring->position_offset[zero_carbon] = i; 
           zero_carbon->charge--; 
         }
         locant_attached = false;
@@ -2481,6 +2486,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->str_position = (start+i+1); 
+              ring->position_offset[new_locant] = i; 
 
               if(ch == 'P')
                 new_locant->allowed_edges = 5;
@@ -2501,6 +2507,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 4;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              ring->position_offset[new_locant] = i; 
               break;
 
             case 'Z': // treat as NH2
@@ -2512,6 +2519,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              ring->position_offset[new_locant] = i; 
               new_locant->explicit_H = 2; 
               break;
 
@@ -2525,6 +2533,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              ring->position_offset[new_locant] = i; 
               break;
 
             case 'M':
@@ -2534,6 +2543,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1);
               new_locant->explicit_H = 1; 
+              ring->position_offset[new_locant] = i; 
               break;
 
             case 'O':
@@ -2546,6 +2556,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 2;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              ring->position_offset[new_locant] = i; 
               break;
 
         
@@ -2587,6 +2598,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 new_locant->allowed_edges = 2;
                 new_locant->inRing = ring;
                 new_locant->str_position = (start+i+1); 
+                ring->position_offset[new_locant] = i; 
               }
               else
                 new_locant = ring->locants[positional_locant];
@@ -2597,6 +2609,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
               dioxo->allowed_edges = 3;
               dioxo->inRing = ring;
+              ring->position_offset[dioxo] = i; 
               if(!AddEdge(dioxo, new_locant))
                 return Fatal(start+i,"Error: failed to create bond");
 
@@ -4635,7 +4648,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         else if (!branch_stack.empty() && branch_stack.top().first){
           // there either must be a ring here to pop, or the branch stack is empty and we error
-          fprintf(stderr,"popped the ring!\n"); 
           branch_stack.pop(); // pop off the ring
           prev = return_object_symbol(branch_stack); // return to any open branches
           ring = branch_stack.ring; // assign the ring
@@ -5733,7 +5745,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
       break;
 
     case 'B':
-      if(sym->allowed_edges>2){
+      if(sym->allowed_edges>3){
         buffer += '-';
         buffer += sym->ch;
         sym->str_position = buffer.size(); 
@@ -5823,6 +5835,13 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
           branching_symbols.pop(); 
         }
 
+
+        while(  !branching_symbols.empty() && 
+                sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
+        {
+          branching_symbols.pop(); 
+        }
+
         if(!branching_symbols.empty())
           node = branching_symbols.top();
         else 
@@ -5874,12 +5893,11 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
       while(  !branching_symbols.empty() && 
               sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
       {
-        //buffer += '&';
         branching_symbols.pop(); 
       }
 
       if(!branching_symbols.empty()){
-        if(!(IsTerminator(node) || node->ch == 'W') ){
+        if( !(IsTerminator(node) || node->ch == 'W') ){ 
           buffer+= '&';
         }
 
@@ -5910,7 +5928,12 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
     buffer += ring->str_notation[0];
     buffer += '-'; 
   }
-  
+ 
+  // reaassign the positions for charges within the ring --
+  //
+  for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++){
+    ring->locants[ch]->str_position = buffer.size() + ring->position_offset[ring->locants[ch]] + 1; 
+  } 
   buffer += ring->str_notation; 
 
   // add all the locants to the seen map, prevents back tracking within the ring structure
@@ -6050,7 +6073,7 @@ void WritePostCharges(WLNGraph &wln_graph, std::string &buffer){
         buffer += "/0"; 
       }
     }
-    else if (pos->charge < 0){
+    else if (pos->charge < 0 && !(pos->charge == -1 && pos->inRing && pos->ch == 'C')){
       for(unsigned int i=0;i<abs(pos->charge);i++){
         buffer += " &0/";
         buffer += std::to_string(pos->str_position); 
