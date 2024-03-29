@@ -1957,8 +1957,9 @@ struct BabelGraph{
       carbon_chain = 0;
     }
 
-    if(require_macro_closure)
+    if(require_macro_closure){
       buffer += 'J';
+    }
     
     // burn the branch stack here, recursion takes care of the rest 
     // may be over cautious
@@ -1985,6 +1986,7 @@ struct BabelGraph{
       while(!branch_stack.empty()){
         if(remaining_branches[branch_stack.top()] > 0){
           buffer += '&';
+          std::cerr << buffer << std::endl; 
         }
         branch_stack.pop(); 
       }

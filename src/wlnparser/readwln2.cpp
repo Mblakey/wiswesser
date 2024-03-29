@@ -2956,6 +2956,8 @@ bool ResolveHangingBonds(WLNGraph &graph){
       case 'X':
       case 'Y':
       case '#':
+      case 'C':
+      case '1': // same for ring carbons
         break;
 
       default:
@@ -3343,10 +3345,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       curr->allowed_edges = 6; // can hold a triple bond on either side
 
       if(prev){
-        if(prev == branch_stack.branch){
-          while(!branch_stack.top().second && !branch_stack.empty())
-            branch_stack.pop();
-        }
         
         if(!AddEdge(curr, prev))
           return Fatal(i, "Error: failed to bond to previous symbol");
@@ -3431,11 +3429,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           
           if(prev){
-            if(prev == branch_stack.branch){
-              while(!branch_stack.top().second && !branch_stack.empty())
-                branch_stack.pop();
-            }
-        
+    
             if(!AddEdge(curr, prev))
               return Fatal(i, "Error: failed to bond to previous symbol");
             
@@ -3495,11 +3489,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4; // change methyl addition
         if(prev){
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-          
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
           
@@ -3533,11 +3522,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -3586,11 +3570,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
           
@@ -3636,11 +3615,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->explicit_H = 1; 
 
         if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -3692,11 +3666,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         if(prev){
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
           
@@ -3743,11 +3712,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           if(prev->ch == 'N')
             prev->allowed_edges++;
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -3808,11 +3772,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(prev->ch == 'W')
             curr->allowed_edges++;
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-          
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
           
@@ -3861,11 +3820,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
           
@@ -3912,11 +3866,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -3965,11 +3914,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->explicit_H = 2; // this should be a better way
 
         if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -4024,11 +3968,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
 
@@ -4077,11 +4016,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 3;
 
         if(prev){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -4133,11 +4067,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
         if(prev){
 
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
-
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
 
@@ -4183,11 +4112,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 4;
 
         if(prev && i < len - 1){
-
-          if(prev == branch_stack.branch){
-            while(!branch_stack.top().second && !branch_stack.empty())
-              branch_stack.pop();
-          }
 
           if(!AddEdge(curr, prev))
             return Fatal(i, "Error: failed to bond to previous symbol");
@@ -4714,6 +4638,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         }
         else if (!branch_stack.empty() && branch_stack.top().first){
           // there either must be a ring here to pop, or the branch stack is empty and we error
+          fprintf(stderr,"popped the ring!\n"); 
           branch_stack.pop(); // pop off the ring
           prev = return_object_symbol(branch_stack); // return to any open branches
           ring = branch_stack.ring; // assign the ring
@@ -4745,10 +4670,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: cannot access looping ring structure");
         
           if(prev){  
-            if(prev == branch_stack.branch){
-              while(!branch_stack.top().second && !branch_stack.empty())
-                branch_stack.pop();
-            }
 
             if(!AddEdge(curr, prev))
               return Fatal(i, "Error: failed to bond to previous symbol");
@@ -4862,10 +4783,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               edge = &prev->bond_array[prev->barr_n-1]; 
             }
             else{
-              if(prev == branch_stack.branch){
-                while(!branch_stack.top().second && !branch_stack.empty())
-                  branch_stack.pop();
-              }
               if(!AddEdge(curr, prev))
                 return Fatal(i, "Error: failed to bond to previous symbol");
               edge = &prev->bond_array[prev->barr_n-1]; 
@@ -4965,10 +4882,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     curr->allowed_edges = 6; // can hold a triple bond on either side
     
     if(prev){
-      if(prev == branch_stack.branch){
-        while(!branch_stack.top().second && !branch_stack.empty())
-          branch_stack.pop();
-      }
 
       if(!AddEdge(curr, prev))
         return Fatal(i, "Error: failed to bond to previous symbol");
