@@ -1632,15 +1632,6 @@ struct BabelGraph{
             Fatal("failed to make inline ring");
         }
 
-#if RING_RECURSION
-        if(!atom_stack.empty()){
-          if(last_cycle_seen > cycle_num){
-            while(last_cycle_seen != cycle_num){
-              buffer+='&';
-              last_cycle_seen--; 
-            }
-          }
-#endif
         if(!branch_stack.empty())
           prev = return_open_branch(branch_stack);
         
@@ -1737,6 +1728,7 @@ struct BabelGraph{
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 2 - correction; 
             branch_stack.push(atom);
+            branching_atom[atom] = true;
           }
           break;
 
@@ -2002,7 +1994,6 @@ struct BabelGraph{
 
             default:
               buffer += '&';
-              fprintf(stderr,"one here?\n"); 
         }
       }
 
