@@ -2277,6 +2277,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 return Fatal(i+start, "Error: could not create hypervalent element");
               
               new_locant->str_position = start+i+1+1;
+              ring->position_offset[new_locant] = i+1;
               if(OPT_DEBUG)
                 fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
             }
@@ -2313,6 +2314,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 return Fatal(i+start, "Error: could not create periodic code element");
 
               new_locant->str_position = start+i + 1+1; // attaches directly to the starting letter
+              ring->position_offset[new_locant] = i+1;
     
               if(OPT_DEBUG)
                 fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
