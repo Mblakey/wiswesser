@@ -1642,11 +1642,6 @@ struct BabelGraph{
       unsigned int correction = 0; 
       wln_character =  WriteSingleChar(atom);
       atom_chars[atom] = wln_character; 
-#if WSYMBOL
-      unsigned int Wgroups = CountDioxo(atom);
-#else
-      unsigned int Wgroups = 0; 
-#endif
     
       if(prev && bond)
         correction = bond->GetBondOrder() - 1;
@@ -1697,7 +1692,7 @@ struct BabelGraph{
           }
 
           prev = atom;
-          if(!Wgroups && CheckCarbonyl(atom))
+          if(CheckCarbonyl(atom))
             buffer += 'V';
           else{
             buffer += wln_character;
@@ -1749,6 +1744,7 @@ struct BabelGraph{
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 2 - correction; 
             branch_stack.push(atom);
+            branching_atom[atom] = true;
           }
           break;
 
@@ -1765,7 +1761,7 @@ struct BabelGraph{
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
           
-          // K now given for all positive nitrogen
+          // K now given for all positive nitrogen - NO!
           if(atom->GetTotalDegree() > 1){
             remaining_branches[atom] += 3 - correction;
             branching_atom[atom] = true; 
@@ -1906,17 +1902,6 @@ struct BabelGraph{
           return 0; 
       }
 
-      if(Wgroups){
-        for(unsigned int i=0;i<Wgroups;i++){
-          buffer+='W';
-          wln_character = 'W'; 
-          remaining_branches[atom] += -3;
-        }
-        OBAtom *ret = return_open_branch(branch_stack);
-        if(ret)
-          prev = ret; 
-      }
-        
       // here we ask, is this bonded to a ring atom that is not 'spawned from'
       FOR_NBORS_OF_ATOM(a,atom){
         OBAtom *nbor = &(*a);
