@@ -5640,6 +5640,21 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
   return se; 
 }
 
+void static write_locant(unsigned char locant,std::string &buffer){
+  if(locant < 'X')
+    buffer += locant;
+  else{
+    unsigned int amps = 0;
+    while(locant >= 'X'){
+      amps++; 
+      locant+= -23;
+    }
+    buffer += locant; 
+    for(unsigned int i=0;i<amps;i++)
+      buffer += '&';
+  }
+}
+
 
 void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
   unsigned int modifier = 0; 
@@ -5729,6 +5744,19 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
         sym->str_position = buffer.size(); 
       }
       break;
+    
+    case 'N':
+      if(sym->allowed_edges>3){
+        buffer += '-';
+        buffer += sym->ch;
+        sym->str_position = buffer.size(); 
+        buffer += '-';
+      }
+      else{
+        buffer += sym->ch;
+        sym->str_position = buffer.size(); 
+      }
+      break;
 
     case 'M':
       buffer += sym->ch;
@@ -5807,8 +5835,8 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
         if(edge->child->inRing){
           
           buffer += '-';
-          buffer += ' '; 
-          buffer += edge->child->inRing->locants_ch[edge->child];
+          buffer += ' ';
+          write_locant(edge->child->inRing->locants_ch[edge->child], buffer); 
           
           if(edge == edge->child->inRing->macro_return || edge->reverse == edge->child->inRing->macro_return)
             buffer += "-x-J";
@@ -5887,8 +5915,64 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
 
   // add all the locants to the seen map, prevents back tracking within the ring structure
   std::map<WLNSymbol*,bool> seen_locants; 
-  for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++) 
-    seen_locants[ring->locants[ch]] = true; 
+  for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++){ 
+    // add the hydrogens here
+    WLNSymbol *lc = ring->locants[ch]; 
+    seen_locants[lc] = true; 
+    switch(lc->ch){
+      case '1':
+        break; // ring carbons
+
+      case 'M':
+        for(unsigned int h=1;h<lc->explicit_H;h++){
+          buffer += " ";
+          write_locant(ch, buffer); 
+          buffer += 'H';
+        }
+        break;
+
+
+      case 'Z':
+        for(unsigned int h=2;h<lc->explicit_H;h++){
+          buffer += " ";
+          write_locant(ch, buffer); 
+          buffer += 'H';
+        }
+        break;
+
+      case 'P':
+        if(lc->explicit_H & 1)
+          break;
+        else{
+          for(unsigned int h=0;h<lc->explicit_H;h++){
+            buffer += " ";
+            write_locant(ch, buffer); 
+            buffer += 'H';
+          }
+        }
+        break;
+
+      case 'S':
+        if( !(lc->explicit_H & 1))
+          break;   
+        else{   
+          for(unsigned int h=0;h<lc->explicit_H;h++){
+            buffer += " ";
+            write_locant(ch, buffer); 
+            buffer += 'H';
+          }
+        }
+        break;
+
+      default:
+        for(unsigned int h=0;h<lc->explicit_H;h++){
+          buffer += " ";
+          write_locant(ch, buffer); 
+          buffer += 'H';
+        }
+        break;
+      }
+  }
   
   // spiro can then be sorted with a ignore clause on the locant atom, as the first ring instance can handle
   // the R groups. 
@@ -5911,7 +5995,7 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
 
       if(!e->child->inRing){
         buffer += ' '; 
-        buffer += ch; 
+        write_locant(ch, buffer); 
         
         for(unsigned int i=1;i<e->order;i++){
           buffer += 'U';
@@ -5921,7 +6005,7 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
       }
       else if(locant->spiro && e->child->inRing->locants_ch[locant]){
         buffer += ' ';
-        buffer += ch;
+        write_locant(ch, buffer); 
         buffer += "-&"; 
         buffer += ' '; 
         buffer += e->child->inRing->locants_ch[locant];
@@ -5930,15 +6014,15 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
       }
       else if (e->child->inRing != node->inRing){
         buffer += ' '; 
-        buffer += ch;
+        write_locant(ch, buffer); 
         
         for(unsigned int i=1;i<e->order;i++)
           buffer += 'U';
       
         buffer += '-';
         buffer += ' ';
-        buffer += e->child->inRing->locants_ch[e->child];
-        
+        write_locant(e->child->inRing->locants_ch[e->child], buffer); 
+
         if(e != e->child->inRing->macro_return && e->reverse != e->child->inRing->macro_return){
           CanonicalWLNRing(e->child, graph,locant,buffer); // ignore where we've come from
         }

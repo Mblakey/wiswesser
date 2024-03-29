@@ -2703,6 +2703,10 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   
   if(!MODERN)
     obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
+  
+  // remove any un-needed pops
+  while(buffer.back() == '&')
+    buffer.pop_back(); 
 
   delete mol_copy; 
   return true; 

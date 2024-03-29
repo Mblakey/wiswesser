@@ -16,10 +16,10 @@ process_arguments() {
         # Display a help message
         echo "Usage: file.sh <options> <file>"
         echo "options"
-        echo "  -r, --read       read wln to smiles"
-        echo "  -w, --write      write smiles to wln"
-        echo "  -c, --canonical  read wln and canonicalise"
-        echo "  -fo,--fail-only  only show fails to stdout"
+        echo "  -r, --read          read wln to smiles"
+        echo "  -w, --write         write smiles to wln"
+        echo "  -c, --canonical     read wln and canonicalise"
+        echo "  -fo,--fail-only     only show fails to stdout"
         exit 0;
         ;;
       -r|--read)
