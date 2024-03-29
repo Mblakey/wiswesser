@@ -1631,6 +1631,10 @@ struct BabelGraph{
           if(!RecursiveParse(atom,spawned_from,mol,true,buffer))
             Fatal("failed to make inline ring");
         }
+        
+        // this should count as a branch?, lets see - doesnt seem
+        // if(prev) 
+        //   remaining_branches[prev]--; // reduce the branches remaining  
 
         if(!branch_stack.empty())
           prev = return_open_branch(branch_stack);
@@ -1920,8 +1924,14 @@ struct BabelGraph{
             }
 
             OBBond *macro_bond = mol->GetBond(atom, nbor);
-            if(macro_bond->GetBondOrder() > 1)
+            if(branching_atom[atom])
+              remaining_branches[atom]--; 
+
+            if(macro_bond->GetBondOrder() > 1){
               buffer += 'U'; 
+              if(branching_atom[atom] && atom->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
+                remaining_branches[prev]--;
+            }
 
             buffer += '-';
             buffer += ' ';
@@ -1986,7 +1996,6 @@ struct BabelGraph{
       while(!branch_stack.empty()){
         if(remaining_branches[branch_stack.top()] > 0){
           buffer += '&';
-          std::cerr << buffer << std::endl; 
         }
         branch_stack.pop(); 
       }
