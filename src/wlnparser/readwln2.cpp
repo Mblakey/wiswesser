@@ -241,7 +241,7 @@ struct WLNRing
       unsigned int r = i;
       unsigned char loc_a = int_to_locant(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
-      if(rsym->ch == 'S') // for now lets see
+      if(rsym->ch == 'S' || (rsym->ch == 'N' && rsym->charge < 0)) // for now lets see
         continue;
       
       if(rsym->aromatic && rsym->num_edges < rsym->allowed_edges){
@@ -250,7 +250,7 @@ struct WLNRing
           WLNEdge *redge = &rsym->bond_array[ei];
           WLNSymbol *csym = redge->child; 
 
-          if(csym->ch == 'S' || redge->order > 1)
+          if(csym->ch == 'S' || redge->order > 1 || (csym->ch == 'N' && csym->charge < 0))
             continue;
         
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
