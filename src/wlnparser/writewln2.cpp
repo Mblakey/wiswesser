@@ -1585,9 +1585,6 @@ struct BabelGraph{
             carbon_chain = 0;
           }
           
-          fprintf(stderr,"prev is atom: %d with %d valence and %d degree\n",
-              prev->GetAtomicNum(),prev->GetExplicitValence(),prev->GetExplicitDegree()); 
-          
           // a closure is any symbol that you would expect to have a symbol on either side
           // e.g 2N2 or even 2UUN<...> since N normally has two symbols either side it requires 
           // a closure, this can be stated with a degree check, terminators are not considered here
@@ -1826,7 +1823,15 @@ struct BabelGraph{
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
           
-          remaining_branches[atom] += 5 - correction; // octdhedral max geometry 
+          switch (atom->GetAtomicNum()) {
+            case 8:
+              remaining_branches[atom] += 2 - correction; // oxygen gets expanded to 3 only
+              break;
+
+            default:
+              remaining_branches[atom] += 5 - correction; // octdhedral max geometry 
+          }
+            
           branching_atom[atom] = true;
           branch_stack.push(atom);
           break;
