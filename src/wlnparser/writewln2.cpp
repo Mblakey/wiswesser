@@ -1724,11 +1724,9 @@ struct BabelGraph{
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
 
-          if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 2 - correction; 
-            branch_stack.push(atom);
-            branching_atom[atom] = true;
-          }
+          remaining_branches[atom] += 2 - correction; 
+          branch_stack.push(atom);
+          branching_atom[atom] = true;
           break;
 
 
@@ -1744,12 +1742,10 @@ struct BabelGraph{
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
-
-          if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 2 - correction; 
-            branch_stack.push(atom);
-            branching_atom[atom] = true;
-          }
+         
+          remaining_branches[atom] += 2 - correction; 
+          branch_stack.push(atom);
+          branching_atom[atom] = true;
           break;
 
         case 'K':
@@ -1766,11 +1762,9 @@ struct BabelGraph{
             buffer += 'H'; 
           
           // K now given for all positive nitrogen - NO!
-          if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 3 - correction;
-            branching_atom[atom] = true; 
-            branch_stack.push(atom);
-          }
+          remaining_branches[atom] += 3 - correction;
+          branching_atom[atom] = true; 
+          branch_stack.push(atom);
           atom->SetFormalCharge(0); // remove the charge, as this is expected 
           break;
         
@@ -1787,11 +1781,9 @@ struct BabelGraph{
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
           
-          if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 4 - correction; 
-            branching_atom[atom] = true;
-            branch_stack.push(atom);
-          }
+          remaining_branches[atom] += 4 - correction; 
+          branching_atom[atom] = true;
+          branch_stack.push(atom);
           break;
 
         case 'S':
@@ -1806,11 +1798,9 @@ struct BabelGraph{
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
 
-          if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 5 - correction; 
-            branching_atom[atom] = true;
-            branch_stack.push(atom);
-          }          
+          remaining_branches[atom] += 5 - correction; 
+          branching_atom[atom] = true;
+          branch_stack.push(atom);
           break;
 
         case '*':
@@ -1824,11 +1814,9 @@ struct BabelGraph{
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
           
-          if(atom->GetTotalDegree() > 1){
-            remaining_branches[atom] += 5 - correction; 
-            branching_atom[atom] = true;
-            branch_stack.push(atom);
-          }
+          remaining_branches[atom] += 5 - correction; // octdhedral max geometry 
+          branching_atom[atom] = true;
+          branch_stack.push(atom);
           break;
           
 // terminators
