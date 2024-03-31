@@ -914,15 +914,15 @@ struct BabelGraph{
           return 'X';
       
       case 7:
-          if( (orders == 0 || orders == 1)){
+          if(orders <= 1){
             return 'Z'; 
           }
-          else if (orders > 4)
-            return '*';
           else if(orders == 2 && atom->GetImplicitHCount() == 1)
               return 'M';
           else if(atom->GetFormalCharge() == +1 && orders == 4)
             return 'K';
+          else if (orders >= 4)
+            return '*';
           else 
             return 'N';
       
@@ -1579,13 +1579,25 @@ struct BabelGraph{
       if(prev){
         bond = mol->GetBond(prev,atom); 
         if(!bond && !branch_stack.empty()){
+          
           if(carbon_chain){
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
-
-          if(!branching_atom[prev])
+          
+          fprintf(stderr,"prev is atom: %d with %d valence and %d degree\n",
+              prev->GetAtomicNum(),prev->GetExplicitValence(),prev->GetExplicitDegree()); 
+          
+          // a closure is any symbol that you would expect to have a symbol on either side
+          // e.g 2N2 or even 2UUN<...> since N normally has two symbols either side it requires 
+          // a closure, this can be stated with a degree check, terminators are not considered here
+          if(!branching_atom[prev]  )
             buffer += '&'; // requires a closure 
+          else if (!branch_stack.empty() && prev == branch_stack.top() && prev->GetExplicitDegree() == 1){
+            buffer += '&'; 
+            branch_stack.pop(); // returns immedietely
+          }
+
           while(!branch_stack.empty()){
             prev = branch_stack.top();
             if(mol->GetBond(atom,prev)){
@@ -1964,6 +1976,7 @@ struct BabelGraph{
         
     if(!branch_stack.empty()){
       OBAtom *top = return_open_branch(branch_stack);
+      
       if(top && prev != top){
         switch (wln_character) {
             case 'E':
