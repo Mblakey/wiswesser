@@ -10,7 +10,7 @@ const char *input;
 const char *dotfile;
 unsigned int mode = 0; 
 
-#define DEFLATE 0 
+#define DEFLATE 1 
 
 static void DisplayUsage()
 {

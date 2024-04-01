@@ -11,7 +11,6 @@ typedef struct{
   unsigned char symbol;
   unsigned int lstart;
   unsigned int dstart; 
-
   unsigned int lbits;
   unsigned int dbits;
 } LLBucket; 

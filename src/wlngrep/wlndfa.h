@@ -297,6 +297,10 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
     cyclic->AddTransition(hetero_element_a,hetero_element_b,ch);
   }
 
+
+  
+  cyclic->AddTransition(cycle_double_bond,hetero_open_dash,'-');
+  
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'P');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'S');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'E');
@@ -308,6 +312,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'E');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'O');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'B');
+  cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'N');
 
 
   cyclic->AddTransition(hetero_hypervalent,hetero_close_dash,'-');
@@ -501,8 +506,9 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   // macro ring
   FSMState *macro_size = wln->AddState(false); 
   FSMState *macro_close = wln->AddState(true); 
-  for(unsigned char ch = 'A';ch <= 'Z';ch++)
+  for(unsigned char ch = 'A';ch <= 'Z';ch++){
     wln->AddTransition(inline_locant, macro_size, ch);
+  }
 
   wln->AddTransition(macro_size, macro_size,'-'); 
   
@@ -526,6 +532,7 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   wln->AddTransition(macro_pass_through, macro_close, 'J'); 
   wln->AddTransition(macro_size, macro_close, 'J'); 
   wln->AddTransition(macro_close, locant_open, ' '); 
+  wln->AddTransition(macro_close, acyclic_ring_root, 0); 
 
 
   wln->AddTransition(inline_open,inline_locant,' '); // make use of the epsilons here
@@ -535,6 +542,11 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   FSMState *spiro_open = wln->AddState(false); 
   FSMState *spiro_confirm = wln->AddState(false); 
   FSMState *spiro_locant = wln->AddState(false); 
+
+
+  for(unsigned char ch = 'A';ch <= 'Z';ch++){
+    wln->AddTransition(spiro_locant, macro_open, ch);
+  }
 
   // out of line U- bonding 
   FSMState *out_double = wln->AddState(false); 

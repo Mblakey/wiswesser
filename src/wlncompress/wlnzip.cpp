@@ -9,7 +9,7 @@
 const char *input;
 unsigned int mode = 0; 
 
-#define DEFLATE 0  
+#define DEFLATE 0
 
 static void DisplayUsage()
 {
@@ -116,7 +116,7 @@ int main(int argc, char *argv[]){
     }
 
     if(!WLNinflate(fp, wlnmodel)){
-      fprintf(stderr,"Error: failed to compress file\n"); 
+      fprintf(stderr,"Error: failed to decompress file\n"); 
       return 1;
     }
 
