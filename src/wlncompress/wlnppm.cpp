@@ -9,12 +9,11 @@
 #include "wlnzip.h"
 
 #define NGRAM 5
-#define PPM 1
-#define ALPHABET 43
-#define TERMINATE '#'
+#define PPM 0
+#define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
 #define ASCII_EXCLUDES 1
-#define ESCAPE 'C'
+#define ESCAPE 'A'
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
@@ -58,8 +57,14 @@ Node* UpdateCurrentContext(Node *root, unsigned char *lookback, unsigned int see
 
 
 BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){ 
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#"; // TERMINATE = 'x'
   wlnmodel->AssignEqualProbs();
+
+  unsigned int ALPHABET = 0; 
+  char model_chars [255] = {0};
+  for(unsigned int i=0;i<255;i++)
+    if(wlnmodel->alphabet[i]){
+      model_chars[ALPHABET++] = i; 
+    }
   
   BitStream *bitstream = (BitStream*)malloc(sizeof(BitStream)); 
   bitstream->b = 0; 
@@ -106,8 +111,8 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
     if(!curr_context){
       T = ALPHABET-excluded; 
       for (unsigned int i=0; i<ALPHABET; i++){
-        if(!ascii_exclude[wln[i]]){
-          if(wln[i] == ch){
+        if(!ascii_exclude[model_chars[i]]){
+          if(model_chars[i] == ch){
             Cn += 1;
             break;
           }
@@ -184,7 +189,11 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
     Cn += Cc;
     
     if(!found){
-      fprintf(stderr,"Error: invalid wln notation - %c\n",ch);
+      fprintf(stderr,"Error: invalid character - %c\n",ch);
+      for(unsigned int i=0;i<ALPHABET;i++){
+        if(ch == model_chars[i])
+          fprintf(stderr,"  is in alphabet\n"); 
+      }
       return (BitStream*)0;
     }
 #endif
@@ -297,9 +306,16 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
 
 bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
    
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#";
   wlnmodel->AssignEqualProbs(); // you moron
 
+  unsigned int ALPHABET = 0; 
+  char model_chars [255] = {0};
+  for(unsigned int i=0;i<255;i++)
+    if(wlnmodel->alphabet[i]){
+      model_chars[ALPHABET++] = i; 
+    }
+
+  
   FSMState *state = wlnmodel->root;
   FSMEdge *edge = 0 ;
 
@@ -355,20 +371,20 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
     
     if(!curr_context){
       for(unsigned int a=0;a<ALPHABET;a++){
-        if(!ascii_exclude[wln[a]]){
+        if(!ascii_exclude[model_chars[a]]){
           Cn += 1; 
           if(scaled_sym >= Cc && scaled_sym < Cn){
 
-            if(wln[a] == TERMINATE)
+            if(model_chars[a] == TERMINATE)
               return true;
             else{
-              fputc(wln[a],stdout);
+              fputc(model_chars[a],stdout);
               if(seen_context < NGRAM)
-                lookback[seen_context++] = wln[a];
+                lookback[seen_context++] = model_chars[a];
               else{   
                 for(unsigned int i=0;i<NGRAM-1;i++)
                   lookback[i] = lookback[i+1]; 
-                lookback[NGRAM-1] = wln[a];  
+                lookback[NGRAM-1] = model_chars[a];  
               }
              
               BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
@@ -534,9 +550,17 @@ void print_bits(unsigned char *ch){
 
 bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#"; // TERMINATE = '#', EXCLUSION = 'e'
-  wlnmodel->AssignEqualProbs(); // you moron
+  wlnmodel->AssignEqualProbs();
    
+  unsigned int ALPHABET = 0; 
+  char model_chars [255] = {0};
+  for(unsigned int i=0;i<255;i++){
+    if(wlnmodel->alphabet[i]){
+      model_chars[ALPHABET++] = i; 
+    }
+  }
+
+  
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
   
@@ -546,7 +570,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
   unsigned int seen_context = 0;
   unsigned char lookback[NGRAM+1] = {0}; 
-  bool ascii_exclude[256] = {false};  // for exclusion mechanism
+  bool ascii_exclude[255] = {false};  // for exclusion mechanism
   unsigned int excluded = 0; 
 
   bool stop = false;
@@ -580,8 +604,8 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     if(!curr_context){
       T = ALPHABET-excluded; 
       for (unsigned int i=0; i<ALPHABET; i++){
-        if(!ascii_exclude[wln[i]]){
-          if(wln[i] == ch){
+        if(!ascii_exclude[model_chars[i]]){
+          if(model_chars[i] == ch){
             Cn += 1;
             break;
           }
@@ -655,7 +679,11 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     Cn += Cc;
     
     if(!found){
-      fprintf(stderr,"Error: invalid wln notation - char: %c, accept?: %d\n",ch, state->accept);
+      fprintf(stderr,"Error: invalid character at FSM pos - char: %c, accept?: %d\n",ch, state->accept);
+      for(unsigned int i=0;i<ALPHABET;i++){
+        if(ch == model_chars[i])
+          fprintf(stderr,"  is in alphabet\n"); 
+      }
       return false;
     }
 #endif
@@ -758,8 +786,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         ch = TERMINATE; 
         stop = true;
       }
-      else
-        read_bytes++; 
     }
 #endif
   }
@@ -785,9 +811,15 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
 bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
-  const char *wln = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&/- x\n#";
   wlnmodel->AssignEqualProbs(); // you moron
+  unsigned int ALPHABET = 0; 
+  char model_chars [255] = {0};
+  for(unsigned int i=0;i<255;i++)
+    if(wlnmodel->alphabet[i]){
+      model_chars[ALPHABET++] = i; 
+    }
 
+  
   FSMState *state = wlnmodel->root;
   FSMEdge *edge = 0 ;
   
@@ -854,19 +886,19 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     
     if(!curr_context){
       for(unsigned int a=0;a<ALPHABET;a++){
-        if(!ascii_exclude[wln[a]]){
+        if(!ascii_exclude[model_chars[a]]){
           Cn += 1; 
           if(scaled_sym >= Cc && scaled_sym < Cn){
-            if(wln[a] == TERMINATE)
+            if(model_chars[a] == TERMINATE)
               return true;
             else{
-              fputc(wln[a],stdout);
+              fputc(model_chars[a],stdout);
               if(seen_context < NGRAM)
-                lookback[seen_context++] = wln[a];
+                lookback[seen_context++] = model_chars[a];
               else{   
                 for(unsigned int i=0;i<NGRAM-1;i++)
                   lookback[i] = lookback[i+1]; 
-                lookback[NGRAM-1] = wln[a];  
+                lookback[NGRAM-1] = model_chars[a];  
               }
               BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
               memset(ascii_exclude,0,255);

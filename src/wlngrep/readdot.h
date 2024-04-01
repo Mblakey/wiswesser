@@ -61,8 +61,10 @@ bool ParseEdges(const char *inp, FSMAutomata *fsm){
             l = fsm->states[i]; 
         }
         
+        if(transition == 127)
+          fprintf(stderr,"we got a problem\n"); 
+
         fsm->AddTransition(f, l, transition);
-        fprintf(stderr,"assigning: %d - %c-> %d\n",first_state,transition,second_state); 
     }
   }
   fclose(fp);

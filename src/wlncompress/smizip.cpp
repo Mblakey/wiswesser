@@ -1,19 +1,20 @@
-
 #include <stdlib.h>
 #include <stdio.h> 
 
+#include "readdot.h"
 #include "rfsm.h"
 #include "wlndfa.h"
 #include "wlnzip.h"
 
 const char *input;
+const char *dotfile;
 unsigned int mode = 0; 
 
 #define DEFLATE 0 
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "wlnzip <options> <input> > <out>\n");
+  fprintf(stderr, "smizip <options> <input> <savefile> > <out>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c   compress input\n");
   fprintf(stderr, "  -d   decompress input\n");
@@ -27,6 +28,7 @@ static void ProcessCommandLine(int argc, char *argv[])
   int i,j;
 
   input = (const char *)0;
+  dotfile = (const char *)0;
 
   j = 0;
   for (i = 1; i < argc; i++)
@@ -55,6 +57,9 @@ static void ProcessCommandLine(int argc, char *argv[])
         case 0:
           input = ptr; 
           break;
+        case 1:
+          dotfile = ptr; 
+          break;
         default:
           fprintf(stderr,"Error: multiple files not currently supported\n");
           exit(1);
@@ -62,7 +67,7 @@ static void ProcessCommandLine(int argc, char *argv[])
     }
   }
   
-  if(!input){
+  if(!input || !dotfile){
     fprintf(stderr,"Error: no input file given\n");
     DisplayUsage();
   }
@@ -80,16 +85,16 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   
   FILE *fp = 0; 
-  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
+  FSMAutomata *smimodel = FSMFromDotFile(dotfile); 
 
-  for(unsigned int i=0;i<wlnmodel->num_states;i++){
-    if(wlnmodel->states[i]->accept){
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,'\n');
-      wlnmodel->AddTransition(wlnmodel->states[i],wlnmodel->root,127);
+  for(unsigned int i=0;i<smimodel->num_states;i++){
+    if(smimodel->states[i]->accept){
+      smimodel->AddTransition(smimodel->states[i],smimodel->root,'\n');
+      smimodel->AddTransition(smimodel->states[i],smimodel->root,127);
     }
   }
   
-  wlnmodel->AddTransition(wlnmodel->root,wlnmodel->root,127);  // using the DEL symbol to terminate string
+  smimodel->AddTransition(smimodel->root,smimodel->root,127);  // x is a chosen terminal here, can change
 
 #if DEFLATE // experimental, for comparison only
   if(mode == 1){
@@ -100,7 +105,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
     
-    if(!WLNdeflate(fp, wlnmodel)){
+    if(!WLNdeflate(fp, smimodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -115,7 +120,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
 
-    if(!WLNinflate(fp, wlnmodel)){
+    if(!WLNinflate(fp, smimodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -135,7 +140,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
     
-    if(!WLNPPMCompressFile(fp, wlnmodel)){
+    if(!WLNPPMCompressFile(fp, smimodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -150,7 +155,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
 
-    if(!WLNPPMDecompressFile(fp, wlnmodel)){
+    if(!WLNPPMDecompressFile(fp, smimodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -159,11 +164,11 @@ int main(int argc, char *argv[]){
   }
   else if (mode == 3){
      
-    BitStream *bitstream = WLNPPMCompressBuffer(input, wlnmodel);
+    BitStream *bitstream = WLNPPMCompressBuffer(input, smimodel);
     if(!bitstream)
       return 1; 
    
-    if(!WLNPPMDecompressBuffer(bitstream, wlnmodel))
+    if(!WLNPPMDecompressBuffer(bitstream, smimodel))
       return 1; 
     
     fprintf(stdout,"\n"); 
@@ -171,6 +176,6 @@ int main(int argc, char *argv[]){
   }
 #endif
 
-  delete wlnmodel;
+  delete smimodel;
   return 0;
 }

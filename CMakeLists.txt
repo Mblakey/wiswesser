@@ -43,6 +43,15 @@ add_executable(wlnzip
 )
 
 
+add_executable(smizip 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/smizip.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlndeflate.cpp 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/lempelz.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/context_trie.cpp
+)
+
 #add_executable(compareFP
 #  ${PROJECT_SOURCE_DIR}/src/wlnFP/compareFP.cpp
 #  ${PROJECT_SOURCE_DIR}/src/wlnFP/wlnFP.cpp
