@@ -914,7 +914,7 @@ struct BabelGraph{
           return 'X';
       
       case 7:
-          if(orders <= 1){
+          if(orders <= 1 && atom->GetImplicitHCount() == 2){
             return 'Z'; 
           }
           else if(orders == 2 && atom->GetImplicitHCount() == 1)

@@ -278,7 +278,7 @@ struct WLNBlossom{
 
   WLNBlossom(int _n){
     n = _n;
-    m = n+n / 2;
+    m = +n+ (n / 2);
     mate.assign(n,-1); 
 
     b.resize(m);
@@ -372,8 +372,9 @@ struct WLNBlossom{
         vx.push_back(b[z][i]);
         i = (i + dif) % k;
         safety--;
-        if(!safety)
+        if(!safety){
           return {};
+        }
       }
       vx.push_back(b[z][i]);
     }
@@ -3258,18 +3259,20 @@ bool WLNKekulize(WLNGraph &graph){
           }
         }
       }
+      
 
       for(unsigned int i = 0; i<wring->rsize;i++){
         if(MatchR[i] > 0){
-          WLNSymbol *f = wring->locants[int_to_locant(i+1)];
-          WLNSymbol *s = wring->locants[int_to_locant(MatchR[i]+1)];
+          unsigned char floc = int_to_locant(i+1);
+          unsigned char sloc = int_to_locant(MatchR[i]+1);
+          
+          WLNSymbol *f = wring->locants[floc];
+          WLNSymbol *s = wring->locants[sloc];
           if(f && s){
 #if OPT_DEBUG
-          fprintf(stderr,"  aromatic locants: %c --> %c\n",int_to_locant(i+1),int_to_locant(MatchR[i]+1)); 
+          fprintf(stderr,"  aromatic locants: %c --> %c\n",floc,sloc); 
 #endif
             WLNEdge *edge = search_edge(f,s);
-            if(!edge)
-              fprintf(stderr,"invalid search"); 
             if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
               return false;
           }
