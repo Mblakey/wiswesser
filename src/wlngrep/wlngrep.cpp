@@ -9,7 +9,7 @@
 #include "rfsm.h"
 #include "wlnmatch.h"
 #include "wlndfa.h"
-
+#include "read_file.h" 
 
 const char *filename;
 unsigned int lines_parsed = 0; 
@@ -19,51 +19,6 @@ unsigned int opt_match_option = 0; // 0 - return whole line, 1 - return matches 
 unsigned int opt_count        = 0;
 unsigned int opt_string_file  = 0;
 unsigned int opt_invert_match  = 0;
-
-bool ReadLineFromFile(FILE *fp, char *buffer, unsigned int n, bool add_nl=true){
-  char *end = buffer+n;
-  char *ptr;
-  int ch;
-
-  ptr = buffer;
-  do {
-    ch = getc_unlocked(fp); // this increments fp
-    if (ch == '\n') {
-      if (add_nl)
-        *ptr++ = '\n'; // if i want the newline or not
-      *ptr = '\0';
-      return true;
-    }
-    if (ch == '\f') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return true;
-    }
-
-    if (ch == '\r') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      ch = getc_unlocked(fp);
-      if (ch != '\n') {
-        if (ch == -1)
-          return false;
-        ungetc(ch,fp);
-      }
-      return true;
-    }
-    if (ch == -1) {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return ptr-buffer > 1;
-    }
-    *ptr++ = ch;
-  } while (ptr < end);
-  *ptr = 0;
-  
-  fprintf(stderr, "Warning: line too long!\n");
-  return false;
-}
-
 
 static bool MatchFile(FILE *fp,FSMAutomata *machine){
 
@@ -151,6 +106,8 @@ static void ProcessCommandLine(int argc, char *argv[])
             opt_invert_match = true;
           else if(!strcmp(ptr,"--string"))
             opt_string_file = 1;
+          else if(!strcmp(ptr,"--dot-override"))
+            opt_string_file = 1;
           break;
 
         default:
@@ -178,14 +135,15 @@ static void ProcessCommandLine(int argc, char *argv[])
 int main(int argc, char* argv[])
 {
   ProcessCommandLine(argc,argv); 
-
-  FSMAutomata *wlnDFA = CreateWLNDFA(REASONABLE,REASONABLE);
-  if(!wlnDFA || wlnDFA->type != DFA)
+  
+  FSMAutomata *fsm = 0; 
+  fsm = CreateWLNDFA(REASONABLE,REASONABLE);
+  if(!fsm || fsm->type != DFA)
     return 1;
 
   if(opt_dump){
     fprintf(stderr,"machines dumped, exiting\n");
-    delete wlnDFA;
+    delete fsm;
     return 0;
   }
 
@@ -196,17 +154,17 @@ int main(int argc, char* argv[])
       return 1; 
     }
 
-    MatchFile(fp,wlnDFA);
+    MatchFile(fp,fsm);
     fprintf(stderr,"%d lines parsed\n",lines_parsed);
 
     fclose(fp);
   }
   else{
-    unsigned int matches = DFAGreedyMatchLine(filename,wlnDFA,isatty(0),opt_invert_match,opt_match_option,opt_count);
+    unsigned int matches = DFAGreedyMatchLine(filename,fsm,isatty(0),opt_invert_match,opt_match_option,opt_count);
     if(opt_count)
       fprintf(stderr,"%d matches\n",matches);
   }
 
-  delete wlnDFA; 
+  delete fsm; 
   return 0;
 }

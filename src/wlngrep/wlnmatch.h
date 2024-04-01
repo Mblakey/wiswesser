@@ -169,26 +169,44 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
   return match;
 }
 
+/* takes in input word and creates an epsilon bonded NFA
+- used for grep style word searching */
+bool ReadWord(const char *inp, FSMAutomata *nfa){
+  if(!nfa->root)
+    nfa->root = nfa->AddState(0);
 
-  /* takes in input word and creates an epsilon bonded NFA
-  - used for grep style word searching */
-  bool ReadWord(const char *inp, FSMAutomata *nfa){
-    if(!nfa->root)
-      nfa->root = nfa->AddState(0);
-
-    unsigned char ch = *inp;
-    FSMState *prev = nfa->AddState();
-    nfa->AddTransition(nfa->root,prev,0);
-    FSMState *q = 0;
-    while(ch){
-      q = nfa->AddState();
-      nfa->AddTransition(prev,q,ch);
-      prev = q;
-      ch = *(++inp);
-    }
-
-    nfa->MakeAccept(q);
-    return true;
+  unsigned char ch = *inp;
+  FSMState *prev = nfa->AddState();
+  nfa->AddTransition(nfa->root,prev,0);
+  FSMState *q = 0;
+  while(ch){
+    q = nfa->AddState();
+    nfa->AddTransition(prev,q,ch);
+    prev = q;
+    ch = *(++inp);
   }
+
+  nfa->MakeAccept(q);
+  return true;
+}
+
+// creates sequences between two nodes, binds them with epsilion transitions
+bool AttachSequence(const char *inp, FSMAutomata *nfa, FSMState *start, FSMState *end){
+
+  unsigned char ch = *inp;
+  FSMState *prev = nfa->AddState();
+  nfa->AddTransition(start,prev,0); // first epsilion
+  FSMState *q = 0;
+  while(ch){
+    q = nfa->AddState();
+    nfa->AddTransition(prev,q,ch);
+    prev = q;
+    ch = *(++inp);
+  }
+
+  nfa->MakeAccept(q);
+  nfa->AddTransition(q, end,0); 
+  return true;
+}
 
 #endif

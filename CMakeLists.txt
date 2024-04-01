@@ -25,9 +25,10 @@ add_executable(writewln
 )
 
 
-add_executable(wlntree 
-  ${PROJECT_SOURCE_DIR}/src/wlnparser/wlnFT.cpp 
-)
+# add_executable(wlntree 
+#   ${PROJECT_SOURCE_DIR}/src/wlnparser/wlnFT.cpp 
+# )
+
 
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/wlnparser/obcomp.cpp)
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
@@ -78,6 +79,6 @@ endif()
 
 
 target_compile_definitions(readwln PRIVATE ERRORS=1)
-target_compile_definitions(wlntree PRIVATE ERRORS=1)
+# target_compile_definitions(wlntree PRIVATE ERRORS=1)
 #target_compile_definitions(wlngen PRIVATE ERRORS=0)
 

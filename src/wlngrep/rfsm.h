@@ -214,7 +214,7 @@ struct FSMAutomata{
     FSMEdge *edge = 0; 
    
     if(num_edges == max_edges){
-      fprintf(stderr,"Error: overflowing edge memory! allocate more space\n");
+      fprintf(stderr,"Error: overflowing edge memory! allocate more space > %d\n",max_edges);
       return 0;
     }
     
