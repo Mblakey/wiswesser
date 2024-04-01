@@ -43,8 +43,8 @@ add_executable(wlnzip
 )
 
 
-add_executable(smizip 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/smizip.cpp
+add_executable(dotzip 
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/dotzip.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlndeflate.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlncompress/lempelz.cpp

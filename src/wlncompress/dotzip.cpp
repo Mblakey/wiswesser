@@ -14,7 +14,7 @@ unsigned int mode = 0;
 
 static void DisplayUsage()
 {
-  fprintf(stderr, "smizip <options> <input> <savefile> > <out>\n");
+  fprintf(stderr, "dotzip <options> <input> <savefile> > <out>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, "  -c   compress input\n");
   fprintf(stderr, "  -d   decompress input\n");
@@ -85,16 +85,16 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   
   FILE *fp = 0; 
-  FSMAutomata *smimodel = FSMFromDotFile(dotfile); 
+  FSMAutomata *dotmodel = FSMFromDotFile(dotfile); 
 
-  for(unsigned int i=0;i<smimodel->num_states;i++){
-    if(smimodel->states[i]->accept){
-      smimodel->AddTransition(smimodel->states[i],smimodel->root,'\n');
-      smimodel->AddTransition(smimodel->states[i],smimodel->root,127);
+  for(unsigned int i=0;i<dotmodel->num_states;i++){
+    if(dotmodel->states[i]->accept){
+      dotmodel->AddTransition(dotmodel->states[i],dotmodel->root,'\n');
+      dotmodel->AddTransition(dotmodel->states[i],dotmodel->root,127);
     }
   }
   
-  smimodel->AddTransition(smimodel->root,smimodel->root,127);  // x is a chosen terminal here, can change
+  dotmodel->AddTransition(dotmodel->root,dotmodel->root,127);  // x is a chosen terminal here, can change
 
 #if DEFLATE // experimental, for comparison only
   if(mode == 1){
@@ -105,7 +105,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
     
-    if(!WLNdeflate(fp, smimodel)){
+    if(!WLNdeflate(fp, dotmodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -120,7 +120,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
 
-    if(!WLNinflate(fp, smimodel)){
+    if(!WLNinflate(fp, dotmodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -140,7 +140,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
     
-    if(!WLNPPMCompressFile(fp, smimodel)){
+    if(!WLNPPMCompressFile(fp, dotmodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -155,7 +155,7 @@ int main(int argc, char *argv[]){
       return 1;
     }
 
-    if(!WLNPPMDecompressFile(fp, smimodel)){
+    if(!WLNPPMDecompressFile(fp, dotmodel)){
       fprintf(stderr,"Error: failed to compress file\n"); 
       return 1;
     }
@@ -164,11 +164,11 @@ int main(int argc, char *argv[]){
   }
   else if (mode == 3){
      
-    BitStream *bitstream = WLNPPMCompressBuffer(input, smimodel);
+    BitStream *bitstream = WLNPPMCompressBuffer(input, dotmodel);
     if(!bitstream)
       return 1; 
    
-    if(!WLNPPMDecompressBuffer(bitstream, smimodel))
+    if(!WLNPPMDecompressBuffer(bitstream, dotmodel))
       return 1; 
     
     fprintf(stdout,"\n"); 
@@ -176,6 +176,6 @@ int main(int argc, char *argv[]){
   }
 #endif
 
-  delete smimodel;
+  delete dotmodel;
   return 0;
 }
