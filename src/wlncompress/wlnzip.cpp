@@ -9,7 +9,7 @@
 const char *input;
 unsigned int mode = 0; 
 
-#define DEFLATE 0 
+#define DEFLATE 0  
 
 static void DisplayUsage()
 {
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]){
   ProcessCommandLine(argc, argv);
   
   FILE *fp = 0; 
-  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE*2,REASONABLE*4); // build the model 
+  FSMAutomata *wlnmodel = CreateWLNDFA(REASONABLE,REASONABLE); // build the model 
 
   for(unsigned int i=0;i<wlnmodel->num_states;i++){
     if(wlnmodel->states[i]->accept){

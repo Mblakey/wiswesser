@@ -9,7 +9,7 @@
 #include "wlnzip.h"
 
 #define NGRAM 5
-#define PPM 1
+#define PPM 0
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
 #define ASCII_EXCLUDES 1

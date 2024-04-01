@@ -15,7 +15,7 @@ of regular languages, handles DFA, NFA, eNFA
 #include <stack>
 #include <map>
 
-#define REASONABLE 8192
+#define REASONABLE 16384
 
 enum FSMType{DFA=0,NFA=1,eNFA=2};
 

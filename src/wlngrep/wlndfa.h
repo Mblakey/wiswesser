@@ -48,6 +48,7 @@ FSMState * InsertAcyclic(FSMAutomata *acyclic){
   acyclic->AddTransition(open_dash,hypervalent,'E');
   acyclic->AddTransition(open_dash,hypervalent,'O');
   acyclic->AddTransition(open_dash,hypervalent,'B');
+  acyclic->AddTransition(open_dash,hypervalent,'N');
 
   // close both dash blocks
   acyclic->AddTransition(hypervalent,close_dash,'-');
@@ -275,16 +276,18 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 
   // special cases for specified double bond locations
   FSMState *cycle_double_bond         = cyclic->AddState(false); // AU...
+  FSMState *cycle_triple_bond         = cyclic->AddState(false); // AUU...
   FSMState *db_specifier              = cyclic->AddState(false); //  AU- ...
   FSMState *db_specifier_space        = cyclic->AddState(false); //  AU- ...
   FSMState *db_end_locant             = cyclic->AddState(false); // AU- A
 
   cyclic->AddTransition(pair_loc_b,hetero_space,' ');
-
   cyclic->AddTransition(db_end_locant,db_end_locant,'&'); // expand
-
   cyclic->AddTransition(ring_digits,hetero_open_dash,'-'); // L6P
-                                                                  // 
+  
+  cyclic->AddTransition(cycle_double_bond,cycle_triple_bond,'U'); // AUU...
+  
+   
   cyclic->AddTransition(big_ring_dash_close,hetero_open_dash,'-'); // L-6-P
   cyclic->AddTransition(ring_digits,cycle_double_bond,'U'); // L6P
   cyclic->AddTransition(big_ring_dash_close,cycle_double_bond,'U'); // L-6-P
@@ -300,6 +303,8 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'F');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'G');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'I');
+  cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'E');
+  cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'O');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'E');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'O');
   cyclic->AddTransition(hetero_open_dash,hetero_hypervalent,'B');
@@ -337,6 +342,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
         cyclic->AddTransition(big_ring_dash_close,hetero_atom,ch); // L-6-P
         cyclic->AddTransition(hetero_close_dash,hetero_atom,ch);
         cyclic->AddTransition(cycle_double_bond,hetero_atom,ch);
+        cyclic->AddTransition(cycle_triple_bond,hetero_atom,ch);
         cyclic->AddTransition(db_specifier_space,hetero_atom,ch);
         cyclic->AddTransition(pi_bond,hetero_atom,ch);
         break; // direct connections
@@ -346,6 +352,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
   // double bonding methods
 
   cyclic->AddTransition(cycle_double_bond,hetero_space,' ');
+  cyclic->AddTransition(cycle_triple_bond,hetero_space,' ');
   cyclic->AddTransition(hetero_atom,cycle_double_bond,'U');
   cyclic->AddTransition(hetero_close_dash,cycle_double_bond,'U');
   cyclic->AddTransition(hetero_locant,cycle_double_bond,'U');
@@ -353,6 +360,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 
   // specifier bonds
   cyclic->AddTransition(cycle_double_bond,db_specifier,'-');
+  cyclic->AddTransition(cycle_triple_bond,db_specifier,'-');
   cyclic->AddTransition(db_specifier,db_specifier_space,' ');
 
   for(unsigned char ch = 'A';ch<='Z';ch++)
@@ -402,6 +410,8 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 
   cyclic->AddTransition(cycle_double_bond,aromatics,'&');
   cyclic->AddTransition(cycle_double_bond,aromatics,'T');
+  cyclic->AddTransition(cycle_triple_bond,aromatics,'&');
+  cyclic->AddTransition(cycle_triple_bond,aromatics,'T');
 
   cyclic->AddTransition(db_specifier_space,aromatics,'&');
   cyclic->AddTransition(db_specifier_space,aromatics,'T');
@@ -432,6 +442,7 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
 
   // ALL CLOSURES
   cyclic->AddTransition(ring_digits,close_ring,'J');
+  cyclic->AddTransition(db_end_locant,close_ring,'J');
   cyclic->AddTransition(multi_size,close_ring,'J'); //  L6' '2AAAA' 'PJ
   cyclic->AddTransition(hetero_atom,close_ring,'J'); // L6PJ
   cyclic->AddTransition(hetero_close_dash,close_ring,'J');
@@ -450,12 +461,17 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
 
   wln->AddState(); // create a root that points with epsiolon transitions to each block
 
-  
   FSMState *cyclic_root = InsertCyclic(wln);
   wln->AddTransition(wln->root,cyclic_root,0); // e-transition
+  
+  FSMState *macro_open = wln->AddState(false); 
+  FSMState *macro_dash = wln->AddState(false);
+  wln->AddTransition(macro_open, macro_dash,'T');
+  wln->AddTransition(macro_open, macro_dash,'L');
+  wln->AddTransition(macro_dash, cyclic_root,'-');
 
-
-  // only one possible
+  wln->AddTransition(wln->root,macro_open,0); // e-transition
+  
   FSMState *cycle_accept = 0;
   for(unsigned int i=0;i<wln->num_states;i++){
     if(wln->states[i]->accept)
@@ -463,7 +479,7 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   }
 
   // out out of ring cycle accepts
-  FSMState *multiple_closures = wln->AddState(false);
+  FSMState *multiple_closures = wln->AddState(true);
   wln->AddTransition(cycle_accept,multiple_closures,'&'); // instant closures
   wln->AddTransition(multiple_closures,multiple_closures,'&'); // instant closures
 
@@ -473,18 +489,44 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   FSMState *locant_open = wln->AddState(false); 
   FSMState *locant_char = wln->AddState(false); 
 
-
   wln->AddTransition(multiple_closures,locant_open,' '); 
-
   wln->AddTransition(locant_char,locant_char,'&'); // expansion
 
   FSMState *acyclic_ring_root = InsertAcyclic(wln);
-
   wln->AddTransition(multiple_closures,acyclic_ring_root,0);
   
-
   FSMState *inline_open = wln->AddState(false); 
   FSMState *inline_locant = wln->AddState(false); 
+
+  // macro ring
+  FSMState *macro_size = wln->AddState(false); 
+  FSMState *macro_close = wln->AddState(true); 
+  for(unsigned char ch = 'A';ch <= 'Z';ch++)
+    wln->AddTransition(inline_locant, macro_size, ch);
+
+  wln->AddTransition(macro_size, macro_size,'-'); 
+  
+  for(unsigned char ch = '0'; ch <= '9'; ch++)
+    wln->AddTransition(macro_size, macro_size,ch); 
+
+  wln->AddTransition(macro_size, macro_size,'x'); 
+  wln->AddTransition(macro_close, macro_close,'&');
+
+  FSMState *macro_pass_through = wln->AddState();
+
+  for(unsigned char ch = 'A';ch <= 'Z';ch++)
+    wln->AddTransition(macro_pass_through, macro_pass_through, ch); 
+
+  for(unsigned char ch = '0';ch <= '9';ch++)
+    wln->AddTransition(macro_pass_through, macro_pass_through, ch); 
+  
+  wln->AddTransition(macro_pass_through, macro_pass_through, '&'); 
+  
+  wln->AddTransition(macro_size, macro_pass_through,0); 
+  wln->AddTransition(macro_pass_through, macro_close, 'J'); 
+  wln->AddTransition(macro_size, macro_close, 'J'); 
+  wln->AddTransition(macro_close, locant_open, ' '); 
+
 
   wln->AddTransition(inline_open,inline_locant,' '); // make use of the epsilons here
   
@@ -517,6 +559,7 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     wln->AddTransition(locant_open,locant_char,ch);
     wln->AddTransition(inline_locant,cyclic_root,ch); 
+    wln->AddTransition(inline_locant,macro_open,ch); 
     wln->AddTransition(spiro_locant,cyclic_root,ch); 
   }
 
@@ -577,8 +620,7 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   
   if(charges_on){
     wln->AddTransition(charge,charge_open,'&'); 
-
-    for(unsigned char i='0';i<='9';i++){
+    for(unsigned int i='0';i<='9';i++){
       wln->AddTransition(charge_open,charge_positive,i); 
       wln->AddTransition(charge_seperate,charge_negative,i); 
       
