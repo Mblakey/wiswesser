@@ -43,6 +43,13 @@ add_executable(wlnzip
 )
 
 
+add_executable(wlnpaq6
+  ${PROJECT_SOURCE_DIR}/src/wlncompress/paq6.cpp
+)
+
+set_target_properties(wlnpaq6 PROPERTIES COMPILE_FLAGS "-m32" LINK_FLAGS "-m32") 
+
+
 add_executable(dotzip 
   ${PROJECT_SOURCE_DIR}/src/wlncompress/dotzip.cpp
   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 

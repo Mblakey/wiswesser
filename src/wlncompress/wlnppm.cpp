@@ -655,7 +655,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
 // ################################################
 
-    // standard arithmetic coder 32 bit int. 
+    // standard arithmetic coder 16 bit int, 32 bit calcs 
     unsigned int range = ((unsigned int)high+1)-(unsigned int)low;
     unsigned int new_low = (unsigned int)low + (unsigned int)floor((range*Cc)/T); 
     unsigned int new_high = (unsigned int)low + (unsigned int)floor((range*Cn)/T)-1;  
@@ -713,7 +713,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
       
 // #################################################################################
     if(!encoding_escape){
-
       if(seen_context < NGRAM)
         lookback[seen_context++] = ch;
       else{      
