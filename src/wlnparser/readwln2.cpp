@@ -6087,6 +6087,44 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
 
         CanonicalWLNRing(e->child, graph,locant,buffer); // ignore where we've come from
       }
+      else if(e->child->inRing != node->inRing && e->child->inRing->str_notation == "L6J"){
+        buffer += ' '; 
+        write_locant(ch, buffer); 
+        
+        for(unsigned int i=1;i<e->order;i++)
+          buffer += 'U';
+
+        // incoming == 'A' locant need to be rearranged          
+        
+        // locants are rotated from the incoming position, C = A, therefore D = B etc
+        unsigned char incoming_char = e->child->inRing->locants_ch[e->child]; 
+        
+        std::vector<std::pair<WLNSymbol*,unsigned char>> new_positions; 
+        if(incoming_char != 'A'){
+        // wrap the locants around 
+          WLNRing * benzene =e->child->inRing;
+          for (unsigned char ch = 'A'; ch <= 'F'; ch++){
+            if(ch < incoming_char){
+              unsigned char new_loc = (ch-incoming_char) + 'F'+1;   
+              new_positions.push_back({benzene->locants[ch],new_loc}); 
+            }
+            else{
+              unsigned char new_loc = (ch-incoming_char) + 'A';   
+              new_positions.push_back({benzene->locants[ch],new_loc}); 
+            }
+          }
+          
+          // seems a bit like bullying, but does work
+          benzene->locants.clear();
+          benzene->locants_ch.clear(); 
+          for (std::pair<WLNSymbol*,unsigned char> p : new_positions){
+            benzene->locants[p.second] = p.first;
+            benzene->locants_ch[p.first] = p.second; 
+          }
+        }
+
+        CanonicalWLNRing(e->child, graph, e->parent, buffer);
+      }
       else if (e->child->inRing != node->inRing){
         buffer += ' '; 
         write_locant(ch, buffer); 
