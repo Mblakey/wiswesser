@@ -8,10 +8,12 @@
 #include "ctree.h"
 #include "wlnzip.h"
 
-#define NGRAM 5
+#define NGRAM 6
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
 #define FSM_EXCLUSION 1
+#define FSM_ADAPT 1
+#define ESCAPE_INCREASE 0
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
@@ -109,11 +111,29 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
     
     // order- -1 model, escape is not needed here 
     if(!curr_context){
+#if FSM_ADAPT
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]) 
+          T+= e->c; 
+      }
+      
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]){ 
+          if(e->ch == ch){
+            Cn += 1;
+            break;
+          }
+          else
+            Cc += 1;
+        }
+      }
+      Cn+= Cc;
+#else
       for(unsigned int a=0;a<255;a++){
         if(wlnmodel->alphabet[a] && !ascii_exclude[a])
-          T+= 1; 
+          T+= 1; // based on a context all equally likely, perhaps not true 
       }
-
+      
       for(unsigned int a=0;a<255;a++){
         if(wlnmodel->alphabet[a] && !ascii_exclude[a]){
           if(a == ch){
@@ -125,7 +145,7 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
         }
       }
       Cn+= Cc;
-
+#endif
       memset(ascii_exclude, 0, 255); // reset the exclusions
     }
     else{
@@ -149,12 +169,10 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
             break;
           }
           Cc+= cedge->dwn->c;
-
         }
       }
 
       Cn+=Cc; 
-      
       if(!found){
         encoding_escape = true;
         Cn += e_o; // escape probability to high range
@@ -223,7 +241,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
 // #################################################################################
 // PPM trie update happens after an encoding so the decompressor can keep up
     if(!encoding_escape){
-      
       if(seen_context < NGRAM)
         lookback[seen_context++] = ch;
       else{      
@@ -245,6 +262,17 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
       if(stop)
         break; 
       else{
+
+#if FSM_ADAPT
+        for(FSMEdge *e = state->transitions;e;e=e->nxt){
+          if(e->ch == ch){
+            e->c++; 
+            if(e->c == 64)
+              e->c = 12; 
+            break; 
+          }
+        }
+#endif
         state = state->access[ch]; 
         if(!state){
           fprintf(stderr,"Error: invalid state movement - %c\n",ch); 
@@ -539,6 +567,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         ascii_exclude[a] = true; 
     }
 #endif
+
     unsigned int T = 0;
     unsigned int Cc = 0; 
     unsigned int Cn = 0; 
@@ -546,7 +575,25 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
     bool encoding_escape = 0; // this stops ch pointer incrementing
     // order- -1 model, escape is not needed here 
-    if(!curr_context){
+    if(!curr_context){ 
+#if FSM_ADAPT
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]) 
+          T+= e->c; 
+      }
+      
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]){ 
+          if(e->ch == ch){
+            Cn += 1;
+            break;
+          }
+          else
+            Cc += 1;
+        }
+      }
+      Cn+= Cc;
+#else
       for(unsigned int a=0;a<255;a++){
         if(wlnmodel->alphabet[a] && !ascii_exclude[a])
           T+= 1; 
@@ -563,7 +610,7 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         }
       }
       Cn+= Cc;
-
+#endif
       memset(ascii_exclude, 0, 255); // reset the exclusions
     }
     else{
@@ -776,10 +823,17 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int e_o = 1; 
     
     if(!curr_context){
+#if FSM_ADAPT
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]) 
+          T+= e->c; 
+      }  
+#else
       for(unsigned int a=0;a<255;a++){
         if(wlnmodel->alphabet[a] && !ascii_exclude[a])
           T+= 1; 
       }
+#endif
     }
     else{
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
@@ -796,7 +850,37 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int scaled_sym = floor((T*(unsigned int)(encoded-low+1)-1)/range); 
     
     if(!curr_context){
+#if FSM_ADAPT
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]){
+          Cn += 1; 
+          if(scaled_sym >= Cc && scaled_sym < Cn){
+            if(e->ch == TERMINATE)
+              return true;
+            else{  
+              fputc(e->ch,stdout);
+              state = state->access[e->ch]; 
+              if(!state){
+                fprintf(stderr,"Error: invalid state movement - %c\n",e->ch); 
+                return 0; 
+              }
+              if(seen_context < NGRAM) 
+                lookback[seen_context++] = e->ch;
+              else{    
+                for(unsigned int i=0;i<NGRAM-1;i++)
+                  lookback[i] = lookback[i+1]; 
+                lookback[NGRAM-1] = e->ch;  
+              }
 
+              BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
+              memset(ascii_exclude,0,255);
+              curr_context = UpdateCurrentContext(root,lookback,seen_context);    
+              break;
+            }
+          }
+          else
+            Cc += 1;
+#else
       for(unsigned int a=0;a<255;a++){
         if(wlnmodel->alphabet[a] && !ascii_exclude[a]){
           Cn += 1; 
@@ -825,7 +909,8 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
             }
           }
           else
-            Cc += 1; 
+            Cc += 1;
+#endif
         }
       }
     }
