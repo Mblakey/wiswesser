@@ -13,7 +13,6 @@
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
 #define ESCAPE_INCREASE 0
-#define ASCII_EXCLUDES 1
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
@@ -166,7 +165,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
         if(escape_counts[curr_context] == 64)
           escape_counts[curr_context] = 16; 
                    
-#if ASCII_EXCLUDES
       // exclude the characters
         for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -174,7 +172,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
             excluded++;
           }
         }
-#endif
       }
       
       // encoded char will be something just not in the trie, test binded candidancy
@@ -450,7 +447,6 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
         if(escape_counts[curr_context] == 64)
           escape_counts[curr_context] = 16; 
 
-#if ASCII_EXCLUDES
         // must be an escape character, add ascii exclusion and move back a vine
         for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -458,7 +454,6 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
             excluded++; 
           }
         }
-#endif
         curr_context = curr_context->vine;
         Cn += e_o; 
       }
@@ -670,7 +665,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         escape_counts[curr_context]++;
         if(escape_counts[curr_context] == 64)
           escape_counts[curr_context] = 16; 
-#if ASCII_EXCLUDES
       // exclude the characters
         for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -678,7 +672,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
             excluded++;
           }
         }
-#endif
       }
     }
 #else 
@@ -972,14 +965,12 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         if(escape_counts[curr_context] == 64)
           escape_counts[curr_context] = 16;
 
-#if ASCII_EXCLUDES
         for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
             ascii_exclude[cedge->dwn->ch] = true;
             excluded++;
           }
         }
-#endif
         curr_context = curr_context->vine;
         Cn += e_o; 
       }
