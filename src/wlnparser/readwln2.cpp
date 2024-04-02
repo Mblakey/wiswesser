@@ -3260,7 +3260,6 @@ bool WLNKekulize(WLNGraph &graph){
         }
       }
       
-
       for(unsigned int i = 0; i<wring->rsize;i++){
         if(MatchR[i] > 0){
           unsigned char floc = int_to_locant(i+1);
@@ -5856,7 +5855,51 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
         for(unsigned int i=1;i<edge->order;i++)
           buffer += 'U';
 
-        if(edge->child->inRing){
+        // benzene special case; 
+        if(edge->child->inRing && edge->child->inRing->str_notation == "L6J"){
+          // incoming == 'A' locant need to be rearranged          
+          
+          // locants are rotated from the incoming position, C = A, therefore D = B etc
+          unsigned char incoming_char = edge->child->inRing->locants_ch[edge->child]; 
+          
+          std::vector<std::pair<WLNSymbol*,unsigned char>> new_positions; 
+          if(incoming_char != 'A'){
+          // wrap the locants around 
+            WLNRing * benzene =edge->child->inRing;
+            for (unsigned char ch = 'A'; ch <= 'F'; ch++){
+              if(ch < incoming_char){
+                unsigned char new_loc = (ch-incoming_char) + 'F'+1;   
+                new_positions.push_back({benzene->locants[ch],new_loc}); 
+              }
+              else{
+                unsigned char new_loc = (ch-incoming_char) + 'A';   
+                new_positions.push_back({benzene->locants[ch],new_loc}); 
+              }
+            }
+            
+            // seems a bit like bullying, but does work
+            benzene->locants.clear();
+            benzene->locants_ch.clear(); 
+            for (std::pair<WLNSymbol*,unsigned char> p : new_positions){
+              benzene->locants[p.second] = p.first;
+              benzene->locants_ch[p.first] = p.second; 
+            }
+          }
+
+          CanonicalWLNRing(edge->child, graph, edge->parent, buffer);
+          while(  !branching_symbols.empty() && 
+                  sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
+          {
+            //buffer += '&';
+            branching_symbols.pop(); 
+          }
+
+          if(!branching_symbols.empty())
+            node = branching_symbols.top();
+          else
+            node = 0; 
+        }
+        else if(edge->child->inRing){
           
           buffer += '-';
           buffer += ' ';
@@ -5939,7 +5982,11 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
   for(unsigned char ch = 'A';ch < 'A'+ring->rsize;ch++){
     ring->locants[ch]->str_position = buffer.size() + ring->position_offset[ring->locants[ch]] + 1; 
   } 
-  buffer += ring->str_notation; 
+
+  if(!strcmp(ring->str_notation.c_str(),"L6J"))
+    buffer += 'R'; // incoming locant will always be in position A, requires a bit of a re-jig in order to work   
+  else
+    buffer += ring->str_notation; 
 
   // add all the locants to the seen map, prevents back tracking within the ring structure
   std::map<WLNSymbol*,bool> seen_locants; 
@@ -6159,8 +6206,10 @@ std::string FullCanonicalise(WLNGraph &graph){
   WLNRing *sorted_rings[128] = {0};
 
   for (unsigned int i=0;i<graph.ring_count;i++){
-    sorted_rings[r++] = graph.RINGS[i];
-    graph.RINGS[i]->ranking = r; 
+    if(graph.RINGS[i]->str_notation != "L6J"){
+      sorted_rings[r++] = graph.RINGS[i];
+      graph.RINGS[i]->ranking = r; 
+    }
   }
 
   // sort by how many locants, inverse order will likely give the shorter string
@@ -6229,8 +6278,8 @@ std::string FullCanonicalise(WLNGraph &graph){
     }
   }
 
-
-  store += " &"; 
+  if(first_write)
+    store += " &"; 
   ChainOnlyCanonicalise(graph,all_symbols,store); 
   while(store.back() == '&' || store.back() == ' ')
     store.pop_back();
