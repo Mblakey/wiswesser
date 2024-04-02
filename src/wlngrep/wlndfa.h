@@ -454,6 +454,9 @@ FSMState *InsertCyclic(FSMAutomata *cyclic){
   cyclic->AddTransition(aromatics,close_ring,'J');
   cyclic->AddTransition(big_ring_dash_close,close_ring,'J'); // L-6-J
   cyclic->AddTransition(pi_bond,close_ring,'J'); // L-6-J
+  cyclic->AddTransition(cycle_double_bond,close_ring,'J'); // L-6-J
+  cyclic->AddTransition(cycle_triple_bond,close_ring,'J'); // L-6-J
+                                                           //
 
   // move this away into the big structure, allow locants and then branching
   //cyclic->AddTransition(close_ring,close_ring,'&'); // instant closures
