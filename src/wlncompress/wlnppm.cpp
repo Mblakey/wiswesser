@@ -61,14 +61,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
   std::map<Node*, unsigned int> escape_counts; // use for PPMA, C, D
   // technically this is 1 - escape, so do escape_counts[node]++ for C
 
-  unsigned int ALPHABET = 0; 
-  unsigned char model_chars [255] = {0};
-  for(unsigned int i=0;i<255;i++){
-    if(wlnmodel->alphabet[i]){
-      model_chars[ALPHABET++] = i; 
-    }
-  }
-  
   BitStream *bitstream = (BitStream*)malloc(sizeof(BitStream)); 
   bitstream->b = 0; 
   bitstream->nxt = 0; 
@@ -86,7 +78,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
   unsigned int seen_context = 0;
   unsigned char lookback[NGRAM+1] = {0}; 
   bool ascii_exclude[255] = {false};  // for exclusion mechanism
-  unsigned int excluded = 0; 
 
   unsigned char ch = *str;
   read_bytes++; 
@@ -114,10 +105,14 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
     
     // order- -1 model, escape is not needed here 
     if(!curr_context){
-      T = ALPHABET-excluded; 
-      for (unsigned int i=0; i<ALPHABET; i++){
-        if(!ascii_exclude[model_chars[i]]){
-          if(model_chars[i] == ch){
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a])
+          T+= 1; 
+      }
+
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a]){
+          if(a == ch){
             Cn += 1;
             break;
           }
@@ -128,7 +123,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
       Cn+= Cc;
 
       memset(ascii_exclude, 0, 255); // reset the exclusions
-      excluded = 0; 
     }
     else{
       bool found = false;
@@ -169,7 +163,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
         for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
             ascii_exclude[cedge->dwn->ch]= true;
-            excluded++;
           }
         }
       }
@@ -270,8 +263,6 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
 
       BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION); 
       memset(ascii_exclude,0,255);
-      excluded = 0; 
-    
       curr_context = UpdateCurrentContext(root,lookback,seen_context);    
     }
     else
@@ -320,13 +311,6 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
 
   std::map<Node*,unsigned int> escape_counts; 
 
-  unsigned int ALPHABET = 0; 
-  char model_chars [255] = {0};
-  for(unsigned int i=0;i<255;i++){
-    if(wlnmodel->alphabet[i])
-      model_chars[ALPHABET++] = i; 
-  }
-  
   FSMState *state = wlnmodel->root;
   FSMEdge *edge = 0 ;
 
@@ -366,7 +350,10 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
 
 #if PPM
     if(!curr_context){
-      T = ALPHABET-excluded; 
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a])
+          T+= 1; 
+      }
     }
     else{
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
@@ -383,21 +370,22 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
     unsigned int scaled_sym = floor((T*(unsigned int)(encoded-low+1)-1)/range); 
     
     if(!curr_context){
-      for(unsigned int a=0;a<ALPHABET;a++){
-        if(!ascii_exclude[model_chars[a]]){
+
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a]){
           Cn += 1; 
           if(scaled_sym >= Cc && scaled_sym < Cn){
 
-            if(model_chars[a] == TERMINATE)
+            if(a == TERMINATE)
               return true;
             else{
-              fputc(model_chars[a],stdout);
+              fputc(a,stdout);
               if(seen_context < NGRAM)
-                lookback[seen_context++] = model_chars[a];
+                lookback[seen_context++] = a;
               else{   
                 for(unsigned int i=0;i<NGRAM-1;i++)
                   lookback[i] = lookback[i+1]; 
-                lookback[NGRAM-1] = model_chars[a];  
+                lookback[NGRAM-1] = a;  
               }
              
               BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
@@ -568,15 +556,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
    
   std::map<Node*, unsigned int> escape_counts; // use for PPMA, C, D
   
-  unsigned int ALPHABET = 0; 
-  char model_chars [255] = {0};
-  for(unsigned int i=0;i<255;i++){
-    if(wlnmodel->alphabet[i]){
-      model_chars[ALPHABET++] = i; 
-    }
-  }
-
-  
   FSMState *state = wlnmodel->root; 
   FSMEdge *edge = 0;
   
@@ -607,7 +586,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
   
 
   for(;;){
-    
     bool found = 0; 
     unsigned int T = 0;
     unsigned int Cc = 0; 
@@ -618,10 +596,14 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     bool encoding_escape = 0; // this stops ch pointer incrementing
     // order- -1 model, escape is not needed here 
     if(!curr_context){
-      T = ALPHABET-excluded; 
-      for (unsigned int i=0; i<ALPHABET; i++){
-        if(!ascii_exclude[model_chars[i]]){
-          if(model_chars[i] == ch){
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a])
+          T+= 1; 
+      }
+
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a]){
+          if(a == ch){
             Cn += 1;
             break;
           }
@@ -830,14 +812,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
 
   std::map<Node*,unsigned int> escape_counts; 
 
-  unsigned int ALPHABET = 0; 
-  char model_chars [255] = {0};
-  for(unsigned int i=0;i<255;i++){
-    if(wlnmodel->alphabet[i]){
-      model_chars[ALPHABET++] = i; 
-    }
-  }
-  
   FSMState *state = wlnmodel->root;
   FSMEdge *edge = 0 ;
   
@@ -851,7 +825,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
   unsigned int seen_context = 0;   
   unsigned char lookback[NGRAM+1] = {0}; 
   bool ascii_exclude[255] = {false};  // for exclusion mechanism
-  unsigned int excluded = 0; 
 
   Node *root = AllocateTreeNode('0', 0); // place to return to
   Node *curr_context = 0; 
@@ -883,7 +856,10 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int e_o = 1; 
 #if PPM
     if(!curr_context){
-      T = ALPHABET-excluded; 
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a])
+          T+= 1; 
+      }
     }
     else{
       unsigned int scontexts = 0;
@@ -903,25 +879,24 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
     unsigned int scaled_sym = floor((T*(unsigned int)(encoded-low+1)-1)/range); 
     
     if(!curr_context){
-      for(unsigned int a=0;a<ALPHABET;a++){
-        if(!ascii_exclude[model_chars[a]]){
+
+      for(unsigned int a=0;a<255;a++){
+        if(wlnmodel->alphabet[a] && !ascii_exclude[a]){
           Cn += 1; 
           if(scaled_sym >= Cc && scaled_sym < Cn){
-            if(model_chars[a] == TERMINATE)
+            if(a == TERMINATE)
               return true;
-            else{
-              fputc(model_chars[a],stdout);
-              if(seen_context < NGRAM)
-                lookback[seen_context++] = model_chars[a];
-              else{   
+            else{  
+              fputc(a,stdout); 
+              if(seen_context < NGRAM) 
+                lookback[seen_context++] = a;
+              else{    
                 for(unsigned int i=0;i<NGRAM-1;i++)
                   lookback[i] = lookback[i+1]; 
-                lookback[NGRAM-1] = model_chars[a];  
+                lookback[NGRAM-1] = a;  
               }
               BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
               memset(ascii_exclude,0,255);
-              excluded = 0; 
-
               curr_context = UpdateCurrentContext(root,lookback,seen_context);    
               break;
             }
@@ -949,8 +924,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
              
             BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
             memset(ascii_exclude,0,255);
-            excluded = 0;
-
             curr_context = UpdateCurrentContext(root,lookback,seen_context);    
             break;
           }
@@ -966,10 +939,8 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
           escape_counts[curr_context] = 16;
 
         for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
-          if(!ascii_exclude[cedge->dwn->ch]){
+          if(!ascii_exclude[cedge->dwn->ch])
             ascii_exclude[cedge->dwn->ch] = true;
-            excluded++;
-          }
         }
         curr_context = curr_context->vine;
         Cn += e_o; 
