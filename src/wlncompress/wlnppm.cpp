@@ -13,7 +13,6 @@
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
 #define ASCII_EXCLUDES 1
-#define ESCAPE 'A'
 /* linked list bitstream, just for single string encoding
  * purposes 
 */
@@ -59,12 +58,16 @@ Node* UpdateCurrentContext(Node *root, unsigned char *lookback, unsigned int see
 BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){ 
   wlnmodel->AssignEqualProbs();
 
+  std::map<Node*, unsigned int> escape_counts; // use for PPMA, C, D
+  // technically this is 1 - escape, so do escape_counts[node]++ for C
+
   unsigned int ALPHABET = 0; 
-  char model_chars [255] = {0};
-  for(unsigned int i=0;i<255;i++)
+  unsigned char model_chars [255] = {0};
+  for(unsigned int i=0;i<255;i++){
     if(wlnmodel->alphabet[i]){
       model_chars[ALPHABET++] = i; 
     }
+  }
   
   BitStream *bitstream = (BitStream*)malloc(sizeof(BitStream)); 
   bitstream->b = 0; 
@@ -91,6 +94,8 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
   bool stop = false;
    
   Node *root = AllocateTreeNode('0', 0); // place to return to
+  
+
   Node *curr_context = 0; 
   Edge *cedge = 0; 
   root->c = 1; 
@@ -133,11 +138,11 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
       }
       
       // methods for escape calculation go here
+      e_o += escape_counts[curr_context]; 
       T+= e_o; // add the escape frequency in
       
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
         if(!ascii_exclude[cedge->dwn->ch]){
-          
           if(cedge->dwn->ch == ch){
             Cn += cedge->dwn->c;
             found = true; 
@@ -153,6 +158,11 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
       if(!found){
         encoding_escape = true;
         Cn += e_o; // escape probability to high range
+                   
+        escape_counts[curr_context]++;
+        if(escape_counts[curr_context] == 64)
+          escape_counts[curr_context] = 16; 
+                   
 #if ASCII_EXCLUDES
       // exclude the characters
         for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
@@ -308,13 +318,14 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
    
   wlnmodel->AssignEqualProbs(); // you moron
 
+  std::map<Node*,unsigned int> escape_counts; 
+
   unsigned int ALPHABET = 0; 
   char model_chars [255] = {0};
-  for(unsigned int i=0;i<255;i++)
-    if(wlnmodel->alphabet[i]){
+  for(unsigned int i=0;i<255;i++){
+    if(wlnmodel->alphabet[i])
       model_chars[ALPHABET++] = i; 
-    }
-
+  }
   
   FSMState *state = wlnmodel->root;
   FSMEdge *edge = 0 ;
@@ -363,6 +374,8 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
         if(!ascii_exclude[cedge->dwn->ch])
           T+= cedge->dwn->c;
       }
+
+      e_o += escape_counts[curr_context]; 
       T+= e_o; 
     }
 
@@ -430,8 +443,11 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
       }
       
       if(!found){
-
 #if ASCII_EXCLUDES
+        escape_counts[curr_context]++;
+        if(escape_counts[curr_context] == 64)
+          escape_counts[curr_context] = 16; 
+
         // must be an escape character, add ascii exclusion and move back a vine
         for(cedge = curr_context->leaves;cedge;cedge=cedge->nxt){
           if(!ascii_exclude[cedge->dwn->ch]){
@@ -628,8 +644,6 @@ bool WLNPPMCompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         }
       }
        
-      if(ESCAPE == 'C')
-        e_o = scontexts ? scontexts:1;
       // methods for escape calculation go here
       T+= e_o; // add the escape frequency in
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
@@ -876,8 +890,6 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
         }
       }
 
-      if(ESCAPE == 'C')
-        e_o = scontexts ? scontexts:1;
       T+= e_o; 
     }
 
