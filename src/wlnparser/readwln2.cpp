@@ -5618,15 +5618,27 @@ SortedEdges* ArrangeRingBonds( WLNSymbol *locant,WLNRing *ring, std::map<WLNSymb
   
   for (unsigned int ei=0;ei<locant->barr_n;ei++){
     WLNEdge *fe = &locant->bond_array[ei];
-    if(fe->child->inRing != ring && fe->child != ignore && !seen[fe->child]){
-      scores[l++] = RunChain(fe, seen);
+
+
+    if( fe->child->inRing != ring 
+        && fe->child != ignore 
+        && !seen[fe->child])
+    {
+      if(fe->child->ch == 'H' && !locant->explicit_H)
+        ;
+      else
+        scores[l++] = RunChain(fe, seen);
     }
   }
 
   for (unsigned int ei=0;ei<locant->parr_n;ei++){
     WLNEdge *be = &locant->prev_array[ei];
     if(be->child->inRing != ring && be->child != ignore && !seen[be->child]){
-      scores[l++] = RunChain(be, seen);
+
+      if(be->child->ch == 'H' && !locant->explicit_H)
+        ;
+      else
+        scores[l++] = RunChain(be, seen);
     }
   }
 
@@ -5812,6 +5824,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
 // unfortuantely quite expensive, dioxo will always be forward facing
 // 0 - none, 1 = (=O)(=O), 2 = ([O-])(=O)
+// if the symbol is not saturated and type 2, return 0, as this cannot be implied
 unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols, std::string &buffer){
   WLNSymbol* double_oxygen_1 = 0; 
   WLNSymbol* double_oxygen_2 = 0; 
@@ -5845,7 +5858,7 @@ unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_s
     double_oxygen_2->str_position = buffer.size(); 
     return 1;
   }
-  else if (double_oxygen_1 && oxo_ion){
+  else if (double_oxygen_1 && oxo_ion && node->num_edges == node->allowed_edges){
     seen_symbols[double_oxygen_1] = true;
     seen_symbols[oxo_ion] = true;
     buffer += 'W';
@@ -5854,7 +5867,7 @@ unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_s
     return 2; 
   }
   else
-    return false;
+    return 0;
 }
 
 bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std::string &buffer){
@@ -5974,19 +5987,23 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
             node = 0; 
         }
         else{
-          bool dioxo_write = false;
           node = edge->child;
           WriteCharacter(node, buffer,graph); 
 
-          dioxo_write = check_dioxo_type(node,seen_symbols,buffer); 
+          unsigned int dioxo_write = check_dioxo_type(node,seen_symbols,buffer); 
 
           seen_symbols[node] = true;
           sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
           
           if(IsBranching(node)){
-            branching_symbols.push(node);
             if(dioxo_write == 1)
               sorted_edges[node]->edges[sorted_edges[node]->e_max++] = 0; // adds pop since W will go from 4 to 3  
+            
+            if(dioxo_write==2 && node->allowed_edges==4){
+              dioxo_write = 0;
+            }
+            else
+              branching_symbols.push(node);
           }
         }
       }
@@ -6001,7 +6018,7 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
       }
 
       if(!branching_symbols.empty()){
-        if( !(IsTerminator(node) || node->ch == 'W') ){ 
+        if( !(IsTerminator(node) || node->ch == 'W' || (!buffer.empty() && buffer.back() == 'W') ) ){ 
           buffer+= '&';
         }
 
@@ -6230,6 +6247,8 @@ void WritePostCharges(WLNGraph &wln_graph, std::string &buffer){
 
 bool ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set,std::string &store){
   bool ion_write = false;
+  
+
   for (unsigned int i=0;i<wln_graph.symbol_count;i++){
     WLNSymbol *node = wln_graph.SYMBOLS[i];
     if( (!node->barr_n || !node->parr_n) && !node->inRing && !(whole_set.count(node)) ){
@@ -6296,15 +6315,29 @@ std::string FullCanonicalise(WLNGraph &graph){
   bool first_write = false;
 
   unsigned int r = 0; 
+  unsigned int b = 0; 
   WLNRing *sorted_rings[128] = {0};
-
+  WLNRing *benzyl[128] = {0}; 
   for (unsigned int i=0;i<graph.ring_count;i++){
     if(graph.RINGS[i]->str_notation != "L6J"){
       sorted_rings[r++] = graph.RINGS[i];
       graph.RINGS[i]->ranking = r; 
     }
+    else {
+      if(graph.RINGS[i]->loc_count <=1){
+        for(unsigned char loc='A';loc<='F';loc++){
+          if(graph.RINGS[i]->locants[loc]->num_edges < 4){
+            WLNSymbol *eHydrogen = AllocateWLNSymbol('H', graph);
+            eHydrogen->allowed_edges = 1; 
+            AddEdge(eHydrogen, graph.RINGS[i]->locants[loc]);
+            break;
+          }
+        }
+      }
+      benzyl[b++] = graph.RINGS[i];
+    }
   }
-
+  
   // sort by how many locants, inverse order will likely give the shorter string
   for (unsigned int j=1;j<r;j++){
     WLNRing *s = sorted_rings[j];
@@ -6332,7 +6365,7 @@ std::string FullCanonicalise(WLNGraph &graph){
 
 #if OPT_DEBUG
   for (unsigned int i=0;i<r;i++){
-    fprintf(stderr,"%d: ring-size:%d, locants: %d, multi-points: %d, bridges: %d\n",
+    fprintf(stderr,"  %d: ring-size:%d, locants: %d, multi-points: %d, bridges: %d\n",
         sorted_rings[i]->ranking,
         sorted_rings[i]->rsize,
         sorted_rings[i]->loc_count,
@@ -6480,6 +6513,7 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 #endif 
   
   WritePostCharges(wln_graph, res); 
+  
   std::cout << res << std::endl; 
   return true;
 }
