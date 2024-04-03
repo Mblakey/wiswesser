@@ -5692,10 +5692,12 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
   unsigned int modifier = 0; 
   switch (sym->ch) {
     
+
+    case '#':
+      if(sym->special == "1"){
     // methyl contraction
 #define METHYL_CONTRACT 1
 #if METHYL_CONTRACT
-    case '1':
        if(sym->barr_n == 0 && sym->parr_n == 1){
         switch(sym->prev_array[0].child->ch){
           case 'X':
@@ -5724,9 +5726,9 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
         }
        }
        break;
+      }
 #endif
-
-    case '#':
+    
       sym->str_position = buffer.size()+1; // place on first number 
       buffer += sym->special;
       break;
