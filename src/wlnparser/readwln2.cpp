@@ -1548,38 +1548,6 @@ bool has_dioxo(WLNSymbol *node){
 }
 
 
-// unfortuantely quite expensive
-bool should_have_dioxo(WLNSymbol *node){
-  unsigned int oxo_ion = 0; 
-  unsigned int double_oxygen = 0; 
-  for(unsigned int ei=0;ei<node->barr_n;ei++){
-    if( node->bond_array[ei].child->ch == 'O'){
-
-      if(node->bond_array[ei].child->charge == -1 && node->bond_array[ei].child->num_edges == 1)
-        oxo_ion++;
-      else if (node->bond_array[ei].order == 2)
-        double_oxygen++; 
-    }
-  }
-
-  for(unsigned int ei=0;ei<node->parr_n;ei++){
-    if( node->prev_array[ei].child->ch == 'O'){
-      if(node->prev_array[ei].child->charge == -1 && node->prev_array[ei].child->num_edges == 1)
-        oxo_ion++;
-      else if (node->prev_array[ei].order == 2)
-        double_oxygen++; 
-    }
-  }
-  
-  fprintf(stderr,"%d %d\n",double_oxygen,oxo_ion); 
-
-  if(double_oxygen == 2)
-    return true;
-  else if(double_oxygen == 1 && oxo_ion == 1)
-    return true;
-  else
-    return false;
-}
 
 bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
 
@@ -5842,6 +5810,34 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 }
 
 
+// unfortuantely quite expensive, dioxo will always be forward facing
+bool check_dioxo(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols){
+  WLNSymbol* double_oxygen = 0; 
+  WLNSymbol *oxo_ion = 0; 
+
+  for(unsigned int ei=0;ei<node->barr_n;ei++){
+    if( node->bond_array[ei].child->ch == 'O'){
+      if(node->bond_array[ei].child->charge == -1 && node->bond_array[ei].child->num_edges == 1
+          && !oxo_ion)
+        oxo_ion = node->bond_array[ei].child;
+      else if (node->bond_array[ei].order == 2){
+        if(!oxo_ion)
+          oxo_ion = node->bond_array[ei].child;
+        else if (!double_oxygen)
+          double_oxygen = node->bond_array[ei].child;
+      }
+    }
+  }
+
+  if(double_oxygen && oxo_ion){
+    seen_symbols[double_oxygen] = true;
+    seen_symbols[oxo_ion] = true;
+    return true;
+  }
+  else
+    return false;
+}
+
 bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std::string &buffer){
   std::map<WLNSymbol*,SortedEdges*> sorted_edges;
   std::set<SortedEdges*> se_memory_hold; 
@@ -5962,8 +5958,8 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
           node = edge->child;
           WriteCharacter(node, buffer,graph); 
 
-          if(should_have_dioxo(node))
-            fprintf(stderr,"yeah probably\n"); 
+          if(check_dioxo(node,seen_symbols))
+            buffer += 'W';  
 
           seen_symbols[node] = true;
           sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
