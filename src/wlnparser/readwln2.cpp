@@ -5811,28 +5811,37 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
 
 // unfortuantely quite expensive, dioxo will always be forward facing
-bool check_dioxo(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols){
-  WLNSymbol* double_oxygen = 0; 
+// 0 - none, 1 = (=O)(=O), 2 = ([O-])(=O)
+unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols){
+  WLNSymbol* double_oxygen_1 = 0; 
+  WLNSymbol* double_oxygen_2 = 0; 
   WLNSymbol *oxo_ion = 0; 
 
   for(unsigned int ei=0;ei<node->barr_n;ei++){
     if( node->bond_array[ei].child->ch == 'O'){
       if(node->bond_array[ei].child->charge == -1 && node->bond_array[ei].child->num_edges == 1
-          && !oxo_ion)
+          && !oxo_ion &&  !seen_symbols[node->bond_array[ei].child]){
+       
         oxo_ion = node->bond_array[ei].child;
+      }
       else if (node->bond_array[ei].order == 2){
-        if(!oxo_ion)
-          oxo_ion = node->bond_array[ei].child;
-        else if (!double_oxygen)
-          double_oxygen = node->bond_array[ei].child;
+        if(!double_oxygen_1 &&  !seen_symbols[node->bond_array[ei].child])
+          double_oxygen_1 = node->bond_array[ei].child;
+        else if (double_oxygen_1 && !seen_symbols[node->bond_array[ei].child])
+          double_oxygen_2 = node->bond_array[ei].child;
       }
     }
   }
 
-  if(double_oxygen && oxo_ion){
-    seen_symbols[double_oxygen] = true;
+  if(double_oxygen_1 && double_oxygen_2){
+    seen_symbols[double_oxygen_1] = true;
+    seen_symbols[double_oxygen_2] = true;
+    return 1;
+  }
+  else if (double_oxygen_1 && oxo_ion){
+    seen_symbols[double_oxygen_1] = true;
     seen_symbols[oxo_ion] = true;
-    return true;
+    return 2; 
   }
   else
     return false;
@@ -5955,17 +5964,22 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
             node = 0; 
         }
         else{
+          bool dioxo_write = false;
           node = edge->child;
           WriteCharacter(node, buffer,graph); 
 
-          if(check_dioxo(node,seen_symbols))
-            buffer += 'W';  
+          dioxo_write = check_dioxo_type(node,seen_symbols); 
 
           seen_symbols[node] = true;
           sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
           
+          if(dioxo_write)
+            buffer += 'W'; 
+
           if(IsBranching(node)){
             branching_symbols.push(node);
+            if(dioxo_write == 1)
+              sorted_edges[node]->edges[sorted_edges[node]->e_max++] = 0; // adds pop since W will go from 4 to 3  
           }
         }
       }
