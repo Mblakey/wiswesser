@@ -1527,7 +1527,8 @@ bool saturate_edge(WLNEdge *edge,unsigned int n){
 
 
 bool add_methyl(WLNSymbol *head, WLNGraph &graph){
-  WLNSymbol *carbon = AllocateWLNSymbol('1',graph);
+  WLNSymbol *carbon = AllocateWLNSymbol('#',graph);
+  carbon->special = '1'; 
   if(carbon)
     carbon->allowed_edges = 4;
   else 
@@ -5597,7 +5598,8 @@ SortedEdges* ArrangeBonds( WLNSymbol *sym, std::map<WLNSymbol*,bool> &seen, WLNS
     delete scores[i];
   }
     
-  // let methyl contractions take care of this
+
+  // this all valence full by definition
   if(sym->ch != 'X' && sym->ch != 'K' && sym->ch != 'Y'){
     if(IsBranching(sym) && sym->num_edges < sym->allowed_edges)
       scores[a++] = 0; // adds a forcable pop 
@@ -5691,6 +5693,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
   switch (sym->ch) {
     
     // methyl contraction
+#define METHYL_CONTRACT 1
 #if METHYL_CONTRACT
     case '1':
        if(sym->barr_n == 0 && sym->parr_n == 1){
@@ -5700,6 +5703,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
           case 'K':
             buffer += '&';
             break;
+
           default:
             buffer += sym->ch;
             sym->str_position = buffer.size(); 
@@ -5714,12 +5718,14 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
             buffer += '&';
             break;
           default:
+            fprintf(stderr,"adding 1\n"); 
             buffer += sym->ch;
             sym->str_position = buffer.size(); 
         }
        }
        break;
 #endif
+
     case '#':
       sym->str_position = buffer.size()+1; // place on first number 
       buffer += sym->special;
@@ -5813,6 +5819,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
     default:
       buffer += sym->ch;
+      fprintf(stderr,"adding: %c\n",sym->ch); 
       sym->str_position = buffer.size(); 
   };
 
@@ -5846,7 +5853,8 @@ unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_s
     }
   }
 
-
+  
+  // fprintf(stderr,"Atom %c: %p %p %p\n",node->ch, double_oxygen_1,double_oxygen_2,oxo_ion); 
 
   // need to flag that this charge is no longer needed, as implicitly given
   // buffer type is a resetable flag
@@ -5879,13 +5887,23 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
   WLNEdge *edge = 0;
   SortedEdges *se = 0; 
 
+  WriteCharacter(node,buffer,graph);
+  unsigned int dioxo_write = check_dioxo_type(node,seen_symbols,buffer); 
+
   seen_symbols[node] = true;
   sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
 
-  WriteCharacter(node,buffer,graph);
-  if(IsBranching(node))
-    branching_symbols.push(node);
-  
+  if(IsBranching(node)){
+    if(dioxo_write == 1)
+      sorted_edges[node]->edges[sorted_edges[node]->e_max++] = 0; // adds pop since W will go from 4 to 3  
+    
+    if(dioxo_write==2 && node->allowed_edges==4){
+      dioxo_write = 0;
+    }
+    else
+      branching_symbols.push(node);
+  }
+
   for(;;){
     if(!node)
       break;
@@ -6474,7 +6492,6 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
 
   // more minimal resolve step for certain groups, W removal
   unsigned int stop = wln_graph.symbol_count;
-
   stop = wln_graph.symbol_count;
   for (unsigned int i=0;i<stop;i++){
     WLNSymbol *sym = wln_graph.SYMBOLS[i];
