@@ -5812,7 +5812,7 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
 // unfortuantely quite expensive, dioxo will always be forward facing
 // 0 - none, 1 = (=O)(=O), 2 = ([O-])(=O)
-unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols){
+unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols, std::string &buffer){
   WLNSymbol* double_oxygen_1 = 0; 
   WLNSymbol* double_oxygen_2 = 0; 
   WLNSymbol *oxo_ion = 0; 
@@ -5833,14 +5833,24 @@ unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_s
     }
   }
 
+
+
+  // need to flag that this charge is no longer needed, as implicitly given
+  // buffer type is a resetable flag
   if(double_oxygen_1 && double_oxygen_2){
     seen_symbols[double_oxygen_1] = true;
     seen_symbols[double_oxygen_2] = true;
+    buffer += 'W';
+    double_oxygen_1->str_position = buffer.size(); 
+    double_oxygen_2->str_position = buffer.size(); 
     return 1;
   }
   else if (double_oxygen_1 && oxo_ion){
     seen_symbols[double_oxygen_1] = true;
     seen_symbols[oxo_ion] = true;
+    buffer += 'W';
+    double_oxygen_1->str_position = buffer.size(); 
+    oxo_ion->str_position = buffer.size(); 
     return 2; 
   }
   else
@@ -5968,14 +5978,11 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
           node = edge->child;
           WriteCharacter(node, buffer,graph); 
 
-          dioxo_write = check_dioxo_type(node,seen_symbols); 
+          dioxo_write = check_dioxo_type(node,seen_symbols,buffer); 
 
           seen_symbols[node] = true;
           sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
           
-          if(dioxo_write)
-            buffer += 'W'; 
-
           if(IsBranching(node)){
             branching_symbols.push(node);
             if(dioxo_write == 1)
@@ -6212,12 +6219,11 @@ void WritePostCharges(WLNGraph &wln_graph, std::string &buffer){
         buffer += "/0"; 
       }
     }
-    else if (pos->charge < 0 && !(pos->charge == -1 && pos->inRing && pos->ch == 'C')){
+    else if (pos->charge < 0 && !(pos->charge == -1 && pos->inRing && pos->ch == 'C') && buffer[pos->str_position-1] != 'W'){
       for(unsigned int i=0;i<abs(pos->charge);i++){
         buffer += " &0/";
         buffer += std::to_string(pos->str_position); 
       }
-
     }
   }
 }
