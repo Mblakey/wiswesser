@@ -1589,7 +1589,7 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
     if(!unsaturate_edge(sedge,1))
       return false;
   
-  if(binded_symbol->ch == 'N'){
+  if(binded_symbol->ch == 'N' && binded_symbol->allowed_edges == 4){
     binded_symbol->charge++;
   }
 
@@ -2608,7 +2608,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               else
                 new_locant = ring->locants[positional_locant];
               
-              if(new_locant->ch == 'N')
+              if(new_locant->ch == 'N' && new_locant->allowed_edges == 3)
                 new_locant->allowed_edges++;
 
               WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
@@ -3726,7 +3726,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
           
-          if(prev->ch == 'N')
+          if(prev->ch == 'N' && prev->allowed_edges == 3)
             prev->allowed_edges++;
 
           if(!AddEdge(curr, prev))
@@ -3785,7 +3785,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 3;
 
         if(prev){
-          if(prev->ch == 'W')
+          if(prev->ch == 'W' && curr->allowed_edges == 3)
             curr->allowed_edges++;
 
           if(!AddEdge(curr, prev))
