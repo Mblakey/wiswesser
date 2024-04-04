@@ -635,6 +635,7 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
 }
 
 bool IsTerminator(WLNSymbol *symbol){
+
   switch(symbol->ch){
     case 'E':
     case 'F':
@@ -5365,6 +5366,88 @@ struct BabelGraph{
                           Canonical Algorithms
 **********************************************************************/
 
+
+unsigned int methyl_contract(WLNSymbol *sym){
+  // methyl contraction 
+  if(sym->special != "1")
+    return 0; 
+
+  if(sym->barr_n == 0 && sym->parr_n == 1 && sym->prev_array[0].order == 1){
+    switch(sym->prev_array[0].child->ch){
+      case 'X':
+      case 'Y':
+      case 'K':
+        return 1; 
+        break;
+
+      default:
+        return 0; 
+    }
+  }
+  else if (sym->barr_n == 1 && sym->parr_n == 0 && sym->bond_array[0].order==1){
+    switch(sym->bond_array[0].child->ch){
+      case 'X':
+      case 'Y':
+      case 'K':
+        return 1; 
+      default:
+        return 0; 
+    }
+  }
+
+  return 0; 
+}
+
+
+// unfortuantely quite expensive, dioxo will always be forward facing
+// 0 - none, 1 = (=O)(=O), 2 = ([O-])(=O)
+// if the symbol is not saturated and type 2, return 0, as this cannot be implied
+unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols, std::string &buffer){
+  WLNSymbol* double_oxygen_1 = 0; 
+  WLNSymbol* double_oxygen_2 = 0; 
+  WLNSymbol *oxo_ion = 0; 
+
+  for(unsigned int ei=0;ei<node->barr_n;ei++){
+    if( node->bond_array[ei].child->ch == 'O'){
+      if(node->bond_array[ei].child->charge == -1 && node->bond_array[ei].child->num_edges == 1
+          && !oxo_ion &&  !seen_symbols[node->bond_array[ei].child]){
+       
+        oxo_ion = node->bond_array[ei].child;
+      }
+      else if (node->bond_array[ei].order == 2){
+        if(!double_oxygen_1 &&  !seen_symbols[node->bond_array[ei].child])
+          double_oxygen_1 = node->bond_array[ei].child;
+        else if (double_oxygen_1 && !seen_symbols[node->bond_array[ei].child])
+          double_oxygen_2 = node->bond_array[ei].child;
+      }
+    }
+  }
+
+  
+  // fprintf(stderr,"Atom %c: %p %p %p\n",node->ch, double_oxygen_1,double_oxygen_2,oxo_ion); 
+
+  // need to flag that this charge is no longer needed, as implicitly given
+  // buffer type is a resetable flag
+  if(double_oxygen_1 && double_oxygen_2){
+    seen_symbols[double_oxygen_1] = true;
+    seen_symbols[double_oxygen_2] = true;
+    buffer += 'W';
+    double_oxygen_1->str_position = buffer.size(); 
+    double_oxygen_2->str_position = buffer.size(); 
+    return 1;
+  }
+  else if (double_oxygen_1 && oxo_ion && node->num_edges == node->allowed_edges){
+    seen_symbols[double_oxygen_1] = true;
+    seen_symbols[oxo_ion] = true;
+    buffer += 'W';
+    double_oxygen_1->str_position = buffer.size(); 
+    oxo_ion->str_position = buffer.size(); 
+    return 2; 
+  }
+  else
+    return 0;
+}
+
 /* used to perform a radix style sort to order bond stack pushes */
 struct ChainScore{
   WLNEdge *e;
@@ -5688,47 +5771,13 @@ void static write_locant(unsigned char locant,std::string &buffer){
 }
 
 
+// pass through a methyl contraction 
+
 void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
   unsigned int modifier = 0; 
   switch (sym->ch) {
     
-
-    case '#':
-      if(sym->special == "1"){
-    // methyl contraction
-#define METHYL_CONTRACT 1
-#if METHYL_CONTRACT
-       if(sym->barr_n == 0 && sym->parr_n == 1){
-        switch(sym->prev_array[0].child->ch){
-          case 'X':
-          case 'Y':
-          case 'K':
-            buffer += '&';
-            break;
-
-          default:
-            buffer += sym->ch;
-            sym->str_position = buffer.size(); 
-        }
-
-       }
-       else if (sym->barr_n == 1 && sym->parr_n == 0){
-        switch(sym->bond_array[0].child->ch){
-          case 'X':
-          case 'Y':
-          case 'K':
-            buffer += '&';
-            break;
-          default:
-            fprintf(stderr,"adding 1\n"); 
-            buffer += sym->ch;
-            sym->str_position = buffer.size(); 
-        }
-       }
-       break;
-      }
-#endif
-    
+    case '#': 
       sym->str_position = buffer.size()+1; // place on first number 
       buffer += sym->special;
       break;
@@ -5821,7 +5870,6 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
     default:
       buffer += sym->ch;
-      fprintf(stderr,"adding: %c\n",sym->ch); 
       sym->str_position = buffer.size(); 
   };
 
@@ -5831,54 +5879,6 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 }
 
 
-// unfortuantely quite expensive, dioxo will always be forward facing
-// 0 - none, 1 = (=O)(=O), 2 = ([O-])(=O)
-// if the symbol is not saturated and type 2, return 0, as this cannot be implied
-unsigned int check_dioxo_type(WLNSymbol *node, std::map<WLNSymbol*,bool> &seen_symbols, std::string &buffer){
-  WLNSymbol* double_oxygen_1 = 0; 
-  WLNSymbol* double_oxygen_2 = 0; 
-  WLNSymbol *oxo_ion = 0; 
-
-  for(unsigned int ei=0;ei<node->barr_n;ei++){
-    if( node->bond_array[ei].child->ch == 'O'){
-      if(node->bond_array[ei].child->charge == -1 && node->bond_array[ei].child->num_edges == 1
-          && !oxo_ion &&  !seen_symbols[node->bond_array[ei].child]){
-       
-        oxo_ion = node->bond_array[ei].child;
-      }
-      else if (node->bond_array[ei].order == 2){
-        if(!double_oxygen_1 &&  !seen_symbols[node->bond_array[ei].child])
-          double_oxygen_1 = node->bond_array[ei].child;
-        else if (double_oxygen_1 && !seen_symbols[node->bond_array[ei].child])
-          double_oxygen_2 = node->bond_array[ei].child;
-      }
-    }
-  }
-
-  
-  // fprintf(stderr,"Atom %c: %p %p %p\n",node->ch, double_oxygen_1,double_oxygen_2,oxo_ion); 
-
-  // need to flag that this charge is no longer needed, as implicitly given
-  // buffer type is a resetable flag
-  if(double_oxygen_1 && double_oxygen_2){
-    seen_symbols[double_oxygen_1] = true;
-    seen_symbols[double_oxygen_2] = true;
-    buffer += 'W';
-    double_oxygen_1->str_position = buffer.size(); 
-    double_oxygen_2->str_position = buffer.size(); 
-    return 1;
-  }
-  else if (double_oxygen_1 && oxo_ion && node->num_edges == node->allowed_edges){
-    seen_symbols[double_oxygen_1] = true;
-    seen_symbols[oxo_ion] = true;
-    buffer += 'W';
-    double_oxygen_1->str_position = buffer.size(); 
-    oxo_ion->str_position = buffer.size(); 
-    return 2; 
-  }
-  else
-    return 0;
-}
 
 bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std::string &buffer){
   std::map<WLNSymbol*,SortedEdges*> sorted_edges;
@@ -5921,7 +5921,6 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
           buffer += '&';
           branching_symbols.pop(); 
         }
-
 
         while(  !branching_symbols.empty() && 
                 sorted_edges[branching_symbols.top()]->e_n == sorted_edges[branching_symbols.top()]->e_max)
@@ -6008,22 +6007,28 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
         }
         else{
           node = edge->child;
-          WriteCharacter(node, buffer,graph); 
+          if(methyl_contract(node)){
+            buffer += '&'; 
+            seen_symbols[node] = true;
+            sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
+          }
+          else{
+            WriteCharacter(node, buffer,graph); 
+            unsigned int dioxo_write = check_dioxo_type(node,seen_symbols,buffer); 
 
-          unsigned int dioxo_write = check_dioxo_type(node,seen_symbols,buffer); 
-
-          seen_symbols[node] = true;
-          sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
-          
-          if(IsBranching(node)){
-            if(dioxo_write == 1)
-              sorted_edges[node]->edges[sorted_edges[node]->e_max++] = 0; // adds pop since W will go from 4 to 3  
+            seen_symbols[node] = true;
+            sorted_edges[node] = ArrangeBonds(node, seen_symbols, ignore);
             
-            if(dioxo_write==2 && node->allowed_edges==4){
-              dioxo_write = 0;
+            if(IsBranching(node)){
+              if(dioxo_write == 1)
+                sorted_edges[node]->edges[sorted_edges[node]->e_max++] = 0; // adds pop since W will go from 4 to 3  
+              
+              if(dioxo_write==2 && node->allowed_edges==4){
+                dioxo_write = 0;
+              }
+              else
+                branching_symbols.push(node);
             }
-            else
-              branching_symbols.push(node);
           }
         }
       }
@@ -6039,7 +6044,9 @@ bool CanonicalWLNChain(WLNSymbol *node, WLNGraph &graph, WLNSymbol *ignore, std:
 
       if(!branching_symbols.empty()){
         if( !(IsTerminator(node) || node->ch == 'W' || (!buffer.empty() && buffer.back() == 'W') ) ){ 
-          buffer+= '&';
+            
+          if(!methyl_contract(node))
+            buffer+= '&';
         }
 
         node = branching_symbols.top();
@@ -6320,8 +6327,8 @@ bool ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set,
     }
   }
   
-  while(store.back() == '&') // trail cleaning
-    store.pop_back(); 
+ while(store.back() == '&') // trail cleaning
+   store.pop_back(); 
 
   // tidy up any remaining closures that do not need to be added
   return true; 
@@ -6454,9 +6461,6 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
 
-  if (OPT_DEBUG)
-    WriteGraph(wln_graph,"wln-graph.dot");
-  
     // needs to be this order to allow K to take the methyl groups
   if(!WLNKekulize(wln_graph))
     return Fatal(len,"Error: failed to kekulize mol");
@@ -6518,9 +6522,6 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     }
   }
   
-  WriteGraph(wln_graph, "wln-graph.dot");  
-#define ON 1 
-#if ON
   std::string res; 
   // if no rings, choose a starting atom and flow from each, ions must be handled seperately
   if(!wln_graph.ring_count){
@@ -6529,10 +6530,8 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
   }
   else
     res = FullCanonicalise(wln_graph); 
-#endif 
   
   WritePostCharges(wln_graph, res); 
-  
   std::cout << res << std::endl; 
   return true;
 }
