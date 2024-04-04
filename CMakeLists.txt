@@ -2,6 +2,11 @@
 project(wisswesser)
 cmake_minimum_required(VERSION 3.21)
 
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    set(MACOSX TRUE)
+endif()
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3 -std=c++11")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -43,11 +48,13 @@ add_executable(wlnzip
 )
 
 
-add_executable(wlnpaq6
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/paq6.cpp
-)
-
-set_target_properties(wlnpaq6 PROPERTIES COMPILE_FLAGS "-m32" LINK_FLAGS "-m32") 
+# this will not compile on Arm64 // fix at later date
+if(!MACOS)
+  add_executable(wlnpaq6
+    ${PROJECT_SOURCE_DIR}/src/wlncompress/paq6.cpp
+  )
+  set_target_properties(wlnpaq6 PROPERTIES COMPILE_OPTIONS "-m32" LINK_FLAGS "-m32") 
+endif() 
 
 
 add_executable(dotzip 
@@ -79,7 +86,7 @@ include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/include/")
 
 if(WIN32)
   message(ERROR "Unsupported operating system - Windows")
-elseif(APPLE)
+elseif(MACOS)
   target_link_libraries(readwln  "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(obcomp "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
@@ -96,5 +103,4 @@ endif()
 
 target_compile_definitions(readwln PRIVATE ERRORS=1)
 # target_compile_definitions(wlntree PRIVATE ERRORS=1)
-#target_compile_definitions(wlngen PRIVATE ERRORS=0)
 

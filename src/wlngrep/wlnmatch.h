@@ -188,6 +188,13 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
         else if(inp_char == '&' && !PopAmpersand(ampersand_stack)){
           goto return_match;  
         }
+        else{
+          
+          if(isTerminator(inp_char) && !PopAmpersand(ampersand_stack))
+            goto return_match; 
+          else 
+            StackAmpersands(inp_char, ampersand_stack); 
+        }
       }
 
       state = state->access[inp_char];
