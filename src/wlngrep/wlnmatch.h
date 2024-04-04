@@ -71,6 +71,25 @@ void display_match(char *line, unsigned int spos, unsigned int epos){
 }
 
 
+
+// If the previous character was not locant 
+void StackAmpersands(unsigned char ch,std::stack<unsigned char> &amp_stack){
+  
+
+
+
+  return; 
+}
+
+// If not on locant, pop stack
+bool PopAmpersand(std::stack<unsigned char> &amp_stack){
+
+
+
+
+  return true; 
+}
+
 /* matches the longest possible word using DFA
 - 1 matches only, 2 - exact match only, 3- return all matches */
 unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highlight, bool invert,unsigned int opt_match_option=0, bool count=false){
@@ -90,7 +109,12 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
   unsigned int n = 0;
   unsigned int match = 0; // 1 if true 
   unsigned char inp_char = *inp;
-  
+ 
+  bool reading_ring = false;
+  bool expecting_locant = false;
+  unsigned char locant = 0;
+
+  std::stack<unsigned char> ampersand_stack; 
 
   while(n <= len){
     
@@ -98,6 +122,38 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
       inp_char = '*'; 
 
     if(inp_char && state->access[inp_char]){
+      
+      if(reading_ring){
+        if(!expecting_locant && inp_char == 'J')
+          reading_ring = false;
+        // else do nothing
+      }
+      else{
+        
+        if(inp_char == ' '){
+          expecting_locant = true; 
+        }
+        else if(expecting_locant){
+          if(!locant){
+            if(inp_char == '&'){
+              // ion condition
+              expecting_locant = false;
+              while(!ampersand_stack.empty())
+                ampersand_stack.pop(); 
+            }
+            else 
+              locant = inp_char;
+          }
+          else if(inp_char != '&'){
+            locant = 0;
+            expecting_locant = false;  
+          }
+        }
+        else if(inp_char == '&' && !PopAmpersand(ampersand_stack)){
+          goto return_match;  
+        }
+      }
+
       state = state->access[inp_char];
       if(spos == -1)
         spos = n;
@@ -108,6 +164,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
       l++;
     }
     else{
+return_match:
       if(opt_match_option == EXACT){
         if(invert){
           if(n != len){
@@ -190,23 +247,5 @@ bool ReadWord(const char *inp, FSMAutomata *nfa){
   return true;
 }
 
-// creates sequences between two nodes, binds them with epsilion transitions
-bool AttachSequence(const char *inp, FSMAutomata *nfa, FSMState *start, FSMState *end){
-
-  unsigned char ch = *inp;
-  FSMState *prev = nfa->AddState();
-  nfa->AddTransition(start,prev,0); // first epsilion
-  FSMState *q = 0;
-  while(ch){
-    q = nfa->AddState();
-    nfa->AddTransition(prev,q,ch);
-    prev = q;
-    ch = *(++inp);
-  }
-
-  nfa->MakeAccept(q);
-  nfa->AddTransition(q, end,0); 
-  return true;
-}
 
 #endif
