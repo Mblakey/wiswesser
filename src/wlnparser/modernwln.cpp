@@ -5450,15 +5450,21 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
   switch (sym->ch) {
     
     case '#': 
-      sym->str_position = buffer.size()+1; // place on first number 
       buffer += sym->special;
       break;
 
     case '*':
-      buffer += '-';
-      sym->str_position = buffer.size()+1; // place on first letter
+      buffer += '<';
       buffer += sym->special;
-      buffer += '-';
+      if(sym->charge != 0){
+        buffer += std::to_string(abs(sym->charge)); 
+        if(sym->charge > 0)
+          buffer += '+';
+        else
+          buffer += '-'; 
+      }
+      
+      buffer += '>';
       break;
 
     case 'E':
@@ -5467,23 +5473,54 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
     case 'H':
     case 'I':
       if(sym->allowed_edges>1){
-        buffer += '-';
+        buffer += '<';
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
-        buffer += '-';
+        if(sym->charge != 0){
+          buffer += std::to_string(abs(sym->charge)); 
+          if(sym->charge > 0)
+            buffer += '+';
+          else
+            buffer += '-'; 
       }
-      else{
+        buffer += '>';
+      }
+      else if(sym->charge != 0){
+        buffer += '<';
+        buffer += sym->ch; 
+        buffer += std::to_string(abs(sym->charge)); 
+        if(sym->charge > 0)
+          buffer += '+';
+        else
+          buffer += '-'; 
+        buffer += '>'; 
+      }
+      else
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
-      }
+      
       break;
 
     case 'O':
       if(sym->allowed_edges>2){
-        buffer += '-';
+        buffer += '<';
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
-        buffer += '-';
+        if(sym->charge != 0){
+          buffer += std::to_string(abs(sym->charge)); 
+          if(sym->charge > 0)
+            buffer += '+';
+          else
+            buffer += '-';
+          buffer += '>'; 
+        }
+      }
+      else if(sym->charge != 0){
+        buffer += '<';
+        buffer += sym->ch; 
+        buffer += std::to_string(abs(sym->charge)); 
+        if(sym->charge > 0)
+          buffer += '+';
+        else
+          buffer += '-'; 
+        buffer += '>'; 
       }
       else{
         buffer += sym->ch;
@@ -5493,10 +5530,25 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
     case 'B':
       if(sym->allowed_edges>3){
-        buffer += '-';
+        buffer += '<';
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
-        buffer += '-';
+        if(sym->charge != 0){
+          buffer += std::to_string(abs(sym->charge)); 
+          if(sym->charge > 0)
+            buffer += '+';
+          else
+            buffer += '>';
+        }
+      }
+      else if(sym->charge != 0){
+        buffer += '<';
+        buffer += sym->ch; 
+        buffer += std::to_string(abs(sym->charge)); 
+        if(sym->charge > 0)
+          buffer += '+';
+        else
+          buffer += '-'; 
+        buffer += '>'; 
       }
       else{
         buffer += sym->ch;
@@ -5506,10 +5558,25 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
     
     case 'N':
       if(sym->allowed_edges>3){
-        buffer += '-';
+        buffer += '<';
         buffer += sym->ch;
-        sym->str_position = buffer.size(); 
-        buffer += '-';
+        if(sym->charge != 0){
+          buffer += std::to_string(abs(sym->charge)); 
+          if(sym->charge > 0)
+            buffer += '+';
+          else
+            buffer += '>';
+        }
+      }
+      else if(sym->charge != 0){
+        buffer += '<';
+        buffer += sym->ch; 
+        buffer += std::to_string(abs(sym->charge)); 
+        if(sym->charge > 0)
+          buffer += '+';
+        else
+          buffer += '-'; 
+        buffer += '>'; 
       }
       else{
         buffer += sym->ch;
@@ -5519,35 +5586,42 @@ void WriteCharacter(WLNSymbol *sym, std::string &buffer, WLNGraph &graph){
 
     case 'M':
       buffer += sym->ch;
-      sym->str_position = buffer.size(); 
       modifier = 1; 
       break;
 
     case 'Q':
       buffer += sym->ch;
-      sym->str_position = buffer.size(); 
       modifier = 1; 
       break;
 
     case 'Z':
       buffer += sym->ch;
-      sym->str_position = buffer.size(); 
       modifier = 2; 
       break;
     
     case 'c':
       buffer += 'C';
-      sym->str_position = buffer.size(); 
       break;
 
     default:
-      buffer += sym->ch;
-      sym->str_position = buffer.size(); 
+      if(sym->charge != 0){
+        buffer += '<';
+        buffer += sym->ch;
+        if(sym->charge != 0){
+          buffer += std::to_string(abs(sym->charge)); 
+          if(sym->charge > 0)
+            buffer += '+';
+          else
+            buffer += '-';
+          buffer += '>'; 
+        }
+      }
+      else 
+        buffer += sym->ch;
   };
 
   for(unsigned int i=modifier;i<sym->explicit_H;i++)
     buffer += 'H'; 
-
 }
 
 
@@ -5924,25 +5998,6 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
   return true;
 }
 
-void WritePostCharges(WLNGraph &wln_graph, std::string &buffer){
-  // handle post charges, no need to check ring here, solid function
-  for(unsigned int i=0;i<wln_graph.symbol_count;i++){
-    WLNSymbol *pos = wln_graph.SYMBOLS[i]; 
-    if(pos->charge > 0 && pos->ch != 'K'){  
-      for(unsigned int i=0;i<abs(pos->charge);i++){
-        buffer += " &";
-        buffer += std::to_string(pos->str_position);
-        buffer += "/0"; 
-      }
-    }
-    else if (pos->charge < 0 && !(pos->charge == -1 && pos->inRing && pos->ch == 'C') && buffer[pos->str_position-1] != 'W'){
-      for(unsigned int i=0;i<abs(pos->charge);i++){
-        buffer += " &0/";
-        buffer += std::to_string(pos->str_position); 
-      }
-    }
-  }
-}
 
 bool ChainOnlyCanonicalise(WLNGraph &wln_graph, std::set<WLNSymbol*> &whole_set,std::string &store){
   bool ion_write = false;
@@ -6227,7 +6282,6 @@ bool CanonicaliseWLN(const char *ptr)
   else
     res = FullCanonicalise(wln_graph); 
   
-  WritePostCharges(wln_graph, res); 
   std::cout << res << std::endl; 
   return true;
 }
