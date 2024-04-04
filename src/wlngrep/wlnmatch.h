@@ -74,19 +74,54 @@ void display_match(char *line, unsigned int spos, unsigned int epos){
 
 // If the previous character was not locant 
 void StackAmpersands(unsigned char ch,std::stack<unsigned char> &amp_stack){
-  
+  unsigned int closures = 0; 
+  switch(ch){
+    case 'Y':
+    case 'B':
+    case 'N':
+      closures = 2; 
+      break;
 
+    case 'X':
+    case 'K':
+      closures = 3;
+      break;
 
+    case 'S':
+      closures = 5;
+      break;
+
+    case 'P':
+      closures = 4;
+      break;
+  }
+
+  for(unsigned int i=0;i<closures;i++)
+    amp_stack.push('&');
 
   return; 
 }
 
+bool isTerminator(unsigned char ch){
+  switch(ch){
+    case 'Q':
+    case 'Z':
+    case 'E':
+    case 'F':
+    case 'G':
+    case 'I':
+      return true;
+  }
+  
+  return false; 
+}
+
 // If not on locant, pop stack
 bool PopAmpersand(std::stack<unsigned char> &amp_stack){
+  if(amp_stack.empty())
+    return false;
 
-
-
-
+  amp_stack.pop(); 
   return true; 
 }
 
@@ -115,6 +150,7 @@ unsigned int DFAGreedyMatchLine(const char *inp, FSMAutomata *dfa, bool highligh
   unsigned char locant = 0;
 
   std::stack<unsigned char> ampersand_stack; 
+  ampersand_stack.push('&'); // all notation is allowed one closure. 
 
   while(n <= len){
     
