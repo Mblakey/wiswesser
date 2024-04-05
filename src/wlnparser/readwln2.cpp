@@ -56,8 +56,6 @@ using namespace OpenBabel;
 #define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
-// --- EXPERIMENTAL OPTIONS --- 
-#define MODERN 1 
 
 const char *wln_string;
 struct WLNSymbol;
@@ -3463,6 +3461,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_carbon_chain     = false;
 
   unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
+  int pending_charge = 0; 
 
   bool no_shift = false; // stop shifting if already done
   std::string str_buffer; 
@@ -3646,10 +3645,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         return Fatal(i,"Error: 'Y' cannot be a locant assignment, please expand [A-W] with &\n");
       else
       {
+Y_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 4; // change methyl addition
+ 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
           if(!AddEdge(curr, prev))
@@ -3682,11 +3686,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+X_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 4;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
           if(!AddEdge(curr, prev))
@@ -3731,11 +3739,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+O_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 2;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
           if(!AddEdge(curr, prev))
@@ -3778,12 +3790,16 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+Q_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 1;
         curr->explicit_H = 1; 
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
           if(!AddEdge(curr, prev))
@@ -3939,11 +3955,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+N_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 3;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
           if(prev->ch == 'W' && curr->allowed_edges == 3)
             curr->allowed_edges++;
@@ -3990,11 +4010,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+M_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 2;
         curr->explicit_H = 1; 
+        
+        curr->charge = pending_charge; 
+        pending_charge = 0;
 
         if(prev){
 
@@ -4089,6 +4113,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       { 
+Z_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4145,6 +4170,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+halogen_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4197,10 +4223,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       { 
+B_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 3;
+
+        curr->charge = pending_charge; 
+        pending_charge = 0;
 
         if(prev){
 
@@ -4245,9 +4275,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+SP_jump:  
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
+        
+        curr->charge = pending_charge; 
+        pending_charge = 0;
         
         if(ch == 'P')
           curr->allowed_edges = 5;
@@ -4865,6 +4899,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         str_buffer.clear();
         unsigned int first_angle = i;
         int charge = 0;
+        bool hypervalent = false;
         std::string ch_store; 
 
         // move off the first dash
@@ -4883,7 +4918,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             else if(ch >= '0' && ch <= '9')
               ch_store += ch; 
             else if(ch == '-'){
-              charge = -isNumber(ch_store); 
+              if(ch_store.empty())
+                hypervalent = true;
+              else
+                charge = -isNumber(ch_store); 
             }
             else if(ch == '+'){
               charge = isNumber(ch_store); 
@@ -4902,7 +4940,52 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           return Fatal(i, "Error: empty < > characters"); 
         
         if(str_buffer.size() == 1){
-          curr = define_hypervalent_element(str_buffer[0],graph);
+
+          if(hypervalent)
+            curr = define_hypervalent_element(str_buffer[0],graph);
+          else{
+
+    // is this horrible, yes, do i know it, yes, is it quick and works, yes
+            ch = str_buffer[0]; 
+            pending_charge = charge; 
+            switch (str_buffer[0]) {
+              case 'B':
+                goto B_jump;
+        
+              case 'E':
+              case 'F':
+              case 'G':
+              case 'I':
+                goto halogen_jump;
+
+              case 'Z':
+                goto Z_jump;
+
+              case 'Q':
+                goto Q_jump;
+              case 'O':
+                goto O_jump;
+
+              case 'M':
+                goto M_jump;
+              case 'N':
+                goto N_jump;
+
+              case 'X':
+                goto X_jump;
+              case 'Y':
+                goto Y_jump;
+
+              case 'S':
+              case 'P':
+                goto SP_jump;
+              
+              default:
+                return Fatal(i, "Error: disallowed character in < > logic"); 
+                // normal terminator logic
+            }
+          }
+
           if(!curr)
             return Fatal(i, "Error: failed to define hypervalent element");
           curr->str_position = i+1;

@@ -49,8 +49,6 @@ using namespace OpenBabel;
 #define REASONABLE 1024
 #define MACROTOOL 0
       
-#define MODERN 1
-// this is purely experimental, should be off in stable release
 
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -1003,6 +1001,43 @@ struct BabelGraph{
 #endif
     string_position[atom] = buffer.size()+1; // always first character 
     switch(atom->GetAtomicNum()){
+#if MODERN
+      case 5:
+        buffer += "-";
+        buffer += "B";
+        break;
+
+      case 7:
+        buffer += "-";
+        buffer += "N";
+        break;
+      
+      case 8:
+        buffer += "-";
+        buffer += "O";
+        break;
+
+      case 9:
+        buffer += "-";
+        buffer += "F";
+        break;
+
+      case 53:
+        buffer += "-";
+        buffer += "I";
+        break;
+
+      case 35:
+        buffer += "-";
+        buffer += "E";
+        break;
+
+      case 17:
+        buffer += "-";
+        buffer += "G";
+        break; 
+
+#else
       case 5:
         buffer += "B";
         break;
@@ -1030,7 +1065,7 @@ struct BabelGraph{
       case 17:
         buffer += "G";
         break; 
-
+#endif
       case 89:
         buffer += "AC";
         break;
@@ -1641,7 +1676,7 @@ struct BabelGraph{
       atom_chars[atom] = wln_character; 
     
       if(prev && bond)
-        correction = border - 1;
+        correction = bond->GetBondOrder() - 1;
       else if (border > 0)
         correction = border - 1;
 
@@ -1904,6 +1939,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
@@ -1932,6 +1969,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else  
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
@@ -1962,6 +2001,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else  
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
