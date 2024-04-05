@@ -2221,30 +2221,131 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
 #if MODERN
       case '<':{
-
-          bool found_close = false; 
+          
           str_buffer.clear();
+          bool found_close = false; 
           unsigned int k = i+1; // use the block string and iterate
+          unsigned int stop = 0; 
 
-          if(!expected_locants){
-            while(k < block.size()){
-              if(block[k] == '>'){
-                // this calculates the gap to the next '-'
-                if(k != i+1)
-                  found_close = true; // if there was a double '--' this will have gap zero
-                break;
-              }
-              str_buffer.push_back(block[k]);
-              k++;
+          std::string dash_buffer; // since this could now be multiple things
+    
+          while(k < block.size()){
+            if(block[k] == '>'){
+              // this calculates the gap to the next '-'
+              found_close = true; // if there was a double '--' this will have gap zero
+              break;
             }
+
+            dash_buffer.push_back(block[k]);
+            k++;
+            stop++; 
           }
+
           
           if(!found_close)
             return Fatal(i+start, "Error: unbalanced < > characters"); 
-          else if (str_buffer.empty())
+          else if (dash_buffer.empty())
             return Fatal(i+start, "Error: empty < > characters"); 
+
+          // split the dash buffer up into large ring or not large ring
+          //
+
+          unsigned int mode = 0;  // 1- ring_size, 2 = element of some sort 
+          int charge = 0;
+          std::string ch_store; 
+      
+          for(unsigned int c=0;c<dash_buffer.size();c++){
+            unsigned char ch = dash_buffer[c];    
+            if(ch == '>')
+              break;
+            else{
+              if(ch <= 'Z' && ch >= 'A'){
+                if(!mode)
+                  mode = 2;
+                if(mode == 2)
+                  str_buffer.push_back(ch);
+              }
+              else if(ch >= '0' && ch <= '9'){
+                ch_store += ch; 
+                if(!mode)
+                  mode = 1; 
+                if(mode == 1) 
+                  str_buffer.push_back(ch); // for large rings
+              }
+              else if(ch == '-'){
+                charge = -isNumber(ch_store); 
+              }
+              else if(ch == '+'){
+                charge = isNumber(ch_store); 
+              }
+              else 
+                return Fatal(i, "Error: invalid character in special '< >'");
+              
+            }
+          }
           
 
+          if(mode == 1){
+            for(unsigned char dig_check : str_buffer){
+              if(!std::isdigit(dig_check))
+                return Fatal(start+i,"Error: mixing numerical and alphabetical special defintions is not allowed");
+            }
+
+            int big_ring = isNumber(str_buffer);
+            if(big_ring < 0)
+              return Fatal(start+i,"Error: non numeric value entered as ring size");
+            
+            ring_components.push_back({big_ring,positional_locant}); //big ring
+            positional_locant = 'A';
+            locant_attached = false;
+          }
+          else if (mode == 2){
+            if(str_buffer.size() == 1){
+              
+              if(positional_locant != spiro_atom){
+                WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
+                if(!new_locant)
+                  return Fatal(i+start, "Error: could not create hypervalent element");
+                
+                new_locant->str_position = start+i+1+1;
+                new_locant->charge = charge; 
+                ring->position_offset[new_locant] = i+1;
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
+              }
+              else 
+                positional_locant++;
+
+              positional_locant++;
+              locant_attached = false;
+            }
+            else if (str_buffer.size() == 2){
+      
+              if(positional_locant != spiro_atom){
+
+                // must be a special element 
+                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
+                if(!new_locant)
+                  return Fatal(i+start, "Error: could not create periodic code element");
+                
+                new_locant->charge = charge; 
+                new_locant->str_position = start+i+1+1;
+                ring->position_offset[new_locant] = i+1;
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
+                
+                positional_locant++;
+              }
+              else
+                positional_locant++;
+              
+              locant_attached = false;
+            }
+          }
+
+          block_str+=stop; 
+          i+=stop;
+          break;
         }
         break; 
 #endif
@@ -4853,6 +4954,14 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       cleared = false;
       break;
+
+
+    case '>':
+    case '+':
+      if(pending_J_closure)
+        break; 
+      else
+       return Fatal(i, "Error: modern read outside of known rules");
 #endif 
 
     
