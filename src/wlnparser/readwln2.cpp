@@ -2250,6 +2250,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
           unsigned int mode = 0;  // 1- ring_size, 2 = element of some sort 
           int charge = 0;
+          bool hypervalent = false;
           std::string ch_store; 
       
           for(unsigned int c=0;c<dash_buffer.size();c++){
@@ -2271,7 +2272,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                   str_buffer.push_back(ch); // for large rings
               }
               else if(ch == '-'){
-                charge = -isNumber(ch_store); 
+                if(ch_store.empty())
+                  hypervalent = true;
+                else
+                 charge = -isNumber(ch_store); 
               }
               else if(ch == '+'){
                 charge = isNumber(ch_store); 
@@ -3482,6 +3486,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   while(ch)
   {  
+character_start:
     // this will need to resolved at the end as well
     if(pending_carbon_chain && (ch < '0' || ch > '9') && ch != '/' ){
       if(digits_buffer.empty() || digits_buffer[0] == '0')
@@ -3645,7 +3650,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         return Fatal(i,"Error: 'Y' cannot be a locant assignment, please expand [A-W] with &\n");
       else
       {
-Y_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -3686,7 +3690,6 @@ Y_jump:
       }
       else
       {
-X_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -3739,7 +3742,6 @@ X_jump:
       }
       else
       {
-O_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -3790,7 +3792,6 @@ O_jump:
       }
       else
       {
-Q_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -3955,7 +3956,6 @@ Q_jump:
       }
       else
       {
-N_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4010,7 +4010,6 @@ N_jump:
       }
       else
       {
-M_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4113,7 +4112,6 @@ M_jump:
       }
       else
       { 
-Z_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4170,7 +4168,6 @@ Z_jump:
       }
       else
       {
-halogen_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4223,7 +4220,6 @@ halogen_jump:
       }
       else
       { 
-B_jump:
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4275,7 +4271,6 @@ B_jump:
       }
       else
       {
-SP_jump:  
         on_locant = '\0';
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
@@ -4940,52 +4935,13 @@ SP_jump:
           return Fatal(i, "Error: empty < > characters"); 
         
         if(str_buffer.size() == 1){
-
           if(hypervalent)
             curr = define_hypervalent_element(str_buffer[0],graph);
           else{
-
-    // is this horrible, yes, do i know it, yes, is it quick and works, yes
             ch = str_buffer[0]; 
             pending_charge = charge; 
-            switch (str_buffer[0]) {
-              case 'B':
-                goto B_jump;
-        
-              case 'E':
-              case 'F':
-              case 'G':
-              case 'I':
-                goto halogen_jump;
-
-              case 'Z':
-                goto Z_jump;
-
-              case 'Q':
-                goto Q_jump;
-              case 'O':
-                goto O_jump;
-
-              case 'M':
-                goto M_jump;
-              case 'N':
-                goto N_jump;
-
-              case 'X':
-                goto X_jump;
-              case 'Y':
-                goto Y_jump;
-
-              case 'S':
-              case 'P':
-                goto SP_jump;
-              
-              default:
-                return Fatal(i, "Error: disallowed character in < > logic"); 
-                // normal terminator logic
-            }
+            goto character_start; 
           }
-
           if(!curr)
             return Fatal(i, "Error: failed to define hypervalent element");
           curr->str_position = i+1;
