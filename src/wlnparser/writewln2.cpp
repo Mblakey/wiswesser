@@ -50,9 +50,6 @@ using namespace OpenBabel;
 #define MACROTOOL 0
       
 
-// --- DEV OPTIONS  ---
-static bool opt_debug = false;
-
 struct PathData {
   OBAtom **locant_path = 0;
   unsigned int path_size = 0;
@@ -465,7 +462,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
       }
     }
 
-    if(opt_debug && verbose){
+    if(OPT_DEBUG && verbose){
       fprintf(stderr,"  %d(%d): %c(%d) -",rings_done,pos_to_write,lowest_in_ring,lowest_in_ring);
       print_ring_locants(mol,to_write,locant_path,path_size,false);
     }
@@ -2139,7 +2136,7 @@ struct BabelGraph{
   }
 
   void AddPostCharges(OBMol *mol,std::string &buffer){
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"Post Charges\n");
     
     bool working = true;
@@ -2149,7 +2146,7 @@ struct BabelGraph{
         OBAtom *atom = &(*a);
         if(atom->GetFormalCharge() != 0){
 
-          if(opt_debug)
+          if(OPT_DEBUG)
             fprintf(stderr,"  adding charge %d to atomic num: %d\n",atom->GetFormalCharge(),atom->GetAtomicNum());
 
           if(atom->GetFormalCharge() > 0){
@@ -2319,7 +2316,7 @@ struct BabelGraph{
       }
     }
 
-    if(opt_debug){
+    if(OPT_DEBUG){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
       fprintf(stderr,"  ring subcycles: %lu/%lu\n",local_SSSR.size(),mol->GetSSSR().size());
@@ -2538,7 +2535,7 @@ struct BabelGraph{
 
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
   void ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer,PathData &pd){
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"Reading Cyclic\n");
 
     OBAtom **                       locant_path = 0; 
@@ -2563,7 +2560,7 @@ struct BabelGraph{
     unsigned int path_size = LocalSSRS_data.path_size;
     bool macro_ring = false; 
 
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"  multi classification: %d\n",multi);
 
     if(local_SSSR.size() == 1)
@@ -2874,7 +2871,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   FOR_RINGS_OF_MOL(r,mol_copy)
     cyclic++;
 
-  if(opt_debug)
+  if(OPT_DEBUG)
     WriteBabelDotGraph(mol_copy);
 
   if(!cyclic){

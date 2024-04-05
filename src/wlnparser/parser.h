@@ -16,6 +16,7 @@
 using namespace OpenBabel;
 
 #define MODERN 1
+#define OPT_DEBUG 0
 
 bool ReadWLN(const char *ptr, OBMol* mol);
 bool WriteWLN(std::string &buffer, OBMol* mol, bool modern);

@@ -45,6 +45,7 @@ GNU General Public License for more details.
 #include <openbabel/graphsym.h>
 
 #include "openbabel/parsmart.h"
+#include "openbabel/stereo/stereo.h"
 #include "parser.h"
 
 using namespace OpenBabel; 
@@ -53,7 +54,6 @@ using namespace OpenBabel;
 #define MAX_EDGES 8
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
 
@@ -5498,7 +5498,10 @@ struct BabelGraph{
   {
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
 #if MODERN
+    //StereoFrom2D(mol); 
+    StereoFrom3D(mol); 
     mol->SetAromaticPerceived(false);
+    mol->SetChiralityPerceived(true);
 #else
     mol->SetChiralityPerceived(true);
     mol->SetAromaticPerceived(false);
@@ -5719,10 +5722,16 @@ struct BabelGraph{
             patom = atom_map[parent]; 
 
           OBBond *bptr = NMOBMolNewBond(mol,patom,catom,bond_order);
-          if(e->stereo==1)
-            bptr->SetHash(true); 
-          else if (e->stereo == 2)
-            bptr->SetWedge(true); 
+          
+          if(e->stereo==1){
+            bptr->SetHash();
+          }
+          else if (e->stereo == 2){
+            bptr->SetWedge(); 
+          }
+          
+          if(bptr->IsWedge())
+            fprintf(stderr,"stereo - set\n"); 
 
           if(!bptr)  
             return false;
