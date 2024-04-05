@@ -3616,7 +3616,11 @@ character_start:
       WLNSymbol *curr = AllocateWLNSymbol('#', graph);
       curr->str_position = i;
       curr->special = std::to_string(carbon_len); 
-      curr->allowed_edges = 6; // can hold a triple bond on either side
+      
+      if(carbon_len > 1)
+        curr->allowed_edges = 6; // can hold a triple bond on either side
+      else
+        curr->allowed_edges = 4;
 
       if(prev){
         
@@ -4497,6 +4501,37 @@ character_start:
       }
       else
       {
+#if MODERN
+        // in modern notation, mutliplier carbons are removed
+        on_locant = '\0';
+        WLNSymbol *curr = AllocateWLNSymbol('#', graph);
+        curr->str_position = i;
+        curr->special = '1'; 
+        
+        curr->allowed_edges = 4;
+        curr->charge = pending_charge;
+        pending_charge = 0; 
+
+
+        if(prev){
+          
+          if(!AddEdge(curr, prev))
+            return Fatal(i, "Error: failed to bond to previous symbol");
+
+          edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
+          if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
+        }
+        
+        prev = curr;
+        last = curr; 
+#else
         on_locant = '\0';
         // set lower case for multiplier carbon
         curr = AllocateWLNSymbol('c',graph);
@@ -4520,6 +4555,7 @@ character_start:
 
         prev = curr;
         last = curr; 
+#endif
       }
       cleared = false;
       break;
@@ -4637,6 +4673,10 @@ character_start:
         on_locant = '\0';
         if(!prev){
           curr = AllocateWLNSymbol(ch,graph);
+          
+          curr->charge = pending_charge;
+          pending_charge = 0; 
+
           curr->str_position = i+1;
           curr->allowed_edges = 1;
           prev = curr; 

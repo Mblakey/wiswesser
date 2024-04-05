@@ -63,11 +63,11 @@ int main(int argc, char *argv[]){
   conv.ReadString(&mol_1,smiles_1);
   conv.ReadString(&mol_2,smiles_2);
 
-#if !MODERN
+//#if !MODERN
   // removes all the stereo
   mol_1.DeleteData(27);
   mol_2.DeleteData(27);
-#endif 
+//#endif 
 
   std::string smi_1 = conv.WriteString(&mol_1);
   std::string smi_2 = conv.WriteString(&mol_2);

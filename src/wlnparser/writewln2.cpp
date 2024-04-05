@@ -48,7 +48,7 @@ using namespace OpenBabel;
 #define WLNDEBUG 0
 #define REASONABLE 1024
 #define MACROTOOL 0
-      
+#define STEREO 0  
 
 struct PathData {
   OBAtom **locant_path = 0;
@@ -899,7 +899,7 @@ struct BabelGraph{
         return 'H';
 
       case 5:
-        if(neighbours > 3)
+        if(orders > 3)
           return '*';
         else
           return 'B';
@@ -942,6 +942,8 @@ struct BabelGraph{
           return 'F';
 
       case 15:
+        if(neighbours > 5)
+          return '*'; 
         return 'P';
 
       case 16:
@@ -1035,6 +1037,11 @@ struct BabelGraph{
         buffer += "-";
         buffer += "G";
         break; 
+    
+      case 15:
+        buffer += "-";
+        buffer += "P";
+        break;
 
 #else
       case 5:
@@ -1064,6 +1071,10 @@ struct BabelGraph{
       case 17:
         buffer += "G";
         break; 
+      
+      case 15:
+        buffer += "P";
+        break;
 #endif
       case 89:
         buffer += "AC";
@@ -1621,8 +1632,8 @@ struct BabelGraph{
         }
 
         remaining_branches[prev]--; // reduce the branches remaining  
-        
-#if MODERN
+
+#if MODERN && STEREO
         if(bond->IsHash())
           buffer += 'D';
         else if (bond->IsWedge())
@@ -1719,6 +1730,15 @@ struct BabelGraph{
             buffer += 'V';
             string_position[atom] = buffer.size();
           }
+#if MODERN
+          else if (atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += 'C';
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+            string_position[atom] = buffer.size()+1; // writen next so offset by 1
+          }
+#endif
           else{
             string_position[atom] = buffer.size()+1; // writen next so offset by 1
             carbon_chain++; 
@@ -1847,7 +1867,6 @@ struct BabelGraph{
           }
 
           prev = atom;
-
 
 #if MODERN
           if(atom->GetFormalCharge() != 0){
@@ -1994,7 +2013,7 @@ struct BabelGraph{
           }
 
 #if MODERN
-          if(atom->GetFormalCharge() != 0){
+          if(atom->GetFormalCharge() != 0 && atom->GetHeteroDegree() > 0){
             buffer += '<'; 
             buffer += wln_character; 
             ModernCharge(atom, buffer); 
@@ -2022,8 +2041,18 @@ struct BabelGraph{
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
-
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
           buffer += wln_character;
+#endif
           string_position[atom] = buffer.size();
           break;
 
@@ -2054,7 +2083,7 @@ struct BabelGraph{
               remaining_branches[atom]--; 
 
             if(macro_bond->GetBondOrder() > 1){
-#if MODERN      
+#if MODERN && STEREO      
               if(bond->IsHash())
                 buffer += 'D';
               else if (bond->IsWedge())
@@ -2448,7 +2477,7 @@ struct BabelGraph{
         buffer += ' ';
         write_locant(locant,buffer);
 
-#if MODERN      
+#if MODERN && STEREO      
         if(locant_bond->IsHash())
           buffer += 'D';
         else if (locant_bond->IsWedge())
@@ -2458,7 +2487,7 @@ struct BabelGraph{
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
-#if MODERN
+#if MODERN && STEREO
       else if(locant_bond && (locant_bond->IsWedge()||locant_bond->IsHash())){
         buffer += ' ';
         write_locant(locant,buffer);
@@ -2481,7 +2510,7 @@ struct BabelGraph{
         
         buffer += ' ';
         write_locant(floc,buffer);
-#if MODERN      
+#if MODERN && STEREO
         if(fbond->IsHash())
           buffer += 'D';
         else if (fbond->IsWedge())
@@ -2494,7 +2523,7 @@ struct BabelGraph{
         write_locant(bloc,buffer);
         break;
       }
-#if MODERN 
+#if MODERN && STEREO 
       else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
         unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
         unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
