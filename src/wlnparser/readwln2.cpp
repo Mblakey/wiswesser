@@ -15,7 +15,6 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
-#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -2073,13 +2072,29 @@ unsigned char create_relative_position(unsigned char parent){
 }
 
 
+struct LocantPair{
+  unsigned int first; 
+  unsigned int second;
+  unsigned int stereo; 
+  LocantPair(){
+    first = 0; 
+    second = 0;
+    stereo = 0;  
+  }
+
+  LocantPair(unsigned char f, unsigned char s){
+    first = f; 
+    second = s; 
+  }
+};
+
 // try to handle if errors are occuring due to path changes
-bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
+bool post_unsaturate(std::vector<LocantPair> &bonds, 
                         unsigned int final_size,
                         WLNRing *ring){
 
   // post unsaturate bonds
-  for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
+  for (LocantPair bond_pair : bonds){
     
     unsigned char loc_1 = bond_pair.first;
     unsigned char loc_2 = bond_pair.second;
@@ -2104,12 +2119,12 @@ bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds
 }
 
 // try to handle if errors are occuring due to path changes
-bool post_saturate( std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
+bool post_saturate( std::vector<LocantPair> &bonds, 
                     unsigned int final_size,
                     WLNRing *ring){
 
   // post saturate bonds
-  for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
+  for (LocantPair bond_pair : bonds){
     
     unsigned char loc_1 = bond_pair.first;
     unsigned char loc_2 = bond_pair.second;
@@ -2128,6 +2143,7 @@ bool post_saturate( std::vector<std::pair<unsigned char, unsigned char>> &bonds,
 
   return true;
 }
+
 
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
 bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph &graph,unsigned char spiro_atom='\0'){
@@ -2150,8 +2166,12 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   std::string str_buffer;  
 
   std::vector<bool> aromaticity; 
-  std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
-  std::vector<std::pair<unsigned char, unsigned char>>  saturations;
+  std::vector<LocantPair>  unsaturations;
+  std::vector<LocantPair>  saturations;
+
+#if MODERN
+  std::vector<LocantPair>  stereo;
+#endif
 
   std::vector<unsigned char>                multicyclic_locants;
   std::vector<unsigned char>                pseudo_locants;
@@ -2758,18 +2778,58 @@ character_start_ring:
                   dloc+=23;
                   k++;
                 } 
+
+                LocantPair loc_pair(positional_locant,dloc); 
                 unsaturations.push_back({positional_locant,dloc});
+
                 block_str += 2+k;
                 i += 2+k;
               }
-              else
-                unsaturations.push_back({positional_locant,positional_locant+1});
-              
+              else{
+                LocantPair loc_pair(positional_locant,positional_locant+1); 
+                unsaturations.push_back(loc_pair);
+              }
+
               if(i < len && block[i+1] != 'U')
                 positional_locant++;
               break;
             }
+#if MODERN
+            case 'A':
+            case 'D':
+              // no need to put this in implied, it has to be specified
+              if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
+                
+                // can double bond to a amped locant
+                unsigned int k = 1;
+                unsigned char dloc = block[i+3]; 
+                while(block[k+i+3] == '&'){
+                  dloc+=23;
+                  k++;
+                } 
 
+                LocantPair loc_pair(positional_locant,dloc);
+                if(ch == 'A')
+                  loc_pair.stereo = 2;
+                else
+                  loc_pair.stereo = 1;
+
+                stereo.push_back({positional_locant,dloc});
+                block_str += 2+k;
+                i += 2+k;
+              }
+              else{  
+                LocantPair loc_pair(positional_locant,positional_locant+1); 
+                if(ch == 'A')
+                  loc_pair.stereo = 2;
+                else
+                  loc_pair.stereo = 1;
+                stereo.push_back(loc_pair);
+              }
+              positional_locant++;
+              break;
+            
+#endif
             // externally bonded to the symbol as a locant symbol
             case 'W':{
               if(!heterocyclic)
@@ -2808,9 +2868,11 @@ character_start_ring:
             }
 
             // has the effect of unaromatising a bond, remove from edge consideration
-            case 'H':
-              saturations.push_back({positional_locant,positional_locant+1});
+            case 'H':{
+              LocantPair loc_pair(positional_locant,positional_locant+1);  
+              saturations.push_back(loc_pair);
               break;
+            }
 
 
             default:
