@@ -2529,8 +2529,12 @@ character_start_ring:
         
 
         if (i > 1 && block[i-1] == ' '){
+#if MODERN
+          state_multi = 2; 
+#else
           state_multi   = 1; // enter multi state
           expected_locants = ch - '0';
+#endif
         }
         else{
           ring_components.push_back({ch-'0',positional_locant});
@@ -3495,6 +3499,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_rir_closure      = false;
   bool pending_negative_charge  = false; // lets get rid of a lot of waste
   bool pending_carbon_chain     = false;
+  bool pending_locant_skips     = false; // special case handling 
 
   unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
   int pending_charge = 0; 
@@ -3505,7 +3510,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
   unsigned char on_locant = '\0';         // locant tracking
   unsigned int pending_unsaturate = 0;    // 'U' style bonding
-  bool j_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
+  unsigned int locant_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
   
   // allows consumption of notation after block parses
   unsigned int block_start = 0;
@@ -3559,13 +3564,24 @@ character_start:
       last = prev; 
       cleared = false;
     }
+    
+    // slight logic change to J variation
+    if(pending_locant_skips && (ch < '0' || ch > '9') ){
+      locant_skips = isNumber(digits_buffer); 
+      digits_buffer.clear();
+      pending_locant_skips = false; 
+    }
 
     switch (ch)
     {
 
     case '0': // cannot be lone, must be an addition to another num
-      if(pending_J_closure)
+      if(pending_J_closure){
+        if(pending_locant_skips)
+          digits_buffer += ch;
+
         break;
+      }
 
       else if (pending_locant){
         
@@ -3604,12 +3620,14 @@ character_start:
     case '9':
       if (pending_J_closure){
         // small addition to allow J handling in points
-        if(i > 0 && wln_string[i-1] == ' ')
-          j_skips = true;
+        if(i > 0 && wln_string[i-1] == ' '){
+          pending_locant_skips = true; 
+        }
         
+        if(pending_locant_skips)
+          digits_buffer += ch; 
         break;
       }
-        
       else if(pending_locant){  // handle all multiplier contractions
         return Fatal(i,"Error: multipliers are not currently supported");
         pending_locant = false;
@@ -3676,8 +3694,11 @@ character_start:
     
 
     case 'Y':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
         return Fatal(i,"Error: 'Y' cannot be a locant assignment, please expand [A-W] with &\n");
       else
@@ -3715,8 +3736,11 @@ character_start:
       break;
 
     case 'X':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant){
         return Fatal(i, "Error: Wiswesser Uncertainities lead to runaway outcomings");
       }
@@ -3755,8 +3779,11 @@ character_start:
       // oxygens
 
     case 'O':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3804,8 +3831,11 @@ character_start:
       break;
 
     case 'Q':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3859,8 +3889,11 @@ character_start:
       break;
 
     case 'V':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
 
@@ -3907,8 +3940,11 @@ character_start:
       break;
 
     case 'W':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3967,8 +4003,11 @@ character_start:
       // nitrogens
 
     case 'N':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
 
@@ -4022,8 +4061,11 @@ character_start:
       break;
 
     case 'M':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4074,8 +4116,11 @@ character_start:
       break;
 
     case 'K':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4124,8 +4169,11 @@ character_start:
       break;
 
     case 'Z':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4181,8 +4229,11 @@ character_start:
     case 'G':
     case 'F':
     case 'I':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4233,8 +4284,11 @@ character_start:
       // inorganics
 
     case 'B':
-      if (pending_J_closure)  
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4284,8 +4338,11 @@ character_start:
 
     case 'P':
     case 'S':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4338,8 +4395,11 @@ character_start:
 
     // multiply bonded carbon, therefore must be at least a double bond
     case 'C':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4385,8 +4445,11 @@ character_start:
       break;
 
     case 'A':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
 
@@ -4416,8 +4479,11 @@ character_start:
         
     // this can start a chelating ring compound, so has the same block as 'L\T'
     case 'D':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4465,8 +4531,11 @@ character_start:
         
     // hydrogens explicit
     case 'H':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4518,8 +4587,6 @@ character_start:
         pending_rir_closure = false;
         break;
       }
-      if(pending_J_closure && j_skips)
-        break;
       if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4536,97 +4603,102 @@ character_start:
         pending_locant = false;
         on_locant = ch;
       }
-      else if (pending_J_closure 
-              && ( (i<len-1 && (wln_string[i+1] == ' ' || wln_string[i+1] == '&') && wln_string[i-1] != ' ') 
-              || i == len -1)
-              )     
+      else if (pending_J_closure)
       {
-        block_end = i;
         
-        ring = AllocateWLNRing(graph);
-        std::string r_notation = get_notation(block_start,block_end);
-
-        if(pending_spiro){
+        if(locant_skips)
+          locant_skips--;
+        else if(i>0 && wln_string[i-1] != ' '){
+          block_end = i;
           
-          if(!prev)
-            Fatal(i,"Error: sprio notation opened without a previous atom");
-          else{
-            ring->locants[on_locant] = prev;
-            prev->spiro = true; 
-          }
-          // check for an aromaticity bond move?
-          if(prev && (prev->allowed_edges - prev->num_edges) < 2){
+          ring = AllocateWLNRing(graph);
+          std::string r_notation = get_notation(block_start,block_end);
 
-            // spiro would not be possible here, check if a double bond can be shifted
-            WLNSymbol *shift = 0;
-            WLNEdge *e = 0; 
-            for (unsigned int ei=0;ei<prev->barr_n;ei++){
-              e = &prev->bond_array[ei];
-              if (e->order == 2){
-                if(!saturate_edge(e,1))
-                  return Fatal(i, "Error: could not shift aromaticity for spiro ring addition");
+          if(pending_spiro){
+            
+            if(!prev)
+              Fatal(i,"Error: sprio notation opened without a previous atom");
+            else{
+              ring->locants[on_locant] = prev;
+              prev->spiro = true; 
+            }
+            // check for an aromaticity bond move?
+            if(prev && (prev->allowed_edges - prev->num_edges) < 2){
 
-                shift = e->child;
-                break;
+              // spiro would not be possible here, check if a double bond can be shifted
+              WLNSymbol *shift = 0;
+              WLNEdge *e = 0; 
+              for (unsigned int ei=0;ei<prev->barr_n;ei++){
+                e = &prev->bond_array[ei];
+                if (e->order == 2){
+                  if(!saturate_edge(e,1))
+                    return Fatal(i, "Error: could not shift aromaticity for spiro ring addition");
+
+                  shift = e->child;
+                  break;
+                }
               }
+
+              if(!branch_stack.ring)
+                return Fatal(i, "Error: ring stack is empty, nothing to fetch");
+
+              unsigned char next_loc = branch_stack.ring->locants_ch[shift]+1;
+              if(!next_loc)
+                next_loc = 'A'; // must of done the full loop
+
+              e = search_edge(branch_stack.ring->locants[next_loc],shift);
+              if(!e && !unsaturate_edge(e, 1))
+                return Fatal(i, "Error: failed to re-aromatise previous ring");
             }
-
-            if(!branch_stack.ring)
-              return Fatal(i, "Error: ring stack is empty, nothing to fetch");
-
-            unsigned char next_loc = branch_stack.ring->locants_ch[shift]+1;
-            if(!next_loc)
-              next_loc = 'A'; // must of done the full loop
-
-            e = search_edge(branch_stack.ring->locants[next_loc],shift);
-            if(!e && !unsaturate_edge(e, 1))
-              return Fatal(i, "Error: failed to re-aromatise previous ring");
+            
+            if(!FormWLNRing(ring,r_notation,block_start,graph,on_locant))
+              return false;
+          }
+          else{
+            if(!FormWLNRing(ring,r_notation,block_start,graph))
+              return false;
           }
           
-          if(!FormWLNRing(ring,r_notation,block_start,graph,on_locant))
-            return false;
-        }
-        else{
-          if(!FormWLNRing(ring,r_notation,block_start,graph))
-            return false;
-        }
 
-        if(pending_ring_in_ring && !wrap_ring){
-          wrap_ring = ring; // instant back access
-        }
+          if(pending_ring_in_ring && !wrap_ring){
+            wrap_ring = ring; // instant back access
+          }
 
-        branch_stack.push({ring,0});
-        block_start = 0;
-        block_end = 0;
+          branch_stack.push({ring,0});
+          block_start = 0;
+          block_end = 0;
 
-        // does the incoming locant check
-        if(pending_spiro)
-          pending_spiro = false;
-        else if (prev && on_locant && on_locant != '0')
-        {
-          if (ring->locants[on_locant]){
-                    
-            if(!AddEdge(ring->locants[on_locant], prev))
-              return Fatal(i, "Error: failed to bond to previous symbol");
+          // does the incoming locant check
+          if(pending_spiro)
+            pending_spiro = false;
+          else if (prev && on_locant && on_locant != '0')
+          {
+            if (ring->locants[on_locant]){
+                      
+              if(!AddEdge(ring->locants[on_locant], prev))
+                return Fatal(i, "Error: failed to bond to previous symbol");
 
-            edge = &prev->bond_array[prev->barr_n-1]; 
-            edge->stereo = pending_stereo; 
-            pending_stereo = 0; 
+              edge = &prev->bond_array[prev->barr_n-1]; 
+              edge->stereo = pending_stereo; 
+              pending_stereo = 0; 
 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
-                return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
-            }
-            ring->loc_count++; //in-line locant assumed
-          }   
-          else
-            return Fatal(i,"Error: attaching inline ring with out of bounds locant assignment");
+              if(pending_unsaturate){
+                if(!unsaturate_edge(edge,pending_unsaturate))
+                  return Fatal(i, "Error: failed to unsaturate bond"); 
+                pending_unsaturate = 0;
+              }
+              ring->loc_count++; //in-line locant assumed
+            }   
+            else
+              return Fatal(i,"Error: attaching inline ring with out of bounds locant assignment");
+            
+          }
           
+
+          on_locant = '\0';
+          pending_J_closure = false;
         }
 
-        on_locant = '\0';
-        pending_J_closure = false;
       }
       
       cleared = false;
@@ -4634,10 +4706,11 @@ character_start:
 
     case 'L':
     case 'T':
-      if (pending_J_closure || pending_rir_closure)
+      if (pending_J_closure || pending_rir_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
-   //   else if (pending_ring_in_ring)
-   //     break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4682,9 +4755,11 @@ character_start:
       break;
 
     case 'R':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
-      
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4735,8 +4810,11 @@ character_start:
       // bonding
 
     case 'U':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4766,7 +4844,7 @@ character_start:
 
     case ' ':
       if (pending_J_closure){
-        j_skips = false;
+        locant_skips = 0; 
         break;
       }
       else if(pending_negative_charge){
@@ -5203,7 +5281,7 @@ character_start:
     
     case '/':
       if (pending_J_closure){
-        j_skips = true;
+        locant_skips = 2;
         break;
       }
       else if(pending_carbon_chain){ // state that this must be a charge 
@@ -5499,7 +5577,6 @@ struct BabelGraph{
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
 #if MODERN
     //StereoFrom2D(mol); 
-    StereoFrom3D(mol); 
     mol->SetAromaticPerceived(false);
     mol->SetChiralityPerceived(true);
 #else
