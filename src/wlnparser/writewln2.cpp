@@ -2518,6 +2518,7 @@ struct BabelGraph{
   void ReadMultiCyclicPoints( OBAtom**locant_path,unsigned int path_size, 
                               std::map<OBAtom*,unsigned int> &ring_shares,std::string &buffer)
   { 
+
     unsigned int count = 0;
     std::string append = ""; 
     for(unsigned int i=0;i<path_size;i++){
@@ -2527,9 +2528,14 @@ struct BabelGraph{
       }
     }
 
+#if MODERN
     buffer += ' ';
     buffer+= std::to_string(count);
-    buffer+= append; 
+#else
+    buffer += ' ';
+    buffer+= std::to_string(count);
+    buffer+= append;
+#endif
   }
 
 
@@ -2627,8 +2633,13 @@ struct BabelGraph{
 
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
+      
+#if MODERN
+      write_locant(int_to_locant(path_size),buffer); // need to make the relative size
+#else
       buffer += ' ';
       write_locant(int_to_locant(path_size),buffer); // need to make the relative size
+#endif
     }
 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);

@@ -2170,13 +2170,15 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
   while(ch){
 character_start_ring:
+    if(state_multi == 3 && ch != '-' && ch != '&'){
+      state_multi = 0; 
+      positional_locant = 'A';
+    }
+
     switch(ch){
       case ' ':
         if(positional_locant >= 128)
           broken_locants.insert(positional_locant);
-
-        if(state_multi == 3)
-          state_multi = 0;
 
         if(expected_locants)
           return Fatal(i+start,"Error: not enough locants before space character");
@@ -2530,7 +2532,7 @@ character_start_ring:
 
         if (i > 1 && block[i-1] == ' '){
 #if MODERN
-          state_multi = 2; 
+          state_multi = 2;
 #else
           state_multi   = 1; // enter multi state
           expected_locants = ch - '0';
@@ -2601,13 +2603,13 @@ character_start_ring:
       case 'X':
       case 'Y':
       case 'Z':
+
         if(positional_locant >= 128)
           broken_locants.insert(positional_locant);
 
         if(state_aromatics)
           return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
         
-
         if(expected_locants){
           if(state_multi)
             multicyclic_locants.push_back(ch);
@@ -2815,6 +2817,9 @@ character_start_ring:
           locant_attached = false; // locant is no longer primary
         }
         else if(i>0 && block[i-1] == ' '){
+          if(ring_size_specifier && ch > ring_size_specifier)
+            return Fatal(start+i, "Error: specifying locants outside of allowed range"); 
+
           positional_locant = ch;
           locant_attached = true;
         }
@@ -2853,6 +2858,9 @@ character_start_ring:
         }
         else{
           if(i>0 && block[i-1] == ' '){
+            if(ring_size_specifier && ch > ring_size_specifier)
+              return Fatal(start+i, "Error: specifying locants outside of allowed range"); 
+            
             positional_locant = ch;
             locant_attached = true;
           }
@@ -2907,6 +2915,9 @@ character_start_ring:
         }
         else{
           if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
+            if(ring_size_specifier && ch > ring_size_specifier)
+              return Fatal(start+i, "Error: specifying locants outside of allowed range"); 
+            
             positional_locant = ch;
             locant_attached = true;
           }
