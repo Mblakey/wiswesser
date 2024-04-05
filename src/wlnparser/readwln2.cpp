@@ -2139,6 +2139,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
   unsigned int state_pseudo         = 0; 
   unsigned int state_aromatics      = 0;
+  int pending_charge                = 0; 
 
   unsigned int  expected_locants      = 0;
   unsigned char ring_size_specifier   = '\0';
@@ -2168,7 +2169,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned char ch = *block_str;
 
   while(ch){
-
+character_start_ring:
     switch(ch){
       case ' ':
         if(positional_locant >= 128)
@@ -2239,7 +2240,6 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
             stop++; 
           }
 
-          
           if(!found_close)
             return Fatal(i+start, "Error: unbalanced < > characters"); 
           else if (dash_buffer.empty())
@@ -2247,7 +2247,6 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
           // split the dash buffer up into large ring or not large ring
           //
-
           unsigned int mode = 0;  // 1- ring_size, 2 = element of some sort 
           int charge = 0;
           bool hypervalent = false;
@@ -2304,22 +2303,32 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           else if (mode == 2){
             if(str_buffer.size() == 1){
               
-              if(positional_locant != spiro_atom){
-                WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
-                if(!new_locant)
-                  return Fatal(i+start, "Error: could not create hypervalent element");
-                
-                new_locant->str_position = start+i+1+1;
-                new_locant->charge = charge; 
-                ring->position_offset[new_locant] = i+1;
-                if(OPT_DEBUG)
-                  fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
-              }
-              else 
-                positional_locant++;
+              if(hypervalent){
+                if(positional_locant != spiro_atom){
+                  WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
+                  if(!new_locant)
+                    return Fatal(i+start, "Error: could not create hypervalent element");
+                  
+                  new_locant->str_position = start+i+1+1;
+                  new_locant->charge = charge; 
+                  ring->position_offset[new_locant] = i+1;
+                  if(OPT_DEBUG)
+                    fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
+                }
+                else 
+                  positional_locant++;
 
-              positional_locant++;
-              locant_attached = false;
+                positional_locant++;
+                locant_attached = false;
+              }
+              else {
+                ch = str_buffer[0];
+                pending_charge = charge; 
+                block_str+=stop; 
+                i+=stop;
+                goto character_start_ring;
+              }
+
             }
             else if (str_buffer.size() == 2){
       
@@ -2633,6 +2642,9 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->str_position = (start+i+1); 
               ring->position_offset[new_locant] = i; 
+              
+              new_locant->charge = pending_charge; 
+              pending_charge = 0; 
 
               if(ch == 'P')
                 new_locant->allowed_edges = 5;
@@ -2653,6 +2665,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 4;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              
+              new_locant->charge = pending_charge; 
+              pending_charge = 0; 
+              
               ring->position_offset[new_locant] = i; 
               break;
 
@@ -2665,6 +2681,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              
+              new_locant->charge = pending_charge; 
+              pending_charge = 0; 
+
               ring->position_offset[new_locant] = i; 
               new_locant->explicit_H = 2; 
               break;
@@ -2679,6 +2699,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              
+              new_locant->charge = pending_charge; 
+              pending_charge = 0; 
+              
               ring->position_offset[new_locant] = i; 
               break;
 
@@ -2689,6 +2713,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1);
               new_locant->explicit_H = 1; 
+              
+              new_locant->charge = pending_charge; 
+              pending_charge = 0; 
+
               ring->position_offset[new_locant] = i; 
               break;
 
@@ -2702,6 +2730,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               new_locant->allowed_edges = 2;
               new_locant->inRing = ring;
               new_locant->str_position = (start+i+1); 
+              
+              new_locant->charge = pending_charge; 
+              pending_charge = 0; 
+
               ring->position_offset[new_locant] = i; 
               break;
 
