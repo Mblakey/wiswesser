@@ -2220,7 +2220,32 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         break;
 
 #if MODERN
-      case '<':
+      case '<':{
+
+          bool found_close = false; 
+          str_buffer.clear();
+          unsigned int k = i+1; // use the block string and iterate
+
+          if(!expected_locants){
+            while(k < block.size()){
+              if(block[k] == '>'){
+                // this calculates the gap to the next '-'
+                if(k != i+1)
+                  found_close = true; // if there was a double '--' this will have gap zero
+                break;
+              }
+              str_buffer.push_back(block[k]);
+              k++;
+            }
+          }
+          
+          if(!found_close)
+            return Fatal(i+start, "Error: unbalanced < > characters"); 
+          else if (str_buffer.empty())
+            return Fatal(i+start, "Error: empty < > characters"); 
+          
+
+        }
         break; 
 #endif
 
@@ -4732,6 +4757,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
 #if MODERN 
     case '<':{
+       if (pending_J_closure)
+          break;
+        
+        bool found_close = false; 
         str_buffer.clear();
         unsigned int first_angle = i;
         int charge = 0;
@@ -4741,8 +4770,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         i++;
         ch = *(++wln_ptr);
         while(ch != '\0'){
-          if(ch == '>')
+          if(ch == '>'){
+            found_close = true; 
             break;
+          }
           
           else{
             if(ch <= 'Z' && ch >= 'A'){
@@ -4756,11 +4787,19 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             else if(ch == '+'){
               charge = isNumber(ch_store); 
             }
+            else 
+              return Fatal(i, "Error: invalid character in special '< >'");
+            
           }
           i++;
           ch = *(++wln_ptr);
         }
           
+        if(!found_close)
+          return Fatal(i, "Error: unbalanced < > characters"); 
+        else if (str_buffer.empty())
+          return Fatal(i, "Error: empty < > characters"); 
+        
         if(str_buffer.size() == 1){
           curr = define_hypervalent_element(str_buffer[0],graph);
           if(!curr)
