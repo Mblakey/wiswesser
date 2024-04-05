@@ -38,6 +38,8 @@ GNU General Public License for more details.
 #include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
+#include "openbabel/stereo/stereo.h"
+#include <openbabel/stereo/tetrahedral.h>
 
 #include "parser.h"
 
@@ -1520,19 +1522,27 @@ struct BabelGraph{
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
 
-    if(locant && locant != '0' && inc_bond->GetBondOrder() > 0){ // allows OM through
+    unsigned int border = 0; 
+    unsigned char stereo = 0; 
+    if(inc_bond){
+      border = inc_bond->GetBondOrder();
+      if(inc_bond->IsHash())
+        stereo = 'D';
+      else if (inc_bond->IsWedge())
+        stereo =  'A'; 
+    }
+
+    if(locant && locant != '0' && border > 0){ // allows OM through
       buffer+=' ';
       write_locant(locant,buffer);
     }
-
+    
 #if STEREO
-    if(inc_bond->IsHash())
-      buffer += 'D';
-    else if (inc_bond->IsWedge())
-      buffer += 'A'; 
+    if(stereo)
+      buffer += stereo;
 #endif
 
-    for(unsigned int b=1;b<inc_bond->GetBondOrder();b++)
+    for(unsigned int b=1;b<border;b++)
       buffer+='U';
     
 
@@ -1592,6 +1602,9 @@ struct BabelGraph{
         remaining_branches[prev]--; // reduce the branches remaining  
         
 #if STEREO
+        fprintf(stderr,"chiral: %d\n",atom->IsChiral()); 
+        fprintf(stderr,"bond stereo: %d\n",bond->IsWedgeOrHash());  
+        
         if(bond->IsHash())
           buffer += 'D';
         else if (bond->IsWedge())
@@ -1616,7 +1629,7 @@ struct BabelGraph{
           carbon_chain = 0;
         }
 
-        if(locant == '0' && inc_bond->GetBondOrder() == 0){
+        if(locant == '0' && !border){
           buffer += '-';
           buffer += ' ';
           buffer += '0';
@@ -1644,9 +1657,9 @@ struct BabelGraph{
       atom_chars[atom] = wln_character; 
     
       if(prev && bond)
-        correction = bond->GetBondOrder() - 1;
-      else if (inc_bond->GetBondOrder() > 0)
-        correction = inc_bond->GetBondOrder() - 1;
+        correction = border - 1;
+      else if (border > 0)
+        correction = border - 1;
 
       // last added char, not interested in the ring types of '-'
       switch(wln_character){
@@ -2692,6 +2705,36 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
+
+#if STEREO
+  StereoFrom0D(mol_copy); 
+
+  OBStereoFacade stereo_facade = OBStereoFacade(mol_copy);
+  FOR_ATOMS_OF_MOL(a,mol_copy){
+    if(stereo_facade.HasTetrahedralStereo(a->GetId())){
+    
+      OBTetrahedralStereo *tet_centre = stereo_facade.GetTetrahedralStereo(a->GetId()); 
+      OBTetrahedralStereo::Config cfg;
+      cfg = tet_centre->GetConfig();
+      
+      unsigned int stereo = 0;
+      for (unsigned long ref : cfg.refs){
+        if(mol_copy->GetAtomById(ref)){
+          OBBond * bond = mol_copy->GetBond(mol_copy->GetAtomById(cfg.center),mol_copy->GetAtomById(ref));
+
+          if(stereo==1){
+            bond->SetWedge(true); 
+          }
+          else if (stereo==0){
+            bond->SetHash(true); 
+          }
+        }
+        stereo++; 
+      }
+      
+    }
+  }
+#endif
 
   unsigned int cyclic = 0;
   bool started = false; 

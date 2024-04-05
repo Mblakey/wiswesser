@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
   OBMol mol;
   OBConversion conv;
   
-  conv.SetInFormat(format);  
+  conv.SetInFormat(format);
   if(!strcmp(format,"mol"))
     res = conv.ReadFile(&mol, cli_inp);
   else
