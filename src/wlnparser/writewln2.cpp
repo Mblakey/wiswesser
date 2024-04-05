@@ -481,9 +481,15 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
       assignment_score++;
   
     if(to_write->Size() > 9){
+#if MODERN
+      buffer += '<';
+      buffer+= std::to_string(to_write->Size());
+      buffer += '>'; 
+#else
       buffer+='-';
       buffer+= std::to_string(to_write->Size());
       buffer+='-';
+#endif
     }
     else
       buffer+= std::to_string(to_write->Size());
@@ -2346,7 +2352,18 @@ struct BabelGraph{
             if(het_char == 'K')
               locant_path[i]->SetFormalCharge(0);
 
+#if MODERN
+            if(locant_path[i]->GetFormalCharge() != 0){
+              buffer += '<';
+              buffer += het_char; 
+              ModernCharge(locant_path[i], buffer);
+              buffer += '>';
+            }
+            else 
+              buffer += het_char; 
+#else
             buffer+=het_char;
+#endif
             string_position[locant_path[i]] = buffer.size();
           }
           else{
