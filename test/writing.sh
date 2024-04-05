@@ -12,8 +12,6 @@ FILE=""
 
 
 ARG_COUNT=0
-WRONG=0
-RIGHT=0
 process_arguments() {
   # Loop through all the arguments
   for arg in "$@"; do
@@ -37,8 +35,6 @@ process_arguments() {
         echo "  external"
         echo "options:"
         echo "  -h, --help          show this help message"
-        echo "  -w, --wrong         write failed smiles to incorrect.txt"
-        echo "  -c, --correct       write correct smiles to correct.txt"
         exit 0;
         ;;
       *)
@@ -80,7 +76,9 @@ main(){
   LINE=0
   while read p; do
     ((LINE++));
-    echo -ne "$LINE: "
+    if [ -t 1 ]; then
+      echo -ne "$LINE: "
+    fi;
     WLN=$(echo -n "$p" | cut -d $'\t' -f1)
     SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
@@ -88,12 +86,7 @@ main(){
     NEW_WLN=$($WRITER -ismi "${SMILES}" 2> /dev/null) # chembl is canonical smiles
 
     if [ -z "$NEW_WLN" ]; then
-      echo -ne "$WLN != any new WLN string\t${SMILES}\n$"
-
-      if [ $WRONG -eq 1 ]; then
-        echo "${SMILES}" >> $INCORRECT
-      fi;
-
+      echo -ne "$WLN\tno write\t${SMILES}\n"
       continue
     fi;
 
@@ -101,11 +94,7 @@ main(){
     NEW_SMILES=$($READER -osmi "${NEW_WLN}" 2> /dev/null) 
     
     if [ -z "$NEW_SMILES" ]; then
-      echo "$NEW_WLN != anything $SMILES"
-
-      if [ $WRONG -eq 1 ]; then
-        echo "${SMILES}" >> $INCORRECT
-      fi;
+      echo -ne "$NEW_WLN\tre-read fail\t$SMILES\n"
 
       continue
     fi;
@@ -113,20 +102,18 @@ main(){
     SAME=$($COMP "$SMILES" "$NEW_SMILES")
     if [[ "$SAME" == "1" ]]; then
       ((COUNT++));
-      echo -ne "\r"
-      if [ $RIGHT -eq 1 ]; then
-        echo "${NEW_WLN}" >> $CORRECT
-      fi;
+      if [ -t 1 ]; then
+        echo -ne "\r"
+      fi; 
     else
-      echo -ne  "$WLN == $SMILES\t$NEW_WLN\t$NEW_SMILES\n"
-      if [ $WRONG -eq 1 ]; then
-        echo "${SMILES}" >> $INCORRECT
-      fi;
+      echo -ne  "$NEW_WLN\tnot equal\t$SMILES"
     fi;
 
   done <$FILE
 
-  echo -ne "\r$COUNT/$TOTAL correct\n"
+  if [ -t 1 ]; then
+    echo -ne "\r$COUNT/$TOTAL correct\n"
+  fi; 
 }
 
 process_arguments "$@"

@@ -60,7 +60,11 @@ main(){
   LINE=0
   while read p; do
     ((LINE++));
-    echo -ne "$LINE: "
+
+    if [ -t 1 ]; then
+      echo -ne "$LINE: "
+    fi
+
     WLN=$(echo -n "$p" | cut -d $'\t' -f1)
     SMILES=$(echo -n "$p" | cut -d $'\t' -f2)
     SMILES="$(sed -e 's/[[:space:]]*$//' <<<${SMILES})"
@@ -70,7 +74,7 @@ main(){
 
     if [ -z $NEW_SMILES ]; then
       ((MISSED++));
-      echo "$WLN != anything - $SMILES"
+      echo -ne "$WLN\tread fail\t$SMILES\n"
       continue
     fi;
 
@@ -80,17 +84,21 @@ main(){
 
     if [[ "$SAME" == "1" ]]; then
       ((COUNT++));
-      echo -ne "\r"
+      if [ -t 1 ]; then
+        echo -ne "\r"
+      fi
     else
-      echo -ne  "$WLN != $SMILES\t$NEW_SMILES\n"
+      echo -ne  "$WLN\tnot equal\t$SMILES\n"
       ((WRONG++));
     fi;
 
   done <$FILE
 
-  echo -ne "\r$COUNT/$TOTAL correct\n"
-  echo -ne "$MISSED completely missed\n"
-  echo -ne "$WRONG wrong output\n"
+  if [ -t 1 ]; then
+    echo -ne "\r$COUNT/$TOTAL correct\n"
+    echo -ne "$MISSED completely missed\n"
+    echo -ne "$WRONG wrong output\n"
+  fi; 
 }
 
 process_arguments "$@"
