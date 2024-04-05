@@ -55,6 +55,8 @@ using namespace OpenBabel;
 #define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
+// --- EXPERIMENTAL OPTIONS --- 
+#define MODERN 1 
 
 const char *wln_string;
 struct WLNSymbol;
@@ -123,12 +125,14 @@ struct WLNEdge{
   WLNEdge *reverse; // points to its backwards edge 
   unsigned int order;
   bool aromatic;
+  unsigned int stereo; // 0- none, 1 - descend, 2- accend
 
   WLNEdge(){
     parent   = 0;
     child    = 0;
     order    = 0;
     aromatic = 0;
+    stereo = 0; 
   }
   ~WLNEdge(){};
 };
@@ -3325,6 +3329,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_negative_charge  = false; // lets get rid of a lot of waste
   bool pending_carbon_chain     = false;
 
+  unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
+
   bool no_shift = false; // stop shifting if already done
   std::string str_buffer; 
   std::string digits_buffer; 
@@ -3368,6 +3374,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           return Fatal(i, "Error: failed to bond to previous symbol");
 
         edge = &prev->bond_array[prev->barr_n-1]; 
+        edge->stereo = pending_stereo; 
+        pending_stereo = 0; 
+
         if(pending_unsaturate){
           if(!unsaturate_edge(edge,pending_unsaturate))
             return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -3454,6 +3463,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             edge = &prev->bond_array[prev->barr_n-1];
             wrap_ring->macro_return = edge; 
             
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
             if(pending_unsaturate){
               if(!unsaturate_edge(edge,pending_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -3511,6 +3523,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -3545,6 +3560,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -3592,6 +3609,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -3638,6 +3657,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -3688,6 +3709,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -3735,6 +3758,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(!unsaturate_edge(edge, 2))
             return Fatal(i, "Error: failed to attach W symbol"); 
 
@@ -3794,6 +3819,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -3842,6 +3869,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){ 
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -3889,6 +3918,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -3937,6 +3968,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -3990,6 +4023,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -4039,6 +4075,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -4089,6 +4127,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
@@ -4135,6 +4175,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -4168,9 +4210,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_locant = false;
         on_locant = ch;
       }
-      else
+      else{
+#if MODERN
+        pending_stereo = 2; 
+#else
         return Fatal(i,"Error: locant only symbol used in atomic definition");
-      
+#endif
+      }
       cleared = false;
       break;
         
@@ -4196,6 +4242,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
 
+#if MODERN
+        pending_stereo = 1;     
+#else
         if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
           pending_ring_in_ring = true;
 
@@ -4215,10 +4264,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_inline_ring = false;
         block_start = i;
         pending_J_closure = true;
+#endif 
       }
       cleared = false;
       break;
-        
         
     // hydrogens explicit
     case 'H':
@@ -4367,6 +4416,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               return Fatal(i, "Error: failed to bond to previous symbol");
 
             edge = &prev->bond_array[prev->barr_n-1]; 
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
             if(pending_unsaturate){
               if(!unsaturate_edge(edge,pending_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -4470,6 +4522,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
           edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
           if(pending_unsaturate){
             if(!unsaturate_edge(edge,pending_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
@@ -4692,6 +4747,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               return Fatal(i, "Error: failed to bond to previous symbol");
 
             edge = &prev->bond_array[prev->barr_n-1]; 
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0;
+
             wrap_ring->macro_return = edge; 
             if(pending_unsaturate){
               if(!unsaturate_edge(edge,pending_unsaturate))
@@ -4807,7 +4865,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
               
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
-            else if(pending_unsaturate){
+            
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
+            if(pending_unsaturate){
               if(!unsaturate_edge(edge,pending_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
               pending_unsaturate = 0;
@@ -4903,6 +4965,8 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       if(!AddEdge(curr, prev))
         return Fatal(i, "Error: failed to bond to previous symbol");
       edge = &prev->bond_array[prev->barr_n-1]; 
+      edge->stereo = pending_stereo; 
+      pending_stereo = 0; 
       
       if(pending_unsaturate){
         if(!unsaturate_edge(edge,pending_unsaturate))
@@ -5121,16 +5185,12 @@ struct BabelGraph{
   void NMOBSanitizeMol(OBMol* mol)
   {
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
+#if MODERN
+    mol->SetAromaticPerceived(false);
+#else
     mol->SetChiralityPerceived(true);
     mol->SetAromaticPerceived(false);
-
-#ifdef REPLACED
-    if(!OBKekulize(mol)){
-      fprintf(stderr,"Error: failed to kekulize mol\n");
-      if(!OPT_DEBUG) // if we cant kekulise lets see why
-        return false; 
-    }
-#endif
+#endif 
 
     mol->DeleteHydrogens();
   }
@@ -5347,6 +5407,11 @@ struct BabelGraph{
             patom = atom_map[parent]; 
 
           OBBond *bptr = NMOBMolNewBond(mol,patom,catom,bond_order);
+          if(e->stereo==1)
+            bptr->SetHash(true); 
+          else if (e->stereo == 2)
+            bptr->SetWedge(true); 
+
           if(!bptr)  
             return false;
         }
@@ -6442,7 +6507,6 @@ std::string FullCanonicalise(WLNGraph &graph){
 /**********************************************************************
                          API FUNCTION
 **********************************************************************/
-
 
 bool ReadWLN(const char *ptr, OBMol* mol)
 {   

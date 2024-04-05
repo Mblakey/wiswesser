@@ -25,11 +25,6 @@ add_executable(writewln
 )
 
 
-add_executable(modernwln
-  ${PROJECT_SOURCE_DIR}/src/wlnparser/modernwln.cpp
-)
-
-
 add_executable(obcomp ${PROJECT_SOURCE_DIR}/src/wlnparser/obcomp.cpp)
 add_executable(wlngrep ${PROJECT_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 

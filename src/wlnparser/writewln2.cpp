@@ -49,7 +49,8 @@ using namespace OpenBabel;
 #define REASONABLE 1024
 #define MACROTOOL 0
       
-#define STEREO 1 // this is purely experimental, should be off in stable release
+#define MODERN 1
+// this is purely experimental, should be off in stable release
 
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -1537,7 +1538,7 @@ struct BabelGraph{
       write_locant(locant,buffer);
     }
     
-#if STEREO
+#if MODERN
     if(stereo)
       buffer += stereo;
 #endif
@@ -1601,10 +1602,7 @@ struct BabelGraph{
 
         remaining_branches[prev]--; // reduce the branches remaining  
         
-#if STEREO
-        fprintf(stderr,"chiral: %d\n",atom->IsChiral()); 
-        fprintf(stderr,"bond stereo: %d\n",bond->IsWedgeOrHash());  
-        
+#if MODERN
         if(bond->IsHash())
           buffer += 'D';
         else if (bond->IsWedge())
@@ -1933,7 +1931,7 @@ struct BabelGraph{
               remaining_branches[atom]--; 
 
             if(macro_bond->GetBondOrder() > 1){
-#if STEREO      
+#if MODERN      
               if(bond->IsHash())
                 buffer += 'D';
               else if (bond->IsWedge())
@@ -2316,7 +2314,7 @@ struct BabelGraph{
         buffer += ' ';
         write_locant(locant,buffer);
 
-#if STEREO      
+#if MODERN      
         if(locant_bond->IsHash())
           buffer += 'D';
         else if (locant_bond->IsWedge())
@@ -2326,7 +2324,7 @@ struct BabelGraph{
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
-#if STEREO
+#if MODERN
       else if(locant_bond && (locant_bond->IsWedge()||locant_bond->IsHash())){
         buffer += ' ';
         write_locant(locant,buffer);
@@ -2349,7 +2347,7 @@ struct BabelGraph{
         
         buffer += ' ';
         write_locant(floc,buffer);
-#if STEREO      
+#if MODERN      
         if(fbond->IsHash())
           buffer += 'D';
         else if (fbond->IsWedge())
@@ -2362,7 +2360,7 @@ struct BabelGraph{
         write_locant(bloc,buffer);
         break;
       }
-#if STEREO 
+#if MODERN 
       else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
         unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
         unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
@@ -2706,7 +2704,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
 
-#if STEREO
+#if MODERN
   StereoFrom0D(mol_copy); 
 
   OBStereoFacade stereo_facade = OBStereoFacade(mol_copy);
