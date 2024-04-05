@@ -47,7 +47,7 @@ using namespace OpenBabel;
 #define REASONABLE 1024
 #define MACROTOOL 0
       
-bool MODERN = 0; 
+#define STEREO 1 // this is purely experimental, should be off in stable release
 
 // --- DEV OPTIONS  ---
 static bool opt_debug = false;
@@ -478,16 +478,9 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
       assignment_score++;
   
     if(to_write->Size() > 9){
-      if(MODERN){
-        buffer+='<';
-        buffer+= std::to_string(to_write->Size());
-        buffer+='>';
-      }
-      else{
-        buffer+='-';
-        buffer+= std::to_string(to_write->Size());
-        buffer+='-';
-      }
+      buffer+='-';
+      buffer+= std::to_string(to_write->Size());
+      buffer+='-';
     }
     else
       buffer+= std::to_string(to_write->Size());
@@ -981,10 +974,7 @@ struct BabelGraph{
     // all special elemental cases
     //
     
-    if(MODERN)
-      buffer += "<";
-    else
-      buffer += "-";
+    buffer += "-";
     
     string_position[atom] = buffer.size()+1; // always first character 
     switch(atom->GetAtomicNum()){
@@ -1447,25 +1437,7 @@ struct BabelGraph{
         break;
     }
 
-    if(MODERN){
-      // add the charges here
-      if(atom->GetFormalCharge() > 0){
-        if(atom->GetFormalCharge()>1)
-          buffer += atom->GetFormalCharge() + '0';
-        
-        buffer+= '+';
-      }
-
-      if(atom->GetFormalCharge() < 0){
-        if(atom->GetFormalCharge()<1)
-          buffer += abs(atom->GetFormalCharge()) + '0';
-        
-        buffer+= '-';
-      }
-      buffer+='>';
-    }
-    else
-     buffer+='-';
+    buffer+='-';
     
     return; 
   }
@@ -1542,20 +1514,27 @@ struct BabelGraph{
   }
 
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
-  bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from, unsigned int b_order,
+  bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from,OBBond *inc_bond,
                       OBMol *mol, std::string &buffer, unsigned char locant,
                       OBAtom **locant_path, unsigned int path_size){
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
 
-    if(locant && locant != '0' && b_order > 0){ // allows OM through
+    if(locant && locant != '0' && inc_bond->GetBondOrder() > 0){ // allows OM through
       buffer+=' ';
       write_locant(locant,buffer);
     }
 
-    for(unsigned int b=1;b<b_order;b++)
-      buffer+='U';
+#if STEREO
+    if(inc_bond->IsHash())
+      buffer += 'D';
+    else if (inc_bond->IsWedge())
+      buffer += 'A'; 
+#endif
 
+    for(unsigned int b=1;b<inc_bond->GetBondOrder();b++)
+      buffer+='U';
+    
 
     unsigned int carbon_chain = 0;
     unsigned char wln_character = 0; 
@@ -1611,6 +1590,14 @@ struct BabelGraph{
         }
 
         remaining_branches[prev]--; // reduce the branches remaining  
+        
+#if STEREO
+        if(bond->IsHash())
+          buffer += 'D';
+        else if (bond->IsWedge())
+          buffer += 'A'; 
+#endif
+
         for(unsigned int i=1;i<bond->GetBondOrder();i++){
           if(carbon_chain){
             buffer += std::to_string(carbon_chain);
@@ -1629,7 +1616,7 @@ struct BabelGraph{
           carbon_chain = 0;
         }
 
-        if(locant == '0' && b_order == 0){
+        if(locant == '0' && inc_bond->GetBondOrder() == 0){
           buffer += '-';
           buffer += ' ';
           buffer += '0';
@@ -1658,8 +1645,8 @@ struct BabelGraph{
     
       if(prev && bond)
         correction = bond->GetBondOrder() - 1;
-      else if (b_order > 0)
-        correction = b_order - 1;
+      else if (inc_bond->GetBondOrder() > 0)
+        correction = inc_bond->GetBondOrder() - 1;
 
       // last added char, not interested in the ring types of '-'
       switch(wln_character){
@@ -1933,6 +1920,12 @@ struct BabelGraph{
               remaining_branches[atom]--; 
 
             if(macro_bond->GetBondOrder() > 1){
+#if STEREO      
+              if(bond->IsHash())
+                buffer += 'D';
+              else if (bond->IsWedge())
+                buffer += 'A'; 
+#endif
               buffer += 'U'; 
               if(branching_atom[atom] && atom->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
                 remaining_branches[prev]--;
@@ -2309,9 +2302,28 @@ struct BabelGraph{
       if(locant_bond && !locant_bond->IsAromatic() && locant_bond->GetBondOrder()>1){
         buffer += ' ';
         write_locant(locant,buffer);
+
+#if STEREO      
+        if(locant_bond->IsHash())
+          buffer += 'D';
+        else if (locant_bond->IsWedge())
+          buffer += 'A'; 
+#endif
+
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
+#if STEREO
+      else if(locant_bond && (locant_bond->IsWedge()||locant_bond->IsHash())){
+        buffer += ' ';
+        write_locant(locant,buffer);
+
+        if(locant_bond->IsHash())
+          buffer += 'D';
+        else if (locant_bond->IsWedge())
+          buffer += 'A'; 
+      }
+#endif
     }
 
 
@@ -2324,6 +2336,12 @@ struct BabelGraph{
         
         buffer += ' ';
         write_locant(floc,buffer);
+#if STEREO      
+        if(fbond->IsHash())
+          buffer += 'D';
+        else if (fbond->IsWedge())
+          buffer += 'A'; 
+#endif
         for(unsigned int b=1;b<fbond->GetBondOrder();b++)
           buffer += 'U';
         buffer+='-';
@@ -2331,6 +2349,23 @@ struct BabelGraph{
         write_locant(bloc,buffer);
         break;
       }
+#if STEREO 
+      else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
+        unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        buffer += ' ';
+        write_locant(floc,buffer);
+        
+        if(fbond->IsHash())
+          buffer += 'D';
+        else if (fbond->IsWedge())
+          buffer += 'A'; 
+        
+        buffer+='-';
+        buffer+=' ';
+        write_locant(bloc,buffer);
+      }
+#endif
     }
     
     return true;
@@ -2578,7 +2613,7 @@ struct BabelGraph{
         OBAtom *latom = &(*iter);
         OBBond* lbond = pd.locant_path[i]->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,pd.locant_path[i],lbond->GetBondOrder(),
+          if(!ParseNonCyclic( latom,pd.locant_path[i],lbond,
                               mol,buffer,
                               int_to_locant(i+1),pd.locant_path,pd.path_size)){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -2654,8 +2689,6 @@ struct BabelGraph{
 
 bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
 {   
-  if(modern)
-    MODERN = 1;
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
@@ -2707,8 +2740,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
     }
   }
   
-  if(!MODERN)
-    obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
+  obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
   
   // remove any un-needed pops
   while(buffer.back() == '&')
