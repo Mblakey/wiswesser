@@ -883,6 +883,8 @@ struct BabelGraph{
   };
   ~BabelGraph(){};
   
+
+  // if modern, charges are completely independent apart from assumed K
   unsigned char WriteSingleChar(OBAtom* atom){
 
     if(!atom)
@@ -932,7 +934,6 @@ struct BabelGraph{
         else
           return 'O';
           
-      
       case 9:
         if(neighbours > 1)
           return '*';
@@ -970,6 +971,18 @@ struct BabelGraph{
 
     return 0; 
   }
+  
+  void ModernCharge(OBAtom *atom, std::string &buffer){
+    if(atom->GetFormalCharge() == 0)
+      return; 
+    
+    buffer += std::to_string(abs(atom->GetFormalCharge()));  
+    if(atom->GetFormalCharge() < 0)
+      buffer += '-';
+    else
+     buffer += '+';
+    return; 
+  }
 
   void WriteSpecial(OBAtom *atom, std::string &buffer){
     if(!atom)
@@ -977,8 +990,11 @@ struct BabelGraph{
     // all special elemental cases
     //
     
+#if MODERN
+    buffer += "<";
+#else
     buffer += "-";
-    
+#endif
     string_position[atom] = buffer.size()+1; // always first character 
     switch(atom->GetAtomicNum()){
       case 5:
@@ -1440,52 +1456,16 @@ struct BabelGraph{
         break;
     }
 
-    buffer+='-';
+#if MODERN
+    ModernCharge(atom, buffer); 
+    buffer += ">";
+#else
+    buffer += "-";
+#endif
     
     return; 
   }
 
-#if WLNSYMBOL
-  unsigned int CountDioxo(OBAtom *atom){
-    if(!atom)
-      Fatal("count dioxo on dead atom ptr");
-
-    unsigned int Ws = 0; 
-    unsigned int carbonyls = 0;
-    unsigned int oxo_ions = 0; 
-    std::vector<OBAtom*> seen; 
-    FOR_NBORS_OF_ATOM(a,atom){
-      OBAtom *nbor = &(*a);
-      if(!atoms_seen[nbor] && !nbor->IsInRing() && nbor->GetAtomicNum() == 8){
- 
-        if(atom->GetBond(nbor)->GetBondOrder() == 2){
-          carbonyls++;
-          seen.push_back(nbor);
-        }
-        else if(nbor->GetFormalCharge() == -1){
-          oxo_ions++;
-          seen.push_back(nbor);
-        }
-          
-        if(carbonyls == 2 || (oxo_ions == 1 && carbonyls == 1)){
-          Ws++;
-          atoms_seen[seen[0]] = true;
-          atoms_seen[seen[1]] = true;
-
-          for(OBAtom *pcharge : seen){
-            if(pcharge->GetFormalCharge() == -1)
-              pcharge->SetFormalCharge(0); // remove the charge, as this is expected 
-          }
-
-          carbonyls = 0;
-          oxo_ions = 0;
-          seen.clear();
-        }
-      }  
-    }
-    return Ws;
-  }
-#endif
 
   bool CheckCarbonyl(OBAtom *atom){
     if(!atom)
@@ -1672,7 +1652,16 @@ struct BabelGraph{
           }
           
           prev = atom; 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size(); 
           break;
 
@@ -1706,7 +1695,16 @@ struct BabelGraph{
           if(CheckCarbonyl(atom))
             buffer += 'V';
           else{
-            buffer += wln_character;
+#if MODERN
+            if(atom->GetFormalCharge() != 0){
+              buffer += '<'; 
+              buffer += wln_character; 
+              ModernCharge(atom, buffer); 
+              buffer += '>'; 
+            }
+#else
+            buffer += wln_character; 
+#endif
             if(wln_character == 'X')
               remaining_branches[atom] += 3;
             else
@@ -1724,8 +1722,17 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
+          buffer += wln_character; 
+#endif
           prev = atom; 
-          buffer += wln_character;
           string_position[atom] = buffer.size();
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
@@ -1744,7 +1751,17 @@ struct BabelGraph{
           }
 
           prev = atom; 
-          buffer += wln_character;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
+          buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
@@ -1782,7 +1799,18 @@ struct BabelGraph{
           }
 
           prev = atom;
-          buffer += wln_character;
+
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
+          buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
@@ -1800,7 +1828,17 @@ struct BabelGraph{
           }
 
           prev = atom;
-          buffer += wln_character;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
+          buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
@@ -1841,7 +1879,16 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           for(unsigned int h=1;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
@@ -1860,7 +1907,16 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           for(unsigned int h=2;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
@@ -1881,7 +1937,16 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
 
           if(!branch_stack.empty())
@@ -2780,10 +2845,11 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
       }
     }
   }
-  
+
+#if !MODERN
   obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
-  
-  // remove any un-needed pops
+#endif 
+
   while(buffer.back() == '&')
     buffer.pop_back(); 
 
