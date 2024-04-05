@@ -106,7 +106,7 @@ main(){
         echo -ne "\r"
       fi; 
     else
-      echo -ne  "$NEW_WLN\tnot equal\t$SMILES"
+      echo -ne  "$NEW_WLN\tnot equal\t$SMILES\n"
     fi;
 
   done <$FILE

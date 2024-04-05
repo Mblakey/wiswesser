@@ -15,7 +15,7 @@
 
 using namespace OpenBabel;
 
-#define MODERN 0
+#define MODERN 1
 #define OPT_DEBUG 0
 
 bool ReadWLN(const char *ptr, OBMol* mol);

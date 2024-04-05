@@ -977,7 +977,9 @@ struct BabelGraph{
     if(atom->GetFormalCharge() == 0)
       return; 
     
-    buffer += std::to_string(abs(atom->GetFormalCharge()));  
+    if(abs(atom->GetFormalCharge())>1)
+      buffer += std::to_string(abs(atom->GetFormalCharge()));  
+    
     if(atom->GetFormalCharge() < 0)
       buffer += '-';
     else

@@ -2222,7 +2222,6 @@ character_start_ring:
 
 #if MODERN
       case '<':{
-          
           str_buffer.clear();
           bool found_close = false; 
           unsigned int k = i+1; // use the block string and iterate
@@ -2273,13 +2272,18 @@ character_start_ring:
                   str_buffer.push_back(ch); // for large rings
               }
               else if(ch == '-'){
-                if(ch_store.empty())
+                if(ch_store.empty() && str_buffer.empty())
                   hypervalent = true;
+                else if (ch_store.empty())
+                  charge = -1; 
                 else
                  charge = -isNumber(ch_store); 
               }
               else if(ch == '+'){
-                charge = isNumber(ch_store); 
+                if(ch_store.empty())
+                  charge = 1;
+                else
+                  charge = isNumber(ch_store); 
               }
               else 
                 return Fatal(i, "Error: invalid character in special '< >'");
@@ -2529,7 +2533,6 @@ character_start_ring:
         if(state_aromatics)
           return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
         
-
         if (i > 1 && block[i-1] == ' '){
 #if MODERN
           state_multi = 2;
@@ -3578,7 +3581,11 @@ character_start:
     
     // slight logic change to J variation
     if(pending_locant_skips && (ch < '0' || ch > '9') ){
+#if MODERN
+      locant_skips = 1;
+#else
       locant_skips = isNumber(digits_buffer); 
+#endif
       digits_buffer.clear();
       pending_locant_skips = false; 
     }
@@ -5034,13 +5041,18 @@ character_start:
             else if(ch >= '0' && ch <= '9')
               ch_store += ch; 
             else if(ch == '-'){
-              if(ch_store.empty())
+              if(ch_store.empty() && str_buffer.empty())
                 hypervalent = true;
+              else if (ch_store.empty())
+                charge = -1; 
               else
                 charge = -isNumber(ch_store); 
             }
             else if(ch == '+'){
-              charge = isNumber(ch_store); 
+              if(ch_store.empty())
+                charge = 1;
+              else
+                charge = isNumber(ch_store); 
             }
             else 
               return Fatal(i, "Error: invalid character in special '< >'");
@@ -5102,15 +5114,14 @@ character_start:
               return Fatal(i, "Error: failed to unsaturate bond"); 
             pending_unsaturate = 0;
           }
-            
-          on_locant = '\0';
-          branch_stack.push({0,curr});
-          
-          curr->str_position = first_angle+1+1;
-          pending_unsaturate = 0;
-          prev = curr;
-          last = curr; 
-        }
+        } 
+        on_locant = '\0';
+        branch_stack.push({0,curr});
+        
+        curr->str_position = first_angle+1+1;
+        pending_unsaturate = 0;
+        prev = curr;
+        last = curr; 
       }
       cleared = false;
       break;
