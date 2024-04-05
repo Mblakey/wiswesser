@@ -15,6 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -77,6 +78,7 @@ int isNumber(const std::string& str)
   else
     return val;
 }
+
 
 unsigned char static int_to_locant(unsigned int i){
   return i + 64;
@@ -2216,6 +2218,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           aromaticity.push_back(1);
         }
         break;
+
+#if MODERN
+      case '<':
+        break; 
+#endif
 
       case '/':
         if(state_aromatics)
@@ -4723,7 +4730,93 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         return Fatal(i, "Error: popping too many rings|symbols, check '&' count");
       break;
 
+#if MODERN 
+    case '<':{
+        str_buffer.clear();
+        unsigned int first_angle = i;
+        int charge = 0;
+        std::string ch_store; 
 
+        // move off the first dash
+        i++;
+        ch = *(++wln_ptr);
+        while(ch != '\0'){
+          if(ch == '>')
+            break;
+          
+          else{
+            if(ch <= 'Z' && ch >= 'A'){
+              str_buffer.push_back(ch);
+            }
+            else if(ch >= '0' && ch <= '9')
+              ch_store += ch; 
+            else if(ch == '-'){
+              charge = -isNumber(ch_store); 
+            }
+            else if(ch == '+'){
+              charge = isNumber(ch_store); 
+            }
+          }
+          i++;
+          ch = *(++wln_ptr);
+        }
+          
+        if(str_buffer.size() == 1){
+          curr = define_hypervalent_element(str_buffer[0],graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define hypervalent element");
+          curr->str_position = i+1;
+        }
+        else if(str_buffer.size() == 2){
+          curr = define_element(str_buffer,graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define periodic element"); 
+          
+          curr->str_position = i+1;
+        }
+        else
+          return Fatal(i, "Error: special '< >' must be either 1 or 2 symbols");
+        
+        curr->charge = charge; 
+      
+        if(prev){
+          if(str_buffer.empty() && ring){
+            if(!AddEdge(ring->locants[prev->ch], prev))
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            edge = &prev->bond_array[prev->barr_n-1]; 
+          }
+          else{
+            if(!AddEdge(curr, prev))
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            edge = &prev->bond_array[prev->barr_n-1]; 
+          }
+            
+          if(!edge)
+            return Fatal(i, "Error: failed to bond to previous symbol");
+          
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
+          if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
+          }
+            
+          on_locant = '\0';
+          branch_stack.push({0,curr});
+          
+          curr->str_position = first_angle+1+1;
+          pending_unsaturate = 0;
+          prev = curr;
+          last = curr; 
+        }
+      }
+      cleared = false;
+      break;
+#endif 
+
+    
     case '-':{
       if (pending_J_closure)
         break;

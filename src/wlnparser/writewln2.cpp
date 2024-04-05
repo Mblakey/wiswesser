@@ -1659,6 +1659,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else 
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
@@ -1702,6 +1704,8 @@ struct BabelGraph{
               ModernCharge(atom, buffer); 
               buffer += '>'; 
             }
+            else 
+              buffer += wln_character; 
 #else
             buffer += wln_character; 
 #endif
@@ -1729,6 +1733,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else 
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
@@ -1759,6 +1765,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else 
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
@@ -1808,6 +1816,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else 
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
@@ -1836,6 +1846,8 @@ struct BabelGraph{
             ModernCharge(atom, buffer); 
             buffer += '>'; 
           }
+          else 
+            buffer += wln_character; 
 #else
           buffer += wln_character; 
 #endif
