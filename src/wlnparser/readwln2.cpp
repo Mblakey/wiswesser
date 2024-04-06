@@ -53,6 +53,7 @@ using namespace OpenBabel;
 #define STRUCT_COUNT 1024
 #define MAX_EDGES 8
 #define AMPERSAND_EXPAND 23
+#define BROKEN_TREE_LIMIT 6
 
 // --- DEV OPTIONS  ---
 #define OPT_CORRECT 0
@@ -270,6 +271,41 @@ struct WLNRing
     }
 
     return true;
+  }
+};
+
+
+// see notes in build cyclic for usuage. 
+struct LocantPos{
+  bool active;
+  int  allowed_connections; 
+  WLNSymbol *locant; // look up character based on the ring_map
+  WLNSymbol *broken_a; 
+  WLNSymbol *broken_b; 
+
+  LocantPos(){
+    active = false; 
+    locant = 0; 
+    broken_a = 0; 
+    broken_b = 0; 
+    allowed_connections = 0; 
+  }
+}; 
+
+
+struct LocantPair{
+  unsigned int first; 
+  unsigned int second;
+  unsigned int stereo; 
+  LocantPair(){
+    first = 0; 
+    second = 0;
+    stereo = 0;  
+  }
+
+  LocantPair(unsigned char f, unsigned char s){
+    first = f; 
+    second = s; 
   }
 };
 
@@ -1652,7 +1688,7 @@ WLNRing *AllocateWLNRing(WLNGraph &graph)
 }
 
 
-// both lookups needed for QOL in ring building
+
 WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
   if(!locant)
     return 0;
@@ -1663,35 +1699,37 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 }  
 
 
-// see notes in build cyclic for usuage. 
-struct LocantPos{
-  bool active;
-  int  allowed_connections; 
-  WLNSymbol *locant; // look up character based on the ring_map
-  WLNSymbol *broken_a; 
-  WLNSymbol *broken_b; 
-
-  LocantPos(){
-    active = false; 
-    locant = 0; 
-    broken_a = 0; 
-    broken_b = 0; 
-    allowed_connections = 0; 
-  }
-}; 
-
-
 /*
  The broken locant conventions are as follows, the first broken position is given a value of 
  128, its extremely unlikly that a reasonable chemical will have 128 non broken cyclic atoms:
 
+ limiting the tree depth to 2, for now, which gives 6 values per parent symbol
  - Each normal locant can have two broken locants, one at - and one at -&, e.g B- and B-&
-  
- There access position is given as a sequence starting at 128, with an offset of 2, which is WLN X 
- so B- is B+128, 
- and B-& is B+128
  
+ Access is given by a binary tree sequence in an array starting at 128 and indexed by locant
+ gets you the start node: examples: 
+  
+      B
+     / \
+    B- B-&
+   /    \
+  B--   B--&
+ 
+ 128 + (O * 6) = 'A' node, 128 = A-, 129 = A--, 130 = A--&, 131 = A-&, 132 = A-&-, 133 = A-&&
+ 128 + (1 * 6) = 'B' node, 134 = B-, 135 = B--, 136 = B--&, 137 = B-&, 138 = B-&-, 139 = B-&&
+ 128 + (2 * 6) = 'C' node, 140... 
 */
+WLNSymbol* assign_broken_locant(unsigned int loc,WLNSymbol *locant, WLNRing *ring){
+  if(!locant)
+    return 0;
+  ring->locants[loc] = locant; 
+  ring->locants_ch[locant] = loc;
+  locant->inRing = ring;
+  return locant; 
+}  
+
+
+#if BROKEN
 bool set_up_broken( WLNRing *ring, WLNGraph &graph,
                     std::set<unsigned char> &broken_locants,
                     LocantPos *locant_path)
@@ -1741,29 +1779,7 @@ bool set_up_broken( WLNRing *ring, WLNGraph &graph,
 
   return true; 
 }
-
-bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
-                            std::vector<unsigned char> &pseudo_locants,
-                            std::map<unsigned char,unsigned char> &pseudo_lookback)
-{ 
-
-  if(!pseudo_locants.empty()){
-
-    if(pseudo_locants.size() % 2 != 0)
-      return false;
-    
-
-    for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
-      unsigned int bind_1 = pseudo_locants[i];
-      unsigned int bind_2 = pseudo_locants[i+1];
-      pseudo_lookback[bind_2] = bind_1;
-    }
-  }
-  
-  return true;
-}
-
-
+#endif
 
 /*
  Some rules for solving ring systems in WLN. 
@@ -1956,7 +1972,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           highest_loc = child_loc;
           edge_taken = &curr_locant->locant->bond_array[ei]; 
         }
-        fprintf(stderr,"looking at char: %c, highest is: %c\n",child_loc,highest_loc); 
       }
 
       if(!highest_loc){
@@ -2139,22 +2154,6 @@ unsigned char create_relative_position(unsigned char parent){
 }
 
 
-struct LocantPair{
-  unsigned int first; 
-  unsigned int second;
-  unsigned int stereo; 
-  LocantPair(){
-    first = 0; 
-    second = 0;
-    stereo = 0;  
-  }
-
-  LocantPair(unsigned char f, unsigned char s){
-    first = f; 
-    second = s; 
-  }
-};
-
 // try to handle if errors are occuring due to path changes
 bool post_unsaturate(std::vector<LocantPair> &bonds, 
                         unsigned int final_size,
@@ -2252,10 +2251,9 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
   unsigned int i = 0;    
   unsigned int len = block.size();
-  const char *block_str = block.c_str();
-  unsigned char ch = *block_str;
+  unsigned char ch = block[i];
 
-  while(ch){
+  while(i < len){
 character_start_ring:
     if(state_multi == 3 && ch != '-' && ch != '&'){
       state_multi = 0; 
@@ -2417,7 +2415,6 @@ character_start_ring:
               else {
                 ch = str_buffer[0];
                 pending_charge = charge; 
-                block_str+=stop; 
                 i+=stop;
                 goto character_start_ring;
               }
@@ -2447,7 +2444,6 @@ character_start_ring:
             }
           }
 
-          block_str+=stop; 
           i+=stop;
           break;
         }
@@ -2464,122 +2460,147 @@ character_start_ring:
       
 
       // turn this into a look ahead type bias in order to significantly tidy this up
-      case '-':{
-        
-        str_buffer.clear();
-        bool found_next = false;
-        unsigned int k = i+1; // use the block string and iterate
-
-        if(!expected_locants){
-          while(k < block.size()){
-            if(block[k] == ' ' || block[k] == '&')
-              break;
-            if(block[k] == '-'){
-              // this calculates the gap to the next '-'
-              if(k != i+1)
-                found_next = true; // if there was a double '--' this will have gap zero
-              break;
-            }
-            str_buffer.push_back(block[k]);
-            k++;
-          }
-        }
-
-        if(!found_next){
-          if(i > 0 && block[i-1] == '&')
-            state_aromatics = 1;
-          else{
-
-            if(positional_locant && locant_attached){
-        
-              if(positional_locant < 128){
-                positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-                if(!positional_locant)
-                  return Fatal(i+start, "Error: failed to make expanded locant position");
-
-              }
-              else{
-                // this means its already been moved, so we move the locant 23+23 across
-                if(positional_locant + 46 > 252)
-                  return Fatal(start+i,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?");
-                
-                positional_locant += 46;
-              }
-
-              if(state_pseudo && !pseudo_locants.empty())
-                  pseudo_locants.back() = positional_locant;
-              if(state_multi == 1 && !multicyclic_locants.empty())
-                multicyclic_locants.back() = positional_locant;
-            }
-          }
-        }
-        else{
-          
-          if(str_buffer.size() == 1){
-            
-            if(positional_locant != spiro_atom){
-              WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
-              if(!new_locant)
-                return Fatal(i+start, "Error: could not create hypervalent element");
-              
-              new_locant->str_position = start+i+1+1;
-              ring->position_offset[new_locant] = i+1;
-              if(OPT_DEBUG)
-                fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
-            }
-            else 
-              positional_locant++;
-
-            block_str+=2; 
-            i+=2; 
-            positional_locant++;
-            locant_attached = false;
-          }
-          else if (str_buffer.size() == 2){
-    
-            if(std::isdigit(str_buffer[0])){
-              for(unsigned char dig_check : str_buffer){
-                if(!std::isdigit(dig_check))
-                  return Fatal(start+i,"Error: mixing numerical and alphabetical special defintions is not allowed");
-              }
-
-              int big_ring = isNumber(str_buffer);
-              if(big_ring < 0)
-                return Fatal(start+i,"Error: non numeric value entered as ring size");
-              
-
-              ring_components.push_back({big_ring,positional_locant}); //big ring
-              positional_locant = 'A';
-              locant_attached = false;
-            }
-            else if(positional_locant != spiro_atom){
-
-              // must be a special element 
-              WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
-              if(!new_locant)
-                return Fatal(i+start, "Error: could not create periodic code element");
-
-              new_locant->str_position = start+i + 1+1; // attaches directly to the starting letter
-              ring->position_offset[new_locant] = i+1;
-    
-              if(OPT_DEBUG)
-                fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
-              
-              positional_locant++;
-            }
-            else
-              positional_locant++;
-            
-            locant_attached = false;
-            
-            block_str+=3; 
-            i+=3;
-          }
-          else
-            return Fatal(start+i,"Error: ended in an unexpected state due to '-' characters");
-          
-        }
       
+/*
+      Some logic here; 
+      1)  If size is followed by a '-', it immediately closes size and starts the aromatic state
+          e.g B&-TJ
+
+      2)  If dash is started on a locant, and either is not closed or closed with no gap before 
+          the 2 character limit or a space is seen, it must be a branching locant
+
+      3)  If a branching locant is deemed, the tree logic is that - is left, and & is right, with a limit of 
+          2. A buffer to consume and move all the positions is needed, and can track the tree size
+*/
+      case '-':{
+        if(state_multi){
+          if(state_multi == 1 && !multicyclic_locants.empty())
+            multicyclic_locants.back() = positional_locant;
+          else if(state_multi == 3){
+            state_multi = 0;
+            state_aromatics = true;
+          }
+        }
+        else if(!expected_locants){
+          
+          // two things to do in the lookahead here, determine whether branching or non-branching, 
+          // and then access the branching tree
+        
+          str_buffer.clear();
+          
+          i++; // move i off the first dash and lookahead
+          bool flook      = true; 
+          unsigned int mode = 0; //  1 - reading element, 2 - reading branching tree directives
+          while(i < block.size() && flook){
+            ch = block[i++];
+            switch (ch) {
+              case ' ':
+                flook = false;
+                break;
+              
+              case '&':
+                if(!mode){
+                  mode = 2;
+                  str_buffer += '&'; 
+                }
+                else if(mode == 1)
+                  return Fatal(i+start, "Error: mixing element and branching directive definitions");
+                else if(mode == 2)
+                  str_buffer += '&'; 
+                break;
+
+              case '-':
+                if(!mode){
+                  mode = 2;
+                  str_buffer += '-'; 
+                }
+                else if (mode == 1){
+                  flook = false;
+                }
+                else if(mode == 2)
+                  str_buffer += '-'; 
+        
+                break;
+
+              default:
+                if(!mode){
+                  mode = 1;
+                  str_buffer+=ch;
+                }
+                else if(mode == 1){
+                  if(str_buffer.size() == 2)
+                    return Fatal(i+start, "Error: dash element exceeding 2 character maximum");
+                  else
+                   str_buffer+=ch;
+                }
+                else if(mode == 2)
+                  return Fatal(i+start, "Error: mixing element and branching directive definitions");
+              }
+            }
+            
+            i--; // back step by one 
+                 //
+            if(mode == 1){
+
+              if(str_buffer.size() == 1){
+                
+                if(positional_locant != spiro_atom){
+                  WLNSymbol* new_locant = assign_locant(positional_locant,
+                                                        define_hypervalent_element(str_buffer[0],graph),ring);
+                  if(!new_locant)
+                    return Fatal(i+start, "Error: could not create hypervalent element");
+                  
+                  new_locant->str_position = start+i+1+1;
+                  ring->position_offset[new_locant] = i+1;
+                  if(OPT_DEBUG)
+                    fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
+                }
+                else 
+                  positional_locant++;
+
+                positional_locant++;
+                locant_attached = false;
+              }
+              else if (str_buffer.size() == 2){
+                
+                if(std::isdigit(str_buffer[0])){
+                  for(unsigned char dig_check : str_buffer){
+                    if(!std::isdigit(dig_check))
+                      return Fatal(start+i,"Error: mixing numerical and alphabetical special defintions is not allowed");
+                  }
+
+                  int big_ring = isNumber(str_buffer);
+                  if(big_ring < 0)
+                    return Fatal(start+i,"Error: non numeric value entered as ring size");
+
+                  ring_components.push_back({big_ring,positional_locant}); //big ring
+                  positional_locant = 'A';
+                  locant_attached = false;
+                }
+                else if(positional_locant != spiro_atom){
+
+                  // must be a special element 
+                  WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
+                  if(!new_locant)
+                    return Fatal(i+start, "Error: could not create periodic code element");
+
+                  new_locant->str_position = start+i + 1+1; // attaches directly to the starting letter
+                  ring->position_offset[new_locant] = i+1;
+        
+                  if(OPT_DEBUG)
+                    fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
+                  
+                  positional_locant++;
+                }
+                else
+                  positional_locant++;
+                
+                locant_attached = false;
+              }
+              else
+                return Fatal(start+i,"Error: ended in an unexpected state due to '-' characters");
+            }
+        }
         break;
       }
 
@@ -2848,9 +2869,6 @@ character_start_ring:
 
                 LocantPair loc_pair(positional_locant,dloc); 
                 unsaturations.push_back({positional_locant,dloc});
-
-                block_str += 2+k;
-                i += 2+k;
               }
               else{
                 LocantPair loc_pair(positional_locant,positional_locant+1); 
@@ -3130,8 +3148,7 @@ character_start_ring:
         break;
     }
     
-    i++;
-    ch = *(++block_str);
+    ch = block[++i];
   }
 
   if(OPT_DEBUG && warned)
