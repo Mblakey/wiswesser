@@ -60,7 +60,7 @@ using namespace OpenBabel;
 #define OPT_CORRECT 0
 
 
-const char *wln_string;
+const char *wln_input;
 struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
@@ -90,13 +90,11 @@ unsigned int static locant_to_int(unsigned char loc){
 }
 
 
-std::string get_notation(unsigned int s, unsigned int e)
+std::string get_notation(const char *ptr, unsigned int s, unsigned int e)
 {
   std::string res; 
   for (unsigned int i = s; i <= e; i++)
-  {
-    res.push_back(wln_string[i]);
-  }
+    res.push_back(ptr[i]);
   return res; 
 }
 
@@ -105,7 +103,7 @@ bool Fatal(unsigned int pos, const char *message)
 
 #if ERRORS == 1
   fprintf(stderr,"%s\n",message);
-  fprintf(stderr, "Fatal: %s\n", wln_string);
+  fprintf(stderr, "Fatal: %s\n", wln_input);
   fprintf(stderr, "       ");
   for (unsigned int i = 0; i < pos; i++)
     fprintf(stderr, " ");
@@ -180,10 +178,10 @@ struct WLNSymbol
   }
   ~WLNSymbol(){};
 
-  void add_special(unsigned int s, unsigned int e)
+  void add_special(const char* ptr, unsigned int s, unsigned int e)
   {
     for (unsigned int i = s; i <= e; i++)
-      special.push_back(wln_string[i]);
+      special.push_back(ptr[i]);
   }
 
 };
@@ -198,9 +196,9 @@ struct WLNRing
   std::vector<unsigned char> assignment_locants;
   std::vector<unsigned int>   assignment_digits;
   
-  std::map<unsigned int, WLNSymbol *>      locants; // int allows effectively infinite broken positions 
-  std::map<WLNSymbol*,unsigned int>        locants_ch;
-  std::map<WLNSymbol*,unsigned int>         position_offset; // gives hetero position in the string
+  std::map<unsigned int, WLNSymbol *>     locants; // int allows effectively infinite broken positions 
+  std::map<WLNSymbol*,unsigned int>       locants_ch;
+  std::map<WLNSymbol*,unsigned int>       position_offset; // gives hetero position in the string
 
   bool spiro;
   WLNEdge *macro_return;
@@ -2223,15 +2221,13 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
   unsigned int state_pseudo         = 0; 
   unsigned int state_aromatics      = 0;
-  int pending_charge                = 0; 
-
+  
+  int pending_charge = 0; 
   unsigned int  expected_locants      = 0;
   unsigned char ring_size_specifier   = '\0';
   
   bool locant_attached                = false;  // more sensible way of modifying the locants 
   unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
-
-  std::string str_buffer;  
 
   std::vector<bool> aromaticity; 
   std::vector<LocantPair>  unsaturations;
@@ -2474,7 +2470,7 @@ character_start_ring:
       3)  If a branching locant is deemed, the tree logic is that - is left, and & is right, with a limit of 
           2. A buffer to consume and move all the positions is needed, and can track the tree size
 */
-      case '-':{
+      case '-':
         if(state_multi){
           if(state_multi == 1 && !multicyclic_locants.empty())
             multicyclic_locants.back() = positional_locant;
@@ -2485,150 +2481,73 @@ character_start_ring:
         }
         else if(!expected_locants){
           
+          // conditions for - within a ring system:
+          // i+2 == '-' for hypervalent
+          // i+3 == '-' for element and large ring with 2 digits
+          // 
+          // branching locants - come to these another time
+
           // two things to do in the lookahead here, determine whether branching or non-branching, 
           // and then access the branching tree
-          str_buffer.clear();
           
-          i++; // move i off the first dash and lookahead
-          bool flook = true;
-          unsigned int mode = 0; //  1 - reading element, 2 - reading branching tree directives
-          while(i < block.size() && flook){
-            ch = block[i++];
-            switch (ch) {
-              case ' ':
-                if(mode == 2){
-                  flook = false; 
-                  i-=2; // back step by two
-                }
+          if( i + 3 < len && block[i+3] == '-'){
+             
+            if(block[i+1] >= '0' && block[i+1] <= '9' && block[i+2] >= '0' && block[i+2] <= '9'){
+              unsigned int big_ring = ( (block[i+1]-'0') * 10) + block[i+2]-'0';
+              if(!big_ring)
+                return Fatal(start+i,"Error: non numeric value entered as ring size");
 
-                if(str_buffer.size() < 2){
-                  flook = false;
-                  mode = 2;
-                  i-=2; // back step by two
-                }
-                break;
+              ring_components.push_back({big_ring,positional_locant}); //big ring
+              positional_locant = 'A';
+              locant_attached = false;
+              i+= 3; 
+            }
+            else if (block[i+1] >= 'A' && block[i+1] <= 'Z' && block[i+2] >= 'A' && block[i+2] <= 'Z'){
               
-              case '&':
-                if(!mode){
-                  mode = 2;
-                  str_buffer += '&'; 
-                }
-                else if(mode == 1)
-                  return Fatal(i+start, "Error: mixing element and branching directive definitions");
-                else if(mode == 2)
-                  str_buffer += '&'; 
-                break;
+              if(positional_locant != spiro_atom){
 
-              case '-':
-                if(!mode){
-                  mode = 2;
-                  str_buffer += '-'; 
-                }
-                else if (mode == 1){
-                  flook = false;
-                  i--; // back step by 1
-                }
-                else if(mode == 2)
-                  str_buffer += '-'; 
-                break;
+                // must be a special element 
+                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(block[i+1],block[i+2],graph),ring);  // elemental definition
+                if(!new_locant)
+                  return Fatal(i+start, "Error: could not create periodic code element");
 
-              default:
-                if(!mode){
-                  mode = 1;
-                  str_buffer+=ch;
-                }
-                else if(mode == 1){
-                  if(str_buffer.size() == 2)
-                    return Fatal(i+start, "Error: dash element exceeding 2 character maximum");
-                  else
-                   str_buffer+=ch;
-                }
-                else if(mode == 2){
-                  flook = false; 
-                  i-=2; // back step by two
-                }
-              }
-            }
-
-            if(mode == 2){
-              str_buffer.insert(str_buffer.begin(),'-');       // add the skipped dash
-              if(str_buffer.size() >= 3)
-                return Fatal(i+start, "Error: branching locants at a tree depth > 2 are not supported"); 
-                                    
-              unsigned int index = (locant_to_int(positional_locant-1) * 6) + 128; 
-              for(unsigned char s: str_buffer){
-                if(s=='-')
-                  index+=1;
-                else
-                  index += 2;
-              } 
-
-              fprintf(stderr,"index: %d on char: %c\n",index,block[i]);
-              positional_locant = index; // positional locant is now set
-            }
-            else if(mode == 1){
-              if(str_buffer.size() == 1){
+                new_locant->str_position = start+i + 2; // attaches directly to the starting letter
+                ring->position_offset[new_locant] = i+1;
+      
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning element %c%c to position %c\n",block[i+1],block[i+2],positional_locant);
                 
-                if(positional_locant != spiro_atom){
-                  WLNSymbol* new_locant = assign_locant(positional_locant,
-                                                        define_hypervalent_element(str_buffer[0],graph),ring);
-                  if(!new_locant)
-                    return Fatal(i+start, "Error: could not create hypervalent element");
-                  
-                  new_locant->str_position = start+i+1+1;
-                  ring->position_offset[new_locant] = i+1;
-                  if(OPT_DEBUG)
-                    fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
-                }
-                else 
-                  positional_locant++;
-
                 positional_locant++;
-                locant_attached = false;
-              }
-              else if (str_buffer.size() == 2){
-                
-                if(std::isdigit(str_buffer[0])){
-                  for(unsigned char dig_check : str_buffer){
-                    if(!std::isdigit(dig_check))
-                      return Fatal(start+i,"Error: mixing numerical and alphabetical special defintions is not allowed");
-                  }
-
-                  int big_ring = isNumber(str_buffer);
-                  if(big_ring < 0)
-                    return Fatal(start+i,"Error: non numeric value entered as ring size");
-
-                  ring_components.push_back({big_ring,positional_locant}); //big ring
-                  positional_locant = 'A';
-                  locant_attached = false;
-                }
-                else if(positional_locant != spiro_atom){
-
-                  // must be a special element 
-                  WLNSymbol *new_locant = 0; 
-                  //WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
-                  if(!new_locant)
-                    return Fatal(i+start, "Error: could not create periodic code element");
-
-                  new_locant->str_position = start+i + 1+1; // attaches directly to the starting letter
-                  ring->position_offset[new_locant] = i+1;
-        
-                  if(OPT_DEBUG)
-                    fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
-                  
-                  positional_locant++;
-                }
-                else
-                  positional_locant++;
-                
-                locant_attached = false;
               }
               else
-                return Fatal(start+i,"Error: ended in an unexpected state due to '-' characters");
+                positional_locant++;
+              
+              locant_attached = false;
+              i+= 3; 
             }
+          }
+          else if (i+2 < len && block[i+2] == '-'){
+            if(positional_locant != spiro_atom){
+              WLNSymbol* new_locant = assign_locant(positional_locant,
+                                                    define_hypervalent_element(block[i+1],graph),ring);
+              if(!new_locant)
+                return Fatal(i+start, "Error: could not create hypervalent element");
+              
+              new_locant->str_position = start+i+1+1;
+              ring->position_offset[new_locant] = i+1;
+              if(OPT_DEBUG)
+                fprintf(stderr,"  assigning hypervalent %c to position %c\n",block[i+1],positional_locant);
+            }
+            else 
+              positional_locant++;
+
+            positional_locant++;
+            locant_attached = false;
+            i+= 2; 
+          } 
         }
         break;
-      }
+      
 
       case '0':
         if(positional_locant >= 128)
@@ -3843,7 +3762,7 @@ character_start:
     case '9':
       if (pending_J_closure){
         // small addition to allow J handling in points
-        if(i > 0 && wln_string[i-1] == ' '){
+        if(i > 0 && wln_ptr[i-1] == ' '){
           pending_locant_skips = true; 
         }
         
@@ -4771,7 +4690,7 @@ character_start:
 #if MODERN
         pending_stereo = 1;     
 #else
-        if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
+        if(i < len - 2 && wln_ptr[i+1] == '-' && (wln_ptr[i+2] == 'T' || wln_ptr[i+2] == 'L')){
           pending_ring_in_ring = true;
 
           i++;
@@ -4878,11 +4797,11 @@ character_start:
         
         if(locant_skips)
           locant_skips--;
-        else if(i>0 && wln_string[i-1] != ' '){
+        else if(i>0 && wln_ptr[i-1] != ' '){
           block_end = i;
           
           ring = AllocateWLNRing(graph);
-          std::string r_notation = get_notation(block_start,block_end);
+          std::string r_notation = get_notation(wln_ptr,block_start,block_end);
 
           if(pending_spiro){
             
@@ -4999,7 +4918,7 @@ character_start:
       }
       else
       {
-        if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
+        if(i < len - 2 && wln_ptr[i+1] == '-' && (wln_ptr[i+2] == 'T' || wln_ptr[i+2] == 'L')){
           pending_ring_in_ring = true;
 
           // if pending inline ring doesnt get a L or T, we know it
@@ -5161,7 +5080,7 @@ character_start:
       if(!branch_stack.empty() && !pending_inline_ring)
         branch_stack.pop_to_ring();
       
-      if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring){
+      if( (i < len - 1 && wln_ptr[i+1] == '&') || branch_stack.ring){
         pending_locant = true;
 
         // single letter methyl branches
@@ -5460,9 +5379,9 @@ character_start:
         //  Not specified here, macro opens e.g L- T- are handled on L/T 
 
         // 1)
-        if( i + 3 < len && wln_string[i+3] == '-' && wln_string[i+1] != ' '){
+        if( i + 3 < len && wln_ptr[i+3] == '-' && wln_ptr[i+1] != ' '){
 
-          curr = define_element(wln_string[i+1],wln_string[i+2],graph);
+          curr = define_element(wln_ptr[i+1],wln_ptr[i+2],graph);
           if(!curr)
             return Fatal(i, "Error: failed to define periodic element"); 
           
@@ -5501,9 +5420,9 @@ character_start:
         }
         
         // 2 and 3 
-        else if(i+2 < len && wln_string[i+2] =='-' && wln_string[i+1] != ' '){
+        else if(i+2 < len && wln_ptr[i+2] =='-' && wln_ptr[i+1] != ' '){
           
-          curr = define_hypervalent_element(wln_string[i+1],graph);
+          curr = define_hypervalent_element(wln_ptr[i+1],graph);
           if(!curr)
             return Fatal(i, "Error: failed to define hypervalent element");
           
@@ -5535,7 +5454,7 @@ character_start:
         }
 
         // 3)
-        else if( i + 2 < len && wln_string[i+1] == '&' && wln_string[i+2] == ' '){
+        else if( i + 2 < len && wln_ptr[i+1] == '&' && wln_ptr[i+2] == ' '){
           pending_spiro = true;
           pending_inline_ring = true;
           i+=1; 
@@ -7230,9 +7149,9 @@ bool ReadWLN(const char *ptr, OBMol* mol)
     return false;
   }
   else 
-    wln_string = ptr; 
+    wln_input = ptr; 
 
-  unsigned int len = strlen(wln_string);
+  unsigned int len = strlen(wln_input);
 
   WLNGraph wln_graph;
   BabelGraph obabel; 
@@ -7264,7 +7183,7 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     return false;
   }
   else 
-    wln_string = ptr; 
+    wln_input = ptr; 
 
   WLNGraph wln_graph;
   BabelGraph obabel; 
