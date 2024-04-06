@@ -1732,7 +1732,53 @@ bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
   return true;
 }
 
-/* interesting here that the multicyclic points are not explicitly used */
+
+// see notes in build cyclic for usuage. 
+struct LocantPos{
+  bool active;
+  WLNSymbol *locant; // look up character based on the ring_map
+  WLNSymbol *broken_a; 
+  WLNSymbol *broken_b; 
+  unsigned int  allowed_connections; 
+
+  LocantPos(){
+    active = false; 
+    locant = 0; 
+    broken_a = 0; 
+    broken_b = 0; 
+    allowed_connections = 0; 
+  }
+}; 
+
+/*
+ Some rules for solving ring systems in WLN. 
+
+ 1) From a given locant, the path walks sequentially forward to the next position 
+    C6 = C,D,E,F,G,H , bond C->H
+
+    * if the locant already has saturated bonds, move the next avaliable locant
+    A6, when A already has all its bonds, A, J, K, L, M (EOC), B->M. 
+ 
+ 2) The lowest locant in that ring should be the one specified.
+    If a ring has A,B,C,D,E,F, bonding is A6
+
+ 4) The walk is taken by the highest set of locants, If A->F, then A6 goes A, F, G, H, I, J
+
+ 5) If a locant contains a branch off the locant path, it is always involved in its parent ring
+    and taken last. 
+    M has M-:  M6 = M, N, O, P, Q, M-
+    sequentally, the broken locants sits between its parent and the next symbol e.g M < M- < N
+
+ 6) Each normal position can have maximum two broken children, H-, H-&, of which these can have two etc, 
+    given with appending another dash H- can have H-- and H--&. 
+
+ 7) Broken locants are only "alive" when their parent locant has been targeteted.
+    B has B-, L666 A->F, A->J, A->M, A is saturated therefore B->M, B has B-, backtrack: B- -> L
+ 
+ 8) The effect of bridging is that the bonds allowed is lowered by 1.
+    Bridging A brings its allowed connections to 2, since it is at the start of the chain
+    bridging B brings its allowed connections to 1, since its in the middle of the chain. 
+*/
 unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &ring_assignments, 
                           std::vector<bool>                                   &aromaticity,
                           std::vector<unsigned char>                          &multicyclic_locants,
@@ -1759,7 +1805,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         local_size+= -1; 
     }
 
-    local_size+= - broken_locants.size();
+    local_size+= - broken_locants.size(); // shouldnt be possible, lets see.
     if(OPT_DEBUG)
       fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
   }
@@ -1769,18 +1815,21 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
   // create all the nodes in a large straight chain and assign how many bonds
   // each atom is allowed to take
+  
+  // just use the contructors with new
+  LocantPos *locant_path = new LocantPos[local_size];  
 
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
-  std::map<unsigned char,unsigned int> allowed_connections; 
 
-  for (unsigned int i=1;i<=local_size;i++){
-    unsigned char loc = int_to_locant(i);
-
-    if(i == 1 || i == local_size)
-      allowed_connections[loc] = 2; 
+  for (unsigned int i=0;i<local_size;i++){
+    unsigned char loc = int_to_locant(i+1);
+    
+    // default ring chain connections
+    if(i == 0 || i == local_size-1)
+      locant_path[i].allowed_connections = 2; 
     else
-      allowed_connections[loc] = 1; 
+      locant_path[i].allowed_connections = 1; 
 
     if(!ring->locants[loc]){
       curr = AllocateWLNSymbol('C',graph);
@@ -1788,22 +1837,20 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         return 0;
 
       curr->allowed_edges = 4;
-      curr->inRing = ring;
       curr = assign_locant(loc,curr,ring);
+      locant_path[i].locant = curr; 
     }
     else{
       curr = ring->locants[loc];
+      locant_path[i].locant = curr; 
       if(curr->ch == 'X')
-        allowed_connections[loc]++;
+        locant_path[i].allowed_connections++;
       else if(curr->ch == '*')
-        allowed_connections[loc] = 6; // allow octahedral geometry 
-
-      if(!ring->locants_ch[curr])
-        ring->locants_ch[curr] = loc;
+        locant_path[i].allowed_connections = 6;
     }
 
-    if(bridge_locants[loc] && allowed_connections[loc])
-      allowed_connections[loc]--; 
+    if(bridge_locants[loc] && locant_path[i].allowed_connections)
+      locant_path[i].allowed_connections--; // decrement any bridging positions
       
     if(prev){
       if(!AddEdge(curr, prev))
@@ -1818,33 +1865,31 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   
   std::map<unsigned char, bool>                     shortcuts; // take when possible?
 
+#if DEPRECATED
   // broken locant map spawn + pseudo locants map spawn 
   if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections) || 
      !set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookup))
     return false;
+#endif
 
   // calculate bindings and then traversals round the loops
-  bool aromatic             = false;
-  unsigned char bind_1      = '\0';
-  unsigned char bind_2      = '\0';
-  unsigned int fuses        = 0; 
-  unsigned int comp_size    = 0;
   unsigned int pseudo_pairs = pseudo_locants.size()/2;
-  
-  for (unsigned int i=0;i<ring_assignments.size();i++){
-    std::pair<unsigned int, unsigned char> component = ring_assignments[i];
-    comp_size = component.first;
-    bind_1    = component.second;
-    aromatic = aromaticity[i];
-    WLNSymbol *path = ring->locants[bind_1];
+  unsigned char max_locant = int_to_locant(local_size);
 
-    if(!path){
-#if ERRORS == 1
+  for (unsigned int i=0;i<ring_assignments.size();i++){
+    
+    bool aromatic           = aromaticity[i];
+    std::pair<unsigned int, unsigned char> component = ring_assignments[i];
+    unsigned int comp_size  = component.first;
+    unsigned int start_char  = component.second;
+    ring->aromatic_atoms = aromatic; 
+
+    if(start_char > max_locant){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
-#endif
       return 0;
     }
-
+    
+#if PSEUDO_PAIRS
     // If we need to catch fuse, we do
     if(i==ring_assignments.size()-1 && pseudo_pairs){
       bool caught = false;
@@ -1867,51 +1912,85 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       if(caught)
         break;
     }
+#endif
 
-    // --- MULTI ALGORITHM --- 
-    unsigned int path_size = 0; 
-    unsigned char *ring_path = (unsigned char*)malloc(sizeof(unsigned char)*comp_size);
-    for (unsigned int a=0;a<comp_size;a++)
-      ring_path[a] = 0;
+    // --- MULTI ALGORITHM, see notes on function for rules and use --- 
     
-    ring_path[path_size++] = ring->locants_ch[path];
-    unsigned char highest_loc = '\0'; 
+    unsigned int  path_size   = 0;  
+    unsigned char end_char    = 0; 
+    LocantPos start_locant = locant_path[ locant_to_int(start_char-1) ]; 
+    LocantPos curr_locant = locant_path[ locant_to_int(start_char-1) ]; 
+    start_locant.locant->aromatic = aromatic;
 
-    while(path_size < comp_size){ 
-      // this should now overshoot
-
-      highest_loc = '\0'; // highest of each child iteration 
-      for(unsigned int ei=0;ei<path->barr_n;ei++){
-        WLNSymbol *child = path->bond_array[ei].child;
+    // -1 as one locant is already given in start
+    while(path_size < comp_size-1){
+      WLNEdge*      edge_taken  = 0; 
+      WLNSymbol*    curr_symbol = curr_locant.locant; 
+      unsigned char highest_loc = 0; // highest of each child iteration 
+      
+      for(unsigned int ei=0;ei<curr_symbol->barr_n;ei++){
+        WLNSymbol *child = curr_symbol->bond_array[ei].child;
         unsigned char child_loc = ring->locants_ch[child];
 
-        if(child_loc > 128 && !spawned_broken[child_loc])  // skip the broken child if not yet included in a ring
-          continue;
-        else if(shortcuts[child_loc]){
+        if(child_loc > highest_loc){
           highest_loc = child_loc;
-          break;
+          edge_taken = &curr_symbol->bond_array[ei]; 
         }
-        else if(child_loc >= highest_loc)
-          highest_loc = child_loc;  
       }
 
       if(!highest_loc){
-        if(locant_to_int(ring->locants_ch[path]) == local_size)
-          highest_loc = ring->locants_ch[path];
-        else{
-#if ERRORS == 1
-          fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c(%d)'\n",ring->locants_ch[path],ring->locants_ch[path]);
-#endif    
-          if(ring_path)
-            free(ring_path);
-          ring_path = 0;
+        // if at the end of the path, its okay, break the loop and do post shifting 
+        if(curr_symbol != ring->locants[max_locant]){
+          fprintf(stderr,"Error: locant path formation is broken in ring definition - highest locant not found\n");
           return false;
         }
+        else
+          break; // breaks the while loop usually based on path size  
       }
+      else {
+        curr_locant = locant_path[locant_to_int(highest_loc-1)];
+        curr_locant.locant->aromatic = aromatic;
+        edge_taken->aromatic = aromatic; 
+        
+        end_char = highest_loc; 
+        path_size++; 
+      }
+    }
+      
+    for(;;){
 
-      path = ring->locants[highest_loc];
-      ring_path[path_size++] = highest_loc;   
+      if(curr_locant.allowed_connections){
+#if RARE
+        // very rare case where we get the right path a different way to normal
+        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
+          ring_path[path_size-1] = ++bind_2;
+#endif
+        if(OPT_DEBUG)
+          fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
 
+        if(!AddEdge(curr_locant.locant,start_locant.locant)){
+          fprintf(stderr,"Error: failed to bond locant path edge\n");    
+          return false;
+        }
+       
+        curr_locant.locant->bond_array[curr_locant.locant->barr_n-1].aromatic = aromatic; 
+        start_locant.allowed_connections--; 
+        curr_locant.allowed_connections--; 
+        break;
+      }
+      else{
+        // increase the start char and move the path locant
+        start_char++;
+        start_locant = locant_path[locant_to_int(start_char-1)]; 
+        
+        // the current then moves back by 1
+        end_char--; 
+        curr_locant = locant_path[locant_to_int(end_char-1)]; 
+      }
+    }
+
+
+#if PSEUDO
       // let catch fuse take care of last pseudo pairs
       if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size && i!=ring_assignments.size()-1){
         // lets get the bonds right and then worry about the path 
@@ -1934,22 +2013,13 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
       bind_2 = highest_loc;
     }
+#endif
 
     // sanitize the ring path, if we've got duplicates (i.e hit the end of the path),
     // we decrement and loop back round
-    for(unsigned int i=0;i<path_size;i++){
-      if(ring_path[i] == int_to_locant(local_size)){
-        unsigned int tally = 1;
-        for(unsigned int j=i+1;j<path_size;j++){
-          if(ring_path[j] == ring_path[i]){
-            ring_path[j] += -tally; // looping back
-            tally++;
-          } 
-        }
-      }
-    }
 
     // shifting now performed here should be more stable
+#if DEPRECATED
     for(;;){
       if(!broken_lookup[bind_1].empty()){
         
@@ -2021,37 +2091,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           bind_2 = ring_path[path_size-1]; 
         }
       }
-    }
-
-
-    if(aromatic){
-      for(unsigned int a=0;a<path_size;a++){
-        WLNSymbol *arom = ring->locants[ring_path[a]]; 
-        if(arom){
-          arom->aromatic = true;
-          ring->aromatic_atoms = 1;
-        }
-      }
-    
-      // add the edges based on statement before n^2 but should work
-      for(unsigned int a=0;a<path_size;a++){
-        WLNSymbol *src = ring->locants[ring_path[a]];
-        for(unsigned int b=a+1;b<path_size;b++){
-          WLNSymbol *trg = ring->locants[ring_path[b]];
-          if(src && trg && src->aromatic && trg->aromatic){
-            WLNEdge *edge = search_edge(src,trg); 
-            if(edge)
-              edge->aromatic = true;
-          }
-        }
-      }
-
-    }
-
-    if(ring_path)
-      free(ring_path);
-    ring_path = 0; 
-    fuses++;
+#endif
   }
 
   return local_size; 
