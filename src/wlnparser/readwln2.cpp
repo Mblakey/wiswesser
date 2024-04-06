@@ -15,6 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -1811,7 +1812,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   }
   else
     local_size = locant_to_int(size_designator);
-
+  
+  if(OPT_DEBUG)
+    fputc('\n',stderr); 
 
   // create all the nodes in a large straight chain and assign how many bonds
   // each atom is allowed to take
@@ -1847,6 +1850,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         locant_path[i].allowed_connections++;
       else if(curr->ch == '*')
         locant_path[i].allowed_connections = 6;
+
     }
 
     if(bridge_locants[loc])
@@ -1875,7 +1879,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   // calculate bindings and then traversals round the loops
   unsigned int pseudo_pairs = pseudo_locants.size()/2;
   unsigned char max_locant = int_to_locant(local_size);
-
+  
   for (unsigned int i=0;i<ring_assignments.size();i++){
     
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
@@ -1929,27 +1933,27 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
       unsigned char highest_loc = 0; // highest of each child iteration 
-      
+
+      // walk the ring
       for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
         WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
         unsigned char child_loc = ring->locants_ch[child];
-
         if(child_loc > highest_loc){
           highest_loc = child_loc;
           edge_taken = &curr_locant->locant->bond_array[ei]; 
         }
+        fprintf(stderr,"looking at char: %c, highest is: %c\n",child_loc,highest_loc); 
       }
 
       if(!highest_loc){
         // if at the end of the path, its okay, break the loop and do post shifting 
         if(curr_locant->locant != ring->locants[max_locant]){
-          fprintf(stderr,"Error: locant path formation is broken in ring definition - highest locant not found\n");
+          fprintf(stderr,"Error: highest locant not found in path walk\n");
           return false;
         }
 
         over_shoot++;
         path_size++; 
-
       }
       else {
         curr_locant = &locant_path[locant_to_int(highest_loc-1)];
@@ -4786,6 +4790,7 @@ character_start:
               Fatal(i,"Error: sprio notation opened without a previous atom");
             else{
               ring->locants[on_locant] = prev;
+              ring->locants_ch[prev] = on_locant; 
               prev->spiro = true; 
             }
             // check for an aromaticity bond move?
