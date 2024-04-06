@@ -52,6 +52,7 @@ using namespace OpenBabel;
 
 #define STRUCT_COUNT 1024
 #define MAX_EDGES 8
+#define AMPERSAND_EXPAND 23
 
 // --- DEV OPTIONS  ---
 #define OPT_CORRECT 0
@@ -193,10 +194,10 @@ struct WLNRing
   
   // quick ring perception
   std::vector<unsigned char> assignment_locants;
-  std::vector<unsigned int> assignment_digits;
+  std::vector<unsigned int>   assignment_digits;
   
-  std::map<unsigned char, WLNSymbol *>      locants; 
-  std::map<WLNSymbol*,unsigned char>        locants_ch;
+  std::map<unsigned int, WLNSymbol *>      locants; // int allows effectively infinite broken positions 
+  std::map<WLNSymbol*,unsigned int>        locants_ch;
   std::map<WLNSymbol*,unsigned int>         position_offset; // gives hetero position in the string
 
   bool spiro;
@@ -1662,51 +1663,80 @@ WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 }  
 
 
+// see notes in build cyclic for usuage. 
+struct LocantPos{
+  bool active;
+  int  allowed_connections; 
+  WLNSymbol *locant; // look up character based on the ring_map
+  WLNSymbol *broken_a; 
+  WLNSymbol *broken_b; 
+
+  LocantPos(){
+    active = false; 
+    locant = 0; 
+    broken_a = 0; 
+    broken_b = 0; 
+    allowed_connections = 0; 
+  }
+}; 
+
+
+/*
+ The broken locant conventions are as follows, the first broken position is given a value of 
+ 128, its extremely unlikly that a reasonable chemical will have 128 non broken cyclic atoms:
+
+ - Each normal locant can have two broken locants, one at - and one at -&, e.g B- and B-&
+  
+ There access position is given as a sequence starting at 128, with an offset of 2, which is WLN X 
+ so B- is B+128, 
+ and B-& is B+128
+ 
+*/
 bool set_up_broken( WLNRing *ring, WLNGraph &graph,
                     std::set<unsigned char> &broken_locants,
-                    std::map<unsigned char,std::deque<unsigned char>> &broken_lookup,
-                    std::map<unsigned char, bool> &spawned_broken, 
-                    std::map<unsigned char,unsigned int> &allowed_connections)
+                    LocantPos *locant_path)
 {
-  // broken locants
-  if(!broken_locants.empty()){
-    // create the atoms, 
-    for (unsigned char loc_broken : broken_locants){
-      unsigned char calculate_origin = loc_broken;
-      unsigned int pos = 0;
-      while( (calculate_origin - 23) > 128){
-        calculate_origin += -23;
-        pos++;
-      }
-      // position here decodes where to link them
-      unsigned char parent = '\0';
-      parent = int_to_locant(128 + calculate_origin); // relative positioning
-      if(pos == 2 || pos == 3)
-        parent = locant_to_int(parent) + 128;
-      else if(pos > 3)
-        return false;
-      
-      if(OPT_DEBUG)
-        fprintf(stderr,"  ghost linking %d to parent %c\n",loc_broken,parent);
-      
-      if(!ring->locants[loc_broken]){
-        // bond them in straight away
-        allowed_connections[loc_broken] = 3; 
-        if(allowed_connections[parent])
-          allowed_connections[parent]--;
+  if(broken_locants.empty())
+    return true; 
 
-        WLNSymbol *broken = AllocateWLNSymbol('C',graph);
-        broken->inRing = ring;
-        broken->allowed_edges = 4;
-        broken = assign_locant(loc_broken,broken,ring);
-        broken_lookup[parent].push_back(loc_broken);
-        if(!AddEdge(ring->locants[loc_broken], ring->locants[parent]))
-          return false;
-      }
-      else
-        return false;
-      
+  for (unsigned char loc_broken : broken_locants){
+    unsigned char calculate_origin = loc_broken;
+    unsigned int pos = 0;
+    while( (calculate_origin - 23) > 128){
+      calculate_origin += -23;
+      pos++;
     }
+
+
+    // position here decodes where to link them
+    unsigned char parent = '\0';
+    parent = int_to_locant(128 + calculate_origin); // relative positioning
+    
+                                                    
+    if(pos == 2 || pos == 3)
+      parent = locant_to_int(parent) + 128;
+    else if(pos > 3)
+      return false;
+    
+    if(OPT_DEBUG)
+      fprintf(stderr,"  ghost linking %d to parent %c\n",loc_broken,parent);
+    
+    if(!ring->locants[loc_broken]){
+      // bond them in straight away
+      allowed_connections[loc_broken] = 3; 
+      if(allowed_connections[parent])
+        allowed_connections[parent]--;
+
+      WLNSymbol *broken = AllocateWLNSymbol('C',graph);
+      broken->inRing = ring;
+      broken->allowed_edges = 4;
+      broken = assign_locant(loc_broken,broken,ring);
+      broken_lookup[parent].push_back(loc_broken);
+      if(!AddEdge(ring->locants[loc_broken], ring->locants[parent]))
+        return false;
+    }
+    else
+      return false;  
   }
 
   return true; 
@@ -1734,22 +1764,6 @@ bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
 }
 
 
-// see notes in build cyclic for usuage. 
-struct LocantPos{
-  bool active;
-  int  allowed_connections; 
-  WLNSymbol *locant; // look up character based on the ring_map
-  WLNSymbol *broken_a; 
-  WLNSymbol *broken_b; 
-
-  LocantPos(){
-    active = false; 
-    locant = 0; 
-    broken_a = 0; 
-    broken_b = 0; 
-    allowed_connections = 0; 
-  }
-}; 
 
 /*
  Some rules for solving ring systems in WLN. 
@@ -2278,13 +2292,13 @@ character_start_ring:
           break;
         }
         else if (state_multi == 3){
-          ring_size_specifier += 23;
+          ring_size_specifier += AMPERSAND_EXPAND;
         }
         else if (state_pseudo){
-          pseudo_locants.back() += 23;
+          pseudo_locants.back() += AMPERSAND_EXPAND;
         }
         else if(positional_locant && locant_attached){
-          positional_locant += 23;
+          positional_locant += AMPERSAND_EXPAND;
         }
         else{
           // if unhandled, then it must be an aromatic start
@@ -2828,7 +2842,7 @@ character_start_ring:
                 unsigned int k = 1;
                 unsigned char dloc = block[i+3]; 
                 while(block[k+i+3] == '&'){
-                  dloc+=23;
+                  dloc+=AMPERSAND_EXPAND;
                   k++;
                 } 
 
@@ -2857,7 +2871,7 @@ character_start_ring:
                 unsigned int k = 1;
                 unsigned char dloc = block[i+3]; 
                 while(block[k+i+3] == '&'){
-                  dloc+=23;
+                  dloc+=AMPERSAND_EXPAND;
                   k++;
                 } 
 
@@ -5088,7 +5102,7 @@ character_start:
       }
       else if(on_locant){
         if(curr && curr == ring->locants[on_locant]){
-          on_locant += 23;
+          on_locant += AMPERSAND_EXPAND;
           curr = ring->locants[on_locant];  
           if(!curr)
             return Fatal(i, "Error: could not fetch expanded locant position - out of range");
@@ -6400,7 +6414,7 @@ void static write_locant(unsigned char locant,std::string &buffer){
     unsigned int amps = 0;
     while(locant >= 'X'){
       amps++; 
-      locant+= -23;
+      locant+= -AMPERSAND_EXPAND;
     }
     buffer += locant; 
     for(unsigned int i=0;i<amps;i++)
