@@ -1736,10 +1736,10 @@ bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
 // see notes in build cyclic for usuage. 
 struct LocantPos{
   bool active;
+  int  allowed_connections; 
   WLNSymbol *locant; // look up character based on the ring_map
   WLNSymbol *broken_a; 
   WLNSymbol *broken_b; 
-  unsigned int  allowed_connections; 
 
   LocantPos(){
     active = false; 
@@ -1849,7 +1849,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         locant_path[i].allowed_connections = 6;
     }
 
-    if(bridge_locants[loc] && locant_path[i].allowed_connections)
+    if(bridge_locants[loc])
       locant_path[i].allowed_connections--; // decrement any bridging positions
       
     if(prev){
@@ -1882,7 +1882,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
     unsigned int comp_size  = component.first;
     unsigned int start_char  = component.second;
-    ring->aromatic_atoms = aromatic; 
+    ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
 
     if(start_char > max_locant){
       fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
@@ -1918,29 +1918,28 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
-    LocantPos start_locant = locant_path[ locant_to_int(start_char-1) ]; 
-    LocantPos curr_locant = locant_path[ locant_to_int(start_char-1) ]; 
-    start_locant.locant->aromatic = aromatic;
+    LocantPos *start_locant   = &locant_path[ locant_to_int(start_char-1) ]; 
+    LocantPos *curr_locant    = &locant_path[ locant_to_int(start_char-1) ]; 
+    start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
 
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
-      WLNSymbol*    curr_symbol = curr_locant.locant; 
       unsigned char highest_loc = 0; // highest of each child iteration 
       
-      for(unsigned int ei=0;ei<curr_symbol->barr_n;ei++){
-        WLNSymbol *child = curr_symbol->bond_array[ei].child;
+      for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
+        WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
         unsigned char child_loc = ring->locants_ch[child];
 
         if(child_loc > highest_loc){
           highest_loc = child_loc;
-          edge_taken = &curr_symbol->bond_array[ei]; 
+          edge_taken = &curr_locant->locant->bond_array[ei]; 
         }
       }
 
       if(!highest_loc){
         // if at the end of the path, its okay, break the loop and do post shifting 
-        if(curr_symbol != ring->locants[max_locant]){
+        if(curr_locant->locant != ring->locants[max_locant]){
           fprintf(stderr,"Error: locant path formation is broken in ring definition - highest locant not found\n");
           return false;
         }
@@ -1948,10 +1947,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           break; // breaks the while loop usually based on path size  
       }
       else {
-        curr_locant = locant_path[locant_to_int(highest_loc-1)];
-        curr_locant.locant->aromatic = aromatic;
-        edge_taken->aromatic = aromatic; 
-        
+        curr_locant = &locant_path[locant_to_int(highest_loc-1)];
+        curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
+        edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
         end_char = highest_loc; 
         path_size++; 
       }
@@ -1959,7 +1957,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       
     for(;;){
 
-      if(curr_locant.allowed_connections){
+      if(start_locant->allowed_connections > 0){
 #if RARE
         // very rare case where we get the right path a different way to normal
         while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
@@ -1968,24 +1966,25 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(OPT_DEBUG)
           fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
 
-        if(!AddEdge(curr_locant.locant,start_locant.locant)){
+        if(!AddEdge(curr_locant->locant,start_locant->locant)){
           fprintf(stderr,"Error: failed to bond locant path edge\n");    
           return false;
         }
-       
-        curr_locant.locant->bond_array[curr_locant.locant->barr_n-1].aromatic = aromatic; 
-        start_locant.allowed_connections--; 
-        curr_locant.allowed_connections--; 
+        
+        WLNEdge *new_edge = &start_locant->locant->bond_array[start_locant->locant->barr_n-1];
+        new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
+        start_locant->allowed_connections--; 
         break;
       }
       else{
         // increase the start char and move the path locant
         start_char++;
-        start_locant = locant_path[locant_to_int(start_char-1)]; 
+        start_locant = &locant_path[locant_to_int(start_char-1)]; 
         
         // the current then moves back by 1
-        end_char--; 
-        curr_locant = locant_path[locant_to_int(end_char-1)]; 
+        if(end_char != max_locant)
+          end_char--; 
+        curr_locant = &locant_path[locant_to_int(end_char-1)]; 
       }
     }
 
@@ -2093,7 +2092,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       }
 #endif
   }
-
+  
+  delete [] locant_path;
   return local_size; 
 }
 
@@ -3563,9 +3563,6 @@ bool WLNKekulize(WLNGraph &graph){
           WLNSymbol *f = wring->locants[floc];
           WLNSymbol *s = wring->locants[sloc];
           if(f && s){
-#if OPT_DEBUG
-          fprintf(stderr,"  aromatic locants: %c --> %c\n",floc,sloc); 
-#endif
             WLNEdge *edge = search_edge(f,s);
             if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
               return false;
