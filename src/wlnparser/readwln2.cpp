@@ -2533,15 +2533,18 @@ character_start_ring:
                   else
                    str_buffer+=ch;
                 }
-                else if(mode == 2)
-                  return Fatal(i+start, "Error: mixing element and branching directive definitions");
+                else if(mode == 2){
+                  flook = false; 
+                }
               }
             }
             
-            i--; // back step by one 
-                 //
-            if(mode == 1){
+            if(mode == 2){
+            i-=2; // back step by two
 
+            }
+            if(mode == 1){
+              i--; // back step by 1
               if(str_buffer.size() == 1){
                 
                 if(positional_locant != spiro_atom){
