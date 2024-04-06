@@ -26,6 +26,7 @@ GNU General Public License for more details.
 #include <set>
 #include <deque>
 #include <string>
+#include <strings.h>
 #include <vector>
 #include <map>
 
@@ -756,14 +757,14 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
 }
 
 /* allocate new or override exisiting node*/
-WLNSymbol* define_element(std::string special, WLNGraph &graph){
+WLNSymbol* define_element(unsigned char special_1, unsigned char special_2, WLNGraph &graph){
     
   WLNSymbol *created_wln = 0;
   
-  switch (special[0]){
+  switch (special_1){
 
     case 'A':
-      switch(special[1]){
+      switch(special_2){
         case 'C':
         case 'G':
         case 'L':
@@ -781,7 +782,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'B':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'E':
         case 'H':
@@ -798,7 +799,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       
 
     case 'C':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'D':
         case 'E':
@@ -818,7 +819,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
       
     case 'D':
-      switch(special[1]){
+      switch(special_2){
         case 'B':
         case 'S':
         case 'Y':
@@ -831,7 +832,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'E':
-      switch(special[1]){
+      switch(special_2){
         case 'R':
         case 'S':
         case 'U':
@@ -844,7 +845,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'F':
-      switch(special[1]){
+      switch(special_2){
         case 'E':
         case 'L':
         case 'M':
@@ -858,7 +859,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'G':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'D':
         case 'E':
@@ -871,7 +872,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'H':
-      switch(special[1]){
+      switch(special_2){
         case 'E':
         case 'F':
         case 'G':
@@ -886,7 +887,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'I':
-      switch(special[1]){
+      switch(special_2){
         case 'N':
         case 'R':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -898,7 +899,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'K':
-      switch(special[1]){
+      switch(special_2){
         case 'R':
         case 'A':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -911,7 +912,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       
 
     case 'L':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'I':
         case 'R':
@@ -926,7 +927,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'M':
-      switch(special[1]){
+      switch(special_2){
         case 'C':
         case 'D':
         case 'G':
@@ -942,7 +943,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'N':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'D':
@@ -961,7 +962,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
 
 
     case 'O':
-      switch(special[1]){
+      switch(special_2){
         case 'O':
         case 'G':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -973,7 +974,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'P':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'D':
@@ -991,7 +992,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'R':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'E':
@@ -1010,7 +1011,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
      
 
     case 'S':
-      switch(special[1]){
+      switch(special_2){
         case 'B':
         case 'C':
         case 'E':
@@ -1029,7 +1030,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
 
 
     case 'T':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'C':
@@ -1048,7 +1049,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'U':
-      if(special[1] == 'R')
+      if(special_2 == 'R')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1056,7 +1057,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'V':
-      if (special[1] == 'A')
+      if (special_2 == 'A')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1064,7 +1065,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
     
     case 'W':
-      if(special[1] == 'T')
+      if(special_2 == 'T')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1073,7 +1074,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
     
 
     case 'X':
-      if (special[1] == 'E')
+      if (special_2 == 'E')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1081,7 +1082,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'Y':
-      switch(special[1]){
+      switch(special_2){
         case 'B':
         case 'T':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -1093,7 +1094,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'Z':
-      switch(special[1]){
+      switch(special_2){
         case 'N':
         case 'R':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -1108,7 +1109,8 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       return (WLNSymbol *)0;
   }
 
-  created_wln->special = special;
+  created_wln->special+= special_1;
+  created_wln->special+= special_2;
   created_wln->allowed_edges = 8; // allow anything for now;
   return created_wln;
 }
@@ -2485,17 +2487,25 @@ character_start_ring:
           
           // two things to do in the lookahead here, determine whether branching or non-branching, 
           // and then access the branching tree
-        
           str_buffer.clear();
           
           i++; // move i off the first dash and lookahead
-          bool flook      = true; 
+          bool flook = true;
           unsigned int mode = 0; //  1 - reading element, 2 - reading branching tree directives
           while(i < block.size() && flook){
             ch = block[i++];
             switch (ch) {
               case ' ':
-                flook = false;
+                if(mode == 2){
+                  flook = false; 
+                  i-=2; // back step by two
+                }
+
+                if(str_buffer.size() < 2){
+                  flook = false;
+                  mode = 2;
+                  i-=2; // back step by two
+                }
                 break;
               
               case '&':
@@ -2516,10 +2526,10 @@ character_start_ring:
                 }
                 else if (mode == 1){
                   flook = false;
+                  i--; // back step by 1
                 }
                 else if(mode == 2)
                   str_buffer += '-'; 
-        
                 break;
 
               default:
@@ -2535,16 +2545,28 @@ character_start_ring:
                 }
                 else if(mode == 2){
                   flook = false; 
+                  i-=2; // back step by two
                 }
               }
             }
-            
-            if(mode == 2){
-            i-=2; // back step by two
 
+            if(mode == 2){
+              str_buffer.insert(str_buffer.begin(),'-');       // add the skipped dash
+              if(str_buffer.size() >= 3)
+                return Fatal(i+start, "Error: branching locants at a tree depth > 2 are not supported"); 
+                                    
+              unsigned int index = (locant_to_int(positional_locant-1) * 6) + 128; 
+              for(unsigned char s: str_buffer){
+                if(s=='-')
+                  index+=1;
+                else
+                  index += 2;
+              } 
+
+              fprintf(stderr,"index: %d on char: %c\n",index,block[i]);
+              positional_locant = index; // positional locant is now set
             }
-            if(mode == 1){
-              i--; // back step by 1
+            else if(mode == 1){
               if(str_buffer.size() == 1){
                 
                 if(positional_locant != spiro_atom){
@@ -2583,7 +2605,8 @@ character_start_ring:
                 else if(positional_locant != spiro_atom){
 
                   // must be a special element 
-                  WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
+                  WLNSymbol *new_locant = 0; 
+                  //WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
                   if(!new_locant)
                     return Fatal(i+start, "Error: could not create periodic code element");
 
@@ -3658,43 +3681,52 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_ring_in_ring     = false; // rings in rings
   bool pending_rir_closure      = false;
   bool pending_negative_charge  = false; // lets get rid of a lot of waste
-  bool pending_carbon_chain     = false;
+  bool pending_numbers          = false;
   bool pending_locant_skips     = false; // special case handling 
-
-  unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
+  
   int pending_charge = 0; 
-
-  bool no_shift = false; // stop shifting if already done
-  std::string str_buffer; 
-  std::string digits_buffer; 
-
-  unsigned char on_locant = '\0';         // locant tracking
+  unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
   unsigned int pending_unsaturate = 0;    // 'U' style bonding
+    
+  // hold three sequential digits, error if 4, uses the ascii values '1', '2' etc 
+  unsigned char d1 = 0; 
+  unsigned char d2 = 0; 
+  unsigned char d3 = 0; 
+  
+  unsigned char on_locant = '\0';         // locant tracking
   unsigned int locant_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
   
   // allows consumption of notation after block parses
   unsigned int block_start = 0;
   unsigned int block_end = 0;
 
-  unsigned int len = strlen(wln_ptr);
-
   unsigned int i=0;
-  unsigned char ch = *wln_ptr;
+  unsigned int len = strlen(wln_ptr);
+  unsigned char ch = wln_ptr[i];
   
   while(ch)
   {  
 character_start:
     // this will need to resolved at the end as well
-    if(pending_carbon_chain && (ch < '0' || ch > '9') && ch != '/' ){
-      if(digits_buffer.empty() || digits_buffer[0] == '0')
-        return Fatal(i,"Error: zero mark opened for chain length, invalid numeral"); 
-
-      int carbon_len = isNumber(digits_buffer);
-      digits_buffer.clear(); 
-      if(carbon_len < 0)
-        return Fatal(i, "Error: non-numeric value entered for carbon length");
-      else if (carbon_len > 100)
-        return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
+    if(pending_numbers && (ch < '0' || ch > '9') && ch != '/' ){
+      
+      // bases are given by the number reads
+      unsigned int carbon_len = 0; 
+      if(d3){
+        carbon_len += (100*(d1-'0')); 
+        carbon_len += (10*(d2-'0')); 
+        carbon_len += (1*(d3-'0')); 
+      }
+      else if(d2){
+        carbon_len += (10*(d1-'0')); 
+        carbon_len += (1*(d2-'0')); 
+      }      
+      else
+        carbon_len += (1*(d1-'0')); 
+      
+      d1=0;
+      d2=0;
+      d3=0;
 
       // create the head 
       WLNSymbol *curr = AllocateWLNSymbol('#', graph);
@@ -3722,7 +3754,8 @@ character_start:
         }
       }
 
-      pending_carbon_chain = false;
+
+      pending_numbers = false;
       prev = curr;
       last = curr; 
       last = prev; 
@@ -3734,9 +3767,22 @@ character_start:
 #if MODERN
       locant_skips = 1;
 #else
-      locant_skips = isNumber(digits_buffer); 
+      if(d3){
+        locant_skips += (100*(d1-'0')); 
+        locant_skips += (10*(d2-'0')); 
+        locant_skips += (1*(d3-'0')); 
+      }
+      else if(d2){
+        locant_skips += (10*(d1-'0')); 
+        locant_skips += (1*(d2-'0')); 
+      }      
+      else
+        locant_skips += (1*(d1-'0')); 
+      
+      d1=0;
+      d2=0;
+      d3=0;
 #endif
-      digits_buffer.clear();
       pending_locant_skips = false; 
     }
 
@@ -3745,9 +3791,16 @@ character_start:
 
     case '0': // cannot be lone, must be an addition to another num
       if(pending_J_closure){
-        if(pending_locant_skips)
-          digits_buffer += ch;
-
+        if(pending_locant_skips){
+          if(d1 && d2 && d3)
+            return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+          else if (d1 && d2)
+            d3 = ch; 
+          else if(d1)
+            d2 = ch; 
+          else 
+            d1 = ch; 
+        }
         break;
       }
 
@@ -3760,17 +3813,19 @@ character_start:
         on_locant = '0';
         pending_locant = false;
       }
-      else if (pending_carbon_chain){
-        digits_buffer+= ch;
+      else if (pending_numbers || pending_negative_charge || cleared){
+        if(d1 && d2 && d3)
+          return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+        else if (d1 && d2)
+          d3 = ch; 
+        else if(d1)
+          d2 = ch; 
+        else 
+          d1 = ch; 
+
+        if(cleared)
+          pending_numbers = true; 
         break;
-      }
-      else if(pending_negative_charge){
-        digits_buffer += ch;
-      }
-      else if (cleared){
-        // null effect for positive charge
-        digits_buffer += ch;
-        pending_carbon_chain = true; 
       }
       else
         return Fatal(i,"Error: a lone zero mark is not allowed without positive numerals either side");
@@ -3792,8 +3847,16 @@ character_start:
           pending_locant_skips = true; 
         }
         
-        if(pending_locant_skips)
-          digits_buffer += ch; 
+        if(pending_locant_skips){
+          if(d1 && d2 && d3)
+            return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+          else if (d1 && d2)
+            d3 = ch; 
+          else if(d1)
+            d2 = ch; 
+          else 
+            d1 = ch; 
+        }
         break;
       }
       else if(pending_locant){  // handle all multiplier contractions
@@ -3846,17 +3909,20 @@ character_start:
         pending_inline_ring = false;
         cleared = false;
       }
-      else if (pending_carbon_chain){
-        digits_buffer += ch;  // simple resolve
-        break;
-      }
-      else if (pending_negative_charge){
-        digits_buffer += ch; 
-      }
-      else{
+      else {
+        if(d1 && d2 && d3)
+          return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+        else if (d1 && d2)
+          d3 = ch; 
+        else if(d1)
+          d2 = ch; 
+        else 
+          d1 = ch; 
+        
+        
         on_locant = '\0';
-        pending_carbon_chain = true;
-        digits_buffer += ch; 
+        pending_numbers = true; 
+        break;
       }
       break;
     
@@ -5053,8 +5119,23 @@ character_start:
         break;
       }
       else if(pending_negative_charge){
-        int negative_index = isNumber(digits_buffer); 
-        digits_buffer.clear(); 
+        
+        int negative_index = 0; 
+        if(d3){
+          negative_index += (100*(d1-'0')); 
+          negative_index += (10*(d2-'0')); 
+          negative_index += (1*(d3-'0')); 
+        }
+        else if(d2){
+          negative_index += (10*(d1-'0')); 
+          negative_index += (1*(d2-'0')); 
+        }      
+        else
+          negative_index += (1*(d1-'0')); 
+      
+        d1=0;
+        d2=0;
+        d3=0;
 
         if(negative_index < 0)
           return Fatal(i, "Error: assigning non-numerical value to charge index");
@@ -5100,17 +5181,12 @@ character_start:
       // only burn the stacks now on ionic clearance
       break;
 
-
+    // spiro is handled on dash
     case '&':
       if (pending_J_closure)
         break;
       
-      if (pending_inline_ring && !pending_ring_in_ring)
-      {
-        // spiro notation open
-        pending_spiro = true;
-      }
-      else if (pending_locant)
+      if (pending_locant)
       { 
         // ionic species or spiro, reset the linkings
         prev = 0;
@@ -5387,81 +5463,35 @@ character_start:
         
       }
       else{
-
-        str_buffer.clear();
-        bool closed_dash = false;
-        unsigned int first_dash = i;
-
-        // move off the first dash
-        i++;
-        ch = *(++wln_ptr);
-        while(ch != '\0'){
-          if(ch == '-'){
-            closed_dash = true;
-            break;
-          }
-          else if (ch == ' '){
-            no_shift = true;
-            break; // positions an open ring
-          }
-          else if (ch == '&'){
-            pending_spiro = true;
-            break;
-          }
-          else
-            str_buffer.push_back(ch);
-          
-          i++;
-          ch = *(++wln_ptr);
-        }
-
-        if(!closed_dash){
-          pending_inline_ring = true;
-          return_object_symbol(branch_stack);
-          if(branch_stack.branch && !prev){
-            // prev must be at top of the branch stack
-            while(branch_stack.top().second != branch_stack.branch)
-              branch_stack.pop();
-
-            prev = return_object_symbol(branch_stack);
-          }    
-        }
-        else{
-
-          if(str_buffer.size() == 1){
-            curr = define_hypervalent_element(str_buffer[0],graph);
-            if(!curr)
-              return Fatal(i, "Error: failed to define hypervalent element");
-            curr->str_position = i+1;
-          }
-          else if(str_buffer.size() == 2){
-            curr = define_element(str_buffer,graph);
-            if(!curr)
-              return Fatal(i, "Error: failed to define periodic element"); 
-            
-            curr->str_position = i+1;
-
-            if(on_locant == '0'){
-              curr->charge++;
-              //on_locant = '\0';
-            }
-          }
-          else
-            return Fatal(i, "Error: special '-' must be either 1 or 2 symbols");
-          
         
+        // conditions for '-' 
+        //
+        //  1) closed at position +3 away -NA- - elemental definition
+        //  2) closed at position +2 away -K- - hypervalent element
+        //  3) branch at pos +1 and space at +2 = spiro
+        //  else) not closed - inline ring
+        //
+        //  1/2*) if +1 = '&'|'-' branching locant defintion e.g E--P, E-&P
+        //  must eliminate the spaces every time
+
+        // 1)
+        if( i + 3 < len && wln_string[i+3] == '-' && wln_string[i+1] != ' '){
+
+          curr = define_element(wln_string[i+1],wln_string[i+2],graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define periodic element"); 
+          
+          if(on_locant == '0'){
+            curr->charge++;
+            //on_locant = '\0';
+          }
+
           if(prev){
-            if(str_buffer.empty() && ring){
-              if(!AddEdge(ring->locants[prev->ch], prev))
-                return Fatal(i, "Error: failed to bond to previous symbol");
-              edge = &prev->bond_array[prev->barr_n-1]; 
-            }
-            else{
-              if(!AddEdge(curr, prev))
-                return Fatal(i, "Error: failed to bond to previous symbol");
-              edge = &prev->bond_array[prev->barr_n-1]; 
-            }
-              
+            if(!AddEdge(curr, prev))
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            edge = &prev->bond_array[prev->barr_n-1];
+
+
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
             
@@ -5473,15 +5503,68 @@ character_start:
                 return Fatal(i, "Error: failed to unsaturate bond"); 
               pending_unsaturate = 0;
             }
-            
+
           }
+
           on_locant = '\0';
           branch_stack.push({0,curr});
-          
-          curr->str_position = first_dash+1+1;
+          curr->str_position = i+2;
           pending_unsaturate = 0;
           prev = curr;
           last = curr; 
+          i+=3; 
+        }
+        
+        // 2 and 3 
+        else if(i+2 < len && wln_string[i+2] =='-' && wln_string[i+1] != ' '){
+          
+          curr = define_hypervalent_element(wln_string[i+1],graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define hypervalent element");
+          
+          if(prev){
+            if(!AddEdge(curr, prev))
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            edge = &prev->bond_array[prev->barr_n-1];
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
+            if(pending_unsaturate){
+              if(!unsaturate_edge(edge,pending_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              pending_unsaturate = 0;
+            }
+          }
+
+          on_locant = '\0';
+          branch_stack.push({0,curr});
+          curr->str_position = i+2;
+          pending_unsaturate = 0;
+          prev = curr;
+          last = curr; 
+
+          i+=2; 
+        }
+
+        // 3)
+        else if( i + 2 < len && wln_string[i+1] == '&' && wln_string[i+2] == ' '){
+          pending_spiro = true;
+          pending_inline_ring = true;
+          i+=1; 
+        }
+        else{
+          pending_inline_ring = true;
+          return_object_symbol(branch_stack);
+          if(branch_stack.branch && !prev){
+            // prev must be at top of the branch stack
+            while(branch_stack.top().second != branch_stack.branch)
+              branch_stack.pop();
+            
+            prev = return_object_symbol(branch_stack);
+          }    
         }
       }
       cleared = false;
@@ -5493,25 +5576,39 @@ character_start:
         locant_skips = 2;
         break;
       }
-      else if(pending_carbon_chain){ // state that this must be a charge 
+      else if(pending_numbers){ // state that this must be a charge 
 
         if(!cleared)
           return Fatal(i, "Error: opening post charge assignment without proper syntax [ &x/x ]");
         
-        int positive_index = isNumber(digits_buffer); 
-        digits_buffer.clear(); 
-        
-        if(positive_index < 0)
-          return Fatal(i, "Error: assigning non-numerical value to charge index");
-        else if (positive_index != 0){
+        int positive_index = 0; 
+        if(d3){
+          positive_index += (100*(d1-'0')); 
+          positive_index += (10*(d2-'0')); 
+          positive_index += (1*(d3-'0')); 
+        }
+        else if(d2){
+          positive_index += (10*(d1-'0')); 
+          positive_index += (1*(d2-'0')); 
+        }      
+        else
+          positive_index += (1*(d1-'0')); 
+      
+        d1=0;
+        d2=0;
+        d3=0;
+       
+
+#if OPT_DEBUG
+        fprintf(stderr,"  attempting +1 charge on index %d\n",positive_index); 
+#endif
+
+        if (positive_index != 0){
           // find the symbol and increment its charge + 1
           bool found = false;
           for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
             if(graph.SYMBOLS[cs]->str_position == (unsigned int)positive_index){
               graph.SYMBOLS[cs]->charge++;
-#if OPT_DEBUG
-              fprintf(stderr,"  assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
-#endif
               found = true;
               break;
             }
@@ -5521,7 +5618,7 @@ character_start:
             return Fatal(i, "Error: positive charge index out of range, check letter index");
         }
 
-        pending_carbon_chain = false;
+        pending_numbers = false;
         pending_negative_charge = true;
       }
       else
@@ -5533,20 +5630,28 @@ character_start:
       return Fatal(i,"Error: unallowed character! - alphabet: [A-Z][0-1][&-/' ']");
     }
 
-    if(!no_shift){
-      i++;
-      ch = *(++wln_ptr);
-    }
-    no_shift = false;
+    ch = wln_ptr[++i];
   }
 
 
-  if(pending_carbon_chain){        
-    if(digits_buffer.empty() || digits_buffer[0] == '0')
-      return Fatal(i,"Error: zero mark opened for chain length, invalid numeral"); 
-    int carbon_len = isNumber(digits_buffer);
+  if(pending_numbers){        
+    int carbon_len = 0;
+    if(d3){
+      carbon_len += (100*(d1-'0')); 
+      carbon_len += (10*(d2-'0')); 
+      carbon_len += (1*(d3-'0')); 
+    }
+    else if(d2){
+      carbon_len += (10*(d1-'0')); 
+      carbon_len += (1*(d2-'0')); 
+    }      
+    else
+      carbon_len += (1*(d1-'0')); 
+  
+    d1=0;
+    d2=0;
+    d3=0;
 
-    digits_buffer.clear(); 
     if(carbon_len < 0)
       return Fatal(i, "Error: non-numeric value entered for carbon length");
     else if (carbon_len > 100)
@@ -5574,7 +5679,7 @@ character_start:
       }
     }
 
-    pending_carbon_chain = false;
+    pending_numbers = false;
     prev = curr; 
     last = curr; 
 
@@ -5589,8 +5694,22 @@ character_start:
   }
   
   if(pending_negative_charge){
-    int negative_index = isNumber(digits_buffer); 
-    digits_buffer.clear();
+    int negative_index = 0; 
+    if(d3){
+      negative_index += (100*(d1-'0')); 
+      negative_index += (10*(d2-'0')); 
+      negative_index += (1*(d3-'0')); 
+    }
+    else if(d2){
+      negative_index += (10*(d1-'0')); 
+      negative_index += (1*(d2-'0')); 
+    }      
+    else
+      negative_index += (1*(d1-'0')); 
+  
+    d1=0;
+    d2=0;
+    d3=0;
 
     if(negative_index < 0)
       return Fatal(i, "Error: assigning non-numerical value to charge index");
