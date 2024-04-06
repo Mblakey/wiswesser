@@ -5006,7 +5006,6 @@ character_start:
           // the ring wrap symbol. 
 
           i++;
-          wln_ptr++;
           pending_inline_ring = true;
           break;
         }
@@ -5399,68 +5398,52 @@ character_start:
 #endif 
 
     
-    case '-':{
+    case '-':
       if (pending_J_closure)
         break;
-
-      else if (pending_inline_ring)
+      
+      else if (pending_inline_ring && pending_ring_in_ring) // macro_closure
       { 
         
-        if(pending_ring_in_ring){
-          // onlocant holds the char needed to wrap the ring back, 
-          
-          if(!wrap_ring)
-            return Fatal(i, "Error: wrap ring is not active");
+        // onlocant holds the char needed to wrap the ring back, 
+        if(!wrap_ring)
+          return Fatal(i, "Error: wrap ring is not active");
 
-          curr = wrap_ring->locants[on_locant];
-          if(!curr)
-            return Fatal(i, "Error: cannot access looping ring structure");
-        
-          if(prev){  
-
-            if(!AddEdge(curr, prev))
-              return Fatal(i, "Error: failed to bond to previous symbol");
-
-            edge = &prev->bond_array[prev->barr_n-1]; 
-            edge->stereo = pending_stereo; 
-            pending_stereo = 0;
-
-            wrap_ring->macro_return = edge; 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
-                return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
-            }
-          }
-          else
-            return Fatal(i,"Error: no previous symbol for inline ring defintion");
+        curr = wrap_ring->locants[on_locant];
+        if(!curr)
+          return Fatal(i, "Error: cannot access looping ring structure");
       
+        if(prev){  
 
-          // if we remove this, we can allow branching inline defintiions 
-          // last notation is not neccessary, so we eat two positions
-          unsigned int hit = 0;
-          while(wln_ptr){
-            if(*wln_ptr == 'J')
-              return Fatal(i, "Error: macro-notation requires closure with the ring size in two dashes e.g -6-");
-            
-            if(*wln_ptr == '-'){
-              hit++;
-              if(hit == 2)
-                break;
-            }
-            wln_ptr++;
-            i++;
+          if(!AddEdge(curr, prev))
+            return Fatal(i, "Error: failed to bond to previous symbol");
+
+          edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0;
+
+          wrap_ring->macro_return = edge; 
+          if(pending_unsaturate){
+            if(!unsaturate_edge(edge,pending_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            pending_unsaturate = 0;
           }
-          
-          curr = prev; // set back to prev
-          on_locant = '\0';
-          pending_ring_in_ring = false;
-          pending_inline_ring = false;
-          pending_rir_closure = true;
         }
         else
-          return Fatal(i, "Error: only one pending ring can be active, check closures");
+          return Fatal(i,"Error: no previous symbol for inline ring defintion");
         
+        if(i+3 < len && wln_ptr[i+3] == '-')
+          i+=3;
+        else if(i+2 < len && wln_ptr[i+2] == '-')
+          i+=2;
+        else
+          return Fatal(i, "Error: macro-notation requires closure with the ring size in two dashes e.g -6-");
+
+        curr = prev; // set back to prev
+        on_locant = '\0';
+        pending_ring_in_ring = false;
+        pending_inline_ring = false;
+        pending_rir_closure = true;
       }
       else{
         
@@ -5473,6 +5456,8 @@ character_start:
         //
         //  1/2*) if +1 = '&'|'-' branching locant defintion e.g E--P, E-&P
         //  must eliminate the spaces every time
+        //
+        //  Not specified here, macro opens e.g L- T- are handled on L/T 
 
         // 1)
         if( i + 3 < len && wln_string[i+3] == '-' && wln_string[i+1] != ' '){
@@ -5556,6 +5541,10 @@ character_start:
           i+=1; 
         }
         else{
+
+          if(pending_inline_ring)
+            return Fatal(i,"Error: previous in-line ring definition not finished\n");
+
           pending_inline_ring = true;
           return_object_symbol(branch_stack);
           if(branch_stack.branch && !prev){
@@ -5569,7 +5558,7 @@ character_start:
       }
       cleared = false;
       break;
-    }
+    
     
     case '/':
       if (pending_J_closure){
