@@ -1878,8 +1878,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
   for (unsigned int i=0;i<ring_assignments.size();i++){
     
-    bool aromatic           = aromaticity[i];
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
+    
+    bool aromatic           = aromaticity[i];
     unsigned int comp_size  = component.first;
     unsigned int start_char  = component.second;
     ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
@@ -1918,6 +1919,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
+    unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
+
     LocantPos *start_locant   = &locant_path[ locant_to_int(start_char-1) ]; 
     LocantPos *curr_locant    = &locant_path[ locant_to_int(start_char-1) ]; 
     start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
@@ -1943,8 +1946,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
           fprintf(stderr,"Error: locant path formation is broken in ring definition - highest locant not found\n");
           return false;
         }
-        else
-          break; // breaks the while loop usually based on path size  
+
+        over_shoot++;
+        path_size++; 
+
       }
       else {
         curr_locant = &locant_path[locant_to_int(highest_loc-1)];
@@ -1982,8 +1987,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         start_locant = &locant_path[locant_to_int(start_char-1)]; 
         
         // the current then moves back by 1
-        if(end_char != max_locant)
+
+        if(over_shoot)
+          over_shoot--;
+        else
           end_char--; 
+        
         curr_locant = &locant_path[locant_to_int(end_char-1)]; 
       }
     }
