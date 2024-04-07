@@ -2186,6 +2186,7 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
 
   bool warned             = false;  // limit warning messages to console
   bool heterocyclic       = false;  // L|T designator can throw warnings
+  bool ring_start         = true; 
 
   unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
   unsigned int state_pseudo         = 0; 
@@ -2940,17 +2941,17 @@ character_start_ring:
         break;
 
       case 'L':
+        if(ring_start){
+          heterocyclic = false;
+          ring_start = false; 
+          break;
+        }
         if(positional_locant >= 128)
           broken_locants.insert(positional_locant);
 
         if(state_aromatics)
           return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
-
-        if(i==0){
-          heterocyclic = false; 
-          break;
-        }
         if(expected_locants){
 
           if(state_multi)
@@ -2987,6 +2988,12 @@ character_start_ring:
 
 
       case 'T':
+        if(ring_start){
+          ring_start = false;
+          heterocyclic = true; 
+          break;
+        }
+
         if(positional_locant >= 128)
           broken_locants.insert(positional_locant);
 
@@ -2994,13 +3001,7 @@ character_start_ring:
           aromaticity.push_back(0);
           break;
         }
-      
-        if(i==0){
-          heterocyclic = true; 
-          break;
-        }
-
-        if(expected_locants){
+        else if(expected_locants){
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
@@ -3057,7 +3058,6 @@ character_start_ring:
           if(ring_components.empty())
             return Fatal(i,"Error: error in reading ring components, check numerals in ring notation");
           
-
           if (aromaticity.size() == 1 && aromaticity[0] == false){
             while(aromaticity.size() < ring_components.size())
               aromaticity.push_back(false);
@@ -4808,7 +4808,6 @@ character_start:
         if(locant_skips)
           locant_skips--;
         else if(i>0 && wln_ptr[i-1] != ' '){
-          block_end = i;
           
           ring = AllocateWLNRing(graph);
           if(pending_spiro){
@@ -4874,7 +4873,7 @@ character_start:
           {
             if (ring->locants[on_locant]){
                       
-              edge = AddEdge(curr, prev); 
+              edge = AddEdge(ring->locants[on_locant], prev); 
               if(!edge)
                 return Fatal(i, "Error: failed to bond to previous symbol");
               edge->stereo = pending_stereo; 
