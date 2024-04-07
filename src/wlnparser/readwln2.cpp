@@ -1792,7 +1792,10 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
  128 + (1 * 6) = 'B' node, 134 = B-, 135 = B-&, 136 = B--, 137 = B--&, 138 = B-&-, 139 = B-&&
  128 + (2 * 6) = 'C' node, 140... 
 */
-unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size, LocantPos*branch_locants){
+unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
+                            std::map<unsigned int,unsigned int> &bridge_locants,
+                            LocantPos*branch_locants)
+{
   unsigned int b_locant = 0; 
   for (unsigned int i=0;i<local_size;i++){
 
@@ -1802,6 +1805,9 @@ unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size, LocantPos*bra
         branch_locants[b_locant].active = 0; 
         branch_locants[b_locant].allowed_connections = 3; 
         b_locant++;
+
+        if(bridge_locants[b+ 128 + (i * BROKEN_TREE_LIMIT)])
+          branch_locants->allowed_connections --; //bridge_locants[b+ 128 + (i * BROKEN_TREE_LIMIT)]; 
 
         if(b_locant == 32){
           fprintf(stderr,"Error: branching locant exceed 32, is this even possible?\n");
@@ -1844,11 +1850,10 @@ unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size, LocantPos*bra
     Bridging A brings its allowed connections to 2, since it is at the start of the chain
     bridging B brings its allowed connections to 1, since its in the middle of the chain. 
 */
-unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ring_assignments, 
+unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
                           std::vector<bool>                                   &aromaticity,
-                          std::vector<unsigned char>                          &multicyclic_locants,
-                          std::vector<unsigned char>                          &pseudo_locants,
-                          std::map<unsigned char,unsigned int>                &bridge_locants,
+                          std::vector<unsigned int>                           &pseudo_locants,
+                          std::map<unsigned int,unsigned int>                 &bridge_locants,
                           unsigned char size_designator,
                           WLNRing *ring,
                           WLNGraph &graph) 
@@ -1864,10 +1869,15 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
         local_size = component.first;
     }
 
-    for (unsigned int i=0;i<252;i++){
-      if(bridge_locants[i])
+    for (unsigned int i=0;i<255;i++){
+      if(bridge_locants[i]){
+        local_size+= -1; 
+      }
+
+      if(ring->locants[i] && i >= 128)
         local_size+= -1; 
     }
+
 
     if(OPT_DEBUG)
       fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
@@ -1885,9 +1895,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
   
   LocantPos *locant_path = new LocantPos[local_size];  
   LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
-  unsigned int b_locant = OffPathLocants(ring,local_size, branch_locants); 
-
-
+  unsigned int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
+  
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
 
@@ -1929,6 +1938,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
     prev = curr;
   }
   
+  // use pseudo locants as a catch all, more stable then traditional WLN for now
+  for(int i=0;i<(pseudo_locants.size()/2);i++)
+    ring_assignments.pop_back(); 
+
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -1957,7 +1970,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
       for(unsigned int bs=0;bs<b_locant;bs++){
         if(branch_locants[bs].locant == ring->locants[start_char]){
           start_locant   = &branch_locants[bs]; 
-          curr_locant   = &branch_locants[bs]; 
+          curr_locant   =  &branch_locants[bs]; 
           break;
         }
       }
@@ -2049,7 +2062,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
             curr_locant = &locant_path[LOCANT_TO_INT(--end_char-1)]; 
             broken_shifting = true; 
           }
-
         }
 
         if(OPT_DEBUG){
@@ -2088,6 +2100,27 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
       }
     }
   }
+  
+
+  if(!pseudo_locants.empty()){
+    for(int i=0;i<pseudo_locants.size()-1;i+=2){
+
+      if(!AddEdge(ring->locants[pseudo_locants[i]],ring->locants[pseudo_locants[i+1]]))
+        fprintf(stderr,"Error: pseudo locants could not be bonded"); 
+
+      if(OPT_DEBUG){
+        if(pseudo_locants[i] >= 128 && pseudo_locants[i+1] <= 128)
+          fprintf(stderr,"  fusing: %d --> %c\n",pseudo_locants[i],pseudo_locants[i+1]);
+        else if(pseudo_locants[i] <= 128 && pseudo_locants[i+1] >= 128)
+          fprintf(stderr,"  fusing: %c --> %d\n",pseudo_locants[i],pseudo_locants[i+1]);
+        else if(pseudo_locants[i] >= 128 && pseudo_locants[i+1] >= 128)
+          fprintf(stderr,"  fusing: %d --> %d\n",pseudo_locants[i],pseudo_locants[i+1]);
+        else
+          fprintf(stderr,"  fusing: %c --> %c\n",pseudo_locants[i],pseudo_locants[i+1]);
+      }
+    }
+  }
+
   
   delete [] locant_path;
   delete [] branch_locants;
@@ -2160,9 +2193,9 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   std::vector<LocantPair>  stereo;
 #endif
 
-  std::vector<unsigned char>                multicyclic_locants;
-  std::vector<unsigned char>                pseudo_locants;
-  std::map<unsigned char,unsigned int>      bridge_locants;
+  std::vector<unsigned int>                multicyclic_locants;
+  std::vector<unsigned int>                pseudo_locants;
+  std::map<unsigned int,unsigned int>      bridge_locants;
   
   std::vector<std::pair<unsigned int, unsigned int>>  ring_components;
 
@@ -3079,7 +3112,7 @@ character_start_ring:
             return Fatal(i,"Error: assigning bridge locants without a ring");
           else
             bridge_locants[positional_locant] = true;
-
+            
           state_aromatics = 1;
           aromaticity.push_back(0);
         }
@@ -3218,12 +3251,12 @@ character_start_ring:
   }
   
   unsigned int final_size = 0; 
-  final_size = BuildCyclic(ring_components,aromaticity,
-                                multicyclic_locants,pseudo_locants,
-                                bridge_locants,
-                                ring_size_specifier,
-                                ring,
-                                graph);
+  final_size = BuildCyclic( ring_components,aromaticity,
+                            pseudo_locants,
+                            bridge_locants,
+                            ring_size_specifier,
+                            ring,
+                            graph);
 
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
@@ -3901,9 +3934,10 @@ character_start:
         else 
           d1 = ch; 
         
-        
         on_locant = '\0';
-        pending_numbers = true; 
+    
+        if(!pending_negative_charge)
+          pending_numbers = true; 
         break;
       }
       break;
@@ -5103,7 +5137,7 @@ character_start:
         d1=0;
         d2=0;
         d3=0;
-
+        
         if(negative_index < 0)
           return Fatal(i, "Error: assigning non-numerical value to charge index");
         else if(negative_index != 0){
@@ -5654,7 +5688,7 @@ character_start:
       negative_index += (10*(d1-'0')); 
       negative_index += (1*(d2-'0')); 
     }      
-    else
+    else if(d1)
       negative_index += (1*(d1-'0')); 
   
     d1=0;
