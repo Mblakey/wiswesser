@@ -67,6 +67,9 @@ struct WLNRing;
 struct WLNGraph;
 struct ObjectStack;
 
+#define INT_TO_LOCANT(X) (X+64)
+#define LOCANT_TO_INT(X) (X-64)
+
 // ##############################################################
 
 
@@ -80,23 +83,6 @@ int isNumber(const std::string& str)
     return val;
 }
 
-
-unsigned char static int_to_locant(unsigned int i){
-  return i + 64;
-}
-
-unsigned int static locant_to_int(unsigned char loc){
-  return loc - 64;
-}
-
-
-std::string get_notation(const char *ptr, unsigned int s, unsigned int e)
-{
-  std::string res; 
-  for (unsigned int i = s; i <= e; i++)
-    res.push_back(ptr[i]);
-  return res; 
-}
 
 bool Fatal(unsigned int pos, const char *message)
 { 
@@ -244,7 +230,7 @@ struct WLNRing
 
     for (unsigned int i = 0; i< rsize;i++){
       unsigned int r = i;
-      unsigned char loc_a = int_to_locant(i+1);
+      unsigned char loc_a = INT_TO_LOCANT(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
       if(rsym->ch == 'S' || (rsym->ch == 'N' && rsym->charge < 0)) // for now lets see
         continue;
@@ -260,7 +246,7 @@ struct WLNRing
         
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
             unsigned char loc_b = locants_ch[csym];
-            unsigned int c = locant_to_int(loc_b-1);
+            unsigned int c = LOCANT_TO_INT(loc_b-1);
             adj_matrix[r * rsize + c] = 1; 
             adj_matrix[c * rsize + r] = 1; 
             aromatic_atoms++;
@@ -1748,11 +1734,11 @@ bool set_up_broken( WLNRing *ring, WLNGraph &graph,
 
     // position here decodes where to link them
     unsigned char parent = '\0';
-    parent = int_to_locant(128 + calculate_origin); // relative positioning
+    parent = INT_TO_LOCANT(128 + calculate_origin); // relative positioning
     
                                                     
     if(pos == 2 || pos == 3)
-      parent = locant_to_int(parent) + 128;
+      parent = LOCANT_TO_INT(parent) + 128;
     else if(pos > 3)
       return false;
     
@@ -1838,10 +1824,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
     local_size+= - broken_locants.size(); // shouldnt be possible, lets see.
     if(OPT_DEBUG)
-      fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
+      fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
   }
   else
-    local_size = locant_to_int(size_designator);
+    local_size = LOCANT_TO_INT(size_designator);
   
   if(OPT_DEBUG)
     fputc('\n',stderr); 
@@ -1856,7 +1842,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   WLNSymbol *prev = 0; 
 
   for (unsigned int i=0;i<local_size;i++){
-    unsigned char loc = int_to_locant(i+1);
+    unsigned char loc = INT_TO_LOCANT(i+1);
     
     // default ring chain connections
     if(i == 0 || i == local_size-1)
@@ -1908,7 +1894,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
   // calculate bindings and then traversals round the loops
   unsigned int pseudo_pairs = pseudo_locants.size()/2;
-  unsigned char max_locant = int_to_locant(local_size);
+  unsigned char max_locant = INT_TO_LOCANT(local_size);
   
   for (unsigned int i=0;i<ring_assignments.size();i++){
     
@@ -1929,8 +1915,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     if(i==ring_assignments.size()-1 && pseudo_pairs){
       bool caught = false;
       for(unsigned int s = 1; s<=local_size;s++){
-        if(pseudo_lookup[int_to_locant(s)]){
-          unsigned char pbind_2 = int_to_locant(s); 
+        if(pseudo_lookup[INT_TO_LOCANT(s)]){
+          unsigned char pbind_2 = INT_TO_LOCANT(s); 
           unsigned char pbind_1 = pseudo_lookup[pbind_2];
 
           if(OPT_DEBUG)
@@ -1955,8 +1941,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     unsigned char end_char    = 0; 
     unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
 
-    LocantPos *start_locant   = &locant_path[ locant_to_int(start_char-1) ]; 
-    LocantPos *curr_locant    = &locant_path[ locant_to_int(start_char-1) ]; 
+    LocantPos *start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+    LocantPos *curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
     start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
 
     // -1 as one locant is already given in start
@@ -1985,7 +1971,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         path_size++; 
       }
       else {
-        curr_locant = &locant_path[locant_to_int(highest_loc-1)];
+        curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
         curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
         edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
         end_char = highest_loc; 
@@ -1998,7 +1984,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       if(start_locant->allowed_connections > 0){
 #if RARE
         // very rare case where we get the right path a different way to normal
-        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
+        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < INT_TO_LOCANT(local_size))
           ring_path[path_size-1] = ++bind_2;
 #endif
         if(OPT_DEBUG)
@@ -2017,7 +2003,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       else{
         // increase the start char and move the path locant
         start_char++;
-        start_locant = &locant_path[locant_to_int(start_char-1)]; 
+        start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
         
         // the current then moves back by 1
 
@@ -2026,7 +2012,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         else
           end_char--; 
         
-        curr_locant = &locant_path[locant_to_int(end_char-1)]; 
+        curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 
       }
     }
 
@@ -2087,7 +2073,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       else if(allowed_connections[bind_1]){
         // very rare case where we get the right path a different way to normal
         
-        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
+        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < INT_TO_LOCANT(local_size))
           ring_path[path_size-1] = ++bind_2;
         
         if(OPT_DEBUG){
@@ -2113,7 +2099,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       else{
 
         bind_1++; // increase bind_1
-        if(bind_1 > int_to_locant(local_size)+1)
+        if(bind_1 > INT_TO_LOCANT(local_size)+1)
            break;
 
         bool found = false;
@@ -2142,7 +2128,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 
 unsigned char create_relative_position(unsigned char parent){
   // A = 129
-  unsigned int relative = 128 + locant_to_int(parent);
+  unsigned int relative = 128 + LOCANT_TO_INT(parent);
   if(relative > 252){
 #if ERRORS == 1
     fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
@@ -2165,7 +2151,7 @@ bool post_unsaturate(std::vector<LocantPair> &bonds,
     unsigned char loc_1 = bond_pair.first;
     unsigned char loc_2 = bond_pair.second;
 
-    if(loc_2 > int_to_locant(final_size)){
+    if(loc_2 > INT_TO_LOCANT(final_size)){
       loc_1 = 'A';
       loc_2--;
     }
@@ -2195,7 +2181,7 @@ bool post_saturate( std::vector<LocantPair> &bonds,
     unsigned char loc_1 = bond_pair.first;
     unsigned char loc_2 = bond_pair.second;
 
-    if(loc_2 > int_to_locant(final_size)){
+    if(loc_2 > INT_TO_LOCANT(final_size)){
       loc_1 = 'A';
       loc_2--;
     }
@@ -3147,7 +3133,7 @@ character_start_ring:
       fprintf(stderr,"\n");
     }
 
-    fprintf(stderr,"  multi size: %c(%d)\n",ring_size_specifier ,ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
+    fprintf(stderr,"  multi size: %c(%d)\n",ring_size_specifier ,ring_size_specifier ? LOCANT_TO_INT(ring_size_specifier) : 0);
     fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
   }
   
@@ -3545,8 +3531,8 @@ bool WLNKekulize(WLNGraph &graph){
       
       for(unsigned int i = 0; i<wring->rsize;i++){
         if(MatchR[i] > 0){
-          unsigned char floc = int_to_locant(i+1);
-          unsigned char sloc = int_to_locant(MatchR[i]+1);
+          unsigned char floc = INT_TO_LOCANT(i+1);
+          unsigned char sloc = INT_TO_LOCANT(MatchR[i]+1);
           
           WLNSymbol *f = wring->locants[floc];
           WLNSymbol *s = wring->locants[sloc];
@@ -4800,8 +4786,6 @@ character_start:
           block_end = i;
           
           ring = AllocateWLNRing(graph);
-          std::string r_notation = get_notation(wln_ptr,block_start,block_end);
-
           if(pending_spiro){
             
             if(!prev)
