@@ -1936,6 +1936,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
               if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
                 // start locant is now the branch
                 // end locant moves back 1, or until it satisfies the edges
+                start_locant->allowed_connections--; 
                 start_char = ring->locants_ch[bchild]; 
                 start_locant = &branch_locants[bs];
                 start_locant->active = true; 
