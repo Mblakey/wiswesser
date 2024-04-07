@@ -1705,10 +1705,34 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
    /  \      /     \
   B-- B--&  B-&-   B-&&
 
- 128 + (O * 6) = 'A' node, 128 = A-, 129 = A--, 130 = A--&, 131 = A-&, 132 = A-&-, 133 = A-&&
- 128 + (1 * 6) = 'B' node, 134 = B-, 135 = B--, 136 = B--&, 137 = B-&, 138 = B-&-, 139 = B-&&
+ 128 + (O * 6) = 'A' node, 128 = A-, 129 = A-&, 130 = A--, 131 = A--&, 132 = A-&-, 133 = A-&&
+ 128 + (1 * 6) = 'B' node, 134 = B-, 135 = B-&, 136 = B--, 137 = B--&, 138 = B-&-, 139 = B-&&
  128 + (2 * 6) = 'C' node, 140... 
+*/
+unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size, LocantPos*branch_locants){
+  unsigned int b_locant = 0; 
+  for (unsigned int i=0;i<local_size;i++){
 
+    for(unsigned int b=0;b<BROKEN_TREE_LIMIT;b++){
+      if(ring->locants[b+128 + (i * BROKEN_TREE_LIMIT)]){
+        branch_locants[b_locant].locant = ring->locants[b+ 128 + (i * BROKEN_TREE_LIMIT)]; 
+        branch_locants[b_locant].active = 0; 
+        branch_locants[b_locant].allowed_connections = 3; 
+        b_locant++;
+
+        if(b_locant == 32){
+          fprintf(stderr,"Error: branching locant exceed 32, is this even possible?\n");
+          return 0; 
+        }
+      }
+    }
+  }
+
+  return b_locant; 
+}
+
+
+/*
  Some rules for solving ring systems in WLN. 
 
  1) From a given locant, the path walks sequentially forward to the next position 
@@ -1776,9 +1800,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
   
   // just use the contructors with new
   
-  unsigned int b_locant = 0; 
   LocantPos *locant_path = new LocantPos[local_size];  
   LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
+  unsigned int b_locant = OffPathLocants(ring,local_size, branch_locants); 
+
 
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
@@ -1786,20 +1811,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
   for (unsigned int i=0;i<local_size;i++){
     unsigned char loc = INT_TO_LOCANT(i+1);
   
-    // check here if any branching locants need to be added in
-    if(ring->locants[128 + (i * BROKEN_TREE_LIMIT)] ){
-      // this the first dash element e.g E-
-      
-      // set the first E- 
-      branch_locants[b_locant].locant = ring->locants[128 + (i * BROKEN_TREE_LIMIT)]; 
-      branch_locants[b_locant].active = 0; 
-      branch_locants[b_locant].allowed_connections = 3; 
-      if(bridge_locants[128 + (i * BROKEN_TREE_LIMIT)])
-        branch_locants[b_locant].allowed_connections--; // decrement any bridging positions
-      
-      b_locant++;
-    }
-
     // default ring chain connections
     if(i == 0 || i == local_size-1)
       locant_path[i].allowed_connections = 2; 
@@ -1813,18 +1824,18 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
 
       curr->allowed_edges = 4;
       assign_locant(loc,curr,ring);
-      locant_path[i].locant = curr; 
     }
-    else{
+    else
       curr = ring->locants[loc];
-      locant_path[i].locant = curr; 
-      if(curr->ch == 'X')
-        locant_path[i].allowed_connections++;
-      else if(curr->ch == '*')
-        locant_path[i].allowed_connections = 6;
 
+    locant_path[i].locant = curr; 
+    
+    if(curr->ch == 'X'){
+      locant_path[i].allowed_connections++;
     }
-
+    else if(curr->ch == '*')
+      locant_path[i].allowed_connections = 6;
+    
     if(bridge_locants[loc])
       locant_path[i].allowed_connections--; // decrement any bridging positions
       
@@ -1871,11 +1882,13 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
 
     start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
     
+    fprintf(stderr,"starting on %d(%c)\n",start_char,start_char); 
+
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
       unsigned char highest_loc = 0; // highest of each child iteration 
-      bool potential_jump = 0; 
+      unsigned int  broken_position = 0; 
       // walk the ring
       for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
         WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
@@ -1886,22 +1899,15 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
             edge_taken = &curr_locant->locant->bond_array[ei]; 
           }
         }
-        // broken locants, this could set highest locant, if it has been spawned in before!
-        else if(child_loc >= 128){
+        else if(child_loc >= 128){ 
+          // broken locant sections, where the hierachy of broken locants is ascending order  
           for(unsigned int bs=0;bs<b_locant;bs++){
             if(branch_locants[bs].locant == child && branch_locants[bs].active){
-              potential_jump = branch_locants[bs].active; 
-              curr_locant = &branch_locants[bs];
               highest_loc = child_loc;
-              break;
+              edge_taken = &curr_locant->locant->bond_array[ei]; 
+              broken_position = bs; 
+              break; 
             }
-          }
-          if(potential_jump){
-            edge_taken = &curr_locant->locant->bond_array[ei]; 
-            curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
-            end_char = highest_loc; 
-            path_size++; 
-            break; 
           }
         }
       }
@@ -1916,8 +1922,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
         over_shoot++;
         path_size++; 
       }
-      else if(!potential_jump) {
-        curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
+      else {
+        if(highest_loc < 128)
+          curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
+        else
+         curr_locant = &branch_locants[broken_position]; 
+
         curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
         edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
         end_char = highest_loc; 
@@ -1931,7 +1941,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
      
         for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
           WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+          
           if(ring->locants_ch[bchild] > 128){
+
             for(unsigned int bs=0;bs<b_locant;bs++){
               if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
                 // start locant is now the branch
@@ -1947,8 +1959,16 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
           }
         }
 
-        if(OPT_DEBUG)
-          fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
+        if(OPT_DEBUG){
+          if(start_char >= 128 && end_char <= 128)
+            fprintf(stderr,"  fusing (%d): %d --> %c\n",comp_size,start_char,end_char);
+          else if(start_char <= 128 && end_char >= 128)
+            fprintf(stderr,"  fusing (%d): %c --> %d\n",comp_size,start_char,end_char);
+          else if(start_char >= 128 && end_char >= 128)
+            fprintf(stderr,"  fusing (%d): %d --> %d\n",comp_size,start_char,end_char);
+          else
+            fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
+        }
 
         WLNEdge *new_edge = AddEdge(curr_locant->locant,start_locant->locant);  
         if(!new_edge){
@@ -1966,7 +1986,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
         start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
         
         // the current then moves back by 1
-
         if(over_shoot)
           over_shoot--;
         else
@@ -2031,9 +2050,8 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   unsigned int  expected_locants      = 0;
   unsigned char ring_size_specifier   = '\0';
   
-  bool locant_attached                = false;  // more sensible way of modifying the locants 
+  unsigned char locant_attached       = 0;  // more sensible way of modifying the locants 
   unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
-  unsigned char branching_locant      =  0;    //  bond back any off alterations of the path
 
   std::vector<bool> aromaticity; 
 
@@ -2100,7 +2118,7 @@ character_start_ring:
         }
 
         positional_locant = '\0'; // hard resets on spaces
-        locant_attached = false;
+        locant_attached = 0;
         break;
 
 
@@ -2117,9 +2135,24 @@ character_start_ring:
         }
         else if(positional_locant && locant_attached){
           
-          // move right
-          if(positional_locant > 128)
-            positional_locant+=2;
+          if(positional_locant > 128){
+            
+            if ( positional_locant ==  (LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128){
+            // base case  E-&
+              positional_locant++; // 1 movement
+              
+              if(!ring->locants[positional_locant]){ 
+                locant_a = AllocateWLNSymbol('C', graph);
+                locant_a->allowed_edges = 4;
+                assign_locant(positional_locant, locant_a, ring); 
+              }
+              else
+                locant_a = ring->locants[positional_locant]; 
+              
+              if(!AddEdge(locant_a,ring->locants[locant_attached]))
+                return Fatal(i,"Error: failure on attaching off path locant"); 
+            }
+          }
           else
             positional_locant += AMPERSAND_EXPAND;
         }
@@ -2214,7 +2247,7 @@ character_start_ring:
             
             ring_components.push_back({big_ring,positional_locant}); //big ring
             positional_locant = 'A';
-            locant_attached = false;
+            locant_attached = 0;
           }
           else if (mode == 2){
             if(str_buffer.size() == 1){
@@ -2235,7 +2268,7 @@ character_start_ring:
                   positional_locant++;
 
                 positional_locant++;
-                locant_attached = false;
+                locant_attached = 0;
               }
               else {
                 ch = str_buffer[0];
@@ -2265,7 +2298,7 @@ character_start_ring:
               else
                 positional_locant++;
               
-              locant_attached = false;
+              locant_attached = 0;
             }
           }
 
@@ -2325,7 +2358,7 @@ character_start_ring:
 
               ring_components.push_back({big_ring,positional_locant}); //big ring
               positional_locant = 'A';
-              locant_attached = false;
+              locant_attached = 0;
               i+= 3; 
             }
             else if (wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z' && wln_block[i+2] >= 'A' && wln_block[i+2] <= 'Z'){
@@ -2350,7 +2383,7 @@ character_start_ring:
               else
                 positional_locant++;
               
-              locant_attached = false;
+              locant_attached = 0;
               i+= 3; 
             }
             else{
@@ -2380,7 +2413,7 @@ character_start_ring:
                 positional_locant++;
 
               positional_locant++;
-              locant_attached = false;
+              locant_attached = 0;
               i+= 2; 
             } 
             else{
@@ -2438,7 +2471,7 @@ character_start_ring:
           ring->position_offset[zero_carbon] = i; 
           zero_carbon->charge--; 
         }
-        locant_attached = false;
+        locant_attached = 0;
         break;
 
       case '1':
@@ -2471,7 +2504,7 @@ character_start_ring:
 
           ring_components.push_back({ch-'0',positional_locant});
           positional_locant = 'A';
-          locant_attached = false;
+          locant_attached = 0;
         }
         break;
 
@@ -2497,7 +2530,7 @@ character_start_ring:
           
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2507,7 +2540,7 @@ character_start_ring:
         }
         else if(i>0 && wln_block[i-1] == ' '){
           positional_locant = ch;
-          locant_attached = true;
+          locant_attached = ch;
         }
         break;
 
@@ -2545,7 +2578,7 @@ character_start_ring:
             Fatal(i,"Error: unhandled locant rule");
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2555,7 +2588,7 @@ character_start_ring:
         }
         else if (spiro_atom && positional_locant == spiro_atom){
           positional_locant++;
-          locant_attached = false;
+          locant_attached = 0;
         }
         else if (positional_locant){
           
@@ -2576,6 +2609,7 @@ character_start_ring:
               else 
                 locant_a = ring->locants[positional_locant]; 
 
+              locant_a->ch = ch; 
               locant_a->str_position = (i+1); 
               locant_a->charge = pending_charge; 
               ring->position_offset[locant_a] = i; 
@@ -2601,7 +2635,8 @@ character_start_ring:
               }
               else 
                 locant_a = ring->locants[positional_locant]; 
-
+              
+              locant_a->ch = ch; 
               locant_a->str_position = (i+1); 
               locant_a->charge = pending_charge; 
               ring->position_offset[locant_a] = i; 
@@ -2623,6 +2658,7 @@ character_start_ring:
               else 
                 locant_a = ring->locants[positional_locant]; 
 
+              locant_a->ch = ch; 
               locant_a->str_position = (i+1); 
               locant_a->charge = pending_charge; 
               ring->position_offset[locant_a] = i; 
@@ -2647,6 +2683,7 @@ character_start_ring:
               else 
                 locant_a = ring->locants[positional_locant]; 
 
+              locant_a->ch = ch; 
               locant_a->str_position = (i+1); 
               locant_a->charge = pending_charge; 
               ring->position_offset[locant_a] = i; 
@@ -2668,6 +2705,7 @@ character_start_ring:
               else 
                 locant_a = ring->locants[positional_locant]; 
 
+              locant_a->ch = ch; 
               locant_a->str_position = (i+1); 
               locant_a->charge = pending_charge; 
               ring->position_offset[locant_a] = i; 
@@ -2691,6 +2729,7 @@ character_start_ring:
               else 
                 locant_a = ring->locants[positional_locant]; 
 
+              locant_a->ch = ch; 
               locant_a->str_position = (i+1); 
               locant_a->charge = pending_charge; 
               ring->position_offset[locant_a] = i; 
@@ -2812,14 +2851,14 @@ character_start_ring:
               return Fatal(i,"Error: invalid character in atom assignment within ring notation");
           }
 
-          locant_attached = false; // locant is no longer primary
+          locant_attached = 0; // locant is no longer primary
         }
         else if(i>0 && wln_block[i-1] == ' '){
           if(ring_size_specifier && ch > ring_size_specifier)
             return Fatal(i, "Error: specifying locants outside of allowed range"); 
 
           positional_locant = ch;
-          locant_attached = true;
+          locant_attached = ch;
         }
         break;
 
@@ -2844,7 +2883,7 @@ character_start_ring:
           
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2858,7 +2897,7 @@ character_start_ring:
               return Fatal(i, "Error: specifying locants outside of allowed range"); 
             
             positional_locant = ch;
-            locant_attached = true;
+            locant_attached = ch;
           }
           else
             return Fatal(i,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
@@ -2889,7 +2928,7 @@ character_start_ring:
           
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2912,7 +2951,7 @@ character_start_ring:
               return Fatal(i, "Error: specifying locants outside of allowed range"); 
             
             positional_locant = ch;
-            locant_attached = true;
+            locant_attached = ch;
           }
           else{
             // this must be an aromatic state right?
@@ -2958,7 +2997,7 @@ character_start_ring:
             return Fatal(i,"Error: unhandled locant rule");
         
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2976,7 +3015,7 @@ character_start_ring:
         else{
           if(i>0 && wln_block[i-1] == ' '){
             positional_locant = ch;
-            locant_attached = true;
+            locant_attached = ch;
           }
           else
             return Fatal(i,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
