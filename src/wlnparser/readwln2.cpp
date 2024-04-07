@@ -2212,8 +2212,7 @@ bool post_saturate( std::vector<LocantPair> &bonds,
 
 
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
-bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph &graph,unsigned char spiro_atom='\0'){
-  ring->str_notation = block;
+bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned int len,WLNGraph &graph,unsigned char spiro_atom='\0'){
 
   bool warned             = false;  // limit warning messages to console
   bool heterocyclic       = false;  // L|T designator can throw warnings
@@ -2247,11 +2246,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
   // broken locants start at A = 129 for extended ascii 
   // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
 
-  unsigned int i = 0;    
-  unsigned int len = block.size();
-  unsigned char ch = block[i];
-
+  unsigned char ch = wln_block[i];
   while(i < len){
+    fprintf(stderr,"parsing: %c\n",ch); 
+
+
 character_start_ring:
     if(state_multi == 3 && ch != '-' && ch != '&'){
       state_multi = 0; 
@@ -2264,7 +2263,7 @@ character_start_ring:
           broken_locants.insert(positional_locant);
 
         if(expected_locants)
-          return Fatal(i+start,"Error: not enough locants before space character");
+          return Fatal(i,"Error: not enough locants before space character");
         
         else if(state_multi == 1)
           state_multi = 2;
@@ -2272,7 +2271,7 @@ character_start_ring:
           state_pseudo = 0;
         else if(positional_locant && locant_attached){
           if(ring_components.empty())
-            return Fatal(start+i,"Error: assigning bridge locants without a ring");
+            return Fatal(i,"Error: assigning bridge locants without a ring");
           else
             bridge_locants[positional_locant] = true;
         }
@@ -2450,7 +2449,7 @@ character_start_ring:
 
       case '/':
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
              
         expected_locants = 2; 
         state_pseudo = 1;
@@ -2490,32 +2489,32 @@ character_start_ring:
           // two things to do in the lookahead here, determine whether branching or non-branching, 
           // and then access the branching tree
           
-          if( i + 3 < len && block[i+3] == '-'){
+          if( i + 3 < len && wln_block[i+3] == '-'){
              
-            if(block[i+1] >= '0' && block[i+1] <= '9' && block[i+2] >= '0' && block[i+2] <= '9'){
-              unsigned int big_ring = ( (block[i+1]-'0') * 10) + block[i+2]-'0';
+            if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
+              unsigned int big_ring = ( (wln_block[i+1]-'0') * 10) + wln_block[i+2]-'0';
               if(!big_ring)
-                return Fatal(start+i,"Error: non numeric value entered as ring size");
+                return Fatal(i,"Error: non numeric value entered as ring size");
 
               ring_components.push_back({big_ring,positional_locant}); //big ring
               positional_locant = 'A';
               locant_attached = false;
               i+= 3; 
             }
-            else if (block[i+1] >= 'A' && block[i+1] <= 'Z' && block[i+2] >= 'A' && block[i+2] <= 'Z'){
+            else if (wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z' && wln_block[i+2] >= 'A' && wln_block[i+2] <= 'Z'){
               
               if(positional_locant != spiro_atom){
 
                 // must be a special element 
-                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(block[i+1],block[i+2],graph),ring);  // elemental definition
+                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(wln_block[i+1],wln_block[i+2],graph),ring);  // elemental definition
                 if(!new_locant)
-                  return Fatal(i+start, "Error: could not create periodic code element");
+                  return Fatal(i, "Error: could not create periodic code element");
 
-                new_locant->str_position = start+i + 2; // attaches directly to the starting letter
+                new_locant->str_position = i + 2; // attaches directly to the starting letter
                 ring->position_offset[new_locant] = i+1;
       
                 if(OPT_DEBUG)
-                  fprintf(stderr,"  assigning element %c%c to position %c\n",block[i+1],block[i+2],positional_locant);
+                  fprintf(stderr,"  assigning element %c%c to position %c\n",wln_block[i+1],wln_block[i+2],positional_locant);
                 
                 positional_locant++;
               }
@@ -2526,17 +2525,17 @@ character_start_ring:
               i+= 3; 
             }
           }
-          else if (i+2 < len && block[i+2] == '-'){
+          else if (i+2 < len && wln_block[i+2] == '-'){
             if(positional_locant != spiro_atom){
               WLNSymbol* new_locant = assign_locant(positional_locant,
-                                                    define_hypervalent_element(block[i+1],graph),ring);
+                                                    define_hypervalent_element(wln_block[i+1],graph),ring);
               if(!new_locant)
-                return Fatal(i+start, "Error: could not create hypervalent element");
+                return Fatal(i, "Error: could not create hypervalent element");
               
-              new_locant->str_position = start+i+1+1;
+              new_locant->str_position = i+1+1;
               ring->position_offset[new_locant] = i+1;
               if(OPT_DEBUG)
-                fprintf(stderr,"  assigning hypervalent %c to position %c\n",block[i+1],positional_locant);
+                fprintf(stderr,"  assigning hypervalent %c to position %c\n",wln_block[i+1],positional_locant);
             }
             else 
               positional_locant++;
@@ -2564,7 +2563,7 @@ character_start_ring:
           WLNSymbol *zero_carbon = AllocateWLNSymbol('C',graph);
           zero_carbon->allowed_edges = 3; 
           zero_carbon = assign_locant(positional_locant++,zero_carbon,ring);
-          zero_carbon->str_position = (start+i+1);
+          zero_carbon->str_position = i+1;
           ring->position_offset[zero_carbon] = i; 
           zero_carbon->charge--; 
         }
@@ -2584,9 +2583,9 @@ character_start_ring:
           broken_locants.insert(positional_locant);
 
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
-        if (i > 1 && block[i-1] == ' '){
+        if (i > 1 && wln_block[i-1] == ' '){
 #if MODERN
           state_multi = 2;
 #else
@@ -2610,7 +2609,7 @@ character_start_ring:
         }
 
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
 
         if(expected_locants){
@@ -2619,7 +2618,7 @@ character_start_ring:
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
           
 
           positional_locant = ch; // use for look back
@@ -2631,7 +2630,7 @@ character_start_ring:
           ring_size_specifier = ch;
           state_multi = 3;
         }
-        else if(i>0 && block[i-1] == ' '){
+        else if(i>0 && wln_block[i-1] == ' '){
           positional_locant = ch;
           locant_attached = true;
         }
@@ -2664,7 +2663,7 @@ character_start_ring:
           broken_locants.insert(positional_locant);
 
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
         if(expected_locants){
           if(state_multi)
@@ -2672,7 +2671,7 @@ character_start_ring:
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            Fatal(start+i,"Error: unhandled locant rule");
+            Fatal(i,"Error: unhandled locant rule");
 
           positional_locant = ch; // use for look back
           locant_attached = true;
@@ -2702,7 +2701,7 @@ character_start_ring:
 
               new_locant = AllocateWLNSymbol(ch,graph);
               new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->str_position = (start+i+1); 
+              new_locant->str_position = (i+1); 
               ring->position_offset[new_locant] = i; 
               
               new_locant->charge = pending_charge; 
@@ -2726,7 +2725,7 @@ character_start_ring:
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 4;
               new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
+              new_locant->str_position = (i+1); 
               
               new_locant->charge = pending_charge; 
               pending_charge = 0; 
@@ -2742,7 +2741,7 @@ character_start_ring:
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
+              new_locant->str_position = (i+1); 
               
               new_locant->charge = pending_charge; 
               pending_charge = 0; 
@@ -2760,7 +2759,7 @@ character_start_ring:
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 3;
               new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
+              new_locant->str_position = (i+1); 
               
               new_locant->charge = pending_charge; 
               pending_charge = 0; 
@@ -2773,7 +2772,7 @@ character_start_ring:
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 2;
               new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1);
+              new_locant->str_position = (i+1);
               new_locant->explicit_H = 1; 
               
               new_locant->charge = pending_charge; 
@@ -2791,7 +2790,7 @@ character_start_ring:
               new_locant = assign_locant(positional_locant++,new_locant,ring);
               new_locant->allowed_edges = 2;
               new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
+              new_locant->str_position = (i+1); 
               
               new_locant->charge = pending_charge; 
               pending_charge = 0; 
@@ -2802,12 +2801,12 @@ character_start_ring:
         
             case 'U':{
               // no need to put this in implied, it has to be specified
-              if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
+              if(i < len - 3 && wln_block[i+1] == '-' && wln_block[i+2] == ' '){
                 
                 // can double bond to a amped locant
                 unsigned int k = 1;
-                unsigned char dloc = block[i+3]; 
-                while(block[k+i+3] == '&'){
+                unsigned char dloc = wln_block[i+3]; 
+                while(wln_block[k+i+3] == '&'){
                   dloc+=AMPERSAND_EXPAND;
                   k++;
                 } 
@@ -2820,7 +2819,7 @@ character_start_ring:
                 unsaturations.push_back(loc_pair);
               }
 
-              if(i < len && block[i+1] != 'U')
+              if(i < len && wln_block[i+1] != 'U')
                 positional_locant++;
               break;
             }
@@ -2874,7 +2873,7 @@ character_start_ring:
                 new_locant = assign_locant(positional_locant,new_locant,ring);
                 new_locant->allowed_edges = 2;
                 new_locant->inRing = ring;
-                new_locant->str_position = (start+i+1); 
+                new_locant->str_position = (i+1); 
                 ring->position_offset[new_locant] = i; 
               }
               else
@@ -2888,11 +2887,11 @@ character_start_ring:
               dioxo->inRing = ring;
               ring->position_offset[dioxo] = i; 
               if(!AddEdge(dioxo, new_locant))
-                return Fatal(start+i,"Error: failed to create bond");
+                return Fatal(i,"Error: failed to create bond");
 
               WLNEdge *e = &new_locant->bond_array[new_locant->barr_n-1];  
               if(!unsaturate_edge(e,2))
-                return Fatal(start+i,"Error: failed to unsaturate edge");
+                return Fatal(i,"Error: failed to unsaturate edge");
               
               break;
             }
@@ -2906,14 +2905,14 @@ character_start_ring:
 
 
             default:
-              return Fatal(start+i,"Error: invalid character in atom assignment within ring notation");
+              return Fatal(i,"Error: invalid character in atom assignment within ring notation");
           }
 
           locant_attached = false; // locant is no longer primary
         }
-        else if(i>0 && block[i-1] == ' '){
+        else if(i>0 && wln_block[i-1] == ' '){
           if(ring_size_specifier && ch > ring_size_specifier)
-            return Fatal(start+i, "Error: specifying locants outside of allowed range"); 
+            return Fatal(i, "Error: specifying locants outside of allowed range"); 
 
           positional_locant = ch;
           locant_attached = true;
@@ -2925,7 +2924,7 @@ character_start_ring:
           broken_locants.insert(positional_locant);
 
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
 
         if(i==0){
@@ -2939,7 +2938,7 @@ character_start_ring:
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
           
 
           positional_locant = ch; // use for look back
@@ -2952,15 +2951,15 @@ character_start_ring:
           state_multi = 3;
         }
         else{
-          if(i>0 && block[i-1] == ' '){
+          if(i>0 && wln_block[i-1] == ' '){
             if(ring_size_specifier && ch > ring_size_specifier)
-              return Fatal(start+i, "Error: specifying locants outside of allowed range"); 
+              return Fatal(i, "Error: specifying locants outside of allowed range"); 
             
             positional_locant = ch;
             locant_attached = true;
           }
           else
-            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
+            return Fatal(i,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
           
         }
       
@@ -2987,7 +2986,7 @@ character_start_ring:
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
           
 
           positional_locant = ch; // use for look back
@@ -3001,7 +3000,7 @@ character_start_ring:
         }
         else if(positional_locant && locant_attached){
           if(ring_components.empty())
-            return Fatal(start+i,"Error: assigning bridge locants without a ring");
+            return Fatal(i,"Error: assigning bridge locants without a ring");
           else
             bridge_locants[positional_locant] = true;
 
@@ -3009,9 +3008,9 @@ character_start_ring:
           aromaticity.push_back(0);
         }
         else{
-          if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
+          if(i>0 && wln_block[i-1] == ' ' && wln_block[i+1] != 'J'){
             if(ring_size_specifier && ch > ring_size_specifier)
-              return Fatal(start+i, "Error: specifying locants outside of allowed range"); 
+              return Fatal(i, "Error: specifying locants outside of allowed range"); 
             
             positional_locant = ch;
             locant_attached = true;
@@ -3033,10 +3032,10 @@ character_start_ring:
         if(state_aromatics)
           state_aromatics = 0;
         
-        if (i == block.size()-1){
+        if (i == len-1){
           
           if(ring_components.empty())
-            return Fatal(start+i,"Error: error in reading ring components, check numerals in ring notation");
+            return Fatal(i,"Error: error in reading ring components, check numerals in ring notation");
           
 
           if (aromaticity.size() == 1 && aromaticity[0] == false){
@@ -3050,7 +3049,7 @@ character_start_ring:
 
           // perform the aromatic denotion check
           if (ring_components.size() != aromaticity.size())
-            return Fatal(i+start,"Error: mismatch between number of rings and aromatic assignments");
+            return Fatal(i,"Error: mismatch between number of rings and aromatic assignments");
           
           break;
         }
@@ -3061,7 +3060,7 @@ character_start_ring:
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
         
           positional_locant = ch; // use for look back
           locant_attached = true;
@@ -3074,18 +3073,18 @@ character_start_ring:
         }
         else if(positional_locant && locant_attached){
           if(ring_components.empty())
-            return Fatal(start+i,"Error: assigning bridge locants without a ring");
+            return Fatal(i,"Error: assigning bridge locants without a ring");
           
           else
             bridge_locants[positional_locant] = true;
         }
         else{
-          if(i>0 && block[i-1] == ' '){
+          if(i>0 && wln_block[i-1] == ' '){
             positional_locant = ch;
             locant_attached = true;
           }
           else
-            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
+            return Fatal(i,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
         }
         break;
 
@@ -3093,7 +3092,7 @@ character_start_ring:
         break;
     }
     
-    ch = block[++i];
+    ch = wln_block[++i];
   }
 
   if(OPT_DEBUG && warned)
@@ -3176,10 +3175,10 @@ character_start_ring:
     } 
 
   if (!final_size)
-    return Fatal(start+i, "Error: failed to build WLN cycle unit");
+    return Fatal(i, "Error: failed to build WLN cycle unit");
   
   if(!post_unsaturate(unsaturations,final_size,ring) || !post_saturate(saturations,final_size,ring))
-    return Fatal(start+i, "Error: failed on post ring bond (un)/saturation");
+    return Fatal(i, "Error: failed on post ring bond (un)/saturation");
   
   return true;
 }
@@ -4841,11 +4840,12 @@ character_start:
                 return Fatal(i, "Error: failed to re-aromatise previous ring");
             }
             
-            if(!FormWLNRing(ring,r_notation,block_start,graph,on_locant))
+            // +1 gets the J included
+            if(!FormWLNRing(ring,wln_ptr,block_start,i+1,graph,on_locant))
               return false;
           }
           else{
-            if(!FormWLNRing(ring,r_notation,block_start,graph))
+            if(!FormWLNRing(ring,wln_ptr,block_start,i+1,graph))
               return false;
           }
           
@@ -4970,8 +4970,8 @@ character_start:
         on_locant = '\0';
         ring = AllocateWLNRing(graph);
 
-        std::string r_notation = "L6J";
-        FormWLNRing(ring,r_notation,i,graph);
+        const char* benzyl = "L6J";
+        FormWLNRing(ring,benzyl,0,3,graph);
         branch_stack.push({ring,0});
 
         curr = ring->locants['A'];
