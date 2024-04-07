@@ -1436,8 +1436,9 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
                           WLNEdge Functions
 **********************************************************************/
 
-/* adds an edge between two symbols, arrays should be held by each symbol */
-bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
+/* adds an edge between two symbols, arrays should be held by each symbol
+ * symbols are malloced so address is stable */
+WLNEdge* AddEdge(WLNSymbol *child, WLNSymbol *parent)
 {
   if(!child || !parent || child == parent){
     fprintf(stderr,"Error: binding invalid nodes\n"); 
@@ -1447,7 +1448,7 @@ bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
   // dont make the same bond twice
   for(unsigned int i=0;i<parent->barr_n;i++)
     if(parent->bond_array[i].child == child)
-      return true; 
+      return &parent->bond_array[i]; 
 
   
   if(parent->barr_n >= MAX_EDGES){
@@ -1484,7 +1485,7 @@ bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
   forward->reverse = backward;
   backward->reverse = forward; 
   
-  return true;
+  return forward;
 }
 
 
@@ -1608,10 +1609,9 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   if(!saturate_edge(edge,1))
     return false;
 
-  if(!AddEdge(oxygen, binded_symbol))
+  WLNEdge *sedge = AddEdge(oxygen, binded_symbol); 
+  if(!sedge)
     return false;
-
-  WLNEdge *sedge = &binded_symbol->bond_array[binded_symbol->barr_n-1]; 
   
   if(binded_symbol->num_edges < binded_symbol->allowed_edges)
     if(!unsaturate_edge(sedge,1))
@@ -1989,12 +1989,12 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         if(OPT_DEBUG)
           fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
 
-        if(!AddEdge(curr_locant->locant,start_locant->locant)){
+        WLNEdge *new_edge = AddEdge(curr_locant->locant,start_locant->locant);  
+        if(!new_edge){
           fprintf(stderr,"Error: failed to bond locant path edge\n");    
           return false;
         }
-        
-        WLNEdge *new_edge = &start_locant->locant->bond_array[start_locant->locant->barr_n-1];
+
         new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
         start_locant->allowed_connections--; 
         break;
@@ -2232,8 +2232,7 @@ character_start_ring:
       else 
         locant_b = ring->locants[positional_locant]; 
       
-      AddEdge(locant_b, locant_a); // graph flows smaller to larger
-      edge = &locant_a->bond_array[locant_a->barr_n-1]; 
+      edge = AddEdge(locant_b, locant_a); // graph flows smaller to larger
       
       if(!unsaturate_edge(edge, 1))
         return false;
@@ -2842,8 +2841,7 @@ character_start_ring:
                 else 
                   locant_b = ring->locants[positional_locant+1]; 
                 
-                AddEdge(locant_b, locant_a); // graph flows smaller to larger
-                edge = &locant_a->bond_array[locant_a->barr_n-1]; 
+                edge = AddEdge(locant_b, locant_a); // graph flows smaller to larger
                 
                 if(!unsaturate_edge(edge, 1))
                   return false;
@@ -2923,9 +2921,9 @@ character_start_ring:
               locant_b->allowed_edges = 3;
               locant_b->inRing = ring;
               ring->position_offset[locant_b] = i; 
-              if(!AddEdge(locant_b, locant_a))
+              edge = AddEdge(locant_b, locant_a); 
+              if(!edge)
                 return Fatal(i,"Error: failed to create bond");
-
               edge = &locant_a->bond_array[locant_a->barr_n-1];  
               if(!unsaturate_edge(edge,2))
                 return Fatal(i,"Error: failed to unsaturate edge");
@@ -3368,10 +3366,9 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
         WLNSymbol *oxygen = AllocateWLNSymbol('O',graph);
         oxygen->allowed_edges = 2;
         
-        if(!AddEdge(oxygen, sym))
+        WLNEdge *e = AddEdge(oxygen, sym); 
           return Fatal(len,"Error: failed on post expansion on 'V' symbol");
       
-        WLNEdge *e = &sym->bond_array[sym->barr_n-1]; 
         if(!unsaturate_edge(e,1))
           return Fatal(len,"Error: failed on post expansion on 'V' symbol");
         
@@ -3694,10 +3691,10 @@ character_start:
 
       if(prev){
         
-        if(!AddEdge(curr, prev))
+        edge = AddEdge(curr, prev); 
+        if(!edge)
           return Fatal(i, "Error: failed to bond to previous symbol");
-
-        edge = &prev->bond_array[prev->barr_n-1]; 
+        
         edge->stereo = pending_stereo; 
         pending_stereo = 0; 
 
@@ -3829,10 +3826,10 @@ character_start:
           
           if(prev){
     
-            if(!AddEdge(curr, prev))
+            edge = AddEdge(curr, prev); 
+            if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
             
-            edge = &prev->bond_array[prev->barr_n-1];
             wrap_ring->macro_return = edge; 
             
             edge->stereo = pending_stereo; 
@@ -3901,10 +3898,10 @@ character_start:
         
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge =AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
@@ -3944,10 +3941,10 @@ character_start:
         
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev);
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -3999,10 +3996,10 @@ character_start:
         
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4053,10 +4050,10 @@ character_start:
         
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4108,10 +4105,9 @@ character_start:
         
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4160,10 +4156,10 @@ character_start:
           if(prev->ch == 'N' && prev->allowed_edges == 3)
             prev->allowed_edges++;
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(!unsaturate_edge(edge, 2))
@@ -4227,10 +4223,9 @@ character_start:
           if(prev->ch == 'W' && curr->allowed_edges == 3)
             curr->allowed_edges++;
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4283,10 +4278,9 @@ character_start:
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){ 
@@ -4335,10 +4329,10 @@ character_start:
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4388,10 +4382,9 @@ character_start:
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4446,10 +4439,9 @@ character_start:
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
@@ -4504,10 +4496,9 @@ character_start:
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4562,10 +4553,9 @@ character_start:
           
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4619,10 +4609,9 @@ character_start:
 
         if(prev){
           
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
@@ -4644,10 +4633,9 @@ character_start:
 
         if(prev && i < len - 1){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
           if(inline_unsaturate){
@@ -4899,10 +4887,9 @@ character_start:
           {
             if (ring->locants[on_locant]){
                       
-              if(!AddEdge(ring->locants[on_locant], prev))
+              edge = AddEdge(curr, prev); 
+              if(!edge)
                 return Fatal(i, "Error: failed to bond to previous symbol");
-
-              edge = &prev->bond_array[prev->barr_n-1]; 
               edge->stereo = pending_stereo; 
               pending_stereo = 0; 
 
@@ -5010,10 +4997,9 @@ character_start:
 
         curr = ring->locants['A'];
         if(prev){
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
@@ -5308,14 +5294,14 @@ character_start:
       
         if(prev){
           if(str_buffer.empty() && ring){
-            if(!AddEdge(ring->locants[prev->ch], prev))
+            edge = AddEdge(curr, prev); 
+            if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
-            edge = &prev->bond_array[prev->barr_n-1]; 
           }
           else{
-            if(!AddEdge(curr, prev))
+            edge = AddEdge(curr, prev); 
+            if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
-            edge = &prev->bond_array[prev->barr_n-1]; 
           }
             
           if(!edge)
@@ -5368,10 +5354,9 @@ character_start:
       
         if(prev){  
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0;
 
@@ -5425,11 +5410,7 @@ character_start:
           }
 
           if(prev){
-            if(!AddEdge(curr, prev))
-              return Fatal(i, "Error: failed to bond to previous symbol");
-            edge = &prev->bond_array[prev->barr_n-1];
-
-
+            edge = AddEdge(curr, prev); 
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
             
@@ -5461,9 +5442,7 @@ character_start:
             return Fatal(i, "Error: failed to define hypervalent element");
           
           if(prev){
-            if(!AddEdge(curr, prev))
-              return Fatal(i, "Error: failed to bond to previous symbol");
-            edge = &prev->bond_array[prev->barr_n-1];
+            edge = AddEdge(curr, prev); 
             if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
             
@@ -5608,9 +5587,9 @@ character_start:
     
     if(prev){
 
-      if(!AddEdge(curr, prev))
+      edge = AddEdge(curr, prev); 
+      if(!edge)
         return Fatal(i, "Error: failed to bond to previous symbol");
-      edge = &prev->bond_array[prev->barr_n-1]; 
       edge->stereo = pending_stereo; 
       pending_stereo = 0; 
       
