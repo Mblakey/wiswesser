@@ -279,19 +279,29 @@ struct LocantPos{
 }; 
 
 
+// needed as not to mess up the locant path algorithm
 struct LocantPair{
   unsigned int first; 
   unsigned int second;
   unsigned int stereo; 
+  unsigned int order; 
   LocantPair(){
     first = 0; 
     second = 0;
     stereo = 0;  
+    order = 0;  
   }
 
   LocantPair(unsigned char f, unsigned char s){
     first = f; 
     second = s; 
+  }
+
+  void clear(){
+    first = 0; 
+    second = 0;
+    stereo = 0;  
+    order = 0;  
   }
 };
 
@@ -2165,6 +2175,29 @@ bool post_saturate( std::vector<LocantPair> &bonds,
 }
 
 
+bool post_unsaturate( std::vector<LocantPair> &bonds, 
+                      unsigned int final_size,
+                      WLNRing *ring){
+  // post saturate bonds
+  for (LocantPair bond_pair : bonds){
+    
+    unsigned char loc_1 = bond_pair.first;
+    unsigned char loc_2 = bond_pair.second;
+
+    if(loc_2 > INT_TO_LOCANT(final_size)){
+      loc_1 = 'A';
+      loc_2--;
+    }
+
+    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
+    if(!unsaturate_edge(edge, bond_pair.order))
+      return false; 
+  }
+
+  return true;
+}
+
+
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
 bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned int len,WLNGraph &graph,unsigned char spiro_atom='\0'){
 
@@ -2184,7 +2217,10 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
 
   std::vector<bool> aromaticity; 
+
+  LocantPair pdb; 
   std::vector<LocantPair>  saturations;
+  std::vector<LocantPair>  unsaturations; // these have to be done post, as the locant path will be altered
   
   // make the symbols as we go, or overwrite them
   WLNSymbol *locant_a = 0; 
@@ -2215,33 +2251,10 @@ character_start_ring:
     }
 
     if(inline_unsaturate && positional_locant && (ch != '-' || ch != '&')){
-      
-      if(!ring->locants[inline_unsaturate]){
-        locant_a = AllocateWLNSymbol('C',graph);
-        locant_a->allowed_edges = 4; 
-        assign_locant(inline_unsaturate, locant_a,ring); 
-      }
-      else 
-        locant_a = ring->locants[inline_unsaturate]; 
-      
-      if(!ring->locants[positional_locant]){
-        locant_b = AllocateWLNSymbol('C',graph);
-        locant_b->allowed_edges = 4; 
-        assign_locant(positional_locant, locant_b,ring); 
-      }
-      else 
-        locant_b = ring->locants[positional_locant]; 
-      
-      edge = AddEdge(locant_b, locant_a); // graph flows smaller to larger
-      
-      if(!unsaturate_edge(edge, 1))
-        return false;
-      if(wln_block[i+1] == 'U'){
-        if(!unsaturate_edge(edge, 1))
-          return false;
-        i++; 
-      }
-
+      pdb.second = positional_locant;
+      unsaturations.push_back(pdb);
+      pdb.clear(); 
+    
       inline_unsaturate = 0; 
       positional_locant = 0; 
     }
@@ -2824,33 +2837,17 @@ character_start_ring:
         
             case 'U':
               if(i+1 < len && wln_block[i+1] != '-'){
+                pdb.first = positional_locant; 
+                pdb.second = positional_locant+1; 
+                pdb.order = 1; 
 
-                if(!ring->locants[positional_locant]){
-                  locant_a = AllocateWLNSymbol('C',graph);
-                  locant_a->allowed_edges = 4; 
-                  assign_locant(positional_locant, locant_a,ring); 
-                }
-                else 
-                  locant_a = ring->locants[positional_locant]; 
-                
-                if(!ring->locants[positional_locant+1]){
-                  locant_b = AllocateWLNSymbol('C',graph);
-                  locant_b->allowed_edges = 4; 
-                  assign_locant(positional_locant+1, locant_b,ring); 
-                }
-                else 
-                  locant_b = ring->locants[positional_locant+1]; 
-                
-                edge = AddEdge(locant_b, locant_a); // graph flows smaller to larger
-                
-                if(!unsaturate_edge(edge, 1))
-                  return false;
                 if(wln_block[i+1] == 'U'){
-                  if(!unsaturate_edge(edge, 1))
-                    return false;
+                  pdb.order++; 
                   i++; 
                 }
                 positional_locant++;
+                unsaturations.push_back(pdb); 
+                pdb.clear(); 
               }
               else if (i+1 < len && wln_block[i+1] == '-'){
                 inline_unsaturate = positional_locant; 
@@ -3211,7 +3208,7 @@ character_start_ring:
   if (!final_size)
     return Fatal(i, "Error: failed to build WLN cycle unit");
   
-  if(! post_saturate(saturations,final_size,ring))
+  if(!post_unsaturate(unsaturations, final_size, ring)  || !post_saturate(saturations,final_size,ring))
     return Fatal(i, "Error: failed on post ring bond (un)/saturation");
   
   return true;
