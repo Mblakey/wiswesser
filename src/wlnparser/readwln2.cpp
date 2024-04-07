@@ -2138,37 +2138,6 @@ unsigned char create_relative_position(unsigned char parent){
     return relative;
 }
 
-
-// try to handle if errors are occuring due to path changes
-bool post_unsaturate(std::vector<LocantPair> &bonds, 
-                        unsigned int final_size,
-                        WLNRing *ring){
-
-  // post unsaturate bonds
-  for (LocantPair bond_pair : bonds){
-    
-    unsigned char loc_1 = bond_pair.first;
-    unsigned char loc_2 = bond_pair.second;
-
-    if(loc_2 > INT_TO_LOCANT(final_size)){
-      loc_1 = 'A';
-      loc_2--;
-    }
-
-    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
-    if(!edge)
-      return false;
-    else if(!unsaturate_edge(edge,1))
-      return false;
-
-    edge->aromatic = 0;
-    // edge->child->aromatic = 0;
-    // edge->parent->aromatic = 0;
-  }
-
-  return true;
-}
-
 // try to handle if errors are occuring due to path changes
 bool post_saturate( std::vector<LocantPair> &bonds, 
                     unsigned int final_size,
@@ -2215,7 +2184,6 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
 
   std::vector<bool> aromaticity; 
-  std::vector<LocantPair>  unsaturations;
   std::vector<LocantPair>  saturations;
   
   // make the symbols as we go, or overwrite them
@@ -3245,7 +3213,7 @@ character_start_ring:
   if (!final_size)
     return Fatal(i, "Error: failed to build WLN cycle unit");
   
-  if(!post_unsaturate(unsaturations,final_size,ring) || !post_saturate(saturations,final_size,ring))
+  if(! post_saturate(saturations,final_size,ring))
     return Fatal(i, "Error: failed on post ring bond (un)/saturation");
   
   return true;
