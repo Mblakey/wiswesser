@@ -1456,10 +1456,10 @@ WLNEdge* AddEdge(WLNSymbol *child, WLNSymbol *parent)
   }
   
   // dont make the same bond twice
-  for(unsigned int i=0;i<parent->barr_n;i++)
+  for(unsigned int i=0;i<parent->barr_n;i++){
     if(parent->bond_array[i].child == child)
       return &parent->bond_array[i]; 
-
+  }
   
   if(parent->barr_n >= MAX_EDGES){
     fprintf(stderr,"Error: creating more %d bonds on a singular symbol - is this reasonable?\n",MAX_EDGES);
@@ -2164,8 +2164,10 @@ bool post_bond_handling( std::vector<LocantPair> &bonds,
     }
 
     WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
-    if(!edge)
+    if(!edge){
+      fprintf(stderr,"Error: edge not found for post handling between %c and %c\n",loc_2,loc_2); 
       return false;
+    }
 
     if(!bond_pair.order)
       edge->aromatic = 0;
@@ -2231,6 +2233,7 @@ character_start_ring:
     }
 
     if(inline_unsaturate && positional_locant && (ch != '-' || ch != '&')){
+      pdb.first = inline_unsaturate; 
       pdb.second = positional_locant;
       bond_modifiers.push_back(pdb);
       pdb.clear(); 
@@ -2832,6 +2835,7 @@ character_start_ring:
               else if (i+1 < len && wln_block[i+1] == '-'){
                 inline_unsaturate = positional_locant; 
                 positional_locant = 0; 
+                pdb.order++; 
                 i++; // skip the dash
               }
               break;
@@ -3348,11 +3352,12 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
         WLNSymbol *oxygen = AllocateWLNSymbol('O',graph);
         oxygen->allowed_edges = 2;
         
-        WLNEdge *e = AddEdge(oxygen, sym); 
-          return Fatal(len,"Error: failed on post expansion on 'V' symbol");
+        WLNEdge *e = AddEdge(oxygen, sym);
+        if(!e)
+          return Fatal(len,"Error: failed on post expansion on 'V' symbol - edge creation");
       
         if(!unsaturate_edge(e,1))
-          return Fatal(len,"Error: failed on post expansion on 'V' symbol");
+          return Fatal(len,"Error: failed on post expansion on 'V' symbol - unsaturation");
         
         break;
       }
@@ -3629,10 +3634,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   unsigned char on_locant = '\0';         // locant tracking
   unsigned int locant_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
   
+  // allows consumption of notation after block parses
+  unsigned int block_start = 0;
+  unsigned int block_end = 0;
+
   unsigned int i=0;
   unsigned int len = strlen(wln_ptr);
   unsigned char ch = wln_ptr[i];
-  unsigned int block_start = 0;
   
   while(ch)
   {  
@@ -4800,6 +4808,8 @@ character_start:
         if(locant_skips)
           locant_skips--;
         else if(i>0 && wln_ptr[i-1] != ' '){
+          block_end = i;
+          
           ring = AllocateWLNRing(graph);
           if(pending_spiro){
             
@@ -4855,6 +4865,7 @@ character_start:
 
           branch_stack.push({ring,0});
           block_start = 0;
+          block_end = 0;
 
           // does the incoming locant check
           if(pending_spiro)
