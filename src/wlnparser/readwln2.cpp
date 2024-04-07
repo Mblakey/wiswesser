@@ -2148,34 +2148,8 @@ unsigned char create_relative_position(unsigned char parent){
     return relative;
 }
 
-// try to handle if errors are occuring due to path changes
-bool post_saturate( std::vector<LocantPair> &bonds, 
-                    unsigned int final_size,
-                    WLNRing *ring){
 
-  // post saturate bonds
-  for (LocantPair bond_pair : bonds){
-    
-    unsigned char loc_1 = bond_pair.first;
-    unsigned char loc_2 = bond_pair.second;
-
-    if(loc_2 > INT_TO_LOCANT(final_size)){
-      loc_1 = 'A';
-      loc_2--;
-    }
-
-    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
-    if(!edge)
-      return false;
-    else
-      edge->aromatic = false; // removes from kekulize consideration
-  }
-
-  return true;
-}
-
-
-bool post_unsaturate( std::vector<LocantPair> &bonds, 
+bool post_bond_handling( std::vector<LocantPair> &bonds, 
                       unsigned int final_size,
                       WLNRing *ring){
   // post saturate bonds
@@ -2190,8 +2164,15 @@ bool post_unsaturate( std::vector<LocantPair> &bonds,
     }
 
     WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
-    if(!unsaturate_edge(edge, bond_pair.order))
-      return false; 
+    if(!edge)
+      return false;
+
+    if(!bond_pair.order)
+      edge->aromatic = 0;
+    else{
+      if(!unsaturate_edge(edge, bond_pair.order))
+        return false;
+    }
   }
 
   return true;
@@ -2219,8 +2200,7 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   std::vector<bool> aromaticity; 
 
   LocantPair pdb; 
-  std::vector<LocantPair>  saturations;
-  std::vector<LocantPair>  unsaturations; // these have to be done post, as the locant path will be altered
+  std::vector<LocantPair>  bond_modifiers; // these have to be done post, as the locant path will be altered
   
   // make the symbols as we go, or overwrite them
   WLNSymbol *locant_a = 0; 
@@ -2252,7 +2232,7 @@ character_start_ring:
 
     if(inline_unsaturate && positional_locant && (ch != '-' || ch != '&')){
       pdb.second = positional_locant;
-      unsaturations.push_back(pdb);
+      bond_modifiers.push_back(pdb);
       pdb.clear(); 
     
       inline_unsaturate = 0; 
@@ -2846,7 +2826,7 @@ character_start_ring:
                   i++; 
                 }
                 positional_locant++;
-                unsaturations.push_back(pdb); 
+                bond_modifiers.push_back(pdb); 
                 pdb.clear(); 
               }
               else if (i+1 < len && wln_block[i+1] == '-'){
@@ -2931,7 +2911,12 @@ character_start_ring:
             // has the effect of unaromatising a bond, remove from edge consideration
             case 'H':{
               LocantPair loc_pair(positional_locant,positional_locant+1);  
-              saturations.push_back(loc_pair);
+              pdb.first = positional_locant;
+              pdb.second = positional_locant+1; 
+              pdb.order = 0; // means leave out
+
+              bond_modifiers.push_back(pdb); 
+              pdb.clear(); 
               break;
             }
 
@@ -3208,7 +3193,7 @@ character_start_ring:
   if (!final_size)
     return Fatal(i, "Error: failed to build WLN cycle unit");
   
-  if(!post_unsaturate(unsaturations, final_size, ring)  || !post_saturate(saturations,final_size,ring))
+  if(!post_bond_handling(bond_modifiers, final_size, ring))
     return Fatal(i, "Error: failed on post ring bond (un)/saturation");
   
   return true;
@@ -3644,13 +3629,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   unsigned char on_locant = '\0';         // locant tracking
   unsigned int locant_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
   
-  // allows consumption of notation after block parses
-  unsigned int block_start = 0;
-  unsigned int block_end = 0;
-
   unsigned int i=0;
   unsigned int len = strlen(wln_ptr);
   unsigned char ch = wln_ptr[i];
+  unsigned int block_start = 0;
   
   while(ch)
   {  
@@ -4818,8 +4800,6 @@ character_start:
         if(locant_skips)
           locant_skips--;
         else if(i>0 && wln_ptr[i-1] != ' '){
-          block_end = i;
-          
           ring = AllocateWLNRing(graph);
           if(pending_spiro){
             
@@ -4875,7 +4855,6 @@ character_start:
 
           branch_stack.push({ring,0});
           block_start = 0;
-          block_end = 0;
 
           // does the incoming locant check
           if(pending_spiro)
