@@ -2207,7 +2207,8 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   unsigned int state_pseudo         = 0; 
   unsigned int state_aromatics      = 0;
   
-  int pending_charge = 0; 
+  int pending_charge      = 0; 
+  unsigned char inline_unsaturate    = 0; 
   unsigned int  expected_locants      = 0;
   unsigned char ring_size_specifier   = '\0';
   
@@ -2234,13 +2235,18 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
 
   unsigned char ch = wln_block[i];
   while(i < len){
-    fprintf(stderr,"parsing: %c\n",ch); 
-
 
 character_start_ring:
     if(state_multi == 3 && ch != '-' && ch != '&'){
       state_multi = 0; 
       positional_locant = 'A';
+    }
+
+    if(inline_unsaturate && positional_locant && (ch != '-' || ch != '&')){
+      LocantPair loc_pair(inline_unsaturate,positional_locant); 
+      unsaturations.push_back(loc_pair);
+      inline_unsaturate = 0; 
+      positional_locant = 0; 
     }
 
     switch(ch){
@@ -2785,30 +2791,19 @@ character_start_ring:
               break;
 
         
-            case 'U':{
-              // no need to put this in implied, it has to be specified
-              if(i < len - 3 && wln_block[i+1] == '-' && wln_block[i+2] == ' '){
-                
-                // can double bond to a amped locant
-                unsigned int k = 1;
-                unsigned char dloc = wln_block[i+3]; 
-                while(wln_block[k+i+3] == '&'){
-                  dloc+=AMPERSAND_EXPAND;
-                  k++;
-                } 
-
-                LocantPair loc_pair(positional_locant,dloc); 
-                unsaturations.push_back({positional_locant,dloc});
-              }
-              else{
+            case 'U':
+              if(i+1 < len && wln_block[i+1] != '-'){
                 LocantPair loc_pair(positional_locant,positional_locant+1); 
                 unsaturations.push_back(loc_pair);
-              }
-
-              if(i < len && wln_block[i+1] != 'U')
                 positional_locant++;
+              }
+              else if (i+1 < len && wln_block[i+1] == '-'){
+                inline_unsaturate = positional_locant; 
+                positional_locant = 0; 
+                i++; // skip the dash
+              }
               break;
-            }
+            
 #if MODERN
             case 'A':
             case 'D':
@@ -3590,7 +3585,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   int pending_charge = 0; 
   unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
-  unsigned int pending_unsaturate = 0;    // 'U' style bonding
+  unsigned int inline_unsaturate = 0;    // 'U' style bonding
     
   // hold three sequential digits, error if 4, uses the ascii values '1', '2' etc 
   unsigned char d1 = 0; 
@@ -3651,10 +3646,10 @@ character_start:
         edge->stereo = pending_stereo; 
         pending_stereo = 0; 
 
-        if(pending_unsaturate){
-          if(!unsaturate_edge(edge,pending_unsaturate))
+        if(inline_unsaturate){
+          if(!unsaturate_edge(edge,inline_unsaturate))
             return Fatal(i, "Error: failed to unsaturate bond"); 
-          pending_unsaturate = 0;
+          inline_unsaturate = 0;
         }
       }
 
@@ -3788,10 +3783,10 @@ character_start:
             edge->stereo = pending_stereo; 
             pending_stereo = 0; 
 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
+              inline_unsaturate = 0;
             }
 
           }
@@ -3858,15 +3853,15 @@ character_start:
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         
         branch_stack.push({0,curr});
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = prev; 
       }
@@ -3900,10 +3895,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         
@@ -3955,10 +3950,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
@@ -4009,14 +4004,14 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         last = curr; 
         prev = return_object_symbol(branch_stack);
 
@@ -4064,10 +4059,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           } 
         }
 
@@ -4119,11 +4114,11 @@ character_start:
           if(!unsaturate_edge(edge, 2))
             return Fatal(i, "Error: failed to attach W symbol"); 
 
-          if(pending_unsaturate)
+          if(inline_unsaturate)
             return Fatal(i,"Error: a bond unsaturation followed by dioxo is undefined notation");
         }
         else
-          pending_unsaturate = 2;
+          inline_unsaturate = 2;
 
         // if there is no prev, this is then a character we go from, 
         // else do not update.
@@ -4183,15 +4178,15 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
         branch_stack.push({0,curr});
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = curr; 
       }
@@ -4239,14 +4234,14 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){ 
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){ 
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = curr; 
       }
@@ -4291,10 +4286,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
           
         }
@@ -4344,15 +4339,15 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
           
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         last = curr; 
         prev = return_object_symbol(branch_stack);
         if(!prev)
@@ -4403,14 +4398,14 @@ character_start:
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         last = curr; 
         prev = return_object_symbol(branch_stack);
         if(!prev)
@@ -4460,10 +4455,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }         
         
@@ -4518,10 +4513,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         branch_stack.push({0,curr});
@@ -4576,10 +4571,10 @@ character_start:
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         
@@ -4600,10 +4595,10 @@ character_start:
           edge = &prev->bond_array[prev->barr_n-1]; 
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
@@ -4856,10 +4851,10 @@ character_start:
               edge->stereo = pending_stereo; 
               pending_stereo = 0; 
 
-              if(pending_unsaturate){
-                if(!unsaturate_edge(edge,pending_unsaturate))
+              if(inline_unsaturate){
+                if(!unsaturate_edge(edge,inline_unsaturate))
                   return Fatal(i, "Error: failed to unsaturate bond"); 
-                pending_unsaturate = 0;
+                inline_unsaturate = 0;
               }
               ring->loc_count++; //in-line locant assumed
             }   
@@ -4967,10 +4962,10 @@ character_start:
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
@@ -5009,7 +5004,7 @@ character_start:
       
       else{
         on_locant = '\0';
-        pending_unsaturate++;
+        inline_unsaturate++;
       }
       break;
 
@@ -5274,17 +5269,17 @@ character_start:
           edge->stereo = pending_stereo; 
           pending_stereo = 0; 
 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         } 
         on_locant = '\0';
         branch_stack.push({0,curr});
         
         curr->str_position = first_angle+1+1;
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = curr; 
       }
@@ -5326,10 +5321,10 @@ character_start:
           pending_stereo = 0;
 
           wrap_ring->macro_return = edge; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         else
@@ -5386,10 +5381,10 @@ character_start:
             edge->stereo = pending_stereo; 
             pending_stereo = 0; 
 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
+              inline_unsaturate = 0;
             }
 
           }
@@ -5397,7 +5392,7 @@ character_start:
           on_locant = '\0';
           branch_stack.push({0,curr});
           curr->str_position = i+2;
-          pending_unsaturate = 0;
+          inline_unsaturate = 0;
           prev = curr;
           last = curr; 
           i+=3; 
@@ -5420,17 +5415,17 @@ character_start:
             edge->stereo = pending_stereo; 
             pending_stereo = 0; 
 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
+              inline_unsaturate = 0;
             }
           }
 
           on_locant = '\0';
           branch_stack.push({0,curr});
           curr->str_position = i+2;
-          pending_unsaturate = 0;
+          inline_unsaturate = 0;
           prev = curr;
           last = curr; 
 
@@ -5564,10 +5559,10 @@ character_start:
       edge->stereo = pending_stereo; 
       pending_stereo = 0; 
       
-      if(pending_unsaturate){
-        if(!unsaturate_edge(edge,pending_unsaturate))
+      if(inline_unsaturate){
+        if(!unsaturate_edge(edge,inline_unsaturate))
           return Fatal(i, "Error: failed to unsaturate bond"); 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
       }
     }
 
