@@ -1782,14 +1782,24 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   // each atom is allowed to take
   
   // just use the contructors with new
+  
+  unsigned int b_locant = 0; 
   LocantPos *locant_path = new LocantPos[local_size];  
+  LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
 
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
 
   for (unsigned int i=0;i<local_size;i++){
     unsigned char loc = INT_TO_LOCANT(i+1);
-    
+  
+    // check here if any branching locants need to be added in
+    if(ring->locants[128 + (i * BROKEN_TREE_LIMIT)] ){
+
+      fprintf(stderr,"yep\n"); 
+
+    }
+
     // default ring chain connections
     if(i == 0 || i == local_size-1)
       locant_path[i].allowed_connections = 2; 
@@ -1841,31 +1851,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
       return 0;
     }
     
-#if PSEUDO_PAIRS
-    // If we need to catch fuse, we do
-    if(i==ring_assignments.size()-1 && pseudo_pairs){
-      bool caught = false;
-      for(unsigned int s = 1; s<=local_size;s++){
-        if(pseudo_lookup[INT_TO_LOCANT(s)]){
-          unsigned char pbind_2 = INT_TO_LOCANT(s); 
-          unsigned char pbind_1 = pseudo_lookup[pbind_2];
-
-          if(OPT_DEBUG)
-            fprintf(stderr,"  %d  catch fusing: %c <-- %c\n",fuses,pbind_2,pbind_1);
-          
-          if(!search_edge(ring->locants[pbind_2],ring->locants[pbind_1])){
-            if(!AddEdge(ring->locants[pbind_2], ring->locants[pbind_1]))
-              return false;
-            fuses++;
-            caught = true;
-          }
-        }
-      }
-      if(caught)
-        break;
-    }
-#endif
-
     // --- MULTI ALGORITHM, see notes on function for rules and use --- 
     
     unsigned int  path_size   = 0;  
@@ -1946,113 +1931,10 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 
       }
     }
-
-
-#if PSEUDO
-      // let catch fuse take care of last pseudo pairs
-      if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size && i!=ring_assignments.size()-1){
-        // lets get the bonds right and then worry about the path 
-        
-        bind_1 = pseudo_lookup[highest_loc];
-        bind_2 = highest_loc; 
-        path_size = comp_size;
-        for(unsigned int a = 0;a<comp_size;a++)
-          ring_path[a] = 0;
-        
-        // just reset
-        pseudo_lookup[highest_loc] = 0;
-        if(bind_1 > 128)
-          spawned_broken[bind_1] = true;
-        
-        shortcuts[bind_1] = true;
-        if(pseudo_pairs)
-          pseudo_pairs--;
-      }
-
-      bind_2 = highest_loc;
-    }
-#endif
-
-    // sanitize the ring path, if we've got duplicates (i.e hit the end of the path),
-    // we decrement and loop back round
-
-    // shifting now performed here should be more stable
-#if DEPRECATED
-    for(;;){
-      if(!broken_lookup[bind_1].empty()){
-        
-        while(spawned_broken[broken_lookup[bind_1].front()])
-          broken_lookup[bind_1].pop_front();
-        
-        if(broken_lookup[bind_1].empty())
-          continue;
-
-        unsigned char bloc = broken_lookup[bind_1].front();
-        broken_lookup[bind_1].pop_front();
-        bind_1 = bloc;
-        
-        for(unsigned int a=path_size-1;a>0;a--)
-          ring_path[a] = ring_path[a-1];
-        
-        ring_path[0] = bind_1;
-        spawned_broken[bind_1] = true;
-
-        // pseudo check, will remove later
-        if(ring_path[path_size-1])
-          bind_2 = ring_path[path_size-1]; 
-      }
-      else if(allowed_connections[bind_1]){
-        // very rare case where we get the right path a different way to normal
-        
-        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < INT_TO_LOCANT(local_size))
-          ring_path[path_size-1] = ++bind_2;
-        
-        if(OPT_DEBUG){
-          fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
-          for (unsigned int a=0;a<path_size;a++)
-            fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
-          fprintf(stderr," ]\n");
-        }
-
-        if(!AddEdge(ring->locants[bind_2], ring->locants[bind_1])){
-          if(ring_path)
-            free(ring_path);
-          ring_path = 0;
-          return false;
-        }
-         
-        allowed_connections[bind_1]--;
-        if(allowed_connections[bind_2])
-          allowed_connections[bind_2]--;
-
-        break;
-      }
-      else{
-
-        bind_1++; // increase bind_1
-        if(bind_1 > INT_TO_LOCANT(local_size)+1)
-           break;
-
-        bool found = false;
-        for(unsigned int a=0;a<path_size;a++){
-          if(ring_path[a] == bind_1)
-            found = true;
-        }
-
-        // if its already there, we dont change the path
-        if(!found){ 
-          // if its not, we have to spawn it in by knocking one off
-          for(unsigned int a=path_size-1;a>0;a--)
-            ring_path[a] = ring_path[a-1];
-
-          ring_path[0] = bind_1; 
-          bind_2 = ring_path[path_size-1]; 
-        }
-      }
-#endif
   }
   
   delete [] locant_path;
+  delete [] branch_locants;
   return local_size; 
 }
 
