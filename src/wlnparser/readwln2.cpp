@@ -2453,9 +2453,13 @@ character_start_ring:
             
             // combo 4
             if(wln_block[i+1] == '-' && wln_block[i+2] == '&'){
-             // left left right
-             //
-              fprintf(stderr,"got it?\n");  
+              
+              positional_locant = (LOCANT_TO_INT(positional_locant)*BROKEN_TREE_LIMIT); 
+              // left left right
+              positional_locant+=1; 
+              positional_locant+=1; 
+              positional_locant+=2; 
+              i+=2; 
 
             }
             // combo 3
