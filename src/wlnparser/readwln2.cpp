@@ -45,7 +45,6 @@ GNU General Public License for more details.
 #include <openbabel/obmolecformat.h>
 #include <openbabel/graphsym.h>
 
-#include "huffman.h"
 #include "openbabel/parsmart.h"
 #include "openbabel/stereo/stereo.h"
 #include "parser.h"
@@ -1809,7 +1808,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
                           std::vector<bool>                                   &aromaticity,
                           std::vector<unsigned char>                          &multicyclic_locants,
                           std::vector<unsigned char>                          &pseudo_locants,
-                          std::set<unsigned char>                             &broken_locants,
                           std::map<unsigned char,unsigned int>                &bridge_locants,
                           unsigned char size_designator,
                           WLNRing *ring,
@@ -1831,7 +1829,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         local_size+= -1; 
     }
 
-    local_size+= - broken_locants.size(); // shouldnt be possible, lets see.
     if(OPT_DEBUG)
       fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
   }
@@ -1888,23 +1885,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     prev = curr;
   }
 
-  std::map<unsigned char,unsigned char>             pseudo_lookup;  
-  std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
-  std::map<unsigned char, bool>                     spawned_broken; 
-  
-  std::map<unsigned char, bool>                     shortcuts; // take when possible?
-
-#if DEPRECATED
-  // broken locant map spawn + pseudo locants map spawn 
-  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections) || 
-     !set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookup))
-    return false;
-#endif
-
   // calculate bindings and then traversals round the loops
-  unsigned int pseudo_pairs = pseudo_locants.size()/2;
   unsigned char max_locant = INT_TO_LOCANT(local_size);
-  
   for (unsigned int i=0;i<ring_assignments.size();i++){
     
     std::pair<unsigned int, unsigned char> component = ring_assignments[i];
@@ -2135,20 +2117,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
 }
 
 
-unsigned char create_relative_position(unsigned char parent){
-  // A = 129
-  unsigned int relative = 128 + LOCANT_TO_INT(parent);
-  if(relative > 252){
-#if ERRORS == 1
-    fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
-#endif
-    return '\0';
-  }
-  else
-    return relative;
-}
-
-
 bool post_bond_handling( std::vector<LocantPair> &bonds, 
                       unsigned int final_size,
                       WLNRing *ring){
@@ -2217,7 +2185,6 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   std::vector<unsigned char>                multicyclic_locants;
   std::vector<unsigned char>                pseudo_locants;
   std::map<unsigned char,unsigned int>      bridge_locants;
-  std::set<unsigned char>                   broken_locants;
   
   std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
 
@@ -2245,9 +2212,6 @@ character_start_ring:
 
     switch(ch){
       case ' ':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(expected_locants)
           return Fatal(i,"Error: not enough locants before space character");
         
@@ -2474,7 +2438,41 @@ character_start_ring:
 
           // two things to do in the lookahead here, determine whether branching or non-branching, 
           // and then access the branching tree
+          //
+          // branching locants take a priority
           
+          // the combinations we allow for a tree size of 2 is:
+          //
+          // E-,  E--, E-&, E--&
+
+          // E-6_ / E-P_ E--6/ E--P E-&
+          
+
+          // handle the branching locants, small jump labels are fine... (he says)
+          if(i + 2 < len && positional_locant){
+            
+            // combo 4
+            if(wln_block[i+1] == '-' && wln_block[i+2] == '&'){
+             // left left right
+             //
+              fprintf(stderr,"got it?\n");  
+
+            }
+            // combo 3
+            else if(wln_block[i+1] == '&'){
+
+
+            }
+            // combo 2
+            else if(wln_block[i+1] == '-'){
+            
+            }
+            else{
+              // add the jump here
+            }
+          }
+
+normal_dash:
           if( i + 3 < len && wln_block[i+3] == '-'){
              
             if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
@@ -2533,14 +2531,12 @@ character_start_ring:
             locant_attached = false;
             i+= 2; 
           } 
+
         }
         break;
       
 
       case '0':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(!ring_components.empty()){
           if(!positional_locant)
             positional_locant = 'A';
@@ -2568,9 +2564,6 @@ character_start_ring:
       case '7':
       case '8':
       case '9':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(state_aromatics)
           return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
@@ -2647,9 +2640,6 @@ character_start_ring:
       case 'X':
       case 'Y':
       case 'Z':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(state_aromatics)
           return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
@@ -2946,8 +2936,6 @@ character_start_ring:
           ring_start = false; 
           break;
         }
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
 
         if(state_aromatics)
           return Fatal(i,"Error: invalid character in the aromaticity assignment block");
@@ -2993,9 +2981,6 @@ character_start_ring:
           heterocyclic = true; 
           break;
         }
-
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
 
         if(state_aromatics){
           aromaticity.push_back(0);
@@ -3047,9 +3032,6 @@ character_start_ring:
       
       // CLOSE
       case 'J':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(state_aromatics)
           state_aromatics = 0;
         
@@ -3147,12 +3129,6 @@ character_start_ring:
     }
     fprintf(stderr,"\n");
 
-    fprintf(stderr,"  broken path points: ");
-    for (unsigned char loc : broken_locants){
-      fprintf(stderr,"%d ",loc);
-    }
-    fprintf(stderr,"\n");
-
     fprintf(stderr,"  bridge points: ");
     for (unsigned int i=0;i<252;i++){
       if(bridge_locants[i])
@@ -3174,7 +3150,6 @@ character_start_ring:
   unsigned int final_size = 0; 
   final_size = BuildCyclic(ring_components,aromaticity,
                                 multicyclic_locants,pseudo_locants,
-                                broken_locants,
                                 bridge_locants,
                                 ring_size_specifier,
                                 ring,
@@ -3636,7 +3611,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   
   // allows consumption of notation after block parses
   unsigned int block_start = 0;
-  unsigned int block_end = 0;
 
   unsigned int i=0;
   unsigned int len = strlen(wln_ptr);
@@ -4864,7 +4838,6 @@ character_start:
 
           branch_stack.push({ring,0});
           block_start = 0;
-          block_end = 0;
 
           // does the incoming locant check
           if(pending_spiro)
