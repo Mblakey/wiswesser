@@ -1703,77 +1703,17 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
  Access is given by a binary tree sequence in an array starting at 128 and indexed by locant
  gets you the start node: examples: 
   
-      B
-     / \
-    B- B-&
-   /    \
-  B--   B--&
- 
+           B
+        /     \
+     B-        B-&
+   /  \      /     \
+  B-- B--&  B-&-   B-&&
+
  128 + (O * 6) = 'A' node, 128 = A-, 129 = A--, 130 = A--&, 131 = A-&, 132 = A-&-, 133 = A-&&
  128 + (1 * 6) = 'B' node, 134 = B-, 135 = B--, 136 = B--&, 137 = B-&, 138 = B-&-, 139 = B-&&
  128 + (2 * 6) = 'C' node, 140... 
 */
-WLNSymbol* assign_broken_locant(unsigned int loc,WLNSymbol *locant, WLNRing *ring){
-  if(!locant)
-    return 0;
-  ring->locants[loc] = locant; 
-  ring->locants_ch[locant] = loc;
-  locant->inRing = ring;
-  return locant; 
-}  
 
-
-#if BROKEN
-bool set_up_broken( WLNRing *ring, WLNGraph &graph,
-                    std::set<unsigned char> &broken_locants,
-                    LocantPos *locant_path)
-{
-  if(broken_locants.empty())
-    return true; 
-
-  for (unsigned char loc_broken : broken_locants){
-    unsigned char calculate_origin = loc_broken;
-    unsigned int pos = 0;
-    while( (calculate_origin - 23) > 128){
-      calculate_origin += -23;
-      pos++;
-    }
-
-
-    // position here decodes where to link them
-    unsigned char parent = '\0';
-    parent = INT_TO_LOCANT(128 + calculate_origin); // relative positioning
-    
-                                                    
-    if(pos == 2 || pos == 3)
-      parent = LOCANT_TO_INT(parent) + 128;
-    else if(pos > 3)
-      return false;
-    
-    if(OPT_DEBUG)
-      fprintf(stderr,"  ghost linking %d to parent %c\n",loc_broken,parent);
-    
-    if(!ring->locants[loc_broken]){
-      // bond them in straight away
-      allowed_connections[loc_broken] = 3; 
-      if(allowed_connections[parent])
-        allowed_connections[parent]--;
-
-      WLNSymbol *broken = AllocateWLNSymbol('C',graph);
-      broken->inRing = ring;
-      broken->allowed_edges = 4;
-      broken = assign_locant(loc_broken,broken,ring);
-      broken_lookup[parent].push_back(loc_broken);
-      if(!AddEdge(ring->locants[loc_broken], ring->locants[parent]))
-        return false;
-    }
-    else
-      return false;  
-  }
-
-  return true; 
-}
-#endif
 
 /*
  Some rules for solving ring systems in WLN. 
@@ -2226,6 +2166,12 @@ character_start_ring:
             bridge_locants[positional_locant] = true;
         }
 
+        if(positional_locant > 128 && !ring->locants[positional_locant]){
+          // it must be a broken locant, therefore needs creating in the map
+          locant_a = AllocateWLNSymbol('C', graph); 
+          assign_locant(positional_locant, locant_a, ring);
+        }
+
         positional_locant = '\0'; // hard resets on spaces
         locant_attached = false;
         break;
@@ -2243,7 +2189,12 @@ character_start_ring:
           pseudo_locants.back() += AMPERSAND_EXPAND;
         }
         else if(positional_locant && locant_attached){
-          positional_locant += AMPERSAND_EXPAND;
+          
+          // move right
+          if(positional_locant > 128)
+            positional_locant+=2;
+          else
+            positional_locant += AMPERSAND_EXPAND;
         }
         else{
           // if unhandled, then it must be an aromatic start
@@ -2438,45 +2389,6 @@ character_start_ring:
 
           // two things to do in the lookahead here, determine whether branching or non-branching, 
           // and then access the branching tree
-          //
-          // branching locants take a priority
-          
-          // the combinations we allow for a tree size of 2 is:
-          //
-          // E-,  E--, E-&, E--&
-
-          // E-6_ / E-P_ E--6/ E--P E-&
-          
-
-          // handle the branching locants, small jump labels are fine... (he says)
-          if(i + 2 < len && positional_locant){
-            
-            // combo 4
-            if(wln_block[i+1] == '-' && wln_block[i+2] == '&'){
-              
-              positional_locant = (LOCANT_TO_INT(positional_locant)*BROKEN_TREE_LIMIT); 
-              // left left right
-              positional_locant+=1; 
-              positional_locant+=1; 
-              positional_locant+=2; 
-              i+=2; 
-
-            }
-            // combo 3
-            else if(wln_block[i+1] == '&'){
-
-
-            }
-            // combo 2
-            else if(wln_block[i+1] == '-'){
-            
-            }
-            else{
-              // add the jump here
-            }
-          }
-
-normal_dash:
           if( i + 3 < len && wln_block[i+3] == '-'){
              
             if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
@@ -2514,28 +2426,51 @@ normal_dash:
               locant_attached = false;
               i+= 3; 
             }
+            else{
+              // must be a branching modifier
+              if(positional_locant && positional_locant < 128)
+                positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+              else
+                positional_locant++;
+            }
           }
           else if (i+2 < len && wln_block[i+2] == '-'){
-            if(positional_locant != spiro_atom){
-              WLNSymbol *new_locant = define_hypervalent_element(wln_block[i+1],graph); 
-              if(!new_locant)
-                return Fatal(i, "Error: could not create hypervalent element");
-              
-              assign_locant(positional_locant,new_locant,ring);
-              
-              new_locant->str_position = i+1+1;
-              ring->position_offset[new_locant] = i+1;
-              if(OPT_DEBUG)
-                fprintf(stderr,"  assigning hypervalent %c to position %c\n",wln_block[i+1],positional_locant);
-            }
-            else 
+            if(wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z'){
+
+              if(positional_locant != spiro_atom){
+                WLNSymbol *new_locant = define_hypervalent_element(wln_block[i+1],graph); 
+                if(!new_locant)
+                  return Fatal(i, "Error: could not create hypervalent element");
+                
+                assign_locant(positional_locant,new_locant,ring);
+                
+                new_locant->str_position = i+1+1;
+                ring->position_offset[new_locant] = i+1;
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning hypervalent %c to position %c\n",wln_block[i+1],positional_locant);
+              }
+              else 
+                positional_locant++;
+
               positional_locant++;
-
-            positional_locant++;
-            locant_attached = false;
-            i+= 2; 
-          } 
-
+              locant_attached = false;
+              i+= 2; 
+            } 
+            else{
+              // this must also be branching modifier 
+              if(positional_locant && positional_locant < 128)
+                positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+              else
+                positional_locant++;
+            }
+          }
+          else{
+            // enter the tree or move left which is one 
+            if(positional_locant && positional_locant < 128)
+              positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+            else
+              positional_locant++;
+          }
         }
         break;
       
@@ -2580,6 +2515,13 @@ normal_dash:
 #endif
         }
         else{
+
+          if(positional_locant > 128 && !ring->locants[positional_locant]){
+            // it must be a broken locant, therefore needs creating in the map
+            locant_a = AllocateWLNSymbol('C', graph); 
+            assign_locant(positional_locant, locant_a, ring);
+          }
+
           ring_components.push_back({ch-'0',positional_locant});
           positional_locant = 'A';
           locant_attached = false;
