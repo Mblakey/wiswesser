@@ -643,6 +643,89 @@ struct ObjectStack{
 };
 
 
+/**********************************************************************
+                         Debugging Functions
+**********************************************************************/
+
+/* dump wln tree to a dotvis file */
+void WLNDumpToDot(FILE *fp, WLNGraph &graph)
+{  
+  fprintf(fp, "digraph WLNdigraph {\n");
+  fprintf(fp, "  rankdir = LR;\n");
+  for (unsigned int i=0; i< graph.symbol_count;i++)
+  {
+    WLNSymbol *node = graph.SYMBOLS[i];
+    if(!node)
+      continue;
+
+    fprintf(fp, "  %d", node->id);
+    if (node->ch == '*' || node->ch == '#')
+      fprintf(fp, "[shape=circle,label=\"*:%s\"];\n", node->special.c_str());
+    else if (node->spiro)
+      fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
+    else if (node->inRing)
+      fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
+    else{
+      if(std::isdigit(node->ch)){
+        if (!node->special.empty())
+          fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+        else
+          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+      } 
+      else
+        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+    }
+  
+      
+    for (unsigned int ei=0;ei<node->barr_n;ei++){
+      WLNEdge *edge = &node->bond_array[ei];
+      WLNSymbol *child = edge->child;
+      unsigned int bond_order = edge->order;
+
+      if (bond_order > 1){
+        for (unsigned int k=0;k<bond_order;k++){
+          fprintf(fp, "  %d", node->id);
+          fprintf(fp, " -> ");
+
+          if(edge->aromatic)
+            fprintf(fp, "%d [color=red]\n", child->id);
+          else
+            fprintf(fp, "%d\n", child->id);
+        }
+      }
+      else{
+        fprintf(fp, "  %d", node->id);
+        fprintf(fp, " -> ");
+        if(edge->aromatic)
+          fprintf(fp, "%d [color=red]\n", child->id);
+        else
+          fprintf(fp, "%d\n", child->id);
+      }
+    }
+  }
+
+  fprintf(fp, "}\n");
+}
+
+bool WriteGraph(WLNGraph &graph,const char*filename){
+  fprintf(stderr,"Dumping wln graph to %s:\n",filename);
+  FILE *fp = 0;
+  fp = fopen(filename, "w");
+  if (!fp)
+  {
+    fprintf(stderr, "Error: could not create dump .dot file\n");
+    fclose(fp);
+    return false;
+  }
+  else
+    WLNDumpToDot(fp,graph);
+  
+  fclose(fp);
+  fp = 0;
+  fprintf(stderr,"  dumped\n");
+  return true;
+}
+
 
 /**********************************************************************
                          WLNSYMBOL Functions
@@ -1845,7 +1928,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
     }
     prev = curr;
   }
-
+  
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -1882,8 +1965,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
 
     start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
     
-    fprintf(stderr,"starting on %d(%c)\n",start_char,start_char); 
-
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
@@ -1926,7 +2007,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
         if(highest_loc < 128)
           curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
         else
-         curr_locant = &branch_locants[broken_position]; 
+          curr_locant = &branch_locants[broken_position]; 
 
         curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
         edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
@@ -1938,25 +2019,37 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ri
     for(;;){
 
       if(start_locant->allowed_connections > 0){
-     
-        for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
-          WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+        bool broken_shifting = true; 
+        while(broken_shifting){
+          broken_shifting = false; 
           
-          if(ring->locants_ch[bchild] > 128){
-
-            for(unsigned int bs=0;bs<b_locant;bs++){
-              if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
-                // start locant is now the branch
-                // end locant moves back 1, or until it satisfies the edges
-                start_locant->allowed_connections--; 
-                start_char = ring->locants_ch[bchild]; 
-                start_locant = &branch_locants[bs];
-                start_locant->active = true; 
-                curr_locant = &locant_path[LOCANT_TO_INT(--end_char-1)]; 
-                break;
+          // take the lowest possible branch locant
+          WLNSymbol *branch_move = 0; 
+          unsigned int move_index = 0; 
+          for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
+            WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+            // while loop needed
+            if(ring->locants_ch[bchild] > 128){
+              for(unsigned int bs=0;bs<b_locant;bs++){
+                if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
+                  if (!branch_move || ring->locants_ch[branch_locants[bs].locant] < ring->locants_ch[branch_move]){
+                    branch_move = branch_locants[bs].locant; 
+                    move_index = bs; 
+                  }
+                }
               }
             }
           }
+          
+          if(branch_move){
+            start_locant->allowed_connections--; 
+            start_char = ring->locants_ch[branch_move]; 
+            start_locant = &branch_locants[move_index];
+            start_locant->active = true; 
+            curr_locant = &locant_path[LOCANT_TO_INT(--end_char-1)]; 
+            broken_shifting = true; 
+          }
+
         }
 
         if(OPT_DEBUG){
@@ -2152,6 +2245,25 @@ character_start_ring:
               if(!AddEdge(locant_a,ring->locants[locant_attached]))
                 return Fatal(i,"Error: failure on attaching off path locant"); 
             }
+            else if( positional_locant ==  2+ (LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128){
+              // case from E-- to get to E--&, which is bonded to E-
+              
+              locant_a = ring->locants[(LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128];
+              positional_locant++; // 1 movement
+
+              if(!ring->locants[positional_locant]){ 
+                locant_b = AllocateWLNSymbol('C', graph);
+                locant_b->allowed_edges = 4;
+                assign_locant(positional_locant, locant_b, ring); 
+              }
+              else
+                locant_b = ring->locants[positional_locant]; 
+
+              if(!AddEdge(locant_b,locant_a))
+                return Fatal(i,"Error: failure on attaching off path locant"); 
+            }
+              
+            
           }
           else
             positional_locant += AMPERSAND_EXPAND;
@@ -2426,7 +2538,7 @@ character_start_ring:
           }
           else{
             // enter the tree or move left which is one 
-            if(positional_locant && positional_locant < 128){
+            if(positional_locant < 128){
               if(!ring->locants[positional_locant]){
                 locant_a = AllocateWLNSymbol('C', graph); 
                 locant_a->allowed_edges = 4;  
@@ -2447,9 +2559,35 @@ character_start_ring:
                 locant_b = ring->locants[positional_locant]; 
               
               edge = AddEdge(locant_b, locant_a); 
+              if(!edge)
+                return Fatal(i,"Error: could not create bond in off path branching"); 
+            }
+            else if (128 + ( LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT) == positional_locant ){
+              // means E--, which is position 3, binds to E-
+                
+              // to even get here we would of created the E, and E-
+              // create the node in the chain if its not there
+              locant_a = ring->locants[positional_locant]; 
+              
+              // from E-, E-- is 2 away, 
+              positional_locant+=2; 
+              if(!ring->locants[positional_locant]){
+                locant_b = AllocateWLNSymbol('C', graph); 
+                locant_b->allowed_edges = 4;  
+                assign_locant(positional_locant, locant_b, ring);
+              }
+              else
+                locant_b = ring->locants[positional_locant]; 
+
+              // bond this back to the starting char
+              edge = AddEdge(locant_b, locant_a); 
+              if(!edge)
+                return Fatal(i,"Error: could not create bond in off path branching"); 
+              
+              //
             }
             else
-              positional_locant++;
+              return Fatal(i, "Error: expanding past the tree limit, <loc>-- is the maximal branched locant supported"); 
           }
         }
         break;
@@ -5564,84 +5702,6 @@ character_start:
 }
 
 
-/* dump wln tree to a dotvis file */
-void WLNDumpToDot(FILE *fp, WLNGraph &graph)
-{  
-  fprintf(fp, "digraph WLNdigraph {\n");
-  fprintf(fp, "  rankdir = LR;\n");
-  for (unsigned int i=0; i< graph.symbol_count;i++)
-  {
-    WLNSymbol *node = graph.SYMBOLS[i];
-    if(!node)
-      continue;
-
-    fprintf(fp, "  %d", node->id);
-    if (node->ch == '*' || node->ch == '#')
-      fprintf(fp, "[shape=circle,label=\"*:%s\"];\n", node->special.c_str());
-    else if (node->spiro)
-      fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
-    else if (node->inRing)
-      fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
-    else{
-      if(std::isdigit(node->ch)){
-        if (!node->special.empty())
-          fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-        else
-          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-      } 
-      else
-        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-    }
-  
-      
-    for (unsigned int ei=0;ei<node->barr_n;ei++){
-      WLNEdge *edge = &node->bond_array[ei];
-      WLNSymbol *child = edge->child;
-      unsigned int bond_order = edge->order;
-
-      if (bond_order > 1){
-        for (unsigned int k=0;k<bond_order;k++){
-          fprintf(fp, "  %d", node->id);
-          fprintf(fp, " -> ");
-
-          if(edge->aromatic)
-            fprintf(fp, "%d [color=red]\n", child->id);
-          else
-            fprintf(fp, "%d\n", child->id);
-        }
-      }
-      else{
-        fprintf(fp, "  %d", node->id);
-        fprintf(fp, " -> ");
-        if(edge->aromatic)
-          fprintf(fp, "%d [color=red]\n", child->id);
-        else
-          fprintf(fp, "%d\n", child->id);
-      }
-    }
-  }
-
-  fprintf(fp, "}\n");
-}
-
-bool WriteGraph(WLNGraph &graph,const char*filename){
-  fprintf(stderr,"Dumping wln graph to %s:\n",filename);
-  FILE *fp = 0;
-  fp = fopen(filename, "w");
-  if (!fp)
-  {
-    fprintf(stderr, "Error: could not create dump .dot file\n");
-    fclose(fp);
-    return false;
-  }
-  else
-    WLNDumpToDot(fp,graph);
-  
-  fclose(fp);
-  fp = 0;
-  fprintf(stderr,"  dumped\n");
-  return true;
-}
 
 
 
