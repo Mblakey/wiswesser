@@ -265,14 +265,10 @@ struct LocantPos{
   bool active;
   int  allowed_connections; 
   WLNSymbol *locant; // look up character based on the ring_map
-  WLNSymbol *broken_a; 
-  WLNSymbol *broken_b; 
 
   LocantPos(){
     active = false; 
     locant = 0; 
-    broken_a = 0; 
-    broken_b = 0; 
     allowed_connections = 0; 
   }
 }; 
@@ -1712,10 +1708,7 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
  128 + (O * 6) = 'A' node, 128 = A-, 129 = A--, 130 = A--&, 131 = A-&, 132 = A-&-, 133 = A-&&
  128 + (1 * 6) = 'B' node, 134 = B-, 135 = B--, 136 = B--&, 137 = B-&, 138 = B-&-, 139 = B-&&
  128 + (2 * 6) = 'C' node, 140... 
-*/
 
-
-/*
  Some rules for solving ring systems in WLN. 
 
  1) From a given locant, the path walks sequentially forward to the next position 
@@ -1744,7 +1737,7 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
     Bridging A brings its allowed connections to 2, since it is at the start of the chain
     bridging B brings its allowed connections to 1, since its in the middle of the chain. 
 */
-unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &ring_assignments, 
+unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>  &ring_assignments, 
                           std::vector<bool>                                   &aromaticity,
                           std::vector<unsigned char>                          &multicyclic_locants,
                           std::vector<unsigned char>                          &pseudo_locants,
@@ -1795,9 +1788,16 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   
     // check here if any branching locants need to be added in
     if(ring->locants[128 + (i * BROKEN_TREE_LIMIT)] ){
-
-      fprintf(stderr,"yep\n"); 
-
+      // this the first dash element e.g E-
+      
+      // set the first E- 
+      branch_locants[b_locant].locant = ring->locants[128 + (i * BROKEN_TREE_LIMIT)]; 
+      branch_locants[b_locant].active = 0; 
+      branch_locants[b_locant].allowed_connections = 3; 
+      if(bridge_locants[128 + (i * BROKEN_TREE_LIMIT)])
+        branch_locants[b_locant].allowed_connections--; // decrement any bridging positions
+      
+      b_locant++;
     }
 
     // default ring chain connections
@@ -1839,43 +1839,73 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
     
-    std::pair<unsigned int, unsigned char> component = ring_assignments[i];
+    std::pair<unsigned int, unsigned int> component = ring_assignments[i];
     
     bool aromatic           = aromaticity[i];
     unsigned int comp_size  = component.first;
     unsigned int start_char  = component.second;
     ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
 
-    if(start_char > max_locant){
-      fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
-      return 0;
-    }
-    
     // --- MULTI ALGORITHM, see notes on function for rules and use --- 
     
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
     unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
 
-    LocantPos *start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
-    LocantPos *curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
-    start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
+    LocantPos *start_locant=0;
+    LocantPos *curr_locant=0; 
 
+    if(start_char < 128){
+      start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+      curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+    }
+    else{
+      for(unsigned int bs=0;bs<b_locant;bs++){
+        if(branch_locants[bs].locant == ring->locants[start_char]){
+          start_locant   = &branch_locants[bs]; 
+          curr_locant   = &branch_locants[bs]; 
+          break;
+        }
+      }
+    }
+
+    start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
+    
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
       unsigned char highest_loc = 0; // highest of each child iteration 
-
+      bool potential_jump = 0; 
       // walk the ring
       for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
         WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
         unsigned char child_loc = ring->locants_ch[child];
-        if(child_loc > highest_loc){
-          highest_loc = child_loc;
-          edge_taken = &curr_locant->locant->bond_array[ei]; 
+        if(child_loc < 128){
+          if(child_loc > highest_loc){
+            highest_loc = child_loc;
+            edge_taken = &curr_locant->locant->bond_array[ei]; 
+          }
+        }
+        // broken locants, this could set highest locant, if it has been spawned in before!
+        else if(child_loc >= 128){
+          for(unsigned int bs=0;bs<b_locant;bs++){
+            if(branch_locants[bs].locant == child && branch_locants[bs].active){
+              potential_jump = branch_locants[bs].active; 
+              curr_locant = &branch_locants[bs];
+              highest_loc = child_loc;
+              break;
+            }
+          }
+          if(potential_jump){
+            edge_taken = &curr_locant->locant->bond_array[ei]; 
+            curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
+            end_char = highest_loc; 
+            path_size++; 
+            break; 
+          }
         }
       }
-
+      
       if(!highest_loc){
         // if at the end of the path, its okay, break the loop and do post shifting 
         if(curr_locant->locant != ring->locants[max_locant]){
@@ -1886,7 +1916,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         over_shoot++;
         path_size++; 
       }
-      else {
+      else if(!potential_jump) {
         curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
         curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
         edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
@@ -1898,11 +1928,24 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     for(;;){
 
       if(start_locant->allowed_connections > 0){
-#if RARE
-        // very rare case where we get the right path a different way to normal
-        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < INT_TO_LOCANT(local_size))
-          ring_path[path_size-1] = ++bind_2;
-#endif
+     
+        for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
+          WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+          if(ring->locants_ch[bchild] > 128){
+            for(unsigned int bs=0;bs<b_locant;bs++){
+              if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
+                // start locant is now the branch
+                // end locant moves back 1, or until it satisfies the edges
+                start_char = ring->locants_ch[bchild]; 
+                start_locant = &branch_locants[bs];
+                start_locant->active = true; 
+                curr_locant = &locant_path[LOCANT_TO_INT(--end_char-1)]; 
+                break;
+              }
+            }
+          }
+        }
+
         if(OPT_DEBUG)
           fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
 
@@ -1989,6 +2032,7 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   
   bool locant_attached                = false;  // more sensible way of modifying the locants 
   unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
+  unsigned char branching_locant      =  0;    //  bond back any off alterations of the path
 
   std::vector<bool> aromaticity; 
 
@@ -2008,7 +2052,7 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
   std::vector<unsigned char>                pseudo_locants;
   std::map<unsigned char,unsigned int>      bridge_locants;
   
-  std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
+  std::vector<std::pair<unsigned int, unsigned int>>  ring_components;
 
   // broken locants start at A = 129 for extended ascii 
   // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
@@ -2309,7 +2353,7 @@ character_start_ring:
               i+= 3; 
             }
             else{
-              // must be a branching modifier
+              // must be a branching modifier - these are built in a tree, so must be bound to its previous
               if(positional_locant && positional_locant < 128)
                 positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
               else
@@ -2348,8 +2392,28 @@ character_start_ring:
           }
           else{
             // enter the tree or move left which is one 
-            if(positional_locant && positional_locant < 128)
+            if(positional_locant && positional_locant < 128){
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol('C', graph); 
+                locant_a->allowed_edges = 4;  
+                assign_locant(positional_locant, locant_a, ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+              
+              // shift into tree range
               positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+
+              if(!ring->locants[positional_locant]){
+                locant_b = AllocateWLNSymbol('C', graph); 
+                locant_b->allowed_edges = 4;  
+                assign_locant(positional_locant, locant_b, ring);
+              }
+              else
+                locant_b = ring->locants[positional_locant]; 
+              
+              edge = AddEdge(locant_b, locant_a); 
+            }
             else
               positional_locant++;
           }
