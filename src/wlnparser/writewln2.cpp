@@ -566,13 +566,29 @@ OBRing *UpdateCurrentRing(OBAtom *atom, std::set<OBRing*> &local_SSSR){
 
 
 /* unless one of the atoms is multicyclic, crossing a ring junction is not allowed
- * a ring junction is determined if both atoms have a share > 1
+ * a ring junction is determined if bond between 2 atoms is shared between rings
  * 
  * For multicyclics is a simple ask, you want the highest ring shares in the lowest position, 
  * therefore if all bonds are junctions, take the multicyclic point.
 */
-bool RingJunction(OBAtom *curr, OBAtom *ahead, std::map<OBAtom*,unsigned int>  &atom_shares){
-  return (atom_shares[curr]> 1 && atom_shares[ahead] > 1); 
+bool IsRingJunction(OBMol*mol, OBAtom *curr, OBAtom *ahead, std::set<OBRing*>&local_SSSR){
+  OBBond * bond = mol->GetBond(curr,ahead); 
+  if(!bond){
+    fprintf(stderr,"Error: bond does not exist\n"); 
+    return false;
+  }
+    
+  unsigned int shares = 0; 
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+    OBRing *obring = *riter; 
+    if(obring->IsMember(bond)){
+      shares++;
+      if(shares >= 2)
+        return true; 
+    }
+  }
+
+  return false; 
 }
 
 
@@ -623,24 +639,28 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
     ignore_bond[nt_bonds[i]] = true; 
   
 
-// Some rules to follow when walking the path as a nice test case:
+// Some rules to follow when walking the path:
 // 
-// 1) If pointing to what you might call an edge atom: you must take it, this effectively avoids
-//    ring junctions without the need for calculating them in advance
+// 1) If pointing to something that is not a ring junction (if the choice is there)
+//    take the path with the highest atom share count
 //
 //    * from a given starting point there will be two possible directions for a standard polycyclic
 //      call these direction A, and direction B, which can be scored by the fusion sum
-// 
+//
 // 2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
 //    position, the ring must of looped back, write the smallest locant in that subring. 
 //   
 //    this includes the final A if looping back to start 
 //
 // 3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
+//    * see UpdateCurrentRing 
 //
-//    * 
+// 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
+//    false in the walk back
 
-  std::string test_buffer; 
+  std::string test_buffer;
+
+
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){
       std::stack<OBAtom*>    stack; 
