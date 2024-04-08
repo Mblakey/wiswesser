@@ -76,6 +76,7 @@ unsigned char static int_to_locant(unsigned int i){
 }
 
 
+
 void static write_locant(unsigned char locant,std::string &buffer){
   if(locant < 'X')
     buffer += locant;
@@ -117,6 +118,39 @@ void sort_locants(unsigned char *arr,unsigned int len){
 	}
 }
 
+
+
+
+
+/**********************************************************************
+                          Write Helper Functions
+**********************************************************************/
+
+void WriteRingLocant(OBRing *ring, OBAtom **locant_path, unsigned int plen, std::string &buffer){
+  for(unsigned int i=0;i<plen;i++){
+    if(ring->IsInRing(locant_path[i]->GetIdx())){
+      if(i>0)
+        write_locant(i+1,buffer); 
+    }
+  }
+}
+
+void WriteRingSize(OBRing *ring, std::string &buffer){
+  if(ring->Size() < 9)
+    buffer += ring->Size() + '0'; 
+  else{
+#if MODERN
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#else
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#endif
+  }
+
+}
 
 
 /**********************************************************************
@@ -475,19 +509,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     else if(!rings_done)
       assignment_score++;
   
-    if(to_write->Size() > 9){
-#if MODERN
-      buffer += '<';
-      buffer+= std::to_string(to_write->Size());
-      buffer += '>'; 
-#else
-      buffer+='-';
-      buffer+= std::to_string(to_write->Size());
-      buffer+='-';
-#endif
-    }
-    else
-      buffer+= std::to_string(to_write->Size());
+    WriteRingSize(to_write, buffer); 
 
     locant_order.push_back(lowest_in_ring);
     ring_order.push_back(to_write);
@@ -520,8 +542,43 @@ OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
   return locant_path;
 }
 
+
+/* update the last ring currently walked in the locant path, if the atom is shared across
+ * ring, dont update and return 0. 
+*/
+OBRing *UpdateCurrentRing(OBAtom *atom, std::set<OBRing*> &local_SSSR){
+  unsigned int i=0;
+  OBRing *unique_ring = 0; 
+  
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+    OBRing *r = *riter; 
+    if(r->IsInRing(atom->GetIdx())){
+      unique_ring = r; 
+      i++; 
+    } 
+  }
+  
+  if(i==1)
+    return unique_ring;
+  else
+   return 0;
+}
+
+
+/* unless one of the atoms is multicyclic, crossing a ring junction is not allowed
+ * a ring junction is determined if both atoms have a share > 1
+ * 
+ * For multicyclics is a simple ask, you want the highest ring shares in the lowest position, 
+ * therefore if all bonds are junctions, take the multicyclic point.
+*/
+bool RingJunction(OBAtom *curr, OBAtom *ahead, std::map<OBAtom*,unsigned int>  &atom_shares){
+  return (atom_shares[curr]> 1 && atom_shares[ahead] > 1); 
+}
+
+
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
-    solution, fusion sum is the only filter rule needed here
+    solution, fusion sum is the only filter rule needed here, for optimal branch, 
+    create notation as the path is read to prove the concept
 */
 OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
@@ -555,7 +612,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
   }
 
   unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_score       = UINT32_MAX;
+  unsigned int           lowest_score     = UINT32_MAX;
 
   OBAtom*                ratom  = 0;
   OBAtom*                catom  = 0;
@@ -565,6 +622,25 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
   for(unsigned int i=0;i<nt_bonds.size();i++)
     ignore_bond[nt_bonds[i]] = true; 
   
+
+// Some rules to follow when walking the path as a nice test case:
+// 
+// 1) If pointing to what you might call an edge atom: you must take it, this effectively avoids
+//    ring junctions without the need for calculating them in advance
+//
+//    * from a given starting point there will be two possible directions for a standard polycyclic
+//      call these direction A, and direction B, which can be scored by the fusion sum
+// 
+// 2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
+//    position, the ring must of looped back, write the smallest locant in that subring. 
+//   
+//    this includes the final A if looping back to start 
+//
+// 3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
+//
+//    * 
+
+  std::string test_buffer; 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){
       std::stack<OBAtom*>    stack; 
