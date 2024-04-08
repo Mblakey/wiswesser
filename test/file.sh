@@ -3,10 +3,13 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 READ="${SCRIPT_DIR}/../build/readwln"
 WRITE="${SCRIPT_DIR}/../build/writewln"
+MODERN="${SCRIPT_DIR}/../build/modernwln"
 COMP="${SCRIPT_DIR}/../build/obcomp"
 FILE=""
 MODE=0
 FO=0
+RO=0
+
 
 process_arguments() {
   # Loop through all the arguments
@@ -19,7 +22,9 @@ process_arguments() {
         echo "  -r, --read          read wln to smiles"
         echo "  -w, --write         write smiles to wln"
         echo "  -c, --canonical     read wln and canonicalise"
+        echo "  -m, --modern        read wln, canonicalise, modernise"
         echo "  -fo,--fail-only     only show fails to stdout"
+        echo "  -ro,--round-off     turn off the round test, significantly faster"
         exit 0;
         ;;
       -r|--read)
@@ -31,8 +36,14 @@ process_arguments() {
       -c|--canonical)
         MODE=3
         ;;
+      -m|--modern)
+        MODE=4
+        ;;
       -fo|--fail-only)
         FO=1
+        ;;
+      -ro|--round-off)
+        RO=1
         ;;
       *)
         FILE=$arg
@@ -63,16 +74,18 @@ main(){
     elif [ $MODE -eq 2 ]; then 
       # guarentee the round trip, slow but accurate
       OUT=$($WRITE -ican "${ENTRY}" 2> /dev/null)
-      RT=$($READ -ocan "${OUT}" 2> /dev/null)      
-      if [ -z "$RT" ]; then
-        echo -ne "FAIL RNDT:\t${ENTRY}\t${OUT}\n"
-        continue
-      fi
-
-      SAME=$($COMP "$ENTRY" "$RT")
-      if [[ "$SAME" != "1" ]]; then
-        echo -ne "FAIL SCMP:\t${ENTRY}\t${RT}\n"
-        continue
+      if [ $RO -eq 0 ]; then
+        RT=$($READ -ocan "${OUT}" 2> /dev/null)      
+        if [ -z "$RT" ]; then
+          echo -ne "FAIL RNDT:\t${ENTRY}\t${OUT}\n"
+          continue
+        fi
+      
+        SAME=$($COMP "$ENTRY" "$RT")
+        if [[ "$SAME" != "1" ]]; then
+          echo -ne "FAIL SCMP:\t${ENTRY}\t${RT}\n"
+          continue
+        fi;
       fi;
     
     elif [ $MODE -eq 3 ]; then 
@@ -82,14 +95,18 @@ main(){
         continue
       fi
       
-      SMI_1=$($READ -ocan "${OUT}" 2> /dev/null)      
-      SMI_2=$($READ -ocan "${ENTRY}" 2> /dev/null)      
+      if [ $RO -eq 0 ]; then
+        SMI_1=$($READ -ocan "${OUT}" 2> /dev/null)      
+        SMI_2=$($READ -ocan "${ENTRY}" 2> /dev/null)      
 
-      SAME=$($COMP "$SMI_1" "$SMI_2")
-      if [[ "$SAME" != "1" ]]; then
-        echo -ne "FAIL SCMP:\t${ENTRY}\t${OUT}\n"
-        continue
-      fi;
+        SAME=$($COMP "$SMI_1" "$SMI_2")
+        if [[ "$SAME" != "1" ]]; then
+          echo -ne "FAIL SCMP:\t${ENTRY}\t${OUT}\n"
+          continue
+        fi;
+      fi; 
+    elif [ $MODE -eq 4 ]; then
+      OUT=$($MODERN "${ENTRY}" 2> /dev/null)
     fi;
 
     if [ $FO -eq 0 ]; then

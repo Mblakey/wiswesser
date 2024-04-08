@@ -38,6 +38,8 @@ GNU General Public License for more details.
 #include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obmolecformat.h>
+#include "openbabel/stereo/stereo.h"
+#include <openbabel/stereo/tetrahedral.h>
 
 #include "parser.h"
 
@@ -46,11 +48,11 @@ using namespace OpenBabel;
 #define WLNDEBUG 0
 #define REASONABLE 1024
 #define MACROTOOL 0
-      
-bool MODERN = 0; 
+#define STEREO 0  
 
-// --- DEV OPTIONS  ---
-static bool opt_debug = false;
+
+#define INT_TO_LOCANT(X) (X+64)
+#define LOCANT_TO_INT(X) (X-64)
 
 struct PathData {
   OBAtom **locant_path = 0;
@@ -71,10 +73,6 @@ struct SubsetData{
 static void Fatal(const char *str){
   fprintf(stderr,"Fatal: %s\n",str);
   exit(1);
-}
-
-unsigned char static int_to_locant(unsigned int i){
-  return i + 64;
 }
 
 
@@ -119,6 +117,42 @@ void sort_locants(unsigned char *arr,unsigned int len){
 	}
 }
 
+
+
+
+
+/**********************************************************************
+                          Write Helper Functions
+**********************************************************************/
+
+void lowest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen, std::string &buffer){
+  for(unsigned int i=0;i<plen;i++){
+    if(ring->IsMember(locant_path[i])){
+      if(i>0){
+        buffer += ' '; 
+        write_locant(INT_TO_LOCANT(i+1),buffer); 
+      }
+      break;
+    }
+  }
+}
+
+void ring_size(OBRing *ring, std::string &buffer){
+  if(ring->Size() < 9)
+    buffer += ring->Size() + '0'; 
+  else{
+#if MODERN
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#else
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#endif
+  }
+
+}
 
 
 /**********************************************************************
@@ -186,7 +220,7 @@ void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned 
   
   for(unsigned int i=0;i<ring->Size();i++){
     unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
-    sequence[i] = int_to_locant(pos+1); 
+    sequence[i] = INT_TO_LOCANT(pos+1); 
   }
 
   if(sort)
@@ -207,7 +241,7 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
   for(unsigned int i=0;i<ring->Size();i++){
     if(in_locant_path(mol->GetAtom(ring->_path[i]),locant_path, path_size)){
       unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
-      sequence[i] = int_to_locant(pos+1); 
+      sequence[i] = INT_TO_LOCANT(pos+1); 
     }
     else
       sequence[i] = 0; 
@@ -232,20 +266,24 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
   return true;
 }
 
+
+
 unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                           std::vector<unsigned char>      &locant_order,
                           std::vector<OBRing*>            &ring_order,
                           std::map<OBAtom*,bool>          &bridge_atoms,
                           std::string &buffer)
 {
+
   unsigned int pseudo_pairs = 0;
 
+#if PSEUDO
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections;
   std::map<unsigned char, unsigned char> highest_jump;
 
   for(unsigned int i=0;i<path_size;i++){
-    unsigned char ch = int_to_locant(i+1); 
+    unsigned char ch = INT_TO_LOCANT(i+1); 
     connections[ch] = 1;
     if(i==0 || i == path_size-1)
       connections[ch]++;
@@ -261,7 +299,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       }
 
       if(rbonds==4)
-        connections[int_to_locant(i+1)] = 4;
+        connections[INT_TO_LOCANT(i+1)] = 4;
     }
   }
 
@@ -271,7 +309,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
   for(unsigned int i=0;i<path_size;i++){
     for(unsigned int j=i+2;j<path_size;j++){
       if(mol->GetBond(locant_path[i],locant_path[j]))
-        non_trivials.push_back({int_to_locant(i+1),int_to_locant(j+1)});
+        non_trivials.push_back({INT_TO_LOCANT(i+1),INT_TO_LOCANT(j+1)});
     }
   }
 
@@ -287,7 +325,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
     for(unsigned int step = 0; step < steps;step++){
       if(highest_jump[locant])
         locant = highest_jump[locant];
-      else if(locant < int_to_locant(path_size))
+      else if(locant < INT_TO_LOCANT(path_size))
         locant++;
 
       path.push_back(locant);
@@ -296,7 +334,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
     // add the loop back logic
     for(unsigned int i=0;i<path.size();i++){
       unsigned int tally = 1;
-      if(path[i] == int_to_locant(path_size)){
+      if(path[i] == INT_TO_LOCANT(path_size)){
         for(unsigned int j=i+1;j<path.size();j++){
           if(path[j] == path[i]){
             path[j] += -tally; // looping back
@@ -306,7 +344,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       }
     }
 
-    while(!connections[bind] && bind < int_to_locant(path_size)){
+    while(!connections[bind] && bind < INT_TO_LOCANT(path_size)){
       bind++; // increase bind_1
       bool found = false;
       for(unsigned int a=0;a<path.size();a++){
@@ -343,6 +381,9 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       pseudo_pairs++;
     }
   }
+#else
+
+#endif
 
   return pseudo_pairs;
 }
@@ -425,7 +466,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           for(unsigned int k=0;k<wring->Size();k++){
             if(in_locant_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)){
               unsigned int pos = position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size);
-              unsigned char loc = int_to_locant(pos+1);
+              unsigned char loc = INT_TO_LOCANT(pos+1);
 
               if(loc < min_loc)
                 min_loc = loc; 
@@ -459,12 +500,12 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
     for(unsigned int k=0;k<to_write->Size();k++){
       if(in_locant_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)){ 
-        unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
+        unsigned char loc = INT_TO_LOCANT(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
         in_chain[loc] = true;
       }
     }
 
-    if(opt_debug && verbose){
+    if(OPT_DEBUG && verbose){
       fprintf(stderr,"  %d(%d): %c(%d) -",rings_done,pos_to_write,lowest_in_ring,lowest_in_ring);
       print_ring_locants(mol,to_write,locant_path,path_size,false);
     }
@@ -477,20 +518,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     else if(!rings_done)
       assignment_score++;
   
-    if(to_write->Size() > 9){
-      if(MODERN){
-        buffer+='<';
-        buffer+= std::to_string(to_write->Size());
-        buffer+='>';
-      }
-      else{
-        buffer+='-';
-        buffer+= std::to_string(to_write->Size());
-        buffer+='-';
-      }
-    }
-    else
-      buffer+= std::to_string(to_write->Size());
+    ring_size(to_write, buffer); 
 
     locant_order.push_back(lowest_in_ring);
     ring_order.push_back(to_write);
@@ -508,7 +536,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 }
 
 
-OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
+OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
                   std::set<OBRing*> &local_SSSR)
 {
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
@@ -523,10 +551,62 @@ OBAtom **MonoPath(OBMol *mol, unsigned int path_size,
   return locant_path;
 }
 
-/*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
-    solution, fusion sum is the only filter rule needed here
+
+/* update the last ring currently walked in the locant path, if the atom is shared across
+ * ring, dont update and return 0. 
 */
-OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
+OBRing *UpdateCurrentRing(OBAtom *atom, OBRing *prev,std::set<OBRing*> &local_SSSR){
+  unsigned int i=0;
+  OBRing *unique_ring = 0; 
+  
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+    OBRing *r = *riter; 
+    if(r->IsInRing(atom->GetIdx())){
+      unique_ring = r; 
+      i++; 
+    } 
+  }
+  
+  if(i==1)
+    return unique_ring;
+  else
+   return prev; // do not update
+}
+
+
+/* unless one of the atoms is multicyclic, crossing a ring junction is not allowed
+ * a ring junction is determined if bond between 2 atoms is shared between rings
+ * 
+ * For multicyclics is a simple ask, you want the highest ring shares in the lowest position, 
+ * therefore if all bonds are junctions, take the multicyclic point.
+*/
+bool IsRingJunction(OBMol*mol, OBAtom *curr, OBAtom *ahead, std::set<OBRing*>&local_SSSR){
+  OBBond * bond = mol->GetBond(curr,ahead); 
+  if(!bond){
+    fprintf(stderr,"Error: bond does not exist\n"); 
+    return false;
+  }
+    
+  unsigned int shares = 0; 
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+    OBRing *obring = *riter; 
+    if(obring->IsMember(bond)){
+      shares++;
+      if(shares >= 2)
+        return true; 
+    }
+  }
+
+  return false; 
+}
+
+
+/*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
+    solution, fusion sum is the only filter rule needed here, for optimal branch, 
+    create notation as the path is read to prove the concept for removal of NP flood fill. 
+
+*/
+OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::set<OBBond*>               &ring_bonds,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
@@ -542,8 +622,9 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
     best_path[i] = 0; 
   }
 
+#if DEPRECATED
   // set up some non-trivial bonds
-  std::vector<OBBond*> nt_bonds; 
+  std::map<OBBond*,bool> ignore_bond; 
   for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
     OBBond *bond = (*biter);
     unsigned int share = 0; 
@@ -554,51 +635,94 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
     }
 
     if(share > 1)
-      nt_bonds.push_back(bond);   
+      ignore_bond[bond] = true; 
   }
+#endif
+
+
+
+// Some rules to follow when walking the path:
+// 
+// 1) If pointing to something that is not a ring junction (if the choice is there)
+//    take the path with the highest atom share count
+//
+//    * from a given starting point there will be two possible directions for a standard polycyclic
+//      call these direction A, and direction B, which can be scored by the fusion sum
+//
+// 2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
+//    position, the ring must of looped back, write the smallest locant in that subring. 
+//   
+//    this includes the final A if looping back to start 
+//
+// 3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
+//    * see UpdateCurrentRing 
+//
+// 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
+//    false in the walk back
+// 
+// 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
+
 
   unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_score       = UINT32_MAX;
+  unsigned int           lowest_score     = UINT32_MAX;
 
-  OBAtom*                ratom  = 0;
-  OBAtom*                catom  = 0;
-  OBBond*                bond   = 0; 
-  std::map<OBBond*,bool> ignore_bond; 
-
-  for(unsigned int i=0;i<nt_bonds.size();i++)
-    ignore_bond[nt_bonds[i]] = true; 
+  OBAtom*                ratom  = 0; // ring
+  OBAtom*                catom  = 0; // child
+  OBAtom*                matom  = 0; // move atom
+  OBRing*                mring  = 0; // move ring
   
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-    if(atom_shares[*aiter] == 2){
-      std::stack<OBAtom*>    stack; 
+    if(atom_shares[*aiter] == 2){ // these are the starting points 
+      
+      std::string poly_buffer = ""; 
       std::map<OBAtom*,bool> visited; 
+      std::map<OBRing*,bool> open_rings; 
       unsigned int locant_pos = 0;
-      stack.push(*aiter);
-
-      while(!stack.empty()){
-        ratom = stack.top();
-        stack.pop();
+      
+      ratom = *aiter; 
+      for(;;){
         locant_path[locant_pos++] = ratom; 
         visited[ratom] = true; 
 
+        if(locant_pos >= path_size)
+          break;
+
+        matom = 0;  
         FOR_NBORS_OF_ATOM(a,ratom){ 
           catom = &(*a);   
-          bond = mol->GetBond(ratom,catom); 
-          if(atom_shares[catom] && !visited[catom] && !ignore_bond[bond]){
-            stack.push(catom);
-            break;
+          if(!visited[catom] && !IsRingJunction(mol, ratom, catom,local_SSSR)){
+            if(!matom)
+              matom = catom; 
+            else if(atom_shares[catom] > atom_shares[matom])
+              matom = catom; 
+          }
+          else if(visited[catom] && IsRingJunction(mol, ratom, catom,local_SSSR)){
+            lowest_ring_locant(mring,locant_path,locant_pos, poly_buffer); 
+            ring_size(mring, poly_buffer); 
           }
         }
+        
+        if(!matom){
+          fprintf(stderr,"Error: did not move in locant path walk!\n"); 
+          return 0;
+        }
+
+        ratom = matom; 
+        mring = UpdateCurrentRing(ratom, mring, local_SSSR); 
       }
+     
+
+      lowest_ring_locant(mring,locant_path,locant_pos, poly_buffer); 
+      ring_size(mring, poly_buffer); 
+
+      std::cout << poly_buffer << std::endl; 
 
       std::vector<OBRing*> tmp; 
       std::string candidate_string; // super annoying this has to go here, i dont see another way round
       unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
       unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
       
-#if WLNDEBUG
       fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
-#endif 
 
       if(score < lowest_score){
         lowest_sum = fsum;
@@ -628,7 +752,7 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 
 /* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
 find a multicyclic path thats stable with disjoined pericyclic points */
-OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
+OBAtom **PeriWalk(      OBMol *mol, unsigned int path_size,
                             std::set<OBAtom*>               &ring_atoms,
                             std::set<OBBond*>               &ring_bonds,
                             std::map<OBAtom*,unsigned int>  &atom_shares,
@@ -776,7 +900,7 @@ OBAtom **NPLocantPath(      OBMol *mol, unsigned int path_size,
           std::set_difference(ring_atoms.begin(), ring_atoms.end(), local_atoms.begin(), local_atoms.end(),
                               std::inserter(difference, difference.begin()));
           
-          best_path = NPLocantPath(mol, difference.size(), difference, ring_bonds,atom_shares, bridge_atoms, local_SSSR, 1); 
+          best_path = PeriWalk(mol, difference.size(), difference, ring_bonds,atom_shares, bridge_atoms, local_SSSR, 1); 
           if(best_path){
             // remove ring from the local SSSR, mark all the local_atoms set as non cyclic
             // and non-aromatic!
@@ -887,6 +1011,8 @@ struct BabelGraph{
   };
   ~BabelGraph(){};
   
+
+  // if modern, charges are completely independent apart from assumed K
   unsigned char WriteSingleChar(OBAtom* atom){
 
     if(!atom)
@@ -900,7 +1026,7 @@ struct BabelGraph{
         return 'H';
 
       case 5:
-        if(neighbours > 3)
+        if(orders > 3)
           return '*';
         else
           return 'B';
@@ -936,7 +1062,6 @@ struct BabelGraph{
         else
           return 'O';
           
-      
       case 9:
         if(neighbours > 1)
           return '*';
@@ -944,6 +1069,8 @@ struct BabelGraph{
           return 'F';
 
       case 15:
+        if(neighbours > 5)
+          return '*'; 
         return 'P';
 
       case 16:
@@ -974,6 +1101,20 @@ struct BabelGraph{
 
     return 0; 
   }
+  
+  void ModernCharge(OBAtom *atom, std::string &buffer){
+    if(atom->GetFormalCharge() == 0)
+      return; 
+    
+    if(abs(atom->GetFormalCharge())>1)
+      buffer += std::to_string(abs(atom->GetFormalCharge()));  
+    
+    if(atom->GetFormalCharge() < 0)
+      buffer += '-';
+    else
+     buffer += '+';
+    return; 
+  }
 
   void WriteSpecial(OBAtom *atom, std::string &buffer){
     if(!atom)
@@ -981,13 +1122,55 @@ struct BabelGraph{
     // all special elemental cases
     //
     
-    if(MODERN)
-      buffer += "<";
-    else
-      buffer += "-";
-    
+#if MODERN
+    buffer += "<";
+#else
+    buffer += "-";
+#endif
     string_position[atom] = buffer.size()+1; // always first character 
     switch(atom->GetAtomicNum()){
+#if MODERN
+      case 5:
+        buffer += "-";
+        buffer += "B";
+        break;
+
+      case 7:
+        buffer += "-";
+        buffer += "N";
+        break;
+      
+      case 8:
+        buffer += "-";
+        buffer += "O";
+        break;
+
+      case 9:
+        buffer += "-";
+        buffer += "F";
+        break;
+
+      case 53:
+        buffer += "-";
+        buffer += "I";
+        break;
+
+      case 35:
+        buffer += "-";
+        buffer += "E";
+        break;
+
+      case 17:
+        buffer += "-";
+        buffer += "G";
+        break; 
+    
+      case 15:
+        buffer += "-";
+        buffer += "P";
+        break;
+
+#else
       case 5:
         buffer += "B";
         break;
@@ -1015,7 +1198,11 @@ struct BabelGraph{
       case 17:
         buffer += "G";
         break; 
-
+      
+      case 15:
+        buffer += "P";
+        break;
+#endif
       case 89:
         buffer += "AC";
         break;
@@ -1447,70 +1634,16 @@ struct BabelGraph{
         break;
     }
 
-    if(MODERN){
-      // add the charges here
-      if(atom->GetFormalCharge() > 0){
-        if(atom->GetFormalCharge()>1)
-          buffer += atom->GetFormalCharge() + '0';
-        
-        buffer+= '+';
-      }
-
-      if(atom->GetFormalCharge() < 0){
-        if(atom->GetFormalCharge()<1)
-          buffer += abs(atom->GetFormalCharge()) + '0';
-        
-        buffer+= '-';
-      }
-      buffer+='>';
-    }
-    else
-     buffer+='-';
+#if MODERN
+    ModernCharge(atom, buffer); 
+    buffer += ">";
+#else
+    buffer += "-";
+#endif
     
     return; 
   }
 
-#if WLNSYMBOL
-  unsigned int CountDioxo(OBAtom *atom){
-    if(!atom)
-      Fatal("count dioxo on dead atom ptr");
-
-    unsigned int Ws = 0; 
-    unsigned int carbonyls = 0;
-    unsigned int oxo_ions = 0; 
-    std::vector<OBAtom*> seen; 
-    FOR_NBORS_OF_ATOM(a,atom){
-      OBAtom *nbor = &(*a);
-      if(!atoms_seen[nbor] && !nbor->IsInRing() && nbor->GetAtomicNum() == 8){
- 
-        if(atom->GetBond(nbor)->GetBondOrder() == 2){
-          carbonyls++;
-          seen.push_back(nbor);
-        }
-        else if(nbor->GetFormalCharge() == -1){
-          oxo_ions++;
-          seen.push_back(nbor);
-        }
-          
-        if(carbonyls == 2 || (oxo_ions == 1 && carbonyls == 1)){
-          Ws++;
-          atoms_seen[seen[0]] = true;
-          atoms_seen[seen[1]] = true;
-
-          for(OBAtom *pcharge : seen){
-            if(pcharge->GetFormalCharge() == -1)
-              pcharge->SetFormalCharge(0); // remove the charge, as this is expected 
-          }
-
-          carbonyls = 0;
-          oxo_ions = 0;
-          seen.clear();
-        }
-      }  
-    }
-    return Ws;
-  }
-#endif
 
   bool CheckCarbonyl(OBAtom *atom){
     if(!atom)
@@ -1542,20 +1675,35 @@ struct BabelGraph{
   }
 
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
-  bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from, unsigned int b_order,
+  bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from,OBBond *inc_bond,
                       OBMol *mol, std::string &buffer, unsigned char locant,
                       OBAtom **locant_path, unsigned int path_size){
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
 
-    if(locant && locant != '0' && b_order > 0){ // allows OM through
+    unsigned int border = 0; 
+    unsigned char stereo = 0; 
+    if(inc_bond){
+      border = inc_bond->GetBondOrder();
+      if(inc_bond->IsHash())
+        stereo = 'D';
+      else if (inc_bond->IsWedge())
+        stereo =  'A'; 
+    }
+
+    if(locant && locant != '0' && border > 0){ // allows OM through
       buffer+=' ';
       write_locant(locant,buffer);
     }
+    
+#if MODERN
+    if(stereo)
+      buffer += stereo;
+#endif
 
-    for(unsigned int b=1;b<b_order;b++)
+    for(unsigned int b=1;b<border;b++)
       buffer+='U';
-
+    
 
     unsigned int carbon_chain = 0;
     unsigned char wln_character = 0; 
@@ -1611,6 +1759,14 @@ struct BabelGraph{
         }
 
         remaining_branches[prev]--; // reduce the branches remaining  
+
+#if MODERN && STEREO
+        if(bond->IsHash())
+          buffer += 'D';
+        else if (bond->IsWedge())
+          buffer += 'A'; 
+#endif
+
         for(unsigned int i=1;i<bond->GetBondOrder();i++){
           if(carbon_chain){
             buffer += std::to_string(carbon_chain);
@@ -1629,7 +1785,7 @@ struct BabelGraph{
           carbon_chain = 0;
         }
 
-        if(locant == '0' && b_order == 0){
+        if(locant == '0' && !border){
           buffer += '-';
           buffer += ' ';
           buffer += '0';
@@ -1658,8 +1814,8 @@ struct BabelGraph{
     
       if(prev && bond)
         correction = bond->GetBondOrder() - 1;
-      else if (b_order > 0)
-        correction = b_order - 1;
+      else if (border > 0)
+        correction = border - 1;
 
       // last added char, not interested in the ring types of '-'
       switch(wln_character){
@@ -1674,7 +1830,18 @@ struct BabelGraph{
           }
           
           prev = atom; 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size(); 
           break;
 
@@ -1690,6 +1857,15 @@ struct BabelGraph{
             buffer += 'V';
             string_position[atom] = buffer.size();
           }
+#if MODERN
+          else if (atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += 'C';
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+            string_position[atom] = buffer.size()+1; // writen next so offset by 1
+          }
+#endif
           else{
             string_position[atom] = buffer.size()+1; // writen next so offset by 1
             carbon_chain++; 
@@ -1708,7 +1884,18 @@ struct BabelGraph{
           if(CheckCarbonyl(atom))
             buffer += 'V';
           else{
-            buffer += wln_character;
+#if MODERN
+            if(atom->GetFormalCharge() != 0){
+              buffer += '<'; 
+              buffer += wln_character; 
+              ModernCharge(atom, buffer); 
+              buffer += '>'; 
+            }
+            else 
+              buffer += wln_character; 
+#else
+            buffer += wln_character; 
+#endif
             if(wln_character == 'X')
               remaining_branches[atom] += 3;
             else
@@ -1726,8 +1913,19 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
           prev = atom; 
-          buffer += wln_character;
           string_position[atom] = buffer.size();
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
@@ -1746,7 +1944,19 @@ struct BabelGraph{
           }
 
           prev = atom; 
-          buffer += wln_character;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
@@ -1784,7 +1994,19 @@ struct BabelGraph{
           }
 
           prev = atom;
-          buffer += wln_character;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
@@ -1802,7 +2024,19 @@ struct BabelGraph{
           }
 
           prev = atom;
-          buffer += wln_character;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
@@ -1843,7 +2077,18 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else
+            buffer += wln_character; 
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           for(unsigned int h=1;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
@@ -1862,7 +2107,18 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
           for(unsigned int h=2;h<atom->GetImplicitHCount();h++)
             buffer += 'H'; 
@@ -1883,7 +2139,18 @@ struct BabelGraph{
             carbon_chain = 0;
           }
 
+#if MODERN
+          if(atom->GetFormalCharge() != 0 && atom->GetHeteroDegree() > 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
           buffer += wln_character; 
+#endif
           string_position[atom] = buffer.size();
 
           if(!branch_stack.empty())
@@ -1901,8 +2168,18 @@ struct BabelGraph{
             buffer += std::to_string(carbon_chain);
             carbon_chain = 0;
           }
-
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
           buffer += wln_character;
+#endif
           string_position[atom] = buffer.size();
           break;
 
@@ -1933,6 +2210,12 @@ struct BabelGraph{
               remaining_branches[atom]--; 
 
             if(macro_bond->GetBondOrder() > 1){
+#if MODERN && STEREO      
+              if(bond->IsHash())
+                buffer += 'D';
+              else if (bond->IsWedge())
+                buffer += 'A'; 
+#endif
               buffer += 'U'; 
               if(branching_atom[atom] && atom->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
                 remaining_branches[prev]--;
@@ -1948,7 +2231,7 @@ struct BabelGraph{
             else{
               for (unsigned int i=0;i<path_size;i++) {
                 if(locant_path[i] == nbor){
-                  write_locant(int_to_locant(i+1), buffer);
+                  write_locant(INT_TO_LOCANT(i+1), buffer);
                   break;
                 }
               }
@@ -2011,7 +2294,7 @@ struct BabelGraph{
   }
 
   void AddPostCharges(OBMol *mol,std::string &buffer){
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"Post Charges\n");
     
     bool working = true;
@@ -2021,7 +2304,7 @@ struct BabelGraph{
         OBAtom *atom = &(*a);
         if(atom->GetFormalCharge() != 0){
 
-          if(opt_debug)
+          if(OPT_DEBUG)
             fprintf(stderr,"  adding charge %d to atomic num: %d\n",atom->GetFormalCharge(),atom->GetAtomicNum());
 
           if(atom->GetFormalCharge() > 0){
@@ -2191,7 +2474,7 @@ struct BabelGraph{
       }
     }
 
-    if(opt_debug){
+    if(OPT_DEBUG){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
       fprintf(stderr,"  ring subcycles: %lu/%lu\n",local_SSSR.size(),mol->GetSSSR().size());
@@ -2225,7 +2508,7 @@ struct BabelGraph{
         Fatal("dead locant path atom ptr");
 
       unsigned char het_char = 0;
-      locant = int_to_locant(i+1);
+      locant = INT_TO_LOCANT(i+1);
 
       bool carbonyl = CheckCarbonyl(locant_path[i]);
 
@@ -2265,7 +2548,18 @@ struct BabelGraph{
             if(het_char == 'K')
               locant_path[i]->SetFormalCharge(0);
 
+#if MODERN
+            if(locant_path[i]->GetFormalCharge() != 0){
+              buffer += '<';
+              buffer += het_char; 
+              ModernCharge(locant_path[i], buffer);
+              buffer += '>';
+            }
+            else 
+              buffer += het_char; 
+#else
             buffer+=het_char;
+#endif
             string_position[locant_path[i]] = buffer.size();
           }
           else{
@@ -2309,9 +2603,28 @@ struct BabelGraph{
       if(locant_bond && !locant_bond->IsAromatic() && locant_bond->GetBondOrder()>1){
         buffer += ' ';
         write_locant(locant,buffer);
+
+#if MODERN && STEREO      
+        if(locant_bond->IsHash())
+          buffer += 'D';
+        else if (locant_bond->IsWedge())
+          buffer += 'A'; 
+#endif
+
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
+#if MODERN && STEREO
+      else if(locant_bond && (locant_bond->IsWedge()||locant_bond->IsHash())){
+        buffer += ' ';
+        write_locant(locant,buffer);
+
+        if(locant_bond->IsHash())
+          buffer += 'D';
+        else if (locant_bond->IsWedge())
+          buffer += 'A'; 
+      }
+#endif
     }
 
 
@@ -2319,11 +2632,17 @@ struct BabelGraph{
       OBBond *fbond = *biter; 
       
       if(!bonds_checked[fbond] && fbond->GetBondOrder() > 1 && !fbond->IsAromatic()){
-        unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
-        unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
         
         buffer += ' ';
         write_locant(floc,buffer);
+#if MODERN && STEREO
+        if(fbond->IsHash())
+          buffer += 'D';
+        else if (fbond->IsWedge())
+          buffer += 'A'; 
+#endif
         for(unsigned int b=1;b<fbond->GetBondOrder();b++)
           buffer += 'U';
         buffer+='-';
@@ -2331,6 +2650,23 @@ struct BabelGraph{
         write_locant(bloc,buffer);
         break;
       }
+#if MODERN && STEREO 
+      else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
+        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        buffer += ' ';
+        write_locant(floc,buffer);
+        
+        if(fbond->IsHash())
+          buffer += 'D';
+        else if (fbond->IsWedge())
+          buffer += 'A'; 
+        
+        buffer+='-';
+        buffer+=' ';
+        write_locant(bloc,buffer);
+      }
+#endif
     }
     
     return true;
@@ -2340,24 +2676,30 @@ struct BabelGraph{
   void ReadMultiCyclicPoints( OBAtom**locant_path,unsigned int path_size, 
                               std::map<OBAtom*,unsigned int> &ring_shares,std::string &buffer)
   { 
+
     unsigned int count = 0;
     std::string append = ""; 
     for(unsigned int i=0;i<path_size;i++){
       if(ring_shares[locant_path[i]] > 2){
         count++; 
-        write_locant(int_to_locant(i+1),append);
+        write_locant(INT_TO_LOCANT(i+1),append);
       }
     }
 
+#if MODERN
     buffer += ' ';
     buffer+= std::to_string(count);
-    buffer+= append; 
+#else
+    buffer += ' ';
+    buffer+= std::to_string(count);
+    buffer+= append;
+#endif
   }
 
 
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
   void ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer,PathData &pd){
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"Reading Cyclic\n");
 
     OBAtom **                       locant_path = 0; 
@@ -2382,15 +2724,15 @@ struct BabelGraph{
     unsigned int path_size = LocalSSRS_data.path_size;
     bool macro_ring = false; 
 
-    if(opt_debug)
+    if(OPT_DEBUG)
       fprintf(stderr,"  multi classification: %d\n",multi);
 
     if(local_SSSR.size() == 1)
-      locant_path = MonoPath(mol,path_size,local_SSSR);
+      locant_path = SingleWalk(mol,path_size,local_SSSR);
     else if(!multi && !bridging)
-      locant_path = PLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
+      locant_path = PolyWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
     else 
-      locant_path = NPLocantPath(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR,0);
+      locant_path = PeriWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR,0);
 
     if(!locant_path)
       return Fatal("no locant path could be determined");
@@ -2408,11 +2750,11 @@ struct BabelGraph{
       unsigned char root_locant = 0;
       for(unsigned int i=0;i<path_size;i++){
         if(locant_path[i] == ring_root)
-          root_locant = int_to_locant(i+1);
+          root_locant = INT_TO_LOCANT(i+1);
 
         if(locant_path[i] == spawned_from){
           // must be spiro ring
-          root_locant = int_to_locant(i+1);
+          root_locant = INT_TO_LOCANT(i+1);
           spiro = true;
           break;
         }
@@ -2441,7 +2783,7 @@ struct BabelGraph{
       for(unsigned int i=0;i<path_size;i++){
         if(bridge_atoms[locant_path[i]]){
           buffer+= ' ';
-          unsigned char bloc = int_to_locant(i+1);
+          unsigned char bloc = INT_TO_LOCANT(i+1);
           write_locant(bloc,buffer);
         }
       }
@@ -2449,8 +2791,13 @@ struct BabelGraph{
 
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
+      
+#if MODERN
+      write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
+#else
       buffer += ' ';
-      write_locant(int_to_locant(path_size),buffer); // need to make the relative size
+      write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
+#endif
     }
 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
@@ -2525,7 +2872,7 @@ struct BabelGraph{
         case 'M':
           for(unsigned int h=1;h<lc->GetImplicitHCount();h++){
             buffer += " ";
-            buffer += int_to_locant(i+1);
+            buffer += INT_TO_LOCANT(i+1);
             buffer += 'H';
           }
           break;
@@ -2534,7 +2881,7 @@ struct BabelGraph{
         case 'Z':
           for(unsigned int h=2;h<lc->GetImplicitHCount();h++){
             buffer += " ";
-            buffer += int_to_locant(i+1);
+            buffer += INT_TO_LOCANT(i+1);
             buffer += 'H';
           }
           break;
@@ -2545,7 +2892,7 @@ struct BabelGraph{
           else{
             for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
               buffer += " ";
-              buffer += int_to_locant(i+1);
+              buffer += INT_TO_LOCANT(i+1);
               buffer += 'H';
             }
           }
@@ -2557,7 +2904,7 @@ struct BabelGraph{
           else{
             for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
               buffer += " ";
-              buffer += int_to_locant(i+1);
+              buffer += INT_TO_LOCANT(i+1);
               buffer += 'H';
             }
           }
@@ -2566,7 +2913,7 @@ struct BabelGraph{
         default:
           for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
             buffer += " ";
-            buffer += int_to_locant(i+1);
+            buffer += INT_TO_LOCANT(i+1);
             buffer += 'H';
           }
           break;
@@ -2578,9 +2925,9 @@ struct BabelGraph{
         OBAtom *latom = &(*iter);
         OBBond* lbond = pd.locant_path[i]->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,pd.locant_path[i],lbond->GetBondOrder(),
+          if(!ParseNonCyclic( latom,pd.locant_path[i],lbond,
                               mol,buffer,
-                              int_to_locant(i+1),pd.locant_path,pd.path_size)){
+                              INT_TO_LOCANT(i+1),pd.locant_path,pd.path_size)){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
@@ -2654,18 +3001,46 @@ struct BabelGraph{
 
 bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
 {   
-  if(modern)
-    MODERN = 1;
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
+
+#if MODERN
+  StereoFrom0D(mol_copy); 
+
+  OBStereoFacade stereo_facade = OBStereoFacade(mol_copy);
+  FOR_ATOMS_OF_MOL(a,mol_copy){
+    if(stereo_facade.HasTetrahedralStereo(a->GetId())){
+    
+      OBTetrahedralStereo *tet_centre = stereo_facade.GetTetrahedralStereo(a->GetId()); 
+      OBTetrahedralStereo::Config cfg;
+      cfg = tet_centre->GetConfig();
+      
+      unsigned int stereo = 0;
+      for (unsigned long ref : cfg.refs){
+        if(mol_copy->GetAtomById(ref)){
+          OBBond * bond = mol_copy->GetBond(mol_copy->GetAtomById(cfg.center),mol_copy->GetAtomById(ref));
+
+          if(stereo==1){
+            bond->SetWedge(true); 
+          }
+          else if (stereo==0){
+            bond->SetHash(true); 
+          }
+        }
+        stereo++; 
+      }
+      
+    }
+  }
+#endif
 
   unsigned int cyclic = 0;
   bool started = false; 
   FOR_RINGS_OF_MOL(r,mol_copy)
     cyclic++;
 
-  if(opt_debug)
+  if(OPT_DEBUG)
     WriteBabelDotGraph(mol_copy);
 
   if(!cyclic){
@@ -2706,11 +3081,11 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
       }
     }
   }
-  
-  if(!MODERN)
-    obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
-  
-  // remove any un-needed pops
+
+#if !MODERN
+  obabel.AddPostCharges(mol_copy,buffer); // add in charges where we can 
+#endif 
+
   while(buffer.back() == '&')
     buffer.pop_back(); 
 

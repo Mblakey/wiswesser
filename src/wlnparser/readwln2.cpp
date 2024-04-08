@@ -15,6 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +26,7 @@ GNU General Public License for more details.
 #include <set>
 #include <deque>
 #include <string>
+#include <strings.h>
 #include <vector>
 #include <map>
 
@@ -44,24 +46,29 @@ GNU General Public License for more details.
 #include <openbabel/graphsym.h>
 
 #include "openbabel/parsmart.h"
+#include "openbabel/stereo/stereo.h"
 #include "parser.h"
 
 using namespace OpenBabel; 
 
 #define STRUCT_COUNT 1024
 #define MAX_EDGES 8
+#define AMPERSAND_EXPAND 23
+#define BROKEN_TREE_LIMIT 6
 
 // --- DEV OPTIONS  ---
-#define OPT_DEBUG 1
 #define OPT_CORRECT 0
 
 
-const char *wln_string;
+const char *wln_input;
 struct WLNSymbol;
 struct WLNEdge; 
 struct WLNRing;
 struct WLNGraph;
 struct ObjectStack;
+
+#define INT_TO_LOCANT(X) (X+64)
+#define LOCANT_TO_INT(X) (X-64)
 
 // ##############################################################
 
@@ -76,31 +83,13 @@ int isNumber(const std::string& str)
     return val;
 }
 
-unsigned char static int_to_locant(unsigned int i){
-  return i + 64;
-}
-
-unsigned int static locant_to_int(unsigned char loc){
-  return loc - 64;
-}
-
-
-std::string get_notation(unsigned int s, unsigned int e)
-{
-  std::string res; 
-  for (unsigned int i = s; i <= e; i++)
-  {
-    res.push_back(wln_string[i]);
-  }
-  return res; 
-}
 
 bool Fatal(unsigned int pos, const char *message)
 { 
 
 #if ERRORS == 1
   fprintf(stderr,"%s\n",message);
-  fprintf(stderr, "Fatal: %s\n", wln_string);
+  fprintf(stderr, "Fatal: %s\n", wln_input);
   fprintf(stderr, "       ");
   for (unsigned int i = 0; i < pos; i++)
     fprintf(stderr, " ");
@@ -123,12 +112,14 @@ struct WLNEdge{
   WLNEdge *reverse; // points to its backwards edge 
   unsigned int order;
   bool aromatic;
+  unsigned int stereo; // 0- none, 1 - descend, 2- accend
 
   WLNEdge(){
     parent   = 0;
     child    = 0;
     order    = 0;
     aromatic = 0;
+    stereo = 0; 
   }
   ~WLNEdge(){};
 };
@@ -173,10 +164,10 @@ struct WLNSymbol
   }
   ~WLNSymbol(){};
 
-  void add_special(unsigned int s, unsigned int e)
+  void add_special(const char* ptr, unsigned int s, unsigned int e)
   {
     for (unsigned int i = s; i <= e; i++)
-      special.push_back(wln_string[i]);
+      special.push_back(ptr[i]);
   }
 
 };
@@ -189,11 +180,11 @@ struct WLNRing
   
   // quick ring perception
   std::vector<unsigned char> assignment_locants;
-  std::vector<unsigned int> assignment_digits;
+  std::vector<unsigned int>   assignment_digits;
   
-  std::map<unsigned char, WLNSymbol *>      locants; 
-  std::map<WLNSymbol*,unsigned char>        locants_ch;
-  std::map<WLNSymbol*,unsigned int>         position_offset; // gives hetero position in the string
+  std::map<unsigned int, WLNSymbol *>     locants; // int allows effectively infinite broken positions 
+  std::map<WLNSymbol*,unsigned int>       locants_ch;
+  std::map<WLNSymbol*,unsigned int>       position_offset; // gives hetero position in the string
 
   bool spiro;
   WLNEdge *macro_return;
@@ -239,7 +230,7 @@ struct WLNRing
 
     for (unsigned int i = 0; i< rsize;i++){
       unsigned int r = i;
-      unsigned char loc_a = int_to_locant(i+1);
+      unsigned char loc_a = INT_TO_LOCANT(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
       if(rsym->ch == 'S' || (rsym->ch == 'N' && rsym->charge < 0)) // for now lets see
         continue;
@@ -255,7 +246,7 @@ struct WLNRing
         
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
             unsigned char loc_b = locants_ch[csym];
-            unsigned int c = locant_to_int(loc_b-1);
+            unsigned int c = LOCANT_TO_INT(loc_b-1);
             adj_matrix[r * rsize + c] = 1; 
             adj_matrix[c * rsize + r] = 1; 
             aromatic_atoms++;
@@ -265,6 +256,47 @@ struct WLNRing
     }
 
     return true;
+  }
+};
+
+
+// see notes in build cyclic for usuage. 
+struct LocantPos{
+  bool active;
+  int  allowed_connections; 
+  WLNSymbol *locant; // look up character based on the ring_map
+
+  LocantPos(){
+    active = false; 
+    locant = 0; 
+    allowed_connections = 0; 
+  }
+}; 
+
+
+// needed as not to mess up the locant path algorithm
+struct LocantPair{
+  unsigned int first; 
+  unsigned int second;
+  unsigned int stereo; 
+  unsigned int order; 
+  LocantPair(){
+    first = 0; 
+    second = 0;
+    stereo = 0;  
+    order = 0;  
+  }
+
+  LocantPair(unsigned char f, unsigned char s){
+    first = f; 
+    second = s; 
+  }
+
+  void clear(){
+    first = 0; 
+    second = 0;
+    stereo = 0;  
+    order = 0;  
   }
 };
 
@@ -611,6 +643,89 @@ struct ObjectStack{
 };
 
 
+/**********************************************************************
+                         Debugging Functions
+**********************************************************************/
+
+/* dump wln tree to a dotvis file */
+void WLNDumpToDot(FILE *fp, WLNGraph &graph)
+{  
+  fprintf(fp, "digraph WLNdigraph {\n");
+  fprintf(fp, "  rankdir = LR;\n");
+  for (unsigned int i=0; i< graph.symbol_count;i++)
+  {
+    WLNSymbol *node = graph.SYMBOLS[i];
+    if(!node)
+      continue;
+
+    fprintf(fp, "  %d", node->id);
+    if (node->ch == '*' || node->ch == '#')
+      fprintf(fp, "[shape=circle,label=\"*:%s\"];\n", node->special.c_str());
+    else if (node->spiro)
+      fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
+    else if (node->inRing)
+      fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
+    else{
+      if(std::isdigit(node->ch)){
+        if (!node->special.empty())
+          fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
+        else
+          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+      } 
+      else
+        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
+    }
+  
+      
+    for (unsigned int ei=0;ei<node->barr_n;ei++){
+      WLNEdge *edge = &node->bond_array[ei];
+      WLNSymbol *child = edge->child;
+      unsigned int bond_order = edge->order;
+
+      if (bond_order > 1){
+        for (unsigned int k=0;k<bond_order;k++){
+          fprintf(fp, "  %d", node->id);
+          fprintf(fp, " -> ");
+
+          if(edge->aromatic)
+            fprintf(fp, "%d [color=red]\n", child->id);
+          else
+            fprintf(fp, "%d\n", child->id);
+        }
+      }
+      else{
+        fprintf(fp, "  %d", node->id);
+        fprintf(fp, " -> ");
+        if(edge->aromatic)
+          fprintf(fp, "%d [color=red]\n", child->id);
+        else
+          fprintf(fp, "%d\n", child->id);
+      }
+    }
+  }
+
+  fprintf(fp, "}\n");
+}
+
+bool WriteGraph(WLNGraph &graph,const char*filename){
+  fprintf(stderr,"Dumping wln graph to %s:\n",filename);
+  FILE *fp = 0;
+  fp = fopen(filename, "w");
+  if (!fp)
+  {
+    fprintf(stderr, "Error: could not create dump .dot file\n");
+    fclose(fp);
+    return false;
+  }
+  else
+    WLNDumpToDot(fp,graph);
+  
+  fclose(fp);
+  fp = 0;
+  fprintf(stderr,"  dumped\n");
+  return true;
+}
+
 
 /**********************************************************************
                          WLNSYMBOL Functions
@@ -715,14 +830,14 @@ WLNSymbol* define_hypervalent_element(unsigned char sym, WLNGraph &graph){
 }
 
 /* allocate new or override exisiting node*/
-WLNSymbol* define_element(std::string special, WLNGraph &graph){
+WLNSymbol* define_element(unsigned char special_1, unsigned char special_2, WLNGraph &graph){
     
   WLNSymbol *created_wln = 0;
   
-  switch (special[0]){
+  switch (special_1){
 
     case 'A':
-      switch(special[1]){
+      switch(special_2){
         case 'C':
         case 'G':
         case 'L':
@@ -740,7 +855,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'B':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'E':
         case 'H':
@@ -757,7 +872,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       
 
     case 'C':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'D':
         case 'E':
@@ -777,7 +892,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
       
     case 'D':
-      switch(special[1]){
+      switch(special_2){
         case 'B':
         case 'S':
         case 'Y':
@@ -790,7 +905,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'E':
-      switch(special[1]){
+      switch(special_2){
         case 'R':
         case 'S':
         case 'U':
@@ -803,7 +918,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'F':
-      switch(special[1]){
+      switch(special_2){
         case 'E':
         case 'L':
         case 'M':
@@ -817,7 +932,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'G':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'D':
         case 'E':
@@ -830,7 +945,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'H':
-      switch(special[1]){
+      switch(special_2){
         case 'E':
         case 'F':
         case 'G':
@@ -845,7 +960,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'I':
-      switch(special[1]){
+      switch(special_2){
         case 'N':
         case 'R':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -857,7 +972,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'K':
-      switch(special[1]){
+      switch(special_2){
         case 'R':
         case 'A':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -870,7 +985,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       
 
     case 'L':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'I':
         case 'R':
@@ -885,7 +1000,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'M':
-      switch(special[1]){
+      switch(special_2){
         case 'C':
         case 'D':
         case 'G':
@@ -901,7 +1016,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'N':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'D':
@@ -920,7 +1035,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
 
 
     case 'O':
-      switch(special[1]){
+      switch(special_2){
         case 'O':
         case 'G':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -932,7 +1047,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'P':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'D':
@@ -950,7 +1065,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'R':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'E':
@@ -969,7 +1084,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
      
 
     case 'S':
-      switch(special[1]){
+      switch(special_2){
         case 'B':
         case 'C':
         case 'E':
@@ -988,7 +1103,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
 
 
     case 'T':
-      switch(special[1]){
+      switch(special_2){
         case 'A':
         case 'B':
         case 'C':
@@ -1007,7 +1122,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'U':
-      if(special[1] == 'R')
+      if(special_2 == 'R')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1015,7 +1130,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'V':
-      if (special[1] == 'A')
+      if (special_2 == 'A')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1023,7 +1138,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
     
     case 'W':
-      if(special[1] == 'T')
+      if(special_2 == 'T')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1032,7 +1147,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
     
 
     case 'X':
-      if (special[1] == 'E')
+      if (special_2 == 'E')
         created_wln = AllocateWLNSymbol('*',graph);
       else
         return (WLNSymbol *)0;
@@ -1040,7 +1155,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'Y':
-      switch(special[1]){
+      switch(special_2){
         case 'B':
         case 'T':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -1052,7 +1167,7 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       break;
 
     case 'Z':
-      switch(special[1]){
+      switch(special_2){
         case 'N':
         case 'R':
           created_wln = AllocateWLNSymbol('*',graph);
@@ -1067,7 +1182,8 @@ WLNSymbol* define_element(std::string special, WLNGraph &graph){
       return (WLNSymbol *)0;
   }
 
-  created_wln->special = special;
+  created_wln->special+= special_1;
+  created_wln->special+= special_2;
   created_wln->allowed_edges = 8; // allow anything for now;
   return created_wln;
 }
@@ -1408,34 +1524,33 @@ WLNSymbol *return_object_symbol(ObjectStack &branch_stack){
                           WLNEdge Functions
 **********************************************************************/
 
-/* adds an edge between two symbols, arrays should be held by each symbol */
-bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
+/* adds an edge between two symbols, arrays should be held by each symbol
+ * symbols are malloced so address is stable */
+WLNEdge* AddEdge(WLNSymbol *child, WLNSymbol *parent)
 {
   if(!child || !parent || child == parent){
-#if ERRORS == 1 
     fprintf(stderr,"Error: binding invalid nodes\n"); 
-#endif
     return 0;
   }
   
+  // dont make the same bond twice
+  for(unsigned int i=0;i<parent->barr_n;i++){
+    if(parent->bond_array[i].child == child)
+      return &parent->bond_array[i]; 
+  }
+  
   if(parent->barr_n >= MAX_EDGES){
-#if ERRORS == 1 
     fprintf(stderr,"Error: creating more %d bonds on a singular symbol - is this reasonable?\n",MAX_EDGES);
-#endif
     return 0;
   }
   
   if ( ((child->num_edges + 1) > child->allowed_edges)){
-#if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", child->ch,child->num_edges+1, child->allowed_edges);
-#endif
     return 0;
   }
   
   if ( ((parent->num_edges + 1) > parent->allowed_edges)){
-#if ERRORS == 1
     fprintf(stderr, "Error: wln character[%c] is exceeding allowed connections %d/%d\n", parent->ch,parent->num_edges+1, parent->allowed_edges);
-#endif
     return 0;
   }
 
@@ -1458,7 +1573,7 @@ bool AddEdge(WLNSymbol *child, WLNSymbol *parent)
   forward->reverse = backward;
   backward->reverse = forward; 
   
-  return true;
+  return forward;
 }
 
 
@@ -1582,10 +1697,9 @@ bool add_dioxo(WLNSymbol *head,WLNGraph &graph){
   if(!saturate_edge(edge,1))
     return false;
 
-  if(!AddEdge(oxygen, binded_symbol))
+  WLNEdge *sedge = AddEdge(oxygen, binded_symbol); 
+  if(!sedge)
     return false;
-
-  WLNEdge *sedge = &binded_symbol->bond_array[binded_symbol->barr_n-1]; 
   
   if(binded_symbol->num_edges < binded_symbol->allowed_edges)
     if(!unsaturate_edge(sedge,1))
@@ -1647,95 +1761,99 @@ WLNRing *AllocateWLNRing(WLNGraph &graph)
 }
 
 
-// both lookups needed for QOL in ring building
-WLNSymbol* assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
+
+bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
   if(!locant)
     return 0;
   ring->locants[loc] = locant; 
   ring->locants_ch[locant] = loc;
   locant->inRing = ring;
-  return locant; 
+  return 1; 
 }  
 
 
-bool set_up_broken( WLNRing *ring, WLNGraph &graph,
-                    std::set<unsigned char> &broken_locants,
-                    std::map<unsigned char,std::deque<unsigned char>> &broken_lookup,
-                    std::map<unsigned char, bool> &spawned_broken, 
-                    std::map<unsigned char,unsigned int> &allowed_connections)
-{
-  // broken locants
-  if(!broken_locants.empty()){
-    // create the atoms, 
-    for (unsigned char loc_broken : broken_locants){
-      unsigned char calculate_origin = loc_broken;
-      unsigned int pos = 0;
-      while( (calculate_origin - 23) > 128){
-        calculate_origin += -23;
-        pos++;
-      }
-      // position here decodes where to link them
-      unsigned char parent = '\0';
-      parent = int_to_locant(128 + calculate_origin); // relative positioning
-      if(pos == 2 || pos == 3)
-        parent = locant_to_int(parent) + 128;
-      else if(pos > 3)
-        return false;
-      
-      if(OPT_DEBUG)
-        fprintf(stderr,"  ghost linking %d to parent %c\n",loc_broken,parent);
-      
-      if(!ring->locants[loc_broken]){
-        // bond them in straight away
-        allowed_connections[loc_broken] = 3; 
-        if(allowed_connections[parent])
-          allowed_connections[parent]--;
+/*
+ The broken locant conventions are as follows, the first broken position is given a value of 
+ 128, its extremely unlikly that a reasonable chemical will have 128 non broken cyclic atoms:
 
-        WLNSymbol *broken = AllocateWLNSymbol('C',graph);
-        broken->inRing = ring;
-        broken->allowed_edges = 4;
-        broken = assign_locant(loc_broken,broken,ring);
-        broken_lookup[parent].push_back(loc_broken);
-        if(!AddEdge(ring->locants[loc_broken], ring->locants[parent]))
-          return false;
-      }
-      else
-        return false;
-      
-    }
-  }
-
-  return true; 
-}
-
-bool set_up_pseudo( WLNRing *ring, WLNGraph &graph,
-                            std::vector<unsigned char> &pseudo_locants,
-                            std::map<unsigned char,unsigned char> &pseudo_lookback)
-{ 
-
-  if(!pseudo_locants.empty()){
-
-    if(pseudo_locants.size() % 2 != 0)
-      return false;
-    
-
-    for(unsigned int i=0;i<pseudo_locants.size()-1;i+=2){
-      unsigned int bind_1 = pseudo_locants[i];
-      unsigned int bind_2 = pseudo_locants[i+1];
-      pseudo_lookback[bind_2] = bind_1;
-    }
-  }
+ limiting the tree depth to 2, for now, which gives 6 values per parent symbol
+ - Each normal locant can have two broken locants, one at - and one at -&, e.g B- and B-&
+ 
+ Access is given by a binary tree sequence in an array starting at 128 and indexed by locant
+ gets you the start node: examples: 
   
-  return true;
+           B
+        /     \
+     B-        B-&
+   /  \      /     \
+  B-- B--&  B-&-   B-&&
+
+ 128 + (O * 6) = 'A' node, 128 = A-, 129 = A-&, 130 = A--, 131 = A--&, 132 = A-&-, 133 = A-&&
+ 128 + (1 * 6) = 'B' node, 134 = B-, 135 = B-&, 136 = B--, 137 = B--&, 138 = B-&-, 139 = B-&&
+ 128 + (2 * 6) = 'C' node, 140... 
+*/
+unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
+                            std::map<unsigned int,unsigned int> &bridge_locants,
+                            LocantPos*branch_locants)
+{
+  unsigned int b_locant = 0; 
+  for (unsigned int i=0;i<local_size;i++){
+
+    for(unsigned int b=0;b<BROKEN_TREE_LIMIT;b++){
+      if(ring->locants[b+128 + (i * BROKEN_TREE_LIMIT)]){
+        branch_locants[b_locant].locant = ring->locants[b+ 128 + (i * BROKEN_TREE_LIMIT)]; 
+        branch_locants[b_locant].active = 0; 
+        branch_locants[b_locant].allowed_connections = 3; 
+        b_locant++;
+
+        if(bridge_locants[b+ 128 + (i * BROKEN_TREE_LIMIT)])
+          branch_locants->allowed_connections --; //bridge_locants[b+ 128 + (i * BROKEN_TREE_LIMIT)]; 
+
+        if(b_locant == 32){
+          fprintf(stderr,"Error: branching locant exceed 32, is this even possible?\n");
+          return 0; 
+        }
+      }
+    }
+  }
+
+  return b_locant; 
 }
 
-/* interesting here that the multicyclic points are not explicitly used */
-unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &ring_assignments, 
+
+/*
+ Some rules for solving ring systems in WLN. 
+
+ 1) From a given locant, the path walks sequentially forward to the next position 
+    C6 = C,D,E,F,G,H , bond C->H
+
+    * if the locant already has saturated bonds, move the next avaliable locant
+    A6, when A already has all its bonds, A, J, K, L, M (EOC), B->M. 
+ 
+ 2) The lowest locant in that ring should be the one specified.
+    If a ring has A,B,C,D,E,F, bonding is A6
+
+ 4) The walk is taken by the highest set of locants, If A->F, then A6 goes A, F, G, H, I, J
+
+ 5) If a locant contains a branch off the locant path, it is always involved in its parent ring
+    and taken last. 
+    M has M-:  M6 = M, N, O, P, Q, M-
+    sequentally, the broken locants sits between its parent and the next symbol e.g M < M- < N
+
+ 6) Each normal position can have maximum two broken children, H-, H-&, of which these can have two etc, 
+    given with appending another dash H- can have H-- and H--&. 
+
+ 7) Broken locants are only "alive" when their parent locant has been targeteted.
+    B has B-, L666 A->F, A->J, A->M, A is saturated therefore B->M, B has B-, backtrack: B- -> L
+ 
+ 8) The effect of bridging is that the bonds allowed is lowered by 1.
+    Bridging A brings its allowed connections to 2, since it is at the start of the chain
+    bridging B brings its allowed connections to 1, since its in the middle of the chain. 
+*/
+unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
                           std::vector<bool>                                   &aromaticity,
-                          std::vector<unsigned char>                          &multicyclic_locants,
-                          std::vector<unsigned char>                          &pseudo_locants,
-                          std::set<unsigned char>                             &broken_locants,
-                          std::map<unsigned char,unsigned int>                &bridge_locants,
+                          std::vector<unsigned int>                           &pseudo_locants,
+                          std::map<unsigned int,unsigned int>                 &bridge_locants,
                           unsigned char size_designator,
                           WLNRing *ring,
                           WLNGraph &graph) 
@@ -1751,33 +1869,45 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         local_size = component.first;
     }
 
-    for (unsigned int i=0;i<252;i++){
-      if(bridge_locants[i])
+    for (unsigned int i=0;i<255;i++){
+      if(bridge_locants[i]){
+        local_size+= -1; 
+      }
+
+      if(ring->locants[i] && i >= 128)
         local_size+= -1; 
     }
 
-    local_size+= - broken_locants.size();
+
     if(OPT_DEBUG)
-      fprintf(stderr,"  calculated size: %c(%d)\n",int_to_locant(local_size),local_size);
+      fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
   }
   else
-    local_size = locant_to_int(size_designator);
-
+    local_size = LOCANT_TO_INT(size_designator);
+  
+  if(OPT_DEBUG)
+    fputc('\n',stderr); 
 
   // create all the nodes in a large straight chain and assign how many bonds
   // each atom is allowed to take
-
+  
+  // just use the contructors with new
+  
+  LocantPos *locant_path = new LocantPos[local_size];  
+  LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
+  unsigned int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
+  
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
-  std::map<unsigned char,unsigned int> allowed_connections; 
 
-  for (unsigned int i=1;i<=local_size;i++){
-    unsigned char loc = int_to_locant(i);
-
-    if(i == 1 || i == local_size)
-      allowed_connections[loc] = 2; 
+  for (unsigned int i=0;i<local_size;i++){
+    unsigned char loc = INT_TO_LOCANT(i+1);
+  
+    // default ring chain connections
+    if(i == 0 || i == local_size-1)
+      locant_path[i].allowed_connections = 2; 
     else
-      allowed_connections[loc] = 1; 
+      locant_path[i].allowed_connections = 1; 
 
     if(!ring->locants[loc]){
       curr = AllocateWLNSymbol('C',graph);
@@ -1785,22 +1915,21 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
         return 0;
 
       curr->allowed_edges = 4;
-      curr->inRing = ring;
-      curr = assign_locant(loc,curr,ring);
+      assign_locant(loc,curr,ring);
     }
-    else{
+    else
       curr = ring->locants[loc];
-      if(curr->ch == 'X')
-        allowed_connections[loc]++;
-      else if(curr->ch == '*')
-        allowed_connections[loc] = 6; // allow octahedral geometry 
 
-      if(!ring->locants_ch[curr])
-        ring->locants_ch[curr] = loc;
+    locant_path[i].locant = curr; 
+    
+    if(curr->ch == 'X'){
+      locant_path[i].allowed_connections++;
     }
-
-    if(bridge_locants[loc] && allowed_connections[loc])
-      allowed_connections[loc]--; 
+    else if(curr->ch == '*')
+      locant_path[i].allowed_connections = 6;
+    
+    if(bridge_locants[loc])
+      locant_path[i].allowed_connections--; // decrement any bridging positions
       
     if(prev){
       if(!AddEdge(curr, prev))
@@ -1808,373 +1937,294 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned char>>  &r
     }
     prev = curr;
   }
-
-  std::map<unsigned char,unsigned char>             pseudo_lookup;  
-  std::map<unsigned char,std::deque<unsigned char>> broken_lookup;    // want to pop front
-  std::map<unsigned char, bool>                     spawned_broken; 
   
-  std::map<unsigned char, bool>                     shortcuts; // take when possible?
-
-  // broken locant map spawn + pseudo locants map spawn 
-  if(!set_up_broken(ring,graph,broken_locants,broken_lookup,spawned_broken,allowed_connections) || 
-     !set_up_pseudo(ring,graph,pseudo_locants,pseudo_lookup))
-    return false;
+  // use pseudo locants as a catch all, more stable then traditional WLN for now
+  for(int i=0;i<(pseudo_locants.size()/2);i++)
+    ring_assignments.pop_back(); 
 
   // calculate bindings and then traversals round the loops
-  bool aromatic             = false;
-  unsigned char bind_1      = '\0';
-  unsigned char bind_2      = '\0';
-  unsigned int fuses        = 0; 
-  unsigned int comp_size    = 0;
-  unsigned int pseudo_pairs = pseudo_locants.size()/2;
-  
+  unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
-    std::pair<unsigned int, unsigned char> component = ring_assignments[i];
-    comp_size = component.first;
-    bind_1    = component.second;
-    aromatic = aromaticity[i];
-    WLNSymbol *path = ring->locants[bind_1];
+    
+    std::pair<unsigned int, unsigned int> component = ring_assignments[i];
+    
+    bool aromatic           = aromaticity[i];
+    unsigned int comp_size  = component.first;
+    unsigned int start_char  = component.second;
+    ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
 
-    if(!path){
-#if ERRORS == 1
-      fprintf(stderr,"Error: out of bounds locant access in cyclic builder\n");
-#endif
-      return 0;
+    // --- MULTI ALGORITHM, see notes on function for rules and use --- 
+    
+    unsigned int  path_size   = 0;  
+    unsigned char end_char    = 0; 
+    unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
+
+    LocantPos *start_locant=0;
+    LocantPos *curr_locant=0; 
+
+    if(start_char < 128){
+      start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+      curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+    }
+    else{
+      for(unsigned int bs=0;bs<b_locant;bs++){
+        if(branch_locants[bs].locant == ring->locants[start_char]){
+          start_locant   = &branch_locants[bs]; 
+          curr_locant   =  &branch_locants[bs]; 
+          break;
+        }
+      }
     }
 
-    // If we need to catch fuse, we do
-    if(i==ring_assignments.size()-1 && pseudo_pairs){
-      bool caught = false;
-      for(unsigned int s = 1; s<=local_size;s++){
-        if(pseudo_lookup[int_to_locant(s)]){
-          unsigned char pbind_2 = int_to_locant(s); 
-          unsigned char pbind_1 = pseudo_lookup[pbind_2];
-
-          if(OPT_DEBUG)
-            fprintf(stderr,"  %d  catch fusing: %c <-- %c\n",fuses,pbind_2,pbind_1);
-          
-          if(!search_edge(ring->locants[pbind_2],ring->locants[pbind_1])){
-            if(!AddEdge(ring->locants[pbind_2], ring->locants[pbind_1]))
-              return false;
-            fuses++;
-            caught = true;
+    start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
+    
+    // -1 as one locant is already given in start
+    while(path_size < comp_size-1){
+      WLNEdge*      edge_taken  = 0; 
+      unsigned char highest_loc = 0; // highest of each child iteration 
+      unsigned int  broken_position = 0; 
+      // walk the ring
+      for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
+        WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
+        unsigned char child_loc = ring->locants_ch[child];
+        if(child_loc < 128){
+          if(child_loc > highest_loc){
+            highest_loc = child_loc;
+            edge_taken = &curr_locant->locant->bond_array[ei]; 
+          }
+        }
+        else if(child_loc >= 128){ 
+          // broken locant sections, where the hierachy of broken locants is ascending order  
+          for(unsigned int bs=0;bs<b_locant;bs++){
+            if(branch_locants[bs].locant == child && branch_locants[bs].active){
+              highest_loc = child_loc;
+              edge_taken = &curr_locant->locant->bond_array[ei]; 
+              broken_position = bs; 
+              break; 
+            }
           }
         }
       }
-      if(caught)
-        break;
-    }
-
-    // --- MULTI ALGORITHM --- 
-    unsigned int path_size = 0; 
-    unsigned char *ring_path = (unsigned char*)malloc(sizeof(unsigned char)*comp_size);
-    for (unsigned int a=0;a<comp_size;a++)
-      ring_path[a] = 0;
-    
-    ring_path[path_size++] = ring->locants_ch[path];
-    unsigned char highest_loc = '\0'; 
-
-    while(path_size < comp_size){ 
-      // this should now overshoot
-
-      highest_loc = '\0'; // highest of each child iteration 
-      for(unsigned int ei=0;ei<path->barr_n;ei++){
-        WLNSymbol *child = path->bond_array[ei].child;
-        unsigned char child_loc = ring->locants_ch[child];
-
-        if(child_loc > 128 && !spawned_broken[child_loc])  // skip the broken child if not yet included in a ring
-          continue;
-        else if(shortcuts[child_loc]){
-          highest_loc = child_loc;
-          break;
-        }
-        else if(child_loc >= highest_loc)
-          highest_loc = child_loc;  
-      }
-
+      
       if(!highest_loc){
-        if(locant_to_int(ring->locants_ch[path]) == local_size)
-          highest_loc = ring->locants_ch[path];
-        else{
-#if ERRORS == 1
-          fprintf(stderr,"Error: locant path formation is broken in ring definition - '%c(%d)'\n",ring->locants_ch[path],ring->locants_ch[path]);
-#endif    
-          if(ring_path)
-            free(ring_path);
-          ring_path = 0;
+        // if at the end of the path, its okay, break the loop and do post shifting 
+        if(curr_locant->locant != ring->locants[max_locant]){
+          fprintf(stderr,"Error: highest locant not found in path walk\n");
           return false;
         }
+
+        over_shoot++;
+        path_size++; 
       }
+      else {
+        if(highest_loc < 128)
+          curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
+        else
+          curr_locant = &branch_locants[broken_position]; 
 
-      path = ring->locants[highest_loc];
-      ring_path[path_size++] = highest_loc;   
-
-      // let catch fuse take care of last pseudo pairs
-      if(pseudo_lookup[highest_loc] != '\0' && path_size < comp_size && i!=ring_assignments.size()-1){
-        // lets get the bonds right and then worry about the path 
-        
-        bind_1 = pseudo_lookup[highest_loc];
-        bind_2 = highest_loc; 
-        path_size = comp_size;
-        for(unsigned int a = 0;a<comp_size;a++)
-          ring_path[a] = 0;
-        
-        // just reset
-        pseudo_lookup[highest_loc] = 0;
-        if(bind_1 > 128)
-          spawned_broken[bind_1] = true;
-        
-        shortcuts[bind_1] = true;
-        if(pseudo_pairs)
-          pseudo_pairs--;
-      }
-
-      bind_2 = highest_loc;
-    }
-
-    // sanitize the ring path, if we've got duplicates (i.e hit the end of the path),
-    // we decrement and loop back round
-    for(unsigned int i=0;i<path_size;i++){
-      if(ring_path[i] == int_to_locant(local_size)){
-        unsigned int tally = 1;
-        for(unsigned int j=i+1;j<path_size;j++){
-          if(ring_path[j] == ring_path[i]){
-            ring_path[j] += -tally; // looping back
-            tally++;
-          } 
-        }
+        curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
+        edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
+        end_char = highest_loc; 
+        path_size++; 
       }
     }
-
-    // shifting now performed here should be more stable
+      
     for(;;){
-      if(!broken_lookup[bind_1].empty()){
-        
-        while(spawned_broken[broken_lookup[bind_1].front()])
-          broken_lookup[bind_1].pop_front();
-        
-        if(broken_lookup[bind_1].empty())
-          continue;
 
-        unsigned char bloc = broken_lookup[bind_1].front();
-        broken_lookup[bind_1].pop_front();
-        bind_1 = bloc;
-        
-        for(unsigned int a=path_size-1;a>0;a--)
-          ring_path[a] = ring_path[a-1];
-        
-        ring_path[0] = bind_1;
-        spawned_broken[bind_1] = true;
-
-        // pseudo check, will remove later
-        if(ring_path[path_size-1])
-          bind_2 = ring_path[path_size-1]; 
-      }
-      else if(allowed_connections[bind_1]){
-        // very rare case where we get the right path a different way to normal
-        
-        while((!allowed_connections[bind_2] || bind_2 == bind_1) && bind_2 < int_to_locant(local_size))
-          ring_path[path_size-1] = ++bind_2;
-        
-        if(OPT_DEBUG){
-          fprintf(stderr,"  %d  fusing (%d): %c <-- %c   [",fuses,comp_size,bind_2,bind_1);
-          for (unsigned int a=0;a<path_size;a++)
-            fprintf(stderr," %c(%d)",ring_path[a],ring_path[a]);
-          fprintf(stderr," ]\n");
+      if(start_locant->allowed_connections > 0){
+        bool broken_shifting = true; 
+        while(broken_shifting){
+          broken_shifting = false; 
+          
+          // take the lowest possible branch locant
+          WLNSymbol *branch_move = 0; 
+          unsigned int move_index = 0; 
+          for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
+            WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+            // while loop needed
+            if(ring->locants_ch[bchild] > 128){
+              for(unsigned int bs=0;bs<b_locant;bs++){
+                if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
+                  if (!branch_move || ring->locants_ch[branch_locants[bs].locant] < ring->locants_ch[branch_move]){
+                    branch_move = branch_locants[bs].locant; 
+                    move_index = bs; 
+                  }
+                }
+              }
+            }
+          }
+          
+          if(branch_move){
+            start_locant->allowed_connections--; 
+            start_char = ring->locants_ch[branch_move]; 
+            start_locant = &branch_locants[move_index];
+            start_locant->active = true; 
+            curr_locant = &locant_path[LOCANT_TO_INT(--end_char-1)]; 
+            broken_shifting = true; 
+          }
         }
 
-        if(!AddEdge(ring->locants[bind_2], ring->locants[bind_1])){
-          if(ring_path)
-            free(ring_path);
-          ring_path = 0;
+        if(OPT_DEBUG){
+          if(start_char >= 128 && end_char <= 128)
+            fprintf(stderr,"  fusing (%d): %d --> %c\n",comp_size,start_char,end_char);
+          else if(start_char <= 128 && end_char >= 128)
+            fprintf(stderr,"  fusing (%d): %c --> %d\n",comp_size,start_char,end_char);
+          else if(start_char >= 128 && end_char >= 128)
+            fprintf(stderr,"  fusing (%d): %d --> %d\n",comp_size,start_char,end_char);
+          else
+            fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
+        }
+
+        WLNEdge *new_edge = AddEdge(curr_locant->locant,start_locant->locant);  
+        if(!new_edge){
+          fprintf(stderr,"Error: failed to bond locant path edge\n");    
           return false;
         }
-         
-        allowed_connections[bind_1]--;
-        if(allowed_connections[bind_2])
-          allowed_connections[bind_2]--;
 
+        new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
+        start_locant->allowed_connections--; 
         break;
       }
       else{
-
-        bind_1++; // increase bind_1
-        if(bind_1 > int_to_locant(local_size)+1)
-           break;
-
-        bool found = false;
-        for(unsigned int a=0;a<path_size;a++){
-          if(ring_path[a] == bind_1)
-            found = true;
-        }
-
-        // if its already there, we dont change the path
-        if(!found){ 
-          // if its not, we have to spawn it in by knocking one off
-          for(unsigned int a=path_size-1;a>0;a--)
-            ring_path[a] = ring_path[a-1];
-
-          ring_path[0] = bind_1; 
-          bind_2 = ring_path[path_size-1]; 
-        }
+        // increase the start char and move the path locant
+        start_char++;
+        start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
+        
+        // the current then moves back by 1
+        if(over_shoot)
+          over_shoot--;
+        else
+          end_char--; 
+        
+        curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 
       }
     }
+  }
+  
 
+  if(!pseudo_locants.empty()){
+    for(int i=0;i<pseudo_locants.size()-1;i+=2){
 
-    if(aromatic){
-      for(unsigned int a=0;a<path_size;a++){
-        WLNSymbol *arom = ring->locants[ring_path[a]]; 
-        if(arom){
-          arom->aromatic = true;
-          ring->aromatic_atoms = 1;
-        }
+      if(!AddEdge(ring->locants[pseudo_locants[i]],ring->locants[pseudo_locants[i+1]]))
+        fprintf(stderr,"Error: pseudo locants could not be bonded"); 
+
+      if(OPT_DEBUG){
+        if(pseudo_locants[i] >= 128 && pseudo_locants[i+1] <= 128)
+          fprintf(stderr,"  fusing: %d --> %c\n",pseudo_locants[i],pseudo_locants[i+1]);
+        else if(pseudo_locants[i] <= 128 && pseudo_locants[i+1] >= 128)
+          fprintf(stderr,"  fusing: %c --> %d\n",pseudo_locants[i],pseudo_locants[i+1]);
+        else if(pseudo_locants[i] >= 128 && pseudo_locants[i+1] >= 128)
+          fprintf(stderr,"  fusing: %d --> %d\n",pseudo_locants[i],pseudo_locants[i+1]);
+        else
+          fprintf(stderr,"  fusing: %c --> %c\n",pseudo_locants[i],pseudo_locants[i+1]);
       }
-    
-      // add the edges based on statement before n^2 but should work
-      for(unsigned int a=0;a<path_size;a++){
-        WLNSymbol *src = ring->locants[ring_path[a]];
-        for(unsigned int b=a+1;b<path_size;b++){
-          WLNSymbol *trg = ring->locants[ring_path[b]];
-          if(src && trg && src->aromatic && trg->aromatic){
-            WLNEdge *edge = search_edge(src,trg); 
-            if(edge)
-              edge->aromatic = true;
-          }
-        }
-      }
-
     }
-
-    if(ring_path)
-      free(ring_path);
-    ring_path = 0; 
-    fuses++;
   }
 
+  
+  delete [] locant_path;
+  delete [] branch_locants;
   return local_size; 
 }
 
 
-unsigned char create_relative_position(unsigned char parent){
-  // A = 129
-  unsigned int relative = 128 + locant_to_int(parent);
-  if(relative > 252){
-#if ERRORS == 1
-    fprintf(stderr,"Error: relative position is exceeding 252 allowed space - is this is suitable molecule for WLN notation?\n");
-#endif
-    return '\0';
-  }
-  else
-    return relative;
-}
-
-
-// try to handle if errors are occuring due to path changes
-bool post_unsaturate(std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
-                        unsigned int final_size,
-                        WLNRing *ring){
-
-  // post unsaturate bonds
-  for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
-    
-    unsigned char loc_1 = bond_pair.first;
-    unsigned char loc_2 = bond_pair.second;
-
-    if(loc_2 > int_to_locant(final_size)){
-      loc_1 = 'A';
-      loc_2--;
-    }
-
-    WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
-    if(!edge)
-      return false;
-    else if(!unsaturate_edge(edge,1))
-      return false;
-
-    edge->aromatic = 0;
-    // edge->child->aromatic = 0;
-    // edge->parent->aromatic = 0;
-  }
-
-  return true;
-}
-
-// try to handle if errors are occuring due to path changes
-bool post_saturate( std::vector<std::pair<unsigned char, unsigned char>> &bonds, 
-                    unsigned int final_size,
-                    WLNRing *ring){
-
+bool post_bond_handling( std::vector<LocantPair> &bonds, 
+                      unsigned int final_size,
+                      WLNRing *ring){
   // post saturate bonds
-  for (std::pair<unsigned char, unsigned char> bond_pair : bonds){
+  for (LocantPair bond_pair : bonds){
     
     unsigned char loc_1 = bond_pair.first;
     unsigned char loc_2 = bond_pair.second;
 
-    if(loc_2 > int_to_locant(final_size)){
+    if(loc_2 > INT_TO_LOCANT(final_size)){
       loc_1 = 'A';
       loc_2--;
     }
 
     WLNEdge *edge = search_edge(ring->locants[loc_2],ring->locants[loc_1]);
-    if(!edge)
+    if(!edge){
+      fprintf(stderr,"Error: edge not found for post handling between %c and %c\n",loc_2,loc_2); 
       return false;
-    else
-      edge->aromatic = false; // removes from kekulize consideration
+    }
+
+    if(!bond_pair.order)
+      edge->aromatic = 0;
+    else{
+      if(!unsaturate_edge(edge, bond_pair.order))
+        return false;
+    }
   }
 
   return true;
 }
+
 
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
-bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph &graph,unsigned char spiro_atom='\0'){
-  ring->str_notation = block;
+bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned int len,WLNGraph &graph,unsigned char spiro_atom='\0'){
 
   bool warned             = false;  // limit warning messages to console
   bool heterocyclic       = false;  // L|T designator can throw warnings
+  bool ring_start         = true; 
 
   unsigned int state_multi          = 0; // 0 - closed, 1 - open multi notation, 2 - expect size denotation
   unsigned int state_pseudo         = 0; 
   unsigned int state_aromatics      = 0;
-
+  
+  int pending_charge      = 0; 
+  unsigned char inline_unsaturate    = 0; 
   unsigned int  expected_locants      = 0;
   unsigned char ring_size_specifier   = '\0';
   
-  bool locant_attached                = false;  // more sensible way of modifying the locants 
+  unsigned char locant_attached       = 0;  // more sensible way of modifying the locants 
   unsigned char positional_locant     = 'A';    // have A as a default, lets tidy around this
 
-  std::string str_buffer;  
-
   std::vector<bool> aromaticity; 
-  std::vector<std::pair<unsigned char, unsigned char>>  unsaturations;
-  std::vector<std::pair<unsigned char, unsigned char>>  saturations;
 
-  std::vector<unsigned char>                multicyclic_locants;
-  std::vector<unsigned char>                pseudo_locants;
-  std::map<unsigned char,unsigned int>      bridge_locants;
-  std::set<unsigned char>                   broken_locants;
+  LocantPair pdb; 
+  std::vector<LocantPair>  bond_modifiers; // these have to be done post, as the locant path will be altered
   
-  std::vector<std::pair<unsigned int, unsigned char>>  ring_components;
+  // make the symbols as we go, or overwrite them
+  WLNSymbol *locant_a = 0; 
+  WLNSymbol *locant_b = 0;
+  WLNEdge   *edge     = 0; 
+
+#if MODERN
+  std::vector<LocantPair>  stereo;
+#endif
+
+  std::vector<unsigned int>                multicyclic_locants;
+  std::vector<unsigned int>                pseudo_locants;
+  std::map<unsigned int,unsigned int>      bridge_locants;
+  
+  std::vector<std::pair<unsigned int, unsigned int>>  ring_components;
 
   // broken locants start at A = 129 for extended ascii 
   // first is the standard 'X-' second is 'X-&', third is 'X--', fourth is 'X--&' and so on
 
-  unsigned int i = 0;    
-  unsigned int len = block.size();
-  const char *block_str = block.c_str();
-  unsigned char ch = *block_str;
+  unsigned char ch = wln_block[i];
+  while(i < len){
 
-  while(ch){
+character_start_ring:
+    if(state_multi == 3 && ch != '-' && ch != '&'){
+      state_multi = 0; 
+      positional_locant = 'A';
+    }
+
+    if(inline_unsaturate && positional_locant && (ch != '-' || ch != '&')){
+      pdb.first = inline_unsaturate; 
+      pdb.second = positional_locant;
+      bond_modifiers.push_back(pdb);
+      pdb.clear(); 
+    
+      inline_unsaturate = 0; 
+      positional_locant = 0; 
+    }
 
     switch(ch){
       case ' ':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
-        if(state_multi == 3)
-          state_multi = 0;
-
         if(expected_locants)
-          return Fatal(i+start,"Error: not enough locants before space character");
+          return Fatal(i,"Error: not enough locants before space character");
         
         else if(state_multi == 1)
           state_multi = 2;
@@ -2182,13 +2232,19 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           state_pseudo = 0;
         else if(positional_locant && locant_attached){
           if(ring_components.empty())
-            return Fatal(start+i,"Error: assigning bridge locants without a ring");
+            return Fatal(i,"Error: assigning bridge locants without a ring");
           else
             bridge_locants[positional_locant] = true;
         }
 
+        if(positional_locant > 128 && !ring->locants[positional_locant]){
+          // it must be a broken locant, therefore needs creating in the map
+          locant_a = AllocateWLNSymbol('C', graph); 
+          assign_locant(positional_locant, locant_a, ring);
+        }
+
         positional_locant = '\0'; // hard resets on spaces
-        locant_attached = false;
+        locant_attached = 0;
         break;
 
 
@@ -2198,13 +2254,52 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           break;
         }
         else if (state_multi == 3){
-          ring_size_specifier += 23;
+          ring_size_specifier += AMPERSAND_EXPAND;
         }
         else if (state_pseudo){
-          pseudo_locants.back() += 23;
+          pseudo_locants.back() += AMPERSAND_EXPAND;
         }
         else if(positional_locant && locant_attached){
-          positional_locant += 23;
+          
+          if(positional_locant > 128){
+            
+            if ( positional_locant ==  (LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128){
+            // base case  E-&
+              positional_locant++; // 1 movement
+              
+              if(!ring->locants[positional_locant]){ 
+                locant_a = AllocateWLNSymbol('C', graph);
+                locant_a->allowed_edges = 4;
+                assign_locant(positional_locant, locant_a, ring); 
+              }
+              else
+                locant_a = ring->locants[positional_locant]; 
+              
+              if(!AddEdge(locant_a,ring->locants[locant_attached]))
+                return Fatal(i,"Error: failure on attaching off path locant"); 
+            }
+            else if( positional_locant ==  2+ (LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128){
+              // case from E-- to get to E--&, which is bonded to E-
+              
+              locant_a = ring->locants[(LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128];
+              positional_locant++; // 1 movement
+
+              if(!ring->locants[positional_locant]){ 
+                locant_b = AllocateWLNSymbol('C', graph);
+                locant_b->allowed_edges = 4;
+                assign_locant(positional_locant, locant_b, ring); 
+              }
+              else
+                locant_b = ring->locants[positional_locant]; 
+
+              if(!AddEdge(locant_b,locant_a))
+                return Fatal(i,"Error: failure on attaching off path locant"); 
+            }
+              
+            
+          }
+          else
+            positional_locant += AMPERSAND_EXPAND;
         }
         else{
           // if unhandled, then it must be an aromatic start
@@ -2213,9 +2308,154 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         break;
 
+#if MODERN
+      case '<':{
+          str_buffer.clear();
+          bool found_close = false; 
+          unsigned int k = i+1; // use the block string and iterate
+          unsigned int stop = 0; 
+
+          std::string dash_buffer; // since this could now be multiple things
+    
+          while(k < block.size()){
+            if(block[k] == '>'){
+              // this calculates the gap to the next '-'
+              found_close = true; // if there was a double '--' this will have gap zero
+              break;
+            }
+
+            dash_buffer.push_back(block[k]);
+            k++;
+            stop++; 
+          }
+
+          if(!found_close)
+            return Fatal(i+start, "Error: unbalanced < > characters"); 
+          else if (dash_buffer.empty())
+            return Fatal(i+start, "Error: empty < > characters"); 
+
+          // split the dash buffer up into large ring or not large ring
+          //
+          unsigned int mode = 0;  // 1- ring_size, 2 = element of some sort 
+          int charge = 0;
+          bool hypervalent = false;
+          std::string ch_store; 
+      
+          for(unsigned int c=0;c<dash_buffer.size();c++){
+            unsigned char ch = dash_buffer[c];    
+            if(ch == '>')
+              break;
+            else{
+              if(ch <= 'Z' && ch >= 'A'){
+                if(!mode)
+                  mode = 2;
+                if(mode == 2)
+                  str_buffer.push_back(ch);
+              }
+              else if(ch >= '0' && ch <= '9'){
+                ch_store += ch; 
+                if(!mode)
+                  mode = 1; 
+                if(mode == 1) 
+                  str_buffer.push_back(ch); // for large rings
+              }
+              else if(ch == '-'){
+                if(ch_store.empty() && str_buffer.empty())
+                  hypervalent = true;
+                else if (ch_store.empty())
+                  charge = -1; 
+                else
+                 charge = -isNumber(ch_store); 
+              }
+              else if(ch == '+'){
+                if(ch_store.empty())
+                  charge = 1;
+                else
+                  charge = isNumber(ch_store); 
+              }
+              else 
+                return Fatal(i, "Error: invalid character in special '< >'");
+              
+            }
+          }
+          
+
+          if(mode == 1){
+            for(unsigned char dig_check : str_buffer){
+              if(!std::isdigit(dig_check))
+                return Fatal(start+i,"Error: mixing numerical and alphabetical special defintions is not allowed");
+            }
+
+            int big_ring = isNumber(str_buffer);
+            if(big_ring < 0)
+              return Fatal(start+i,"Error: non numeric value entered as ring size");
+            
+            ring_components.push_back({big_ring,positional_locant}); //big ring
+            positional_locant = 'A';
+            locant_attached = 0;
+          }
+          else if (mode == 2){
+            if(str_buffer.size() == 1){
+              
+              if(hypervalent){
+                if(positional_locant != spiro_atom){
+                  WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
+                  if(!new_locant)
+                    return Fatal(i+start, "Error: could not create hypervalent element");
+                  
+                  new_locant->str_position = start+i+1+1;
+                  new_locant->charge = charge; 
+                  ring->position_offset[new_locant] = i+1;
+                  if(OPT_DEBUG)
+                    fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
+                }
+                else 
+                  positional_locant++;
+
+                positional_locant++;
+                locant_attached = 0;
+              }
+              else {
+                ch = str_buffer[0];
+                pending_charge = charge; 
+                i+=stop;
+                goto character_start_ring;
+              }
+
+            }
+            else if (str_buffer.size() == 2){
+      
+              if(positional_locant != spiro_atom){
+
+                // must be a special element 
+                WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
+                if(!new_locant)
+                  return Fatal(i+start, "Error: could not create periodic code element");
+                
+                new_locant->charge = charge; 
+                new_locant->str_position = start+i+1+1;
+                ring->position_offset[new_locant] = i+1;
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
+                
+                positional_locant++;
+              }
+              else
+                positional_locant++;
+              
+              locant_attached = 0;
+            }
+          }
+
+          i+=stop;
+          break;
+        }
+        break; 
+#endif
+
       case '/':
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
              
         expected_locants = 2; 
         state_pseudo = 1;
@@ -2223,129 +2463,170 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       
 
       // turn this into a look ahead type bias in order to significantly tidy this up
-      case '-':{
-        
-        str_buffer.clear();
-        bool found_next = false;
-        unsigned int k = i+1; // use the block string and iterate
+      
+/*
+      Some logic here; 
+      1)  If size is followed by a '-', it immediately closes size and starts the aromatic state
+          e.g B&-TJ
 
-        if(!expected_locants){
-          while(k < block.size()){
-            if(block[k] == ' ' || block[k] == '&')
-              break;
-            if(block[k] == '-'){
-              // this calculates the gap to the next '-'
-              if(k != i+1)
-                found_next = true; // if there was a double '--' this will have gap zero
-              break;
-            }
-            str_buffer.push_back(block[k]);
-            k++;
+      2)  If dash is started on a locant, and either is not closed or closed with no gap before 
+          the 2 character limit or a space is seen, it must be a branching locant
+
+      3)  If a branching locant is deemed, the tree logic is that - is left, and & is right, with a limit of 
+          2. A buffer to consume and move all the positions is needed, and can track the tree size
+*/
+      case '-':
+        if(state_multi){
+          if(state_multi == 1 && !multicyclic_locants.empty())
+            multicyclic_locants.back() = positional_locant;
+          else if(state_multi == 3){
+            state_multi = 0;
+            state_aromatics = true;
           }
         }
-
-        if(!found_next){
-          if(i > 0 && block[i-1] == '&')
-            state_aromatics = 1;
-          else{
-
-            if(positional_locant && locant_attached){
-        
-              if(positional_locant < 128){
-                positional_locant = create_relative_position(positional_locant); // i believe breaking modifier will then get removed
-                if(!positional_locant)
-                  return Fatal(i+start, "Error: failed to make expanded locant position");
-
-              }
-              else{
-                // this means its already been moved, so we move the locant 23+23 across
-                if(positional_locant + 46 > 252)
-                  return Fatal(start+i,"Error: branching locants are exceeding the 252 space restriction on WLN notation, is this a reasonable molecule?");
-                
-                positional_locant += 46;
-              }
-
-              if(state_pseudo && !pseudo_locants.empty())
-                  pseudo_locants.back() = positional_locant;
-              if(state_multi == 1 && !multicyclic_locants.empty())
-                multicyclic_locants.back() = positional_locant;
-            }
-          }
-        }
-        else{
+        else if(!expected_locants){
           
-          if(str_buffer.size() == 1){
-            
-            if(positional_locant != spiro_atom){
-              WLNSymbol* new_locant = assign_locant(positional_locant,define_hypervalent_element(str_buffer[0],graph),ring);  // elemental definition 
-              if(!new_locant)
-                return Fatal(i+start, "Error: could not create hypervalent element");
-              
-              new_locant->str_position = start+i+1+1;
-              ring->position_offset[new_locant] = i+1;
-              if(OPT_DEBUG)
-                fprintf(stderr,"  assigning hypervalent %c to position %c\n",str_buffer[0],positional_locant);
-            }
-            else 
-              positional_locant++;
+          // conditions for - within a ring system:
+          // i+2 == '-' for hypervalent
+          // i+3 == '-' for element and large ring with 2 digits
+          // 
+          // branching locants - come to these another time
 
-            block_str+=2; 
-            i+=2; 
-            positional_locant++;
-            locant_attached = false;
-          }
-          else if (str_buffer.size() == 2){
-    
-            if(std::isdigit(str_buffer[0])){
-              for(unsigned char dig_check : str_buffer){
-                if(!std::isdigit(dig_check))
-                  return Fatal(start+i,"Error: mixing numerical and alphabetical special defintions is not allowed");
-              }
-
-              int big_ring = isNumber(str_buffer);
-              if(big_ring < 0)
-                return Fatal(start+i,"Error: non numeric value entered as ring size");
-              
+          // two things to do in the lookahead here, determine whether branching or non-branching, 
+          // and then access the branching tree
+          if( i + 3 < len && wln_block[i+3] == '-'){
+             
+            if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
+              unsigned int big_ring = ( (wln_block[i+1]-'0') * 10) + wln_block[i+2]-'0';
+              if(!big_ring)
+                return Fatal(i,"Error: non numeric value entered as ring size");
 
               ring_components.push_back({big_ring,positional_locant}); //big ring
               positional_locant = 'A';
-              locant_attached = false;
+              locant_attached = 0;
+              i+= 3; 
             }
-            else if(positional_locant != spiro_atom){
-
-              // must be a special element 
-              WLNSymbol* new_locant = assign_locant(positional_locant,define_element(str_buffer,graph),ring);  // elemental definition
-              if(!new_locant)
-                return Fatal(i+start, "Error: could not create periodic code element");
-
-              new_locant->str_position = start+i + 1+1; // attaches directly to the starting letter
-              ring->position_offset[new_locant] = i+1;
-    
-              if(OPT_DEBUG)
-                fprintf(stderr,"  assigning element %s to position %c\n",str_buffer.c_str(),positional_locant);
+            else if (wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z' && wln_block[i+2] >= 'A' && wln_block[i+2] <= 'Z'){
               
+              if(positional_locant != spiro_atom){
+
+                // must be a special element
+                WLNSymbol *new_locant =  define_element(wln_block[i+1],wln_block[i+2],graph); 
+                if(!new_locant)
+                  return Fatal(i, "Error: could not create periodic code element");
+
+                assign_locant(positional_locant,new_locant,ring);  // elemental definition
+
+                new_locant->str_position = i + 2; // attaches directly to the starting letter
+                ring->position_offset[new_locant] = i+1;
+      
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning element %c%c to position %c\n",wln_block[i+1],wln_block[i+2],positional_locant);
+                
+                positional_locant++;
+              }
+              else
+                positional_locant++;
+              
+              locant_attached = 0;
+              i+= 3; 
+            }
+            else{
+              // must be a branching modifier - these are built in a tree, so must be bound to its previous
+              if(positional_locant && positional_locant < 128)
+                positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+              else
+                positional_locant++;
+            }
+          }
+          else if (i+2 < len && wln_block[i+2] == '-'){
+            if(wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z'){
+
+              if(positional_locant != spiro_atom){
+                WLNSymbol *new_locant = define_hypervalent_element(wln_block[i+1],graph); 
+                if(!new_locant)
+                  return Fatal(i, "Error: could not create hypervalent element");
+                
+                assign_locant(positional_locant,new_locant,ring);
+                
+                new_locant->str_position = i+1+1;
+                ring->position_offset[new_locant] = i+1;
+                if(OPT_DEBUG)
+                  fprintf(stderr,"  assigning hypervalent %c to position %c\n",wln_block[i+1],positional_locant);
+              }
+              else 
+                positional_locant++;
+
               positional_locant++;
+              locant_attached = 0;
+              i+= 2; 
+            } 
+            else{
+              // this must also be branching modifier 
+              if(positional_locant && positional_locant < 128)
+                positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+              else
+                positional_locant++;
+            }
+          }
+          else{
+            // enter the tree or move left which is one 
+            if(positional_locant < 128){
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol('C', graph); 
+                locant_a->allowed_edges = 4;  
+                assign_locant(positional_locant, locant_a, ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+              
+              // shift into tree range
+              positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+
+              if(!ring->locants[positional_locant]){
+                locant_b = AllocateWLNSymbol('C', graph); 
+                locant_b->allowed_edges = 4;  
+                assign_locant(positional_locant, locant_b, ring);
+              }
+              else
+                locant_b = ring->locants[positional_locant]; 
+              
+              edge = AddEdge(locant_b, locant_a); 
+              if(!edge)
+                return Fatal(i,"Error: could not create bond in off path branching"); 
+            }
+            else if (128 + ( LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT) == positional_locant ){
+              // means E--, which is position 3, binds to E-
+                
+              // to even get here we would of created the E, and E-
+              // create the node in the chain if its not there
+              locant_a = ring->locants[positional_locant]; 
+              
+              // from E-, E-- is 2 away, 
+              positional_locant+=2; 
+              if(!ring->locants[positional_locant]){
+                locant_b = AllocateWLNSymbol('C', graph); 
+                locant_b->allowed_edges = 4;  
+                assign_locant(positional_locant, locant_b, ring);
+              }
+              else
+                locant_b = ring->locants[positional_locant]; 
+
+              // bond this back to the starting char
+              edge = AddEdge(locant_b, locant_a); 
+              if(!edge)
+                return Fatal(i,"Error: could not create bond in off path branching"); 
+              
+              //
             }
             else
-              positional_locant++;
-            
-            locant_attached = false;
-            
-            block_str+=3; 
-            i+=3;
+              return Fatal(i, "Error: expanding past the tree limit, <loc>-- is the maximal branched locant supported"); 
           }
-          else
-            return Fatal(start+i,"Error: ended in an unexpected state due to '-' characters");
-          
         }
-      
         break;
-      }
+      
 
       case '0':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(!ring_components.empty()){
           if(!positional_locant)
             positional_locant = 'A';
@@ -2356,12 +2637,12 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           
           WLNSymbol *zero_carbon = AllocateWLNSymbol('C',graph);
           zero_carbon->allowed_edges = 3; 
-          zero_carbon = assign_locant(positional_locant++,zero_carbon,ring);
-          zero_carbon->str_position = (start+i+1);
+          assign_locant(positional_locant++,zero_carbon,ring);
+          zero_carbon->str_position = i+1;
           ring->position_offset[zero_carbon] = i; 
           zero_carbon->charge--; 
         }
-        locant_attached = false;
+        locant_attached = 0;
         break;
 
       case '1':
@@ -2373,21 +2654,28 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case '7':
       case '8':
       case '9':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
-
-        if (i > 1 && block[i-1] == ' '){
+        if (i > 1 && wln_block[i-1] == ' '){
+#if MODERN
+          state_multi = 2;
+#else
           state_multi   = 1; // enter multi state
           expected_locants = ch - '0';
+#endif
         }
         else{
+
+          if(positional_locant > 128 && !ring->locants[positional_locant]){
+            // it must be a broken locant, therefore needs creating in the map
+            locant_a = AllocateWLNSymbol('C', graph); 
+            assign_locant(positional_locant, locant_a, ring);
+          }
+
           ring_components.push_back({ch-'0',positional_locant});
           positional_locant = 'A';
-          locant_attached = false;
+          locant_attached = 0;
         }
         break;
 
@@ -2400,7 +2688,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
 
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
 
         if(expected_locants){
@@ -2409,11 +2697,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
           
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2421,9 +2709,9 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           ring_size_specifier = ch;
           state_multi = 3;
         }
-        else if(i>0 && block[i-1] == ' '){
+        else if(i>0 && wln_block[i-1] == ' '){
           positional_locant = ch;
-          locant_attached = true;
+          locant_attached = ch;
         }
         break;
 
@@ -2449,23 +2737,19 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       case 'X':
       case 'Y':
       case 'Z':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
         
-
         if(expected_locants){
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            Fatal(start+i,"Error: unhandled locant rule");
+            Fatal(i,"Error: unhandled locant rule");
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2475,32 +2759,39 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         else if (spiro_atom && positional_locant == spiro_atom){
           positional_locant++;
-          locant_attached = false;
+          locant_attached = 0;
         }
         else if (positional_locant){
           
           if (OPT_DEBUG)
             fprintf(stderr,"  assigning WLNSymbol %c to position %c\n",ch,positional_locant);
 
-          WLNSymbol *new_locant = 0; 
           switch(ch){
             
             case 'S':
             case 'P':
               if(!heterocyclic)
                 warned = true;
+              
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol(ch,graph);
+                assign_locant(positional_locant,locant_a,ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
 
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->str_position = (start+i+1); 
-              ring->position_offset[new_locant] = i; 
-
+              locant_a->ch = ch; 
+              locant_a->str_position = (i+1); 
+              locant_a->charge = pending_charge; 
+              ring->position_offset[locant_a] = i; 
+              
               if(ch == 'P')
-                new_locant->allowed_edges = 5;
+                locant_a->allowed_edges = 5;
               else
-                new_locant->allowed_edges = 6;
-
-              new_locant->inRing = ring;
+                locant_a->allowed_edges = 6;
+              
+              pending_charge = 0; 
+              positional_locant++; 
               break;
 
             case 'Y':
@@ -2509,25 +2800,45 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic && ch=='K')
                 warned = true;
             
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->allowed_edges = 4;
-              new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
-              ring->position_offset[new_locant] = i; 
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol(ch,graph);
+                assign_locant(positional_locant,locant_a,ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+              
+              locant_a->ch = ch; 
+              locant_a->str_position = (i+1); 
+              locant_a->charge = pending_charge; 
+              ring->position_offset[locant_a] = i; 
+
+              locant_a->allowed_edges = 4;
+              
+              pending_charge = 0; 
+              positional_locant++; 
               break;
 
             case 'Z': // treat as NH2
               if(!heterocyclic)
                 warned = true;
 
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->allowed_edges = 3;
-              new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
-              ring->position_offset[new_locant] = i; 
-              new_locant->explicit_H = 2; 
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol(ch,graph);
+                assign_locant(positional_locant,locant_a,ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+
+              locant_a->ch = ch; 
+              locant_a->str_position = (i+1); 
+              locant_a->charge = pending_charge; 
+              ring->position_offset[locant_a] = i; 
+
+              locant_a->allowed_edges = 3;
+              locant_a->explicit_H = 2; 
+              
+              pending_charge = 0; 
+              positional_locant++; 
               break;
 
             case 'N':
@@ -2535,22 +2846,46 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic)
                 warned = true;
 
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->allowed_edges = 3;
-              new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
-              ring->position_offset[new_locant] = i; 
+
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol(ch,graph);
+                assign_locant(positional_locant,locant_a,ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+
+              locant_a->ch = ch; 
+              locant_a->str_position = (i+1); 
+              locant_a->charge = pending_charge; 
+              ring->position_offset[locant_a] = i; 
+
+              locant_a->allowed_edges = 3;
+              
+              pending_charge = 0; 
+              positional_locant++; 
               break;
 
             case 'M':
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->allowed_edges = 2;
-              new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1);
-              new_locant->explicit_H = 1; 
-              ring->position_offset[new_locant] = i; 
+              if(!heterocyclic)
+                warned = true;
+
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol(ch,graph);
+                assign_locant(positional_locant,locant_a,ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+
+              locant_a->ch = ch; 
+              locant_a->str_position = (i+1); 
+              locant_a->charge = pending_charge; 
+              ring->position_offset[locant_a] = i; 
+
+              locant_a->allowed_edges = 2;
+              locant_a->explicit_H = 1;
+              
+              pending_charge = 0; 
+              positional_locant++; 
               break;
 
             case 'O':
@@ -2558,16 +2893,50 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
               if(!heterocyclic && ch == 'O')
                 warned = true;
 
-              new_locant = AllocateWLNSymbol(ch,graph);
-              new_locant = assign_locant(positional_locant++,new_locant,ring);
-              new_locant->allowed_edges = 2;
-              new_locant->inRing = ring;
-              new_locant->str_position = (start+i+1); 
-              ring->position_offset[new_locant] = i; 
+              if(!ring->locants[positional_locant]){
+                locant_a = AllocateWLNSymbol(ch,graph);
+                assign_locant(positional_locant,locant_a,ring);
+              }
+              else 
+                locant_a = ring->locants[positional_locant]; 
+
+              locant_a->ch = ch; 
+              locant_a->str_position = (i+1); 
+              locant_a->charge = pending_charge; 
+              ring->position_offset[locant_a] = i; 
+
+              locant_a->allowed_edges = 2;
+              
+              pending_charge = 0; 
+              positional_locant++; 
               break;
 
         
-            case 'U':{
+            case 'U':
+              if(i+1 < len && wln_block[i+1] != '-'){
+                pdb.first = positional_locant; 
+                pdb.second = positional_locant+1; 
+                pdb.order = 1; 
+
+                if(wln_block[i+1] == 'U'){
+                  pdb.order++; 
+                  i++; 
+                }
+                positional_locant++;
+                bond_modifiers.push_back(pdb); 
+                pdb.clear(); 
+              }
+              else if (i+1 < len && wln_block[i+1] == '-'){
+                inline_unsaturate = positional_locant; 
+                positional_locant = 0; 
+                pdb.order++; 
+                i++; // skip the dash
+              }
+              break;
+            
+#if MODERN
+            case 'A':
+            case 'D':
               // no need to put this in implied, it has to be specified
               if(i < len - 3 && block[i+1] == '-' && block[i+2] == ' '){
                 
@@ -2575,23 +2944,34 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
                 unsigned int k = 1;
                 unsigned char dloc = block[i+3]; 
                 while(block[k+i+3] == '&'){
-                  dloc+=23;
+                  dloc+=AMPERSAND_EXPAND;
                   k++;
                 } 
-                unsaturations.push_back({positional_locant,dloc});
+
+                LocantPair loc_pair(positional_locant,dloc);
+                if(ch == 'A')
+                  loc_pair.stereo = 2;
+                else
+                  loc_pair.stereo = 1;
+
+                stereo.push_back({positional_locant,dloc});
                 block_str += 2+k;
                 i += 2+k;
               }
-              else
-                unsaturations.push_back({positional_locant,positional_locant+1});
-              
-              if(i < len && block[i+1] != 'U')
-                positional_locant++;
+              else{  
+                LocantPair loc_pair(positional_locant,positional_locant+1); 
+                if(ch == 'A')
+                  loc_pair.stereo = 2;
+                else
+                  loc_pair.stereo = 1;
+                stereo.push_back(loc_pair);
+              }
+              positional_locant++;
               break;
-            }
-
+            
+#endif
             // externally bonded to the symbol as a locant symbol
-            case 'W':{
+            case 'W':
               if(!heterocyclic)
                 warned = true;
 
@@ -2600,63 +2980,69 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
               // the carbon might not be created yet
               if(!ring->locants[positional_locant]){
-                new_locant = AllocateWLNSymbol('C',graph);
-                new_locant = assign_locant(positional_locant,new_locant,ring);
-                new_locant->allowed_edges = 2;
-                new_locant->inRing = ring;
-                new_locant->str_position = (start+i+1); 
-                ring->position_offset[new_locant] = i; 
+                locant_a = AllocateWLNSymbol('C',graph);
+                assign_locant(positional_locant,locant_a,ring);
+                locant_a->allowed_edges = 2;
+                locant_a->str_position = (i+1); 
+                ring->position_offset[locant_a] = i; 
               }
               else
-                new_locant = ring->locants[positional_locant];
+                locant_a = ring->locants[positional_locant];
               
-              if(new_locant->ch == 'N' && new_locant->allowed_edges == 3)
-                new_locant->allowed_edges++;
+              if(locant_a->ch == 'N' && locant_a->allowed_edges == 3)
+                locant_a->allowed_edges++;
 
-              WLNSymbol *dioxo = AllocateWLNSymbol('W',graph);
-              dioxo->allowed_edges = 3;
-              dioxo->inRing = ring;
-              ring->position_offset[dioxo] = i; 
-              if(!AddEdge(dioxo, new_locant))
-                return Fatal(start+i,"Error: failed to create bond");
-
-              WLNEdge *e = &new_locant->bond_array[new_locant->barr_n-1];  
-              if(!unsaturate_edge(e,2))
-                return Fatal(start+i,"Error: failed to unsaturate edge");
+              locant_b = AllocateWLNSymbol('W',graph);
+              locant_b->allowed_edges = 3;
+              locant_b->inRing = ring;
+              ring->position_offset[locant_b] = i; 
+              edge = AddEdge(locant_b, locant_a); 
+              if(!edge)
+                return Fatal(i,"Error: failed to create bond");
+              edge = &locant_a->bond_array[locant_a->barr_n-1];  
+              if(!unsaturate_edge(edge,2))
+                return Fatal(i,"Error: failed to unsaturate edge");
               
+              positional_locant++; 
+              break;
+
+            // has the effect of unaromatising a bond, remove from edge consideration
+            case 'H':{
+              LocantPair loc_pair(positional_locant,positional_locant+1);  
+              pdb.first = positional_locant;
+              pdb.second = positional_locant+1; 
+              pdb.order = 0; // means leave out
+
+              bond_modifiers.push_back(pdb); 
+              pdb.clear(); 
               break;
             }
 
-            // has the effect of unaromatising a bond, remove from edge consideration
-            case 'H':
-              saturations.push_back({positional_locant,positional_locant+1});
-              break;
-
-
             default:
-              return Fatal(start+i,"Error: invalid character in atom assignment within ring notation");
+              return Fatal(i,"Error: invalid character in atom assignment within ring notation");
           }
 
-          locant_attached = false; // locant is no longer primary
+          locant_attached = 0; // locant is no longer primary
         }
-        else if(i>0 && block[i-1] == ' '){
+        else if(i>0 && wln_block[i-1] == ' '){
+          if(ring_size_specifier && ch > ring_size_specifier)
+            return Fatal(i, "Error: specifying locants outside of allowed range"); 
+
           positional_locant = ch;
-          locant_attached = true;
+          locant_attached = ch;
         }
         break;
 
       case 'L':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
-        if(state_aromatics)
-          return Fatal(i+start,"Error: invalid character in the aromaticity assignment block");
-        
-
-        if(i==0){
-          heterocyclic = false; 
+        if(ring_start){
+          heterocyclic = false;
+          ring_start = false; 
           break;
         }
+
+        if(state_aromatics)
+          return Fatal(i,"Error: invalid character in the aromaticity assignment block");
+        
         if(expected_locants){
 
           if(state_multi)
@@ -2664,11 +3050,11 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
           
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2677,12 +3063,15 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           state_multi = 3;
         }
         else{
-          if(i>0 && block[i-1] == ' '){
+          if(i>0 && wln_block[i-1] == ' '){
+            if(ring_size_specifier && ch > ring_size_specifier)
+              return Fatal(i, "Error: specifying locants outside of allowed range"); 
+            
             positional_locant = ch;
-            locant_attached = true;
+            locant_attached = ch;
           }
           else
-            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
+            return Fatal(i,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
           
         }
       
@@ -2690,30 +3079,27 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
 
       case 'T':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
+        if(ring_start){
+          ring_start = false;
+          heterocyclic = true; 
+          break;
+        }
 
         if(state_aromatics){
           aromaticity.push_back(0);
           break;
         }
-      
-        if(i==0){
-          heterocyclic = true; 
-          break;
-        }
-
-        if(expected_locants){
+        else if(expected_locants){
           if(state_multi)
             multicyclic_locants.push_back(ch);
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
           
 
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2723,17 +3109,20 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         else if(positional_locant && locant_attached){
           if(ring_components.empty())
-            return Fatal(start+i,"Error: assigning bridge locants without a ring");
+            return Fatal(i,"Error: assigning bridge locants without a ring");
           else
             bridge_locants[positional_locant] = true;
-
+            
           state_aromatics = 1;
           aromaticity.push_back(0);
         }
         else{
-          if(i>0 && block[i-1] == ' ' && block[i+1] != 'J'){
+          if(i>0 && wln_block[i-1] == ' ' && wln_block[i+1] != 'J'){
+            if(ring_size_specifier && ch > ring_size_specifier)
+              return Fatal(i, "Error: specifying locants outside of allowed range"); 
+            
             positional_locant = ch;
-            locant_attached = true;
+            locant_attached = ch;
           }
           else{
             // this must be an aromatic state right?
@@ -2746,18 +3135,14 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       
       // CLOSE
       case 'J':
-        if(positional_locant >= 128)
-          broken_locants.insert(positional_locant);
-
         if(state_aromatics)
           state_aromatics = 0;
         
-        if (i == block.size()-1){
+        if (i == len-1){
           
           if(ring_components.empty())
-            return Fatal(start+i,"Error: error in reading ring components, check numerals in ring notation");
+            return Fatal(i,"Error: error in reading ring components, check numerals in ring notation");
           
-
           if (aromaticity.size() == 1 && aromaticity[0] == false){
             while(aromaticity.size() < ring_components.size())
               aromaticity.push_back(false);
@@ -2769,7 +3154,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
 
           // perform the aromatic denotion check
           if (ring_components.size() != aromaticity.size())
-            return Fatal(i+start,"Error: mismatch between number of rings and aromatic assignments");
+            return Fatal(i,"Error: mismatch between number of rings and aromatic assignments");
           
           break;
         }
@@ -2780,10 +3165,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
           else if (state_pseudo)
             pseudo_locants.push_back(ch);
           else
-            return Fatal(start+i,"Error: unhandled locant rule");
+            return Fatal(i,"Error: unhandled locant rule");
         
           positional_locant = ch; // use for look back
-          locant_attached = true;
+          locant_attached = ch;
           expected_locants--;
           break;
         }
@@ -2793,18 +3178,18 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         }
         else if(positional_locant && locant_attached){
           if(ring_components.empty())
-            return Fatal(start+i,"Error: assigning bridge locants without a ring");
+            return Fatal(i,"Error: assigning bridge locants without a ring");
           
           else
             bridge_locants[positional_locant] = true;
         }
         else{
-          if(i>0 && block[i-1] == ' '){
+          if(i>0 && wln_block[i-1] == ' '){
             positional_locant = ch;
-            locant_attached = true;
+            locant_attached = ch;
           }
           else
-            return Fatal(i+start,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
+            return Fatal(i,"Error: symbol is in an unhandled state, please raise issue if this notation is 100%% correct");
         }
         break;
 
@@ -2812,8 +3197,7 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
         break;
     }
     
-    i++;
-    ch = *(++block_str);
+    ch = wln_block[++i];
   }
 
   if(OPT_DEBUG && warned)
@@ -2848,12 +3232,6 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     }
     fprintf(stderr,"\n");
 
-    fprintf(stderr,"  broken path points: ");
-    for (unsigned char loc : broken_locants){
-      fprintf(stderr,"%d ",loc);
-    }
-    fprintf(stderr,"\n");
-
     fprintf(stderr,"  bridge points: ");
     for (unsigned int i=0;i<252;i++){
       if(bridge_locants[i])
@@ -2868,18 +3246,17 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
       fprintf(stderr,"\n");
     }
 
-    fprintf(stderr,"  multi size: %c(%d)\n",ring_size_specifier ,ring_size_specifier ? locant_to_int(ring_size_specifier) : 0);
+    fprintf(stderr,"  multi size: %c(%d)\n",ring_size_specifier ,ring_size_specifier ? LOCANT_TO_INT(ring_size_specifier) : 0);
     fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
   }
   
   unsigned int final_size = 0; 
-  final_size = BuildCyclic(ring_components,aromaticity,
-                                multicyclic_locants,pseudo_locants,
-                                broken_locants,
-                                bridge_locants,
-                                ring_size_specifier,
-                                ring,
-                                graph);
+  final_size = BuildCyclic( ring_components,aromaticity,
+                            pseudo_locants,
+                            bridge_locants,
+                            ring_size_specifier,
+                            ring,
+                            graph);
 
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
@@ -2896,10 +3273,10 @@ bool FormWLNRing(WLNRing *ring,std::string &block, unsigned int start, WLNGraph 
     } 
 
   if (!final_size)
-    return Fatal(start+i, "Error: failed to build WLN cycle unit");
+    return Fatal(i, "Error: failed to build WLN cycle unit");
   
-  if(!post_unsaturate(unsaturations,final_size,ring) || !post_saturate(saturations,final_size,ring))
-    return Fatal(start+i, "Error: failed on post ring bond (un)/saturation");
+  if(!post_bond_handling(bond_modifiers, final_size, ring))
+    return Fatal(i, "Error: failed on post ring bond (un)/saturation");
   
   return true;
 }
@@ -3053,12 +3430,12 @@ bool ExpandWLNSymbols(WLNGraph &graph, unsigned int len){
         WLNSymbol *oxygen = AllocateWLNSymbol('O',graph);
         oxygen->allowed_edges = 2;
         
-        if(!AddEdge(oxygen, sym))
-          return Fatal(len,"Error: failed on post expansion on 'V' symbol");
+        WLNEdge *e = AddEdge(oxygen, sym);
+        if(!e)
+          return Fatal(len,"Error: failed on post expansion on 'V' symbol - edge creation");
       
-        WLNEdge *e = &sym->bond_array[sym->barr_n-1]; 
         if(!unsaturate_edge(e,1))
-          return Fatal(len,"Error: failed on post expansion on 'V' symbol");
+          return Fatal(len,"Error: failed on post expansion on 'V' symbol - unsaturation");
         
         break;
       }
@@ -3266,15 +3643,12 @@ bool WLNKekulize(WLNGraph &graph){
       
       for(unsigned int i = 0; i<wring->rsize;i++){
         if(MatchR[i] > 0){
-          unsigned char floc = int_to_locant(i+1);
-          unsigned char sloc = int_to_locant(MatchR[i]+1);
+          unsigned char floc = INT_TO_LOCANT(i+1);
+          unsigned char sloc = INT_TO_LOCANT(MatchR[i]+1);
           
           WLNSymbol *f = wring->locants[floc];
           WLNSymbol *s = wring->locants[sloc];
           if(f && s){
-#if OPT_DEBUG
-          fprintf(stderr,"  aromatic locants: %c --> %c\n",floc,sloc); 
-#endif
             WLNEdge *edge = search_edge(f,s);
             if(edge && edge->order == 1 && !unsaturate_edge(edge,1))
               return false;
@@ -3323,71 +3697,127 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   bool pending_ring_in_ring     = false; // rings in rings
   bool pending_rir_closure      = false;
   bool pending_negative_charge  = false; // lets get rid of a lot of waste
-  bool pending_carbon_chain     = false;
-
-  bool no_shift = false; // stop shifting if already done
-  std::string str_buffer; 
-  std::string digits_buffer; 
-
+  bool pending_numbers          = false;
+  bool pending_locant_skips     = false; // special case handling 
+  
+  int pending_charge = 0; 
+  unsigned int pending_stereo = false; // 0 = none, 1 = dashed, 2 = wedged 
+  unsigned int inline_unsaturate = 0;    // 'U' style bonding
+    
+  // hold three sequential digits, error if 4, uses the ascii values '1', '2' etc 
+  unsigned char d1 = 0; 
+  unsigned char d2 = 0; 
+  unsigned char d3 = 0; 
+  
   unsigned char on_locant = '\0';         // locant tracking
-  unsigned int pending_unsaturate = 0;    // 'U' style bonding
-  bool j_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
+  unsigned int locant_skips = false;                   // handle skipping of 'J' if in cyclic notation legitimately 
   
   // allows consumption of notation after block parses
   unsigned int block_start = 0;
-  unsigned int block_end = 0;
-
-  unsigned int len = strlen(wln_ptr);
 
   unsigned int i=0;
-  unsigned char ch = *wln_ptr;
+  unsigned int len = strlen(wln_ptr);
+  unsigned char ch = wln_ptr[i];
   
   while(ch)
   {  
+character_start:
     // this will need to resolved at the end as well
-    if(pending_carbon_chain && (ch < '0' || ch > '9') && ch != '/' ){
-      if(digits_buffer.empty() || digits_buffer[0] == '0')
-        return Fatal(i,"Error: zero mark opened for chain length, invalid numeral"); 
-
-      int carbon_len = isNumber(digits_buffer);
-      digits_buffer.clear(); 
-      if(carbon_len < 0)
-        return Fatal(i, "Error: non-numeric value entered for carbon length");
-      else if (carbon_len > 100)
-        return Fatal(i,"Error: creating a carbon chain > 100 long, is this reasonable for WLN?");
+    if(pending_numbers && (ch < '0' || ch > '9') && ch != '/' ){
+      
+      // bases are given by the number reads
+      unsigned int carbon_len = 0; 
+      if(d3){
+        carbon_len += (100*(d1-'0')); 
+        carbon_len += (10*(d2-'0')); 
+        carbon_len += (1*(d3-'0')); 
+      }
+      else if(d2){
+        carbon_len += (10*(d1-'0')); 
+        carbon_len += (1*(d2-'0')); 
+      }      
+      else
+        carbon_len += (1*(d1-'0')); 
+      
+      d1=0;
+      d2=0;
+      d3=0;
 
       // create the head 
       WLNSymbol *curr = AllocateWLNSymbol('#', graph);
       curr->str_position = i;
       curr->special = std::to_string(carbon_len); 
-      curr->allowed_edges = 6; // can hold a triple bond on either side
+      
+      if(carbon_len > 1)
+        curr->allowed_edges = 6; // can hold a triple bond on either side
+      else
+        curr->allowed_edges = 4;
 
       if(prev){
         
-        if(!AddEdge(curr, prev))
+        edge = AddEdge(curr, prev); 
+        if(!edge)
           return Fatal(i, "Error: failed to bond to previous symbol");
+        
+        edge->stereo = pending_stereo; 
+        pending_stereo = 0; 
 
-        edge = &prev->bond_array[prev->barr_n-1]; 
-        if(pending_unsaturate){
-          if(!unsaturate_edge(edge,pending_unsaturate))
+        if(inline_unsaturate){
+          if(!unsaturate_edge(edge,inline_unsaturate))
             return Fatal(i, "Error: failed to unsaturate bond"); 
-          pending_unsaturate = 0;
+          inline_unsaturate = 0;
         }
       }
 
-      pending_carbon_chain = false;
+
+      pending_numbers = false;
       prev = curr;
       last = curr; 
       last = prev; 
       cleared = false;
+    }
+    
+    // slight logic change to J variation
+    if(pending_locant_skips && (ch < '0' || ch > '9') ){
+#if MODERN
+      locant_skips = 1;
+#else
+      if(d3){
+        locant_skips += (100*(d1-'0')); 
+        locant_skips += (10*(d2-'0')); 
+        locant_skips += (1*(d3-'0')); 
+      }
+      else if(d2){
+        locant_skips += (10*(d1-'0')); 
+        locant_skips += (1*(d2-'0')); 
+      }      
+      else
+        locant_skips += (1*(d1-'0')); 
+      
+      d1=0;
+      d2=0;
+      d3=0;
+#endif
+      pending_locant_skips = false; 
     }
 
     switch (ch)
     {
 
     case '0': // cannot be lone, must be an addition to another num
-      if(pending_J_closure)
+      if(pending_J_closure){
+        if(pending_locant_skips){
+          if(d1 && d2 && d3)
+            return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+          else if (d1 && d2)
+            d3 = ch; 
+          else if(d1)
+            d2 = ch; 
+          else 
+            d1 = ch; 
+        }
         break;
+      }
 
       else if (pending_locant){
         
@@ -3398,17 +3828,19 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '0';
         pending_locant = false;
       }
-      else if (pending_carbon_chain){
-        digits_buffer+= ch;
+      else if (pending_numbers || pending_negative_charge || cleared){
+        if(d1 && d2 && d3)
+          return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+        else if (d1 && d2)
+          d3 = ch; 
+        else if(d1)
+          d2 = ch; 
+        else 
+          d1 = ch; 
+
+        if(cleared)
+          pending_numbers = true; 
         break;
-      }
-      else if(pending_negative_charge){
-        digits_buffer += ch;
-      }
-      else if (cleared){
-        // null effect for positive charge
-        digits_buffer += ch;
-        pending_carbon_chain = true; 
       }
       else
         return Fatal(i,"Error: a lone zero mark is not allowed without positive numerals either side");
@@ -3426,12 +3858,22 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     case '9':
       if (pending_J_closure){
         // small addition to allow J handling in points
-        if(i > 0 && wln_string[i-1] == ' ')
-          j_skips = true;
+        if(i > 0 && wln_ptr[i-1] == ' '){
+          pending_locant_skips = true; 
+        }
         
+        if(pending_locant_skips){
+          if(d1 && d2 && d3)
+            return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+          else if (d1 && d2)
+            d3 = ch; 
+          else if(d1)
+            d2 = ch; 
+          else 
+            d1 = ch; 
+        }
         break;
       }
-        
       else if(pending_locant){  // handle all multiplier contractions
         return Fatal(i,"Error: multipliers are not currently supported");
         pending_locant = false;
@@ -3448,16 +3890,19 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
           if(prev){
     
-            if(!AddEdge(curr, prev))
+            edge = AddEdge(curr, prev); 
+            if(!edge)
               return Fatal(i, "Error: failed to bond to previous symbol");
             
-            edge = &prev->bond_array[prev->barr_n-1];
             wrap_ring->macro_return = edge; 
             
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
                 return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
+              inline_unsaturate = 0;
             }
 
           }
@@ -3479,24 +3924,31 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_inline_ring = false;
         cleared = false;
       }
-      else if (pending_carbon_chain){
-        digits_buffer += ch;  // simple resolve
-        break;
-      }
-      else if (pending_negative_charge){
-        digits_buffer += ch; 
-      }
-      else{
+      else {
+        if(d1 && d2 && d3)
+          return Fatal(i, "Error: specifying a number greater than 3 digits - WLN isn't meant for this!");
+        else if (d1 && d2)
+          d3 = ch; 
+        else if(d1)
+          d2 = ch; 
+        else 
+          d1 = ch; 
+        
         on_locant = '\0';
-        pending_carbon_chain = true;
-        digits_buffer += ch; 
+    
+        if(!pending_negative_charge)
+          pending_numbers = true; 
+        break;
       }
       break;
     
 
     case 'Y':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
         return Fatal(i,"Error: 'Y' cannot be a locant assignment, please expand [A-W] with &\n");
       else
@@ -3505,21 +3957,28 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         curr->allowed_edges = 4; // change methyl addition
+ 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge =AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         
         branch_stack.push({0,curr});
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = prev; 
       }
@@ -3527,8 +3986,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'X':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant){
         return Fatal(i, "Error: Wiswesser Uncertainities lead to runaway outcomings");
       }
@@ -3539,16 +4001,21 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->str_position = i+1;
         curr->allowed_edges = 4;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev);
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         
@@ -3562,8 +4029,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // oxygens
 
     case 'O':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3586,16 +4056,21 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->str_position = i+1;
         curr->allowed_edges = 2;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
@@ -3606,8 +4081,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'Q':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3632,20 +4110,25 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->allowed_edges = 1;
         curr->explicit_H = 1; 
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         last = curr; 
         prev = return_object_symbol(branch_stack);
 
@@ -3656,8 +4139,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'V':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
 
@@ -3684,14 +4170,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           } 
         }
 
@@ -3702,8 +4189,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'W':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3731,18 +4221,20 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           if(prev->ch == 'N' && prev->allowed_edges == 3)
             prev->allowed_edges++;
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
           
-          edge = &prev->bond_array[prev->barr_n-1]; 
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
           if(!unsaturate_edge(edge, 2))
             return Fatal(i, "Error: failed to attach W symbol"); 
 
-          if(pending_unsaturate)
+          if(inline_unsaturate)
             return Fatal(i,"Error: a bond unsaturation followed by dioxo is undefined notation");
         }
         else
-          pending_unsaturate = 2;
+          inline_unsaturate = 2;
 
         // if there is no prev, this is then a character we go from, 
         // else do not update.
@@ -3760,8 +4252,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // nitrogens
 
     case 'N':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
 
@@ -3786,23 +4281,27 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->str_position = i+1;
         curr->allowed_edges = 3;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(prev){
           if(prev->ch == 'W' && curr->allowed_edges == 3)
             curr->allowed_edges++;
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
         branch_stack.push({0,curr});
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = curr; 
       }
@@ -3810,8 +4309,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'M':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3835,21 +4337,25 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->str_position = i+1;
         curr->allowed_edges = 2;
         curr->explicit_H = 1; 
+        
+        curr->charge = pending_charge; 
+        pending_charge = 0;
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-          
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){ 
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){ 
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         prev = curr;
         last = curr; 
       }
@@ -3857,8 +4363,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'K':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3885,14 +4394,16 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
 
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
           
         }
@@ -3905,8 +4416,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'Z':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3933,19 +4447,20 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
           
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         last = curr; 
         prev = return_object_symbol(branch_stack);
         if(!prev)
@@ -3960,8 +4475,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     case 'G':
     case 'F':
     case 'I':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -3986,18 +4504,20 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
 
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
         last = curr; 
         prev = return_object_symbol(branch_stack);
         if(!prev)
@@ -4009,8 +4529,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // inorganics
 
     case 'B':
-      if (pending_J_closure)  
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4033,16 +4556,20 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr->str_position = i+1;
         curr->allowed_edges = 3;
 
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }         
         
@@ -4055,8 +4582,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
     case 'P':
     case 'S':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4078,6 +4608,9 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         curr = AllocateWLNSymbol(ch,graph);
         curr->str_position = i+1;
         
+        curr->charge = pending_charge; 
+        pending_charge = 0;
+        
         if(ch == 'P')
           curr->allowed_edges = 5;
         else
@@ -4085,14 +4618,15 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
           
         if(prev){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
         branch_stack.push({0,curr});
@@ -4104,8 +4638,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
     // multiply bonded carbon, therefore must be at least a double bond
     case 'C':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4123,6 +4660,36 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
+#if MODERN
+        // in modern notation, mutliplier carbons are removed
+        on_locant = '\0';
+        WLNSymbol *curr = AllocateWLNSymbol('#', graph);
+        curr->str_position = i;
+        curr->special = '1'; 
+        
+        curr->allowed_edges = 4;
+        curr->charge = pending_charge;
+        pending_charge = 0; 
+
+
+        if(prev){
+          
+          edge = AddEdge(curr, prev); 
+          if(!edge)
+            return Fatal(i, "Error: failed to bond to previous symbol");
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            inline_unsaturate = 0;
+          }
+        }
+        
+        prev = curr;
+        last = curr; 
+#else
         on_locant = '\0';
         // set lower case for multiplier carbon
         curr = AllocateWLNSymbol('c',graph);
@@ -4131,26 +4698,31 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
         if(prev && i < len - 1){
 
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
-
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
         prev = curr;
         last = curr; 
+#endif
       }
       cleared = false;
       break;
 
     case 'A':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
 
@@ -4168,16 +4740,23 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_locant = false;
         on_locant = ch;
       }
-      else
+      else{
+#if MODERN
+        pending_stereo = 2; 
+#else
         return Fatal(i,"Error: locant only symbol used in atomic definition");
-      
+#endif
+      }
       cleared = false;
       break;
         
     // this can start a chelating ring compound, so has the same block as 'L\T'
     case 'D':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4196,7 +4775,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       else
       {
 
-        if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
+#if MODERN
+        pending_stereo = 1;     
+#else
+        if(i < len - 2 && wln_ptr[i+1] == '-' && (wln_ptr[i+2] == 'T' || wln_ptr[i+2] == 'L')){
           pending_ring_in_ring = true;
 
           i++;
@@ -4215,15 +4797,18 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_inline_ring = false;
         block_start = i;
         pending_J_closure = true;
+#endif 
       }
       cleared = false;
       break;
         
-        
     // hydrogens explicit
     case 'H':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4245,6 +4830,10 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         if(!prev){
           curr = AllocateWLNSymbol(ch,graph);
+          
+          curr->charge = pending_charge;
+          pending_charge = 0; 
+
           curr->str_position = i+1;
           curr->allowed_edges = 1;
           prev = curr; 
@@ -4275,8 +4864,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_rir_closure = false;
         break;
       }
-      if(pending_J_closure && j_skips)
-        break;
       if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4293,94 +4880,99 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         pending_locant = false;
         on_locant = ch;
       }
-      else if (pending_J_closure 
-              && ( (i<len-1 && (wln_string[i+1] == ' ' || wln_string[i+1] == '&') && wln_string[i-1] != ' ') 
-              || i == len -1)
-              )     
+      else if (pending_J_closure)
       {
-        block_end = i;
         
-        ring = AllocateWLNRing(graph);
-        std::string r_notation = get_notation(block_start,block_end);
-
-        if(pending_spiro){
+        if(locant_skips)
+          locant_skips--;
+        else if(i>0 && wln_ptr[i-1] != ' '){
           
-          if(!prev)
-            Fatal(i,"Error: sprio notation opened without a previous atom");
-          else{
-            ring->locants[on_locant] = prev;
-            prev->spiro = true; 
-          }
-          // check for an aromaticity bond move?
-          if(prev && (prev->allowed_edges - prev->num_edges) < 2){
+          ring = AllocateWLNRing(graph);
+          if(pending_spiro){
+            
+            if(!prev)
+              Fatal(i,"Error: sprio notation opened without a previous atom");
+            else{
+              ring->locants[on_locant] = prev;
+              ring->locants_ch[prev] = on_locant; 
+              prev->spiro = true; 
+            }
+            // check for an aromaticity bond move?
+            if(prev && (prev->allowed_edges - prev->num_edges) < 2){
 
-            // spiro would not be possible here, check if a double bond can be shifted
-            WLNSymbol *shift = 0;
-            WLNEdge *e = 0; 
-            for (unsigned int ei=0;ei<prev->barr_n;ei++){
-              e = &prev->bond_array[ei];
-              if (e->order == 2){
-                if(!saturate_edge(e,1))
-                  return Fatal(i, "Error: could not shift aromaticity for spiro ring addition");
+              // spiro would not be possible here, check if a double bond can be shifted
+              WLNSymbol *shift = 0;
+              WLNEdge *e = 0; 
+              for (unsigned int ei=0;ei<prev->barr_n;ei++){
+                e = &prev->bond_array[ei];
+                if (e->order == 2){
+                  if(!saturate_edge(e,1))
+                    return Fatal(i, "Error: could not shift aromaticity for spiro ring addition");
 
-                shift = e->child;
-                break;
+                  shift = e->child;
+                  break;
+                }
               }
+
+              if(!branch_stack.ring)
+                return Fatal(i, "Error: ring stack is empty, nothing to fetch");
+
+              unsigned char next_loc = branch_stack.ring->locants_ch[shift]+1;
+              if(!next_loc)
+                next_loc = 'A'; // must of done the full loop
+
+              e = search_edge(branch_stack.ring->locants[next_loc],shift);
+              if(!e && !unsaturate_edge(e, 1))
+                return Fatal(i, "Error: failed to re-aromatise previous ring");
             }
-
-            if(!branch_stack.ring)
-              return Fatal(i, "Error: ring stack is empty, nothing to fetch");
-
-            unsigned char next_loc = branch_stack.ring->locants_ch[shift]+1;
-            if(!next_loc)
-              next_loc = 'A'; // must of done the full loop
-
-            e = search_edge(branch_stack.ring->locants[next_loc],shift);
-            if(!e && !unsaturate_edge(e, 1))
-              return Fatal(i, "Error: failed to re-aromatise previous ring");
+            
+            // +1 gets the J included
+            if(!FormWLNRing(ring,wln_ptr,block_start,i+1,graph,on_locant))
+              return false;
+          }
+          else{
+            if(!FormWLNRing(ring,wln_ptr,block_start,i+1,graph))
+              return false;
           }
           
-          if(!FormWLNRing(ring,r_notation,block_start,graph,on_locant))
-            return false;
-        }
-        else{
-          if(!FormWLNRing(ring,r_notation,block_start,graph))
-            return false;
-        }
 
-        if(pending_ring_in_ring && !wrap_ring){
-          wrap_ring = ring; // instant back access
-        }
+          if(pending_ring_in_ring && !wrap_ring){
+            wrap_ring = ring; // instant back access
+          }
 
-        branch_stack.push({ring,0});
-        block_start = 0;
-        block_end = 0;
+          branch_stack.push({ring,0});
+          block_start = 0;
 
-        // does the incoming locant check
-        if(pending_spiro)
-          pending_spiro = false;
-        else if (prev && on_locant && on_locant != '0')
-        {
-          if (ring->locants[on_locant]){
-                    
-            if(!AddEdge(ring->locants[on_locant], prev))
-              return Fatal(i, "Error: failed to bond to previous symbol");
+          // does the incoming locant check
+          if(pending_spiro)
+            pending_spiro = false;
+          else if (prev && on_locant && on_locant != '0')
+          {
+            if (ring->locants[on_locant]){
+                      
+              edge = AddEdge(ring->locants[on_locant], prev); 
+              if(!edge)
+                return Fatal(i, "Error: failed to bond to previous symbol");
+              edge->stereo = pending_stereo; 
+              pending_stereo = 0; 
 
-            edge = &prev->bond_array[prev->barr_n-1]; 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
-                return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
-            }
-            ring->loc_count++; //in-line locant assumed
-          }   
-          else
-            return Fatal(i,"Error: attaching inline ring with out of bounds locant assignment");
+              if(inline_unsaturate){
+                if(!unsaturate_edge(edge,inline_unsaturate))
+                  return Fatal(i, "Error: failed to unsaturate bond"); 
+                inline_unsaturate = 0;
+              }
+              ring->loc_count++; //in-line locant assumed
+            }   
+            else
+              return Fatal(i,"Error: attaching inline ring with out of bounds locant assignment");
+            
+          }
           
+
+          on_locant = '\0';
+          pending_J_closure = false;
         }
 
-        on_locant = '\0';
-        pending_J_closure = false;
       }
       
       cleared = false;
@@ -4388,10 +4980,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
     case 'L':
     case 'T':
-      if (pending_J_closure || pending_rir_closure)
+      if (pending_J_closure || pending_rir_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
-   //   else if (pending_ring_in_ring)
-   //     break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4409,14 +5002,13 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else
       {
-        if(i < len - 2 && wln_string[i+1] == '-' && (wln_string[i+2] == 'T' || wln_string[i+2] == 'L')){
+        if(i < len - 2 && wln_ptr[i+1] == '-' && (wln_ptr[i+2] == 'T' || wln_ptr[i+2] == 'L')){
           pending_ring_in_ring = true;
 
           // if pending inline ring doesnt get a L or T, we know it
           // the ring wrap symbol. 
 
           i++;
-          wln_ptr++;
           pending_inline_ring = true;
           break;
         }
@@ -4436,9 +5028,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       break;
 
     case 'R':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
-      
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4460,20 +5054,22 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         on_locant = '\0';
         ring = AllocateWLNRing(graph);
 
-        std::string r_notation = "L6J";
-        FormWLNRing(ring,r_notation,i,graph);
+        const char* benzyl = "L6J";
+        FormWLNRing(ring,benzyl,0,3,graph);
         branch_stack.push({ring,0});
 
         curr = ring->locants['A'];
         if(prev){
-          if(!AddEdge(curr, prev))
+          edge = AddEdge(curr, prev); 
+          if(!edge)
             return Fatal(i, "Error: failed to bond to previous symbol");
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
 
-          edge = &prev->bond_array[prev->barr_n-1]; 
-          if(pending_unsaturate){
-            if(!unsaturate_edge(edge,pending_unsaturate))
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
               return Fatal(i, "Error: failed to unsaturate bond"); 
-            pending_unsaturate = 0;
+            inline_unsaturate = 0;
           }
         }
 
@@ -4486,8 +5082,11 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // bonding
 
     case 'U':
-      if (pending_J_closure)
+      if (pending_J_closure){
+        if(locant_skips)
+          locant_skips--; 
         break;
+      }
       else if (pending_locant)
       {
         if(!pending_inline_ring){
@@ -4509,7 +5108,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       
       else{
         on_locant = '\0';
-        pending_unsaturate++;
+        inline_unsaturate++;
       }
       break;
 
@@ -4517,13 +5116,28 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 
     case ' ':
       if (pending_J_closure){
-        j_skips = false;
+        locant_skips = 0; 
         break;
       }
       else if(pending_negative_charge){
-        int negative_index = isNumber(digits_buffer); 
-        digits_buffer.clear(); 
-
+        
+        int negative_index = 0; 
+        if(d3){
+          negative_index += (100*(d1-'0')); 
+          negative_index += (10*(d2-'0')); 
+          negative_index += (1*(d3-'0')); 
+        }
+        else if(d2){
+          negative_index += (10*(d1-'0')); 
+          negative_index += (1*(d2-'0')); 
+        }      
+        else
+          negative_index += (1*(d1-'0')); 
+      
+        d1=0;
+        d2=0;
+        d3=0;
+        
         if(negative_index < 0)
           return Fatal(i, "Error: assigning non-numerical value to charge index");
         else if(negative_index != 0){
@@ -4549,7 +5163,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       if(!branch_stack.empty() && !pending_inline_ring)
         branch_stack.pop_to_ring();
       
-      if( (i < len - 1 && wln_string[i+1] == '&') || branch_stack.ring){
+      if( (i < len - 1 && wln_ptr[i+1] == '&') || branch_stack.ring){
         pending_locant = true;
 
         // single letter methyl branches
@@ -4568,17 +5182,12 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       // only burn the stacks now on ionic clearance
       break;
 
-
+    // spiro is handled on dash
     case '&':
       if (pending_J_closure)
         break;
       
-      if (pending_inline_ring && !pending_ring_in_ring)
-      {
-        // spiro notation open
-        pending_spiro = true;
-      }
-      else if (pending_locant)
+      if (pending_locant)
       { 
         // ionic species or spiro, reset the linkings
         prev = 0;
@@ -4590,7 +5199,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       }
       else if(on_locant){
         if(curr && curr == ring->locants[on_locant]){
-          on_locant += 23;
+          on_locant += AMPERSAND_EXPAND;
           curr = ring->locants[on_locant];  
           if(!curr)
             return Fatal(i, "Error: could not fetch expanded locant position - out of range");
@@ -4668,189 +5277,322 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
         return Fatal(i, "Error: popping too many rings|symbols, check '&' count");
       break;
 
-
-    case '-':{
-      if (pending_J_closure)
-        break;
-
-      else if (pending_inline_ring)
-      { 
+#if MODERN 
+    case '<':{
+       if (pending_J_closure)
+          break;
         
-        if(pending_ring_in_ring){
-          // onlocant holds the char needed to wrap the ring back, 
-          
-          if(!wrap_ring)
-            return Fatal(i, "Error: wrap ring is not active");
-
-          curr = wrap_ring->locants[on_locant];
-          if(!curr)
-            return Fatal(i, "Error: cannot access looping ring structure");
-        
-          if(prev){  
-
-            if(!AddEdge(curr, prev))
-              return Fatal(i, "Error: failed to bond to previous symbol");
-
-            edge = &prev->bond_array[prev->barr_n-1]; 
-            wrap_ring->macro_return = edge; 
-            if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
-                return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
-            }
-          }
-          else
-            return Fatal(i,"Error: no previous symbol for inline ring defintion");
-      
-
-          // if we remove this, we can allow branching inline defintiions 
-          // last notation is not neccessary, so we eat two positions
-          unsigned int hit = 0;
-          while(wln_ptr){
-            if(*wln_ptr == 'J')
-              return Fatal(i, "Error: macro-notation requires closure with the ring size in two dashes e.g -6-");
-            
-            if(*wln_ptr == '-'){
-              hit++;
-              if(hit == 2)
-                break;
-            }
-            wln_ptr++;
-            i++;
-          }
-          
-          curr = prev; // set back to prev
-          on_locant = '\0';
-          pending_ring_in_ring = false;
-          pending_inline_ring = false;
-          pending_rir_closure = true;
-        }
-        else
-          return Fatal(i, "Error: only one pending ring can be active, check closures");
-        
-      }
-      else{
-
+        bool found_close = false; 
         str_buffer.clear();
-        bool closed_dash = false;
-        unsigned int first_dash = i;
+        unsigned int first_angle = i;
+        int charge = 0;
+        bool hypervalent = false;
+        std::string ch_store; 
 
         // move off the first dash
         i++;
         ch = *(++wln_ptr);
         while(ch != '\0'){
-          if(ch == '-'){
-            closed_dash = true;
+          if(ch == '>'){
+            found_close = true; 
             break;
           }
-          else if (ch == ' '){
-            no_shift = true;
-            break; // positions an open ring
-          }
-          else if (ch == '&'){
-            pending_spiro = true;
-            break;
-          }
-          else
-            str_buffer.push_back(ch);
           
+          else{
+            if(ch <= 'Z' && ch >= 'A'){
+              str_buffer.push_back(ch);
+            }
+            else if(ch >= '0' && ch <= '9')
+              ch_store += ch; 
+            else if(ch == '-'){
+              if(ch_store.empty() && str_buffer.empty())
+                hypervalent = true;
+              else if (ch_store.empty())
+                charge = -1; 
+              else
+                charge = -isNumber(ch_store); 
+            }
+            else if(ch == '+'){
+              if(ch_store.empty())
+                charge = 1;
+              else
+                charge = isNumber(ch_store); 
+            }
+            else 
+              return Fatal(i, "Error: invalid character in special '< >'");
+            
+          }
           i++;
           ch = *(++wln_ptr);
         }
+          
+        if(!found_close)
+          return Fatal(i, "Error: unbalanced < > characters"); 
+        else if (str_buffer.empty())
+          return Fatal(i, "Error: empty < > characters"); 
+        
+        if(str_buffer.size() == 1){
+          if(hypervalent)
+            curr = define_hypervalent_element(str_buffer[0],graph);
+          else{
+            ch = str_buffer[0]; 
+            pending_charge = charge; 
+            goto character_start; 
+          }
+          if(!curr)
+            return Fatal(i, "Error: failed to define hypervalent element");
+          curr->str_position = i+1;
+        }
+        else if(str_buffer.size() == 2){
+          curr = define_element(str_buffer,graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define periodic element"); 
+          
+          curr->str_position = i+1;
+        }
+        else
+          return Fatal(i, "Error: special '< >' must be either 1 or 2 symbols");
+        
+        curr->charge = charge; 
+      
+        if(prev){
+          if(str_buffer.empty() && ring){
+            edge = AddEdge(curr, prev); 
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+          }
+          else{
+            edge = AddEdge(curr, prev); 
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+          }
+            
+          if(!edge)
+            return Fatal(i, "Error: failed to bond to previous symbol");
+          
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0; 
 
-        if(!closed_dash){
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            inline_unsaturate = 0;
+          }
+        } 
+        on_locant = '\0';
+        branch_stack.push({0,curr});
+        
+        curr->str_position = first_angle+1+1;
+        inline_unsaturate = 0;
+        prev = curr;
+        last = curr; 
+      }
+      cleared = false;
+      break;
+
+
+    case '>':
+    case '+':
+      if(pending_J_closure)
+        break; 
+      else
+       return Fatal(i, "Error: modern read outside of known rules");
+#endif 
+
+    
+    case '-':
+      if (pending_J_closure)
+        break;
+      
+      else if (pending_inline_ring && pending_ring_in_ring) // macro_closure
+      { 
+        
+        // onlocant holds the char needed to wrap the ring back, 
+        if(!wrap_ring)
+          return Fatal(i, "Error: wrap ring is not active");
+
+        curr = wrap_ring->locants[on_locant];
+        if(!curr)
+          return Fatal(i, "Error: cannot access looping ring structure");
+      
+        if(prev){  
+
+          edge = AddEdge(curr, prev); 
+          if(!edge)
+            return Fatal(i, "Error: failed to bond to previous symbol");
+          edge->stereo = pending_stereo; 
+          pending_stereo = 0;
+
+          wrap_ring->macro_return = edge; 
+          if(inline_unsaturate){
+            if(!unsaturate_edge(edge,inline_unsaturate))
+              return Fatal(i, "Error: failed to unsaturate bond"); 
+            inline_unsaturate = 0;
+          }
+        }
+        else
+          return Fatal(i,"Error: no previous symbol for inline ring defintion");
+        
+        if(i+3 < len && wln_ptr[i+3] == '-')
+          i+=3;
+        else if(i+2 < len && wln_ptr[i+2] == '-')
+          i+=2;
+        else
+          return Fatal(i, "Error: macro-notation requires closure with the ring size in two dashes e.g -6-");
+
+        curr = prev; // set back to prev
+        on_locant = '\0';
+        pending_ring_in_ring = false;
+        pending_inline_ring = false;
+        pending_rir_closure = true;
+      }
+      else{
+        
+        // conditions for '-' 
+        //
+        //  1) closed at position +3 away -NA- - elemental definition
+        //  2) closed at position +2 away -K- - hypervalent element
+        //  3) branch at pos +1 and space at +2 = spiro
+        //  else) not closed - inline ring
+        //
+        //  1/2*) if +1 = '&'|'-' branching locant defintion e.g E--P, E-&P
+        //  must eliminate the spaces every time
+        //
+        //  Not specified here, macro opens e.g L- T- are handled on L/T 
+
+        // 1)
+        if( i + 3 < len && wln_ptr[i+3] == '-' && wln_ptr[i+1] != ' '){
+
+          curr = define_element(wln_ptr[i+1],wln_ptr[i+2],graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define periodic element"); 
+          
+          if(on_locant == '0'){
+            curr->charge++;
+            //on_locant = '\0';
+          }
+
+          if(prev){
+            edge = AddEdge(curr, prev); 
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              inline_unsaturate = 0;
+            }
+
+          }
+
+          on_locant = '\0';
+          branch_stack.push({0,curr});
+          curr->str_position = i+2;
+          inline_unsaturate = 0;
+          prev = curr;
+          last = curr; 
+          i+=3; 
+        }
+        
+        // 2 and 3 
+        else if(i+2 < len && wln_ptr[i+2] =='-' && wln_ptr[i+1] != ' '){
+          
+          curr = define_hypervalent_element(wln_ptr[i+1],graph);
+          if(!curr)
+            return Fatal(i, "Error: failed to define hypervalent element");
+          
+          if(prev){
+            edge = AddEdge(curr, prev); 
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0; 
+
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              inline_unsaturate = 0;
+            }
+          }
+
+          on_locant = '\0';
+          branch_stack.push({0,curr});
+          curr->str_position = i+2;
+          inline_unsaturate = 0;
+          prev = curr;
+          last = curr; 
+
+          i+=2; 
+        }
+
+        // 3)
+        else if( i + 2 < len && wln_ptr[i+1] == '&' && wln_ptr[i+2] == ' '){
+          pending_spiro = true;
+          pending_inline_ring = true;
+          i+=1; 
+        }
+        else{
+
+          if(pending_inline_ring)
+            return Fatal(i,"Error: previous in-line ring definition not finished\n");
+
           pending_inline_ring = true;
           return_object_symbol(branch_stack);
           if(branch_stack.branch && !prev){
             // prev must be at top of the branch stack
             while(branch_stack.top().second != branch_stack.branch)
               branch_stack.pop();
-
+            
             prev = return_object_symbol(branch_stack);
           }    
-        }
-        else{
-
-          if(str_buffer.size() == 1){
-            curr = define_hypervalent_element(str_buffer[0],graph);
-            if(!curr)
-              return Fatal(i, "Error: failed to define hypervalent element");
-            curr->str_position = i+1;
-          }
-          else if(str_buffer.size() == 2){
-            curr = define_element(str_buffer,graph);
-            if(!curr)
-              return Fatal(i, "Error: failed to define periodic element"); 
-            
-            curr->str_position = i+1;
-
-            if(on_locant == '0'){
-              curr->charge++;
-              //on_locant = '\0';
-            }
-          }
-          else
-            return Fatal(i, "Error: special '-' must be either 1 or 2 symbols");
-          
-        
-          if(prev){
-            if(str_buffer.empty() && ring){
-              if(!AddEdge(ring->locants[prev->ch], prev))
-                return Fatal(i, "Error: failed to bond to previous symbol");
-              edge = &prev->bond_array[prev->barr_n-1]; 
-            }
-            else{
-              if(!AddEdge(curr, prev))
-                return Fatal(i, "Error: failed to bond to previous symbol");
-              edge = &prev->bond_array[prev->barr_n-1]; 
-            }
-              
-            if(!edge)
-              return Fatal(i, "Error: failed to bond to previous symbol");
-            else if(pending_unsaturate){
-              if(!unsaturate_edge(edge,pending_unsaturate))
-                return Fatal(i, "Error: failed to unsaturate bond"); 
-              pending_unsaturate = 0;
-            }
-            
-          }
-          on_locant = '\0';
-          branch_stack.push({0,curr});
-          
-          curr->str_position = first_dash+1+1;
-          pending_unsaturate = 0;
-          prev = curr;
-          last = curr; 
         }
       }
       cleared = false;
       break;
-    }
+    
     
     case '/':
       if (pending_J_closure){
-        j_skips = true;
+        locant_skips = 2;
         break;
       }
-      else if(pending_carbon_chain){ // state that this must be a charge 
+      else if(pending_numbers){ // state that this must be a charge 
 
         if(!cleared)
           return Fatal(i, "Error: opening post charge assignment without proper syntax [ &x/x ]");
         
-        int positive_index = isNumber(digits_buffer); 
-        digits_buffer.clear(); 
-        
-        if(positive_index < 0)
-          return Fatal(i, "Error: assigning non-numerical value to charge index");
-        else if (positive_index != 0){
+        int positive_index = 0; 
+        if(d3){
+          positive_index += (100*(d1-'0')); 
+          positive_index += (10*(d2-'0')); 
+          positive_index += (1*(d3-'0')); 
+        }
+        else if(d2){
+          positive_index += (10*(d1-'0')); 
+          positive_index += (1*(d2-'0')); 
+        }      
+        else
+          positive_index += (1*(d1-'0')); 
+      
+        d1=0;
+        d2=0;
+        d3=0;
+       
+
+#if OPT_DEBUG
+        fprintf(stderr,"  attempting +1 charge on index %d\n",positive_index); 
+#endif
+
+        if (positive_index != 0){
           // find the symbol and increment its charge + 1
           bool found = false;
           for(unsigned int cs = 0;cs<graph.symbol_count;cs++){
             if(graph.SYMBOLS[cs]->str_position == (unsigned int)positive_index){
               graph.SYMBOLS[cs]->charge++;
-#if OPT_DEBUG
-              fprintf(stderr,"  assigning %c charge %d\n",graph.SYMBOLS[cs]->ch,graph.SYMBOLS[cs]->charge); 
-#endif
               found = true;
               break;
             }
@@ -4860,7 +5602,7 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
             return Fatal(i, "Error: positive charge index out of range, check letter index");
         }
 
-        pending_carbon_chain = false;
+        pending_numbers = false;
         pending_negative_charge = true;
       }
       else
@@ -4872,20 +5614,28 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
       return Fatal(i,"Error: unallowed character! - alphabet: [A-Z][0-1][&-/' ']");
     }
 
-    if(!no_shift){
-      i++;
-      ch = *(++wln_ptr);
-    }
-    no_shift = false;
+    ch = wln_ptr[++i];
   }
 
 
-  if(pending_carbon_chain){        
-    if(digits_buffer.empty() || digits_buffer[0] == '0')
-      return Fatal(i,"Error: zero mark opened for chain length, invalid numeral"); 
-    int carbon_len = isNumber(digits_buffer);
+  if(pending_numbers){        
+    int carbon_len = 0;
+    if(d3){
+      carbon_len += (100*(d1-'0')); 
+      carbon_len += (10*(d2-'0')); 
+      carbon_len += (1*(d3-'0')); 
+    }
+    else if(d2){
+      carbon_len += (10*(d1-'0')); 
+      carbon_len += (1*(d2-'0')); 
+    }      
+    else
+      carbon_len += (1*(d1-'0')); 
+  
+    d1=0;
+    d2=0;
+    d3=0;
 
-    digits_buffer.clear(); 
     if(carbon_len < 0)
       return Fatal(i, "Error: non-numeric value entered for carbon length");
     else if (carbon_len > 100)
@@ -4900,18 +5650,20 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
     
     if(prev){
 
-      if(!AddEdge(curr, prev))
+      edge = AddEdge(curr, prev); 
+      if(!edge)
         return Fatal(i, "Error: failed to bond to previous symbol");
-      edge = &prev->bond_array[prev->barr_n-1]; 
+      edge->stereo = pending_stereo; 
+      pending_stereo = 0; 
       
-      if(pending_unsaturate){
-        if(!unsaturate_edge(edge,pending_unsaturate))
+      if(inline_unsaturate){
+        if(!unsaturate_edge(edge,inline_unsaturate))
           return Fatal(i, "Error: failed to unsaturate bond"); 
-        pending_unsaturate = 0;
+        inline_unsaturate = 0;
       }
     }
 
-    pending_carbon_chain = false;
+    pending_numbers = false;
     prev = curr; 
     last = curr; 
 
@@ -4926,8 +5678,22 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
   }
   
   if(pending_negative_charge){
-    int negative_index = isNumber(digits_buffer); 
-    digits_buffer.clear();
+    int negative_index = 0; 
+    if(d3){
+      negative_index += (100*(d1-'0')); 
+      negative_index += (10*(d2-'0')); 
+      negative_index += (1*(d3-'0')); 
+    }
+    else if(d2){
+      negative_index += (10*(d1-'0')); 
+      negative_index += (1*(d2-'0')); 
+    }      
+    else if(d1)
+      negative_index += (1*(d1-'0')); 
+  
+    d1=0;
+    d2=0;
+    d3=0;
 
     if(negative_index < 0)
       return Fatal(i, "Error: assigning non-numerical value to charge index");
@@ -4970,84 +5736,6 @@ bool ParseWLNString(const char *wln_ptr, WLNGraph &graph)
 }
 
 
-/* dump wln tree to a dotvis file */
-void WLNDumpToDot(FILE *fp, WLNGraph &graph)
-{  
-  fprintf(fp, "digraph WLNdigraph {\n");
-  fprintf(fp, "  rankdir = LR;\n");
-  for (unsigned int i=0; i< graph.symbol_count;i++)
-  {
-    WLNSymbol *node = graph.SYMBOLS[i];
-    if(!node)
-      continue;
-
-    fprintf(fp, "  %d", node->id);
-    if (node->ch == '*' || node->ch == '#')
-      fprintf(fp, "[shape=circle,label=\"*:%s\"];\n", node->special.c_str());
-    else if (node->spiro)
-      fprintf(fp, "[shape=circle,label=\"%c\",color=blue];\n", node->ch);
-    else if (node->inRing)
-      fprintf(fp, "[shape=circle,label=\"%c\",color=green];\n", node->ch);
-    else{
-      if(std::isdigit(node->ch)){
-        if (!node->special.empty())
-          fprintf(fp, "[shape=circle,label=\"%s\"];\n", node->special.c_str());
-        else
-          fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-      } 
-      else
-        fprintf(fp, "[shape=circle,label=\"%c\"];\n", node->ch);
-    }
-  
-      
-    for (unsigned int ei=0;ei<node->barr_n;ei++){
-      WLNEdge *edge = &node->bond_array[ei];
-      WLNSymbol *child = edge->child;
-      unsigned int bond_order = edge->order;
-
-      if (bond_order > 1){
-        for (unsigned int k=0;k<bond_order;k++){
-          fprintf(fp, "  %d", node->id);
-          fprintf(fp, " -> ");
-
-          if(edge->aromatic)
-            fprintf(fp, "%d [color=red]\n", child->id);
-          else
-            fprintf(fp, "%d\n", child->id);
-        }
-      }
-      else{
-        fprintf(fp, "  %d", node->id);
-        fprintf(fp, " -> ");
-        if(edge->aromatic)
-          fprintf(fp, "%d [color=red]\n", child->id);
-        else
-          fprintf(fp, "%d\n", child->id);
-      }
-    }
-  }
-
-  fprintf(fp, "}\n");
-}
-
-bool WriteGraph(WLNGraph &graph,const char*filename){
-  fprintf(stderr,"Dumping wln graph to %s:\n",filename);
-  FILE *fp = 0;
-  fp = fopen(filename, "w");
-  if (!fp)
-  {
-    fprintf(stderr, "Error: could not create dump .dot file\n");
-    fclose(fp);
-    return false;
-  }
-  else
-    WLNDumpToDot(fp,graph);
-  
-  fclose(fp);
-  fp = 0;
-  fprintf(stderr,"  dumped\n");
-  return true;
-}
 
 
 
@@ -5121,16 +5809,14 @@ struct BabelGraph{
   void NMOBSanitizeMol(OBMol* mol)
   {
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
+#if MODERN
+    //StereoFrom2D(mol); 
+    mol->SetAromaticPerceived(false);
+    mol->SetChiralityPerceived(true);
+#else
     mol->SetChiralityPerceived(true);
     mol->SetAromaticPerceived(false);
-
-#ifdef REPLACED
-    if(!OBKekulize(mol)){
-      fprintf(stderr,"Error: failed to kekulize mol\n");
-      if(!OPT_DEBUG) // if we cant kekulise lets see why
-        return false; 
-    }
-#endif
+#endif 
 
     mol->DeleteHydrogens();
   }
@@ -5347,6 +6033,17 @@ struct BabelGraph{
             patom = atom_map[parent]; 
 
           OBBond *bptr = NMOBMolNewBond(mol,patom,catom,bond_order);
+          
+          if(e->stereo==1){
+            bptr->SetHash();
+          }
+          else if (e->stereo == 2){
+            bptr->SetWedge(); 
+          }
+          
+          if(bptr->IsWedge())
+            fprintf(stderr,"stereo - set\n"); 
+
           if(!bptr)  
             return false;
         }
@@ -5762,7 +6459,7 @@ void static write_locant(unsigned char locant,std::string &buffer){
     unsigned int amps = 0;
     while(locant >= 'X'){
       amps++; 
-      locant+= -23;
+      locant+= -AMPERSAND_EXPAND;
     }
     buffer += locant; 
     for(unsigned int i=0;i<amps;i++)
@@ -6443,7 +7140,6 @@ std::string FullCanonicalise(WLNGraph &graph){
                          API FUNCTION
 **********************************************************************/
 
-
 bool ReadWLN(const char *ptr, OBMol* mol)
 {   
   if(!ptr){
@@ -6451,9 +7147,9 @@ bool ReadWLN(const char *ptr, OBMol* mol)
     return false;
   }
   else 
-    wln_string = ptr; 
+    wln_input = ptr; 
 
-  unsigned int len = strlen(wln_string);
+  unsigned int len = strlen(wln_input);
 
   WLNGraph wln_graph;
   BabelGraph obabel; 
@@ -6485,7 +7181,7 @@ bool CanonicaliseWLN(const char *ptr, OBMol* mol)
     return false;
   }
   else 
-    wln_string = ptr; 
+    wln_input = ptr; 
 
   WLNGraph wln_graph;
   BabelGraph obabel; 
