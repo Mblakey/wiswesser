@@ -594,7 +594,8 @@ bool IsRingJunction(OBMol*mol, OBAtom *curr, OBAtom *ahead, std::set<OBRing*>&lo
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
-    create notation as the path is read to prove the concept
+    create notation as the path is read to prove the concept for removal of NP flood fill. 
+
 */
 OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
@@ -612,8 +613,9 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
     best_path[i] = 0; 
   }
 
+#if DEPRECATED
   // set up some non-trivial bonds
-  std::vector<OBBond*> nt_bonds; 
+  std::map<OBBond*,bool> ignore_bond; 
   for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
     OBBond *bond = (*biter);
     unsigned int share = 0; 
@@ -624,20 +626,11 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
     }
 
     if(share > 1)
-      nt_bonds.push_back(bond);   
+      ignore_bond[bond] = true; 
   }
+#endif
 
-  unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_score     = UINT32_MAX;
 
-  OBAtom*                ratom  = 0;
-  OBAtom*                catom  = 0;
-  OBBond*                bond   = 0; 
-  std::map<OBBond*,bool> ignore_bond; 
-
-  for(unsigned int i=0;i<nt_bonds.size();i++)
-    ignore_bond[nt_bonds[i]] = true; 
-  
 
 // Some rules to follow when walking the path:
 // 
@@ -657,41 +650,58 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 //
 // 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
 //    false in the walk back
+// 
+// 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 
-  std::string test_buffer;
 
+  unsigned int           lowest_sum       = UINT32_MAX;
+  unsigned int           lowest_score     = UINT32_MAX;
 
+  OBAtom*                ratom  = 0; // ring
+  OBAtom*                catom  = 0; // child
+  OBAtom*                matom  = 0; // move
+  
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-    if(atom_shares[*aiter] == 2){
-      std::stack<OBAtom*>    stack; 
+    if(atom_shares[*aiter] == 2){ // these are the starting points 
+      
+      std::string poly_buffer;
       std::map<OBAtom*,bool> visited; 
       unsigned int locant_pos = 0;
-      stack.push(*aiter);
-
-      while(!stack.empty()){
-        ratom = stack.top();
-        stack.pop();
+      
+      ratom = *aiter; 
+      for(;;){
         locant_path[locant_pos++] = ratom; 
         visited[ratom] = true; 
+        
+        if(locant_pos >= path_size)
+          break;
 
+        matom = 0;  
         FOR_NBORS_OF_ATOM(a,ratom){ 
           catom = &(*a);   
-          bond = mol->GetBond(ratom,catom); 
-          if(atom_shares[catom] && !visited[catom] && !ignore_bond[bond]){
-            stack.push(catom);
-            break;
+          if(!visited[catom] && !IsRingJunction(mol, ratom, catom,local_SSSR)){
+            if(!matom)
+              matom = catom; 
+            else if(atom_shares[catom] > atom_shares[matom])
+              matom = catom; 
           }
         }
+        
+        if(!matom){
+          fprintf(stderr,"Error: did not move in locant path walk!\n"); 
+          return 0;
+        }
+
+        ratom = matom; 
       }
+    
 
       std::vector<OBRing*> tmp; 
       std::string candidate_string; // super annoying this has to go here, i dont see another way round
       unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
       unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
       
-#if WLNDEBUG
       fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
-#endif 
 
       if(score < lowest_score){
         lowest_sum = fsum;
