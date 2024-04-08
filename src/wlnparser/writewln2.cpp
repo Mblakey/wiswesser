@@ -552,27 +552,6 @@ OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
 }
 
 
-/* update the last ring currently walked in the locant path, if the atom is shared across
- * ring, dont update and return 0. 
-*/
-OBRing *UpdateCurrentRing(OBAtom *atom, OBRing *prev,std::set<OBRing*> &local_SSSR){
-  unsigned int i=0;
-  OBRing *unique_ring = 0; 
-  
-  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-    OBRing *r = *riter; 
-    if(r->IsInRing(atom->GetIdx())){
-      unique_ring = r; 
-      i++; 
-    } 
-  }
-  
-  if(i==1)
-    return unique_ring;
-  else
-   return prev; // do not update
-}
-
 
 /* unless one of the atoms is multicyclic, crossing a ring junction is not allowed
  * a ring junction is determined if bond between 2 atoms is shared between rings
@@ -611,10 +590,23 @@ bool IsRingComplete(OBRing *ring, OBAtom **locant_path, unsigned int path_len){
 }
 
 
+/*  a valid starting multicyclic point cannot be nested within others, it must only point to 
+ *  1 other multicyclic, within the ring walk this is not true, and both routes must be taken
+ *  */ 
+unsigned int connected_multicycles(OBAtom *atom, std::map<OBAtom*,unsigned int>  &atom_shares){
+  unsigned int m = 0;
+  FOR_NBORS_OF_ATOM(a, atom){
+    OBAtom *n = &(*a);
+    if(atom_shares[n] >= 3)
+      m++; 
+  }
+  return m;
+}
+
+
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
     create notation as the path is read to prove the concept for removal of NP flood fill. 
-
 */
 OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
@@ -631,24 +623,6 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
     locant_path[i] = 0;
     best_path[i] = 0; 
   }
-
-#if DEPRECATED
-  // set up some non-trivial bonds
-  std::map<OBBond*,bool> ignore_bond; 
-  for(std::set<OBBond*>::iterator biter = ring_bonds.begin(); biter != ring_bonds.end(); biter++){
-    OBBond *bond = (*biter);
-    unsigned int share = 0; 
-    for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-      OBRing *obring = (*riter); 
-      if(obring->IsMember(bond))
-        share++; 
-    }
-
-    if(share > 1)
-      ignore_bond[bond] = true; 
-  }
-#endif
-
 
 
 // Some rules to follow when walking the path:
@@ -724,6 +698,195 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
      
 
       std::cerr << "poly buffer: " << poly_buffer << std::endl; 
+
+      std::vector<OBRing*> tmp; 
+      std::string candidate_string; // super annoying this has to go here, i dont see another way round
+      unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
+      unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
+      
+      fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
+
+      if(score < lowest_score){
+        lowest_sum = fsum;
+        lowest_score = score; 
+        copy_locant_path(best_path,locant_path,path_size);
+      }
+      else if (score == lowest_score){
+        if(fsum < lowest_sum){ // rule 30d.
+          lowest_sum = fsum;
+          copy_locant_path(best_path,locant_path,path_size);
+        }
+      }
+    }
+  }
+
+  free(locant_path);
+  for(unsigned int i=0;i<path_size;i++){
+    if(!best_path[i]){
+      free(best_path);
+      return 0; 
+    }
+  }
+
+  return best_path; 
+}
+
+
+/* really important function, based off a backtrack bond in the stack, the locant path needs to be walked back
+ * the multicyclic stacks need to be popped and the ring map needs to be reset along with the buffer. */
+OBAtom* BackTrackWalk(  OBAtom **locant_path, unsigned int &path_size, std::set<OBRing*> &local_SSSR, 
+                        std::stack<OBBond*> back_stack, std::stack<OBAtom*> &multi_stack,                
+                        std::map<OBAtom*,bool> &visited_atoms,std::map<OBRing*,bool> &handled_rings, 
+                        std::string &buffer)
+{
+  OBBond *bond = back_stack.top();
+  back_stack.pop(); 
+
+  OBAtom *f = bond->GetBeginAtom(); 
+  OBAtom *e = bond->GetEndAtom(); 
+  OBAtom *next = 0; 
+
+  // find the position in the path where the lowest one of these are, the other gets placed into locant path 
+  unsigned int p=0;
+  unsigned int q=0;
+  for(p;p<path_size;p++,q++){
+    if(locant_path[p] == f){
+      next = e; 
+      break;
+    }
+    else if (locant_path[p] == e){
+      next = f; 
+      break; 
+    }
+  }
+
+  // everything from p gets cleared, but not including
+  for(p+1;p<path_size;p++){
+    visited_atoms[locant_path[p]] = 0;
+    locant_path[p] = 0; 
+  }
+  path_size = q+1; 
+
+  // reset the ring write map and reset the buffer 
+  buffer.clear();
+  handled_rings.clear(); 
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+    if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, path_size)){
+      lowest_ring_locant(*riter, locant_path, path_size, buffer);
+      ring_size(*riter,buffer); 
+      handled_rings[*riter] = true; 
+    }
+  }
+
+  // gets added to the locant path naturally in loop 
+  return next;
+}
+
+OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
+                        std::set<OBAtom*>               &ring_atoms,
+                        std::set<OBBond*>               &ring_bonds,
+                        std::map<OBAtom*,unsigned int>  &atom_shares,
+                        std::map<OBAtom*,bool>          &bridge_atoms,
+                        std::set<OBRing*>               &local_SSSR)
+{
+
+  // create the path
+  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  for(unsigned int i=0;i<path_size;i++){
+    locant_path[i] = 0;
+    best_path[i] = 0; 
+  }
+
+
+// Some rules to follow when walking the path:
+// 
+// 1) If pointing to something that is not a ring junction (if the choice is there)
+//    take the path with the highest atom share count
+//
+//    * from a given starting point there will be two possible directions for a standard polycyclic
+//      call these direction A, and direction B, which can be scored by the fusion sum
+//
+// 2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
+//    position, the ring must of looped back, write the smallest locant in that subring. 
+//   
+//    this includes the final A if looping back to start 
+//
+// 3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
+//    * see UpdateCurrentRing 
+//
+// 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
+//    false in the walk back
+// 
+// 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
+
+  unsigned int           lowest_sum       = UINT32_MAX;
+  unsigned int           lowest_score     = UINT32_MAX;
+
+  OBAtom*                ratom  = 0; // ring
+  OBAtom*                catom  = 0; // child
+  OBAtom*                matom  = 0; // move atom
+  
+  for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
+    
+    // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
+    if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
+      
+      std::string peri_buffer = ""; 
+      std::map<OBAtom*,bool> visited; 
+      std::map<OBRing*,bool> handled_rings;
+      std::stack<OBBond*>    backtrack_stack;   // multicyclics have three potential routes, 
+                                                // polycyclic junctions atoms have two. 
+      std::stack<OBAtom*>    multicyclic_stack; // used for off branch locant removal 
+      unsigned int locant_pos = 0;
+      
+      ratom = *aiter; 
+      for(;;){
+        locant_path[locant_pos++] = ratom; 
+        visited[ratom] = true; 
+
+        for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+          if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
+            lowest_ring_locant(*riter, locant_path, locant_pos, peri_buffer);
+            ring_size(*riter, peri_buffer); 
+            handled_rings[*riter] = true; 
+          }
+        }
+
+        if(locant_pos >= path_size)
+          break;
+
+        // here we allow multicyclics to cross ring junctions
+        matom = 0;  
+        FOR_NBORS_OF_ATOM(a,ratom){ 
+          catom = &(*a);  
+          if(!visited[catom]){
+            if( (atom_shares[ratom] >= 3 || bridge_atoms[ratom] ) || (atom_shares[catom] < 3 && !IsRingJunction(mol, ratom, catom, local_SSSR) )){
+              if(!matom)
+                matom = catom; 
+              else if(atom_shares[catom] > atom_shares[matom])
+                matom = catom;
+              else{
+                backtrack_stack.push(mol->GetBond(ratom,catom)); 
+                // matom is set, but this is an equal traversal
+                // we want this bond back in the future, so a bond_stack is a good candidate as the order will be kept
+              }
+            }
+          }
+        }
+        
+        if(!matom){
+          // no locant path! add logic for off branches here!
+
+          fprintf(stderr,"Error: did not move in locant path walk!\n"); 
+          return 0;
+        }
+
+        ratom = matom; 
+      }
+     
+
+      std::cerr << "peri buffer: " << peri_buffer << std::endl; 
 
       std::vector<OBRing*> tmp; 
       std::string candidate_string; // super annoying this has to go here, i dont see another way round
@@ -2739,9 +2902,12 @@ struct BabelGraph{
       locant_path = SingleWalk(mol,path_size,local_SSSR);
     else if(!multi && !bridging)
       locant_path = PolyWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
-    else 
-      locant_path = PeriWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR,0);
+    else{
+      PrototypeWalk(mol,path_size, ring_atoms, ring_bonds, atom_shares, bridge_atoms, local_SSSR); 
+      
 
+      locant_path = PeriWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR,0);
+    }
     if(!locant_path)
       return Fatal("no locant path could be determined");
 
