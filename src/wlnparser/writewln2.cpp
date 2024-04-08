@@ -537,7 +537,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
 
 OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
-                  std::set<OBRing*> &local_SSSR)
+                    std::set<OBRing*> &local_SSSR)
 {
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   for(unsigned int i=0;i<path_size;i++)
@@ -603,9 +603,11 @@ unsigned int connected_multicycles(OBAtom *atom, std::map<OBAtom*,unsigned int> 
   return m;
 }
 
-
-// builds iteratively so ordering is correct, when a ring is filled, write the notation
-// there is some bit logic to speed all this up, - concepts first, optimisation later
+/*
+builds iteratively so ordering is correct, when a ring is filled, write the notation
+there is some bit logic to speed all this up, - concepts first, optimisation later
+Some rules to follow when walking the path:
+*/
 void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
                             std::string &buffer)
@@ -623,51 +625,47 @@ void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos,
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
     create notation as the path is read to prove the concept for removal of NP flood fill. 
+
+1) If pointing to something that is not a ring junction (if the choice is there)
+   take the path with the highest atom share count
+
+   * from a given starting point there will be two possible directions for a standard polycyclic
+     call these direction A, and direction B, which can be scored by the fusion sum
+
+2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
+   position, the ring must of looped back, write the smallest locant in that subring. 
+  
+   this includes the final A if looping back to start 
+
+3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
+   * see UpdateCurrentRing 
+
+4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
+   false in the walk back
+
+3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 */
 OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
-                        std::set<OBBond*>               &ring_bonds,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
-                        std::set<OBRing*>               &local_SSSR)
+                        std::set<OBRing*>               &local_SSSR,
+                        std::string                     &buffer)
 {
 
   // create the path
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  std::string best_notation; 
   for(unsigned int i=0;i<path_size;i++){
     locant_path[i] = 0;
     best_path[i] = 0; 
   }
 
-
-// Some rules to follow when walking the path:
-// 
-// 1) If pointing to something that is not a ring junction (if the choice is there)
-//    take the path with the highest atom share count
-//
-//    * from a given starting point there will be two possible directions for a standard polycyclic
-//      call these direction A, and direction B, which can be scored by the fusion sum
-//
-// 2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
-//    position, the ring must of looped back, write the smallest locant in that subring. 
-//   
-//    this includes the final A if looping back to start 
-//
-// 3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
-//    * see UpdateCurrentRing 
-//
-// 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
-//    false in the walk back
-// 
-// 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
-
-  unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_score     = UINT32_MAX;
-
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
+  unsigned int           lowest_sum       = UINT32_MAX;
   
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){ // these are the starting points 
@@ -681,7 +679,6 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
       for(;;){
         locant_path[locant_pos++] = ratom; 
         visited[ratom] = true;
-
 
         write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, poly_buffer); 
         if(locant_pos >= path_size)
@@ -706,26 +703,11 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
         ratom = matom; 
       }
      
-
-      std::cerr << "poly buffer: " << poly_buffer << std::endl; 
-
-      std::vector<OBRing*> tmp; 
-      std::string candidate_string; // super annoying this has to go here, i dont see another way round
-      unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
       unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
-      
-      fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
-
-      if(score < lowest_score){
+      if(fsum < lowest_sum){ // rule 30d.
         lowest_sum = fsum;
-        lowest_score = score; 
         copy_locant_path(best_path,locant_path,path_size);
-      }
-      else if (score == lowest_score){
-        if(fsum < lowest_sum){ // rule 30d.
-          lowest_sum = fsum;
-          copy_locant_path(best_path,locant_path,path_size);
-        }
+        best_notation = poly_buffer; 
       }
     }
   }
@@ -737,7 +719,8 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
       return 0; 
     }
   }
-
+  
+  buffer += best_notation; 
   return best_path; 
 }
 
@@ -766,43 +749,46 @@ void BackTrackWalk(  OBAtom *clear,OBAtom **locant_path, unsigned int &path_size
 
 }
 
-OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
+/*
+Some rules to follow when walking the path:
+
+1) If pointing to something that is not a ring junction (if the choice is there)
+   take the path with the highest atom share count
+
+   * from a given starting point there will be two possible directions for a standard polycyclic
+     call these direction A, and direction B, which can be scored by the fusion sum
+
+2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
+   position, the ring must of looped back, write the smallest locant in that subring. 
+  
+   this includes the final A if looping back to start 
+
+3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
+   * see UpdateCurrentRing 
+
+4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
+   false in the walk back
+
+3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
+*/
+OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
-                        std::set<OBBond*>               &ring_bonds,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
-                        std::set<OBRing*>               &local_SSSR)
+                        std::set<OBRing*>               &local_SSSR,
+                        std::string                     &buffer)
 {
 
   // create the path
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  std::string best_notation; 
   for(unsigned int i=0;i<path_size;i++){
     locant_path[i] = 0;
     best_path[i] = 0; 
   }
 
 
-// Some rules to follow when walking the path:
-// 
-// 1) If pointing to something that is not a ring junction (if the choice is there)
-//    take the path with the highest atom share count
-//
-//    * from a given starting point there will be two possible directions for a standard polycyclic
-//      call these direction A, and direction B, which can be scored by the fusion sum
-//
-// 2) Write the notation as rings loop back to the path, if a previous locant can be seen from the current
-//    position, the ring must of looped back, write the smallest locant in that subring. 
-//   
-//    this includes the final A if looping back to start 
-//
-// 3) In order to do this, keep a track of the last ring entered, for non-sharing atoms, this will update the ring
-//    * see UpdateCurrentRing 
-//
-// 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
-//    false in the walk back
-// 
-// 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 
   unsigned int           lowest_sum       = UINT32_MAX;
   unsigned int           lowest_score     = UINT32_MAX;
@@ -851,7 +837,6 @@ OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
                 else if(atom_shares[catom] > atom_shares[matom])
                   matom = catom;
                 else if(atom_shares[catom] == atom_shares[matom]){
-                  //fprintf(stderr,"adding %d as a potential look back\n",catom->GetIdx()); 
                   backtrack_stack.push({ratom,catom}); 
                 }
               }
@@ -870,63 +855,51 @@ OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
         }
        
 
-        std::cerr << "peri buffer: " << peri_buffer << std::endl; 
-
-        std::vector<OBRing*> tmp; 
-        std::string candidate_string; // super annoying this has to go here, i dont see another way round
-        unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
         unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
-        
-        fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
-
-        if(score < lowest_score){
+        if(fsum < lowest_sum){ // rule 30d.
           lowest_sum = fsum;
-          lowest_score = score; 
           copy_locant_path(best_path,locant_path,path_size);
+          best_notation = peri_buffer; 
         }
-        else if (score == lowest_score){
-            if(fsum < lowest_sum){ // rule 30d.
-              lowest_sum = fsum;
-              copy_locant_path(best_path,locant_path,path_size);
-            }
-          }
-          
-          if(!backtrack_stack.empty()){
-            ratom = backtrack_stack.top().second;
-            BackTrackWalk(backtrack_stack.top().first, locant_path, locant_pos,visited); 
-          
-            // this is expensive but guarantees sequential ordeirng
-            peri_buffer.clear();
-            handled_rings.clear(); 
-            for(unsigned int t=0;t<locant_pos;t++)
-              write_complete_rings(locant_path, t, local_SSSR, handled_rings, peri_buffer); 
-          }
+        
+        if(!backtrack_stack.empty()){
+          ratom = backtrack_stack.top().second;
+          BackTrackWalk(backtrack_stack.top().first, locant_path, locant_pos,visited); 
+        
+          // this is expensive but guarantees sequential ordeirng
+          peri_buffer.clear();
+          handled_rings.clear(); 
+          for(unsigned int t=0;t<locant_pos;t++)
+            write_complete_rings(locant_path, t, local_SSSR, handled_rings, peri_buffer); 
+        }
 
-        } while(!backtrack_stack.empty()) ; 
-      }
-    } 
-
-    free(locant_path);
-    for(unsigned int i=0;i<path_size;i++){
-      if(!best_path[i]){
-        free(best_path);
-        return 0; 
-      }
+      } while(!backtrack_stack.empty()) ; 
     }
+  } 
 
-    return best_path; 
+  free(locant_path);
+  for(unsigned int i=0;i<path_size;i++){
+    if(!best_path[i]){
+      free(best_path);
+      return 0; 
+    }
   }
+  
+  buffer += best_notation; 
+  return best_path; 
+}
 
 
+#if DEPRECATED
   /* uses a flood fill style solution (likely NP-HARD), with some restrictions to 
   find a multicyclic path thats stable with disjoined pericyclic points */
-  OBAtom **PeriWalk(      OBMol *mol, unsigned int path_size,
-                              std::set<OBAtom*>               &ring_atoms,
-                              std::set<OBBond*>               &ring_bonds,
-                              std::map<OBAtom*,unsigned int>  &atom_shares,
-                              std::map<OBAtom*,bool>          &bridge_atoms, // rule 30f.
-                              std::set<OBRing*>               &local_SSSR,
-                              unsigned int recursion_tracker)
+OBAtom **PeriWalk(      OBMol *mol, unsigned int path_size,
+                        std::set<OBAtom*>               &ring_atoms,
+                        std::set<OBBond*>               &ring_bonds,
+                        std::map<OBAtom*,unsigned int>  &atom_shares,
+                        std::map<OBAtom*,bool>          &bridge_atoms, // rule 30f.
+                        std::set<OBRing*>               &local_SSSR,
+                        unsigned int recursion_tracker)
   {
 
     // parameters needed to seperate out the best locant path
@@ -1110,6 +1083,7 @@ OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
   
   return best_path;
 }
+#endif
 
 /**********************************************************************
                          Debugging Functions
@@ -2899,25 +2873,6 @@ struct BabelGraph{
     if(OPT_DEBUG)
       fprintf(stderr,"  multi classification: %d\n",multi);
 
-    if(local_SSSR.size() == 1)
-      locant_path = SingleWalk(mol,path_size,local_SSSR);
-    else if(!multi && !bridging)
-      locant_path = PolyWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR);
-    else{
-      PrototypeWalk(mol,path_size, ring_atoms, ring_bonds, atom_shares, bridge_atoms, local_SSSR); 
-      
-
-      locant_path = PeriWalk(mol,path_size,ring_atoms,ring_bonds,atom_shares,bridge_atoms,local_SSSR,0);
-    }
-    if(!locant_path)
-      return Fatal("no locant path could be determined");
-
-    // here a reduction condition must of been set.      
-    if(ring_atoms.size() != path_size){
-      macro_ring = true;
-      LocalSSRS_data.path_size = ring_atoms.size();
-      path_size = LocalSSRS_data.path_size; 
-    }
 
     if(inline_ring){
       buffer+= '-';
@@ -2949,6 +2904,17 @@ struct BabelGraph{
       buffer += 'T';
     else
       buffer += 'L';
+
+
+    if(local_SSSR.size() == 1)
+      locant_path = SingleWalk(mol,path_size,local_SSSR);
+    else if(!multi && !bridging)
+      locant_path = PolyWalk(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,buffer);
+    else{
+      locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,buffer); 
+    }
+    if(!locant_path)
+      return Fatal("no locant path could be determined");
 
     ReadLocantPath( mol,locant_path,path_size,
                     local_SSSR,bridge_atoms,ring_order,
