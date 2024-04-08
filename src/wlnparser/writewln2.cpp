@@ -125,7 +125,7 @@ void sort_locants(unsigned char *arr,unsigned int len){
                           Write Helper Functions
 **********************************************************************/
 
-void lowest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen, std::string &buffer){
+void write_lowest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen, std::string &buffer){
   for(unsigned int i=0;i<plen;i++){
     if(ring->IsMember(locant_path[i])){
       if(i>0){
@@ -137,7 +137,18 @@ void lowest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen, s
   }
 }
 
-void ring_size(OBRing *ring, std::string &buffer){
+
+unsigned char highest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen){
+  unsigned char loc = 0; 
+  for(unsigned int i=0;i<plen;i++){
+    if(ring->IsMember(locant_path[i]))
+      loc = i; 
+  }
+  return INT_TO_LOCANT(loc+1); 
+}
+
+
+void write_ring_size(OBRing *ring, std::string &buffer){
   if(ring->Size() < 9)
     buffer += ring->Size() + '0'; 
   else{
@@ -518,7 +529,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
     else if(!rings_done)
       assignment_score++;
   
-    ring_size(to_write, buffer); 
+    write_ring_size(to_write, buffer); 
 
     locant_order.push_back(lowest_in_ring);
     ring_order.push_back(to_write);
@@ -550,7 +561,7 @@ OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
   for(unsigned int i=0;i<mono->Size();i++)
     locant_path[i] = mol->GetAtom(mono->_path[i]);
   
-  ring_size(mono, buffer); 
+  write_ring_size(mono, buffer); 
   ring_order.push_back(mono);
   return locant_path;
 }
@@ -618,8 +629,8 @@ void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos,
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
-      lowest_ring_locant(*riter, locant_path, locant_pos, buffer);
-      ring_size(*riter, buffer); 
+      write_lowest_ring_locant(*riter, locant_path, locant_pos, buffer);
+      write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
       ring_order.push_back(*riter); 
     }
@@ -857,32 +868,47 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
               
               // two things can happen, either we're at a ring junction or we're not
               if(IsRingJunction(mol, ratom, catom, local_SSSR)){
+                
                 // if its a ring junction, we can move if this is going to/from a multicyclic point,
                 // if pointing at a multicyclic, or an edge atoms, try both
                 if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3)){
                   if(!matom)
                     matom = catom; 
-                  else if(atom_shares[catom] > atom_shares[matom])
+                  else if(atom_shares[catom] > atom_shares[matom]){
+                    // edge cases should be tried
+                    if(atom_shares[matom] < 2)
+                      backtrack_stack.push({ratom,matom}); 
+
                     matom = catom;
-                  else{
-                    backtrack_stack.push({ratom,catom}); 
                   }
+                  else 
+                    backtrack_stack.push({ratom,catom}); 
                 }
               }
               else if(atom_shares[catom] < 3){
                 if(!matom)
                   matom = catom; 
-                else if(atom_shares[catom] > atom_shares[matom])
+                else if(atom_shares[catom] > atom_shares[matom]){
+                  if(atom_shares[matom] < 2)
+                    backtrack_stack.push({ratom,matom}); 
+                  
                   matom = catom;
+                }
                 else if(atom_shares[catom] <= atom_shares[matom])
                   backtrack_stack.push({ratom,catom});
-              } 
+              }
+              else if(atom_shares[ratom] < 2){
+                if(!matom)
+                  matom = catom;
+              }
             }
           }
           
 
           if(!matom){
-            // no locant path! add logic for off branches here!
+            // no locant path! add logic for off branches here! and pseudo locants
+            print_locant_array(locant_path,path_size); 
+            
             //fprintf(stderr,"Error: did not move in locant path walk!\n"); 
             break;
           }
