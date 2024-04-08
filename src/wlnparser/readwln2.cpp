@@ -1976,8 +1976,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
       }
     }
 
-    start_locant->locant->aromatic = start_locant->locant->aromatic==1 ? 1:aromatic;
-    
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
@@ -2021,9 +2019,13 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
           curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
         else
           curr_locant = &branch_locants[broken_position]; 
-
-        curr_locant->locant->aromatic = curr_locant->locant->aromatic ? 1:aromatic;
+        
         edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
+        edge_taken->child->aromatic = edge_taken->aromatic; 
+        edge_taken->parent->aromatic = edge_taken->aromatic; 
+        if(edge_taken->aromatic)
+        fprintf(stderr,"setting %c -> %c aromatic\n",ring->locants_ch[edge_taken->child], ring->locants_ch[edge_taken->parent]); 
+
         end_char = highest_loc; 
         path_size++; 
       }
@@ -2082,7 +2084,15 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
         }
 
         new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
+        new_edge->child->aromatic = new_edge->aromatic; 
+        new_edge->parent->aromatic = new_edge->aromatic; 
         start_locant->allowed_connections--; 
+        
+        // weird bit of logic, but works nicely for tight rings
+        while(!curr_locant->allowed_connections && end_char <= max_locant)
+          curr_locant = &locant_path[LOCANT_TO_INT(++end_char-1)]; 
+      
+        curr_locant->allowed_connections--; 
         break;
       }
       else{

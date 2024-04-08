@@ -537,7 +537,9 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
 
 OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
-                    std::set<OBRing*> &local_SSSR)
+                    std::set<OBRing*> &local_SSSR,
+                    std::vector<OBRing*> &ring_order,
+                    std::string &buffer )
 {
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   for(unsigned int i=0;i<path_size;i++)
@@ -547,7 +549,9 @@ OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
 
   for(unsigned int i=0;i<mono->Size();i++)
     locant_path[i] = mol->GetAtom(mono->_path[i]);
-    
+  
+  ring_size(mono, buffer); 
+  ring_order.push_back(mono);
   return locant_path;
 }
 
@@ -610,13 +614,14 @@ Some rules to follow when walking the path:
 */
 void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
-                            std::string &buffer)
+                            std::vector<OBRing*> &ring_order,std::string &buffer)
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
       lowest_ring_locant(*riter, locant_path, locant_pos, buffer);
       ring_size(*riter, buffer); 
-      handled_rings[*riter] = true; 
+      handled_rings[*riter] = true;
+      ring_order.push_back(*riter); 
     }
   }
 }
@@ -646,17 +651,19 @@ void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos,
 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 */
 OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
-                        std::set<OBAtom*>               &ring_atoms,
-                        std::map<OBAtom*,unsigned int>  &atom_shares,
-                        std::map<OBAtom*,bool>          &bridge_atoms,
-                        std::set<OBRing*>               &local_SSSR,
-                        std::string                     &buffer)
+                     std::set<OBAtom*>               &ring_atoms,
+                     std::map<OBAtom*,unsigned int>  &atom_shares,
+                     std::map<OBAtom*,bool>          &bridge_atoms,
+                     std::set<OBRing*>               &local_SSSR,
+                     std::vector<OBRing*>            &ring_order,
+                     std::string                     &buffer)
 {
 
   // create the path
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   std::string best_notation; 
+  std::vector<OBRing*> best_order; 
   for(unsigned int i=0;i<path_size;i++){
     locant_path[i] = 0;
     best_path[i] = 0; 
@@ -670,7 +677,8 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){ // these are the starting points 
       
-      std::string poly_buffer = ""; 
+      std::string poly_buffer = "";
+      std::vector<OBRing*> lring_order; 
       std::map<OBAtom*,bool> visited; 
       std::map<OBRing*,bool> handled_rings; 
       unsigned int locant_pos = 0;
@@ -680,7 +688,7 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
         locant_path[locant_pos++] = ratom; 
         visited[ratom] = true;
 
-        write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, poly_buffer); 
+        write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,poly_buffer); 
         if(locant_pos >= path_size)
           break;
         
@@ -708,6 +716,7 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
         lowest_sum = fsum;
         copy_locant_path(best_path,locant_path,path_size);
         best_notation = poly_buffer; 
+        best_order = lring_order; 
       }
     }
   }
@@ -720,7 +729,8 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
     }
   }
   
-  buffer += best_notation; 
+  ring_order = best_order; 
+  buffer = best_notation; 
   return best_path; 
 }
 
@@ -776,6 +786,7 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
                         std::set<OBRing*>               &local_SSSR,
+                        std::vector<OBRing*>            &ring_order,
                         std::string                     &buffer)
 {
 
@@ -783,26 +794,23 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
   OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
   std::string best_notation; 
+  std::vector<OBRing*> best_order; 
   for(unsigned int i=0;i<path_size;i++){
     locant_path[i] = 0;
     best_path[i] = 0; 
   }
 
-
-
   unsigned int           lowest_sum       = UINT32_MAX;
-  unsigned int           lowest_score     = UINT32_MAX;
-
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
  
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
-    
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
      
       std::string peri_buffer = ""; 
+      std::vector<OBRing*> lring_order; 
       std::map<OBAtom*,bool> visited; 
       std::map<OBRing*,bool> handled_rings;
       std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
@@ -820,7 +828,7 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
           locant_path[locant_pos++] = ratom; 
           visited[ratom] = true; 
 
-          write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, peri_buffer); 
+          write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,peri_buffer); 
           if(locant_pos >= path_size)
             break;
 
@@ -860,6 +868,7 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
           lowest_sum = fsum;
           copy_locant_path(best_path,locant_path,path_size);
           best_notation = peri_buffer; 
+          best_order = lring_order; 
         }
         
         if(!backtrack_stack.empty()){
@@ -869,8 +878,9 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
           // this is expensive but guarantees sequential ordeirng
           peri_buffer.clear();
           handled_rings.clear(); 
+          lring_order.clear(); 
           for(unsigned int t=0;t<locant_pos;t++)
-            write_complete_rings(locant_path, t, local_SSSR, handled_rings, peri_buffer); 
+            write_complete_rings(locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
 
       } while(!backtrack_stack.empty()) ; 
@@ -885,7 +895,8 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
     }
   }
   
-  buffer += best_notation; 
+  ring_order = best_order; 
+  buffer = best_notation; 
   return best_path; 
 }
 
@@ -2648,7 +2659,6 @@ struct BabelGraph{
     if(!std::isdigit(buffer.back()))
       last_locant = ' ';
     
-
     for(unsigned int i=0;i<path_size;i++){
       if(!locant_path[i])
         Fatal("dead locant path atom ptr");
@@ -2861,7 +2871,7 @@ struct BabelGraph{
     SubsetData LocalSSRS_data;
 
     if(!ConstructLocalSSRS(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR, LocalSSRS_data)){
-      Fatal("failed to write ring"); 
+      Fatal("failed to contruct SSSR"); 
     }
     
     bool multi = LocalSSRS_data.multi;
@@ -2869,10 +2879,20 @@ struct BabelGraph{
     bool bridging = LocalSSRS_data.bridging;
     unsigned int path_size = LocalSSRS_data.path_size;
     bool macro_ring = false; 
+    std::string ring_segment; 
 
     if(OPT_DEBUG)
       fprintf(stderr,"  multi classification: %d\n",multi);
 
+    if(local_SSSR.size() == 1)
+      locant_path = SingleWalk(mol,path_size,local_SSSR,ring_order, ring_segment);
+    else if(!multi && !bridging)
+      locant_path = PolyWalk(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,ring_order,ring_segment);
+    else{
+      locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
+    }
+    if(!locant_path)
+      return Fatal("no locant path could be determined");
 
     if(inline_ring){
       buffer+= '-';
@@ -2904,21 +2924,9 @@ struct BabelGraph{
       buffer += 'T';
     else
       buffer += 'L';
+    
 
-
-    if(local_SSSR.size() == 1)
-      locant_path = SingleWalk(mol,path_size,local_SSSR);
-    else if(!multi && !bridging)
-      locant_path = PolyWalk(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,buffer);
-    else{
-      locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,buffer); 
-    }
-    if(!locant_path)
-      return Fatal("no locant path could be determined");
-
-    ReadLocantPath( mol,locant_path,path_size,
-                    local_SSSR,bridge_atoms,ring_order,
-                    buffer,true); 
+    buffer += ring_segment; 
     
     if(bridging){
       for(unsigned int i=0;i<path_size;i++){
