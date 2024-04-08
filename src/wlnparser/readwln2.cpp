@@ -216,7 +216,6 @@ struct WLNRing
   };
 
   bool FillAdjMatrix(){
-
     aromatic_atoms = 0;
     adj_matrix = (unsigned int*)malloc(sizeof(unsigned int) * (rsize*rsize)); 
     if(!adj_matrix)
@@ -232,7 +231,7 @@ struct WLNRing
       unsigned int r = i;
       unsigned char loc_a = INT_TO_LOCANT(i+1);
       WLNSymbol *rsym = locants[loc_a]; 
-      if(rsym->ch == 'S' || (rsym->ch == 'N' && rsym->charge < 0)) // for now lets see
+      if(rsym->ch == 'S') // for now lets see
         continue;
       
       if(rsym->aromatic && rsym->num_edges < rsym->allowed_edges){
@@ -241,7 +240,7 @@ struct WLNRing
           WLNEdge *redge = &rsym->bond_array[ei];
           WLNSymbol *csym = redge->child; 
 
-          if(csym->ch == 'S' || redge->order > 1 || (csym->ch == 'N' && csym->charge < 0))
+          if(csym->ch == 'S' || redge->order > 1)
             continue;
         
           if(csym->aromatic && redge->aromatic && csym->num_edges < csym->allowed_edges){
@@ -1954,7 +1953,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
     ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
 
     // --- MULTI ALGORITHM, see notes on function for rules and use --- 
-    
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
     unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
@@ -2021,11 +2019,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
           curr_locant = &branch_locants[broken_position]; 
         
         edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
-        edge_taken->child->aromatic = edge_taken->aromatic; 
-        edge_taken->parent->aromatic = edge_taken->aromatic; 
-        if(edge_taken->aromatic)
-        fprintf(stderr,"setting %c -> %c aromatic\n",ring->locants_ch[edge_taken->child], ring->locants_ch[edge_taken->parent]); 
-
+        edge_taken->child->aromatic = edge_taken->child->aromatic ? 1:aromatic; 
+        edge_taken->parent->aromatic = edge_taken->parent->aromatic ? 1:aromatic; 
         end_char = highest_loc; 
         path_size++; 
       }
@@ -2085,7 +2080,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
 
         new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
         new_edge->child->aromatic = new_edge->aromatic; 
-        new_edge->parent->aromatic = new_edge->aromatic; 
+        new_edge->child->aromatic = new_edge->child->aromatic ? 1:aromatic; 
+        new_edge->parent->aromatic = new_edge->parent->aromatic ? 1:aromatic; 
+        
         start_locant->allowed_connections--; 
         
         // weird bit of logic, but works nicely for tight rings
@@ -2158,8 +2155,9 @@ bool post_bond_handling( std::vector<LocantPair> &bonds,
       return false;
     }
 
-    if(!bond_pair.order)
+    if(!bond_pair.order){
       edge->aromatic = 0;
+    }
     else{
       if(!unsaturate_edge(edge, bond_pair.order))
         return false;
