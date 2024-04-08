@@ -600,6 +600,16 @@ bool IsRingJunction(OBMol*mol, OBAtom *curr, OBAtom *ahead, std::set<OBRing*>&lo
   return false; 
 }
 
+bool IsRingComplete(OBRing *ring, OBAtom **locant_path, unsigned int path_len){
+  unsigned int size = 0; 
+  for(unsigned int i=0;i<path_len;i++){
+    if(ring->IsMember(locant_path[i]))
+      size++; 
+  }
+
+  return (size == ring->Size()); 
+}
+
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
@@ -662,27 +672,33 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
 // 
 // 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 
-
   unsigned int           lowest_sum       = UINT32_MAX;
   unsigned int           lowest_score     = UINT32_MAX;
 
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
-  OBRing*                mring  = 0; // move ring
   
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){ // these are the starting points 
       
       std::string poly_buffer = ""; 
       std::map<OBAtom*,bool> visited; 
-      std::map<OBRing*,bool> open_rings; 
+      std::map<OBRing*,bool> handled_rings; 
       unsigned int locant_pos = 0;
       
       ratom = *aiter; 
       for(;;){
         locant_path[locant_pos++] = ratom; 
         visited[ratom] = true; 
+
+        for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+          if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
+            lowest_ring_locant(*riter, locant_path, locant_pos, poly_buffer);
+            ring_size(*riter, poly_buffer); 
+            handled_rings[*riter] = true; 
+          }
+        }
 
         if(locant_pos >= path_size)
           break;
@@ -696,10 +712,6 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
             else if(atom_shares[catom] > atom_shares[matom])
               matom = catom; 
           }
-          else if(visited[catom] && IsRingJunction(mol, ratom, catom,local_SSSR)){
-            lowest_ring_locant(mring,locant_path,locant_pos, poly_buffer); 
-            ring_size(mring, poly_buffer); 
-          }
         }
         
         if(!matom){
@@ -708,14 +720,10 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
         }
 
         ratom = matom; 
-        mring = UpdateCurrentRing(ratom, mring, local_SSSR); 
       }
      
 
-      lowest_ring_locant(mring,locant_path,locant_pos, poly_buffer); 
-      ring_size(mring, poly_buffer); 
-
-      std::cout << poly_buffer << std::endl; 
+      std::cerr << "poly buffer: " << poly_buffer << std::endl; 
 
       std::vector<OBRing*> tmp; 
       std::string candidate_string; // super annoying this has to go here, i dont see another way round
