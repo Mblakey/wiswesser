@@ -128,7 +128,7 @@ void sort_locants(unsigned char *arr,unsigned int len){
 
 void WriteRingLocant(OBRing *ring, OBAtom **locant_path, unsigned int plen, std::string &buffer){
   for(unsigned int i=0;i<plen;i++){
-    if(ring->IsInRing(locant_path[i]->GetIdx())){
+    if(ring->IsMember(locant_path[i])){
       if(i>0)
         write_locant(i+1,buffer); 
     }
@@ -659,20 +659,22 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
-  OBAtom*                matom  = 0; // move
+  OBAtom*                matom  = 0; // move atom
+  OBRing*                mring  = 0; // move ring
   
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){ // these are the starting points 
       
-      std::string poly_buffer;
+      std::string poly_buffer = ""; 
       std::map<OBAtom*,bool> visited; 
+      std::map<OBRing*,bool> open_rings; 
       unsigned int locant_pos = 0;
       
       ratom = *aiter; 
       for(;;){
         locant_path[locant_pos++] = ratom; 
         visited[ratom] = true; 
-        
+
         if(locant_pos >= path_size)
           break;
 
@@ -694,7 +696,8 @@ OBAtom **PLocantPath(   OBMol *mol, unsigned int path_size,
 
         ratom = matom; 
       }
-    
+      
+      //std::cout << poly_buffer << std::endl; 
 
       std::vector<OBRing*> tmp; 
       std::string candidate_string; // super annoying this has to go here, i dont see another way round
