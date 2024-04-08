@@ -811,8 +811,6 @@ OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
  
-  unsigned int debug = 0; 
-
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
@@ -841,27 +839,31 @@ OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
             break;
 
           // here we allow multicyclics to cross ring junctions
-          matom = 0;  
+          matom = 0; 
+
+          //fprintf(stderr,"sitting on atom: %d s(%d)\n",ratom->GetIdx(), atom_shares[ratom]); 
           FOR_NBORS_OF_ATOM(a,ratom){ 
             catom = &(*a);  
             if(!visited[catom]){
-              if( (atom_shares[ratom] >= 3 || bridge_atoms[ratom] ) || (atom_shares[catom] < 3 && !IsRingJunction(mol, ratom, catom, local_SSSR) )){
+              if( (atom_shares[ratom] >= 3) || (atom_shares[catom] < 3 && !IsRingJunction(mol, ratom, catom, local_SSSR) )){
                 if(!matom)
                   matom = catom; 
                 else if(atom_shares[catom] > atom_shares[matom])
                   matom = catom;
                 else if(atom_shares[catom] == atom_shares[matom]){
+                  //fprintf(stderr,"adding %d as a potential look back\n",catom->GetIdx()); 
                   backtrack_stack.push({ratom,catom}); 
                 }
               }
             }
           }
           
+
           if(!matom){
             // no locant path! add logic for off branches here!
-
+           // fprintf(stderr,"made it to %c\n", INT_TO_LOCANT(locant_pos));
             fprintf(stderr,"Error: did not move in locant path walk!\n"); 
-            return 0;
+            break;
           }
 
           ratom = matom; 
@@ -2583,12 +2585,16 @@ struct BabelGraph{
           if(intersection.size() > 1 && all_ring){
 
             prev = 0;
+            
             // if its enough to say that true bridges cannot have more than two bonds each?
             // yes but 2 bonds within the completed local SSSR,so this will needed filtering
             if(intersection.size() > 2){
-              for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++)
+              for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++){
                 tmp_bridging_atoms.insert(*iiter);
-
+                fprintf(stderr,"b: %d\n" ,(*iiter)->GetIdx()); 
+              }
+              
+              fprintf(stderr,"bridges: %d\n",intersection.size()-2); 
               local_data.bridging = true;
             }
 
@@ -3173,6 +3179,23 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
+
+#define PERCEPTION_DEBUG 1
+#if PERCEPTION_DEBUG
+    fprintf(stderr,"debugging ring perception:\n"); 
+    
+    unsigned int rc = 0;
+    FOR_RINGS_OF_MOL(r,mol){
+      OBRing *obring = &(*r);
+      fprintf(stderr,"%d [ ",rc++);
+      for(unsigned int i=0;i<obring->Size();i++){
+        OBAtom *ratom = mol->GetAtom(obring->_path[i]);
+        fprintf(stderr,"%d ",ratom->GetIdx());
+      }
+      fprintf(stderr,"]\n");
+    }
+
+#endif
 
 #if MODERN
   StereoFrom0D(mol_copy); 
