@@ -793,7 +793,7 @@ Some rules to follow when walking the path:
 4) When a stack point is hit, walk the locant path back to where the stack atom is, mark all visited nodes as 
    false in the walk back
 
-3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
+  - this significantly speeds up and removes an NP-hard algorithm 
 */
 OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
@@ -857,7 +857,8 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
               
               // two things can happen, either we're at a ring junction or we're not
               if(IsRingJunction(mol, ratom, catom, local_SSSR)){
-                // if its a ring junction, we can move if this is going to/from a multicyclic point
+                // if its a ring junction, we can move if this is going to/from a multicyclic point,
+                // if pointing at a multicyclic, or an edge atoms, try both
                 if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3)){
                   if(!matom)
                     matom = catom; 
@@ -873,7 +874,7 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
                   matom = catom; 
                 else if(atom_shares[catom] > atom_shares[matom])
                   matom = catom;
-                else if(atom_shares[catom] == atom_shares[matom])
+                else if(atom_shares[catom] <= atom_shares[matom])
                   backtrack_stack.push({ratom,catom});
               } 
             }
