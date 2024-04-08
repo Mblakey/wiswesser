@@ -676,7 +676,10 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
   
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){ // these are the starting points 
-      
+     
+      for(unsigned int i=0;i<path_size;i++)
+        locant_path[i] = 0;
+
       std::string poly_buffer = "";
       std::vector<OBRing*> lring_order; 
       std::map<OBAtom*,bool> visited; 
@@ -735,28 +738,39 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
 }
 
 
-/* really important function, based off a backtrack bond in the stack, the locant path needs to be walked back
- * the multicyclic stacks need to be popped and the ring map needs to be reset along with the buffer. */
-void BackTrackWalk(  OBAtom *clear,OBAtom **locant_path, unsigned int &path_size, std::map<OBAtom*,bool> &visited_atoms)
+void BackTrackWalk(  OBAtom *clear,OBAtom **locant_path, unsigned int path_size,unsigned int &locant_pos, std::map<OBAtom*,bool> &visited_atoms)
 {
 
   // find the position in the path where the lowest one of these are, the other gets placed into locant path 
   unsigned int p=0;
   unsigned int q=0;
   for(p=0;p<path_size;p++,q++){
-    if(locant_path[p] == clear)
+    if(locant_path[p] == clear){
       break;
+    }
   }
 
   // everything from p gets cleared, but not including
-  for(p+=1;p<path_size;p++){
+  for(++p;p<path_size;p++){
     visited_atoms[locant_path[p]] = 0;
     locant_path[p] = 0; 
   }
-  path_size = q+1; 
+  
+  locant_pos = q+1;
+}
 
-  // reset the ring write map and reset the buffer 
 
+bool duplicates_path(OBAtom **locant_path, unsigned int path_size){
+  bool f = 0; 
+  for(unsigned int i=0;i<path_size;i++){
+    for(unsigned int j=i+1;j<path_size;j++){
+      if(locant_path[i] && locant_path[j] && locant_path[i] == locant_path[j]){
+        fprintf(stderr,"duplicate in path - pos %d == %d\n",i,j); 
+        f = 1;
+      }
+    }
+  }
+  return f; 
 }
 
 /*
@@ -804,11 +818,14 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
- 
+
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
-     
+
+      for(unsigned int i=0;i<path_size;i++)
+        locant_path[i] = 0;
+
       std::string peri_buffer = ""; 
       std::vector<OBRing*> lring_order; 
       std::map<OBAtom*,bool> visited; 
@@ -824,57 +841,68 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
           backtrack_stack.pop(); 
 
         for(;;){
-         
-          locant_path[locant_pos++] = ratom; 
+          
+          locant_path[locant_pos++] = ratom;
           visited[ratom] = true; 
-
           write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,peri_buffer); 
+          
           if(locant_pos >= path_size)
             break;
 
           // here we allow multicyclics to cross ring junctions
           matom = 0; 
-
-          //fprintf(stderr,"sitting on atom: %d s(%d)\n",ratom->GetIdx(), atom_shares[ratom]); 
           FOR_NBORS_OF_ATOM(a,ratom){ 
             catom = &(*a);  
             if(!visited[catom]){
-              if( (atom_shares[ratom] >= 3) || (atom_shares[catom] < 3 && !IsRingJunction(mol, ratom, catom, local_SSSR) )){
+              
+              // two things can happen, either we're at a ring junction or we're not
+              if(IsRingJunction(mol, ratom, catom, local_SSSR)){
+                // if its a ring junction, we can move if this is going to/from a multicyclic point
+                if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3)){
+                  if(!matom)
+                    matom = catom; 
+                  else if(atom_shares[catom] > atom_shares[matom])
+                    matom = catom;
+                  else{
+                    backtrack_stack.push({ratom,catom}); 
+                  }
+                }
+              }
+              else if(atom_shares[catom] < 3){
                 if(!matom)
                   matom = catom; 
                 else if(atom_shares[catom] > atom_shares[matom])
                   matom = catom;
-                else if(atom_shares[catom] == atom_shares[matom]){
-                  backtrack_stack.push({ratom,catom}); 
-                }
-              }
+                else if(atom_shares[catom] == atom_shares[matom])
+                  backtrack_stack.push({ratom,catom});
+              } 
             }
           }
           
 
           if(!matom){
             // no locant path! add logic for off branches here!
-           // fprintf(stderr,"made it to %c\n", INT_TO_LOCANT(locant_pos));
-            fprintf(stderr,"Error: did not move in locant path walk!\n"); 
+            //fprintf(stderr,"Error: did not move in locant path walk!\n"); 
             break;
           }
 
           ratom = matom; 
         }
        
-
-        unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
-        if(fsum < lowest_sum){ // rule 30d.
-          lowest_sum = fsum;
-          copy_locant_path(best_path,locant_path,path_size);
-          best_notation = peri_buffer; 
-          best_order = lring_order; 
+        if(locant_pos == path_size){
+          unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
+          if(fsum < lowest_sum){ // rule 30d.
+            lowest_sum = fsum;
+            copy_locant_path(best_path,locant_path,path_size);
+            best_notation = peri_buffer; 
+            best_order = lring_order;
+          }
         }
         
         if(!backtrack_stack.empty()){
           ratom = backtrack_stack.top().second;
-          BackTrackWalk(backtrack_stack.top().first, locant_path, locant_pos,visited); 
-        
+          BackTrackWalk(backtrack_stack.top().first, locant_path, path_size,locant_pos,visited); 
+          
           // this is expensive but guarantees sequential ordeirng
           peri_buffer.clear();
           handled_rings.clear(); 
@@ -890,11 +918,13 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
   free(locant_path);
   for(unsigned int i=0;i<path_size;i++){
     if(!best_path[i]){
+      fprintf(stderr,"Error: locant path is missing a value at %d\n",i); 
       free(best_path);
       return 0; 
     }
   }
-  
+
+
   ring_order = best_order; 
   buffer = best_notation; 
   return best_path; 
@@ -2570,17 +2600,12 @@ struct BabelGraph{
           if(intersection.size() > 1 && all_ring){
 
             prev = 0;
-            
             // if its enough to say that true bridges cannot have more than two bonds each?
             // yes but 2 bonds within the completed local SSSR,so this will needed filtering
             if(intersection.size() > 2){
               for(std::set<OBAtom*>::iterator iiter = intersection.begin(); iiter != intersection.end();iiter++){
                 tmp_bridging_atoms.insert(*iiter);
-                fprintf(stderr,"b: %d\n" ,(*iiter)->GetIdx()); 
               }
-              
-              fprintf(stderr,"bridges: %d\n",intersection.size()-2); 
-              local_data.bridging = true;
             }
 
             for(unsigned int i=0;i<obring->Size();i++){
@@ -2631,6 +2656,8 @@ struct BabelGraph{
       }
     }
 
+
+
     if(OPT_DEBUG){
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
@@ -2640,6 +2667,8 @@ struct BabelGraph{
       
     }
 
+
+    local_data.bridging = bridge_count;
     local_data.path_size = ring_atoms.size();  
     return true; 
   }
@@ -2881,16 +2910,17 @@ struct BabelGraph{
     bool macro_ring = false; 
     std::string ring_segment; 
 
-    if(OPT_DEBUG)
-      fprintf(stderr,"  multi classification: %d\n",multi);
-
+    if(OPT_DEBUG){
+      fprintf(stderr,"  multi-cyclic: %d\n",multi);
+      fprintf(stderr,"  bridging: %d\n",bridging);
+      
+    }
     if(local_SSSR.size() == 1)
       locant_path = SingleWalk(mol,path_size,local_SSSR,ring_order, ring_segment);
     else if(!multi && !bridging)
       locant_path = PolyWalk(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,ring_order,ring_segment);
-    else{
+    else
       locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
-    }
     if(!locant_path)
       return Fatal("no locant path could be determined");
 
