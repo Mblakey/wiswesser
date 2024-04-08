@@ -734,34 +734,21 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
 
 /* really important function, based off a backtrack bond in the stack, the locant path needs to be walked back
  * the multicyclic stacks need to be popped and the ring map needs to be reset along with the buffer. */
-OBAtom* BackTrackWalk(  OBAtom **locant_path, unsigned int &path_size, std::set<OBRing*> &local_SSSR, 
-                        std::stack<OBBond*> back_stack, std::stack<OBAtom*> &multi_stack,                
+void BackTrackWalk(  OBAtom *clear,OBAtom **locant_path, unsigned int &path_size, std::set<OBRing*> &local_SSSR, 
                         std::map<OBAtom*,bool> &visited_atoms,std::map<OBRing*,bool> &handled_rings, 
                         std::string &buffer)
 {
-  OBBond *bond = back_stack.top();
-  back_stack.pop(); 
-
-  OBAtom *f = bond->GetBeginAtom(); 
-  OBAtom *e = bond->GetEndAtom(); 
-  OBAtom *next = 0; 
 
   // find the position in the path where the lowest one of these are, the other gets placed into locant path 
   unsigned int p=0;
   unsigned int q=0;
-  for(p;p<path_size;p++,q++){
-    if(locant_path[p] == f){
-      next = e; 
+  for(p=0;p<path_size;p++,q++){
+    if(locant_path[p] == clear)
       break;
-    }
-    else if (locant_path[p] == e){
-      next = f; 
-      break; 
-    }
   }
 
   // everything from p gets cleared, but not including
-  for(p+1;p<path_size;p++){
+  for(p+=1;p<path_size;p++){
     visited_atoms[locant_path[p]] = 0;
     locant_path[p] = 0; 
   }
@@ -777,9 +764,6 @@ OBAtom* BackTrackWalk(  OBAtom **locant_path, unsigned int &path_size, std::set<
       handled_rings[*riter] = true; 
     }
   }
-
-  // gets added to the locant path naturally in loop 
-  return next;
 }
 
 OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
@@ -826,88 +810,100 @@ OBAtom **PrototypeWalk(   OBMol *mol, unsigned int path_size,
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
-  
+ 
+  unsigned int debug = 0; 
+
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
-      
+     
       std::string peri_buffer = ""; 
       std::map<OBAtom*,bool> visited; 
       std::map<OBRing*,bool> handled_rings;
-      std::stack<OBBond*>    backtrack_stack;   // multicyclics have three potential routes, 
+      std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
                                                 // polycyclic junctions atoms have two. 
-      std::stack<OBAtom*>    multicyclic_stack; // used for off branch locant removal 
       unsigned int locant_pos = 0;
-      
       ratom = *aiter; 
-      for(;;){
-        locant_path[locant_pos++] = ratom; 
-        visited[ratom] = true; 
 
-        for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-          if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
-            lowest_ring_locant(*riter, locant_path, locant_pos, peri_buffer);
-            ring_size(*riter, peri_buffer); 
-            handled_rings[*riter] = true; 
+      do{
+
+        if(!backtrack_stack.empty())
+          backtrack_stack.pop(); 
+
+        for(;;){
+         
+          locant_path[locant_pos++] = ratom; 
+          visited[ratom] = true; 
+
+          for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+            if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
+              lowest_ring_locant(*riter, locant_path, locant_pos, peri_buffer);
+              ring_size(*riter, peri_buffer); 
+              handled_rings[*riter] = true; 
+            }
           }
-        }
 
-        if(locant_pos >= path_size)
-          break;
+          if(locant_pos >= path_size)
+            break;
 
-        // here we allow multicyclics to cross ring junctions
-        matom = 0;  
-        FOR_NBORS_OF_ATOM(a,ratom){ 
-          catom = &(*a);  
-          if(!visited[catom]){
-            if( (atom_shares[ratom] >= 3 || bridge_atoms[ratom] ) || (atom_shares[catom] < 3 && !IsRingJunction(mol, ratom, catom, local_SSSR) )){
-              if(!matom)
-                matom = catom; 
-              else if(atom_shares[catom] > atom_shares[matom])
-                matom = catom;
-              else{
-                backtrack_stack.push(mol->GetBond(ratom,catom)); 
-                // matom is set, but this is an equal traversal
-                // we want this bond back in the future, so a bond_stack is a good candidate as the order will be kept
+          // here we allow multicyclics to cross ring junctions
+          matom = 0;  
+          FOR_NBORS_OF_ATOM(a,ratom){ 
+            catom = &(*a);  
+            if(!visited[catom]){
+              if( (atom_shares[ratom] >= 3 || bridge_atoms[ratom] ) || (atom_shares[catom] < 3 && !IsRingJunction(mol, ratom, catom, local_SSSR) )){
+                if(!matom)
+                  matom = catom; 
+                else if(atom_shares[catom] > atom_shares[matom])
+                  matom = catom;
+                else if(atom_shares[catom] == atom_shares[matom]){
+                  backtrack_stack.push({ratom,catom}); 
+                }
               }
             }
           }
+          
+          if(!matom){
+            // no locant path! add logic for off branches here!
+
+            fprintf(stderr,"Error: did not move in locant path walk!\n"); 
+            return 0;
+          }
+
+          ratom = matom; 
         }
+       
+
+        std::cerr << "peri buffer: " << peri_buffer << std::endl; 
+
+        std::vector<OBRing*> tmp; 
+        std::string candidate_string; // super annoying this has to go here, i dont see another way round
+        unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
+        unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
         
-        if(!matom){
-          // no locant path! add logic for off branches here!
+        fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
 
-          fprintf(stderr,"Error: did not move in locant path walk!\n"); 
-          return 0;
-        }
-
-        ratom = matom; 
-      }
-     
-
-      std::cerr << "peri buffer: " << peri_buffer << std::endl; 
-
-      std::vector<OBRing*> tmp; 
-      std::string candidate_string; // super annoying this has to go here, i dont see another way round
-      unsigned int score = ReadLocantPath(mol,locant_path,path_size,local_SSSR,bridge_atoms,tmp,candidate_string,false);
-      unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
-      
-      fprintf(stderr, "%s - score: %d, fusion sum: %d\n", candidate_string.c_str(),score,fsum);       
-
-      if(score < lowest_score){
-        lowest_sum = fsum;
-        lowest_score = score; 
-        copy_locant_path(best_path,locant_path,path_size);
-      }
-      else if (score == lowest_score){
-        if(fsum < lowest_sum){ // rule 30d.
+        if(score < lowest_score){
           lowest_sum = fsum;
+          lowest_score = score; 
           copy_locant_path(best_path,locant_path,path_size);
         }
-      }
+        else if (score == lowest_score){
+          if(fsum < lowest_sum){ // rule 30d.
+            lowest_sum = fsum;
+            copy_locant_path(best_path,locant_path,path_size);
+          }
+        }
+        
+        if(!backtrack_stack.empty()){
+          ratom = backtrack_stack.top().second;
+          BackTrackWalk(backtrack_stack.top().first, locant_path, locant_pos, local_SSSR,visited, handled_rings, peri_buffer); 
+        }
+
+      } while(!backtrack_stack.empty()) ; 
     }
-  }
+  } 
 
   free(locant_path);
   for(unsigned int i=0;i<path_size;i++){
