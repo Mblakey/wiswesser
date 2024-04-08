@@ -81,7 +81,7 @@ include_directories("${CMAKE_SOURCE_DIR}/external/openbabel/include/")
 
 if(WIN32)
   message(ERROR "Unsupported operating system - Windows")
-elseif(MACOS)
+elseif(MACOSX)
   target_link_libraries(readwln  "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(writewln "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
   target_link_libraries(obcomp "${CMAKE_SOURCE_DIR}/external/openbabel/build/lib/libopenbabel.7.dylib")
