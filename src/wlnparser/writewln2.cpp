@@ -845,8 +845,6 @@ LocantPos *PeriWalk2(   OBMol *mol,       unsigned int &path_size,
 {
 
   // create the path
-   
-  
   LocantPos *locant_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
   LocantPos *best_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
  
@@ -990,7 +988,9 @@ path_solve:
           visited[branch_locant] = true;
           
           // set the branch locant value here
-          path_size--; // decrement the path size
+          path_size--; // decrement the path size, this is globally changed
+          locant_path[path_size].atom = branch_locant; 
+          locant_path[path_size].locant = 'X';
 
           goto path_solve; 
         }
