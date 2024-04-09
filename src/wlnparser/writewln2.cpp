@@ -855,6 +855,7 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
   unsigned int           lowest_sum = UINT32_MAX;
+  unsigned int           starting_path_size = path_size; // important if path size changes
   std::string best_notation; 
   std::vector<OBRing*> best_order; 
 
@@ -989,6 +990,7 @@ path_solve:
           path_size--; // decrement the path size, this is globally changed
           locant_path[path_size].atom = branch_locant; 
           locant_path[path_size].locant = 'X';
+          
           goto path_solve; 
         }
 
