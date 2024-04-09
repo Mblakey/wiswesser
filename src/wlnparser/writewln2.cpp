@@ -835,7 +835,7 @@ Some rules to follow when walking the path:
 
   path size can now change to accomadate whether the locant path reduces due to branching locants
 */
-LocantPos *PeriWalk2(   OBMol *mol,       unsigned int &path_size,
+LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
@@ -946,8 +946,6 @@ path_solve:
 
           if(!matom){
             // no locant path! add logic for off branches here! and pseudo locants
-            print_locant_array(locant_path,path_size); 
-            
             //fprintf(stderr,"Error: did not move in locant path walk!\n"); 
             break;
           }
@@ -991,7 +989,6 @@ path_solve:
           path_size--; // decrement the path size, this is globally changed
           locant_path[path_size].atom = branch_locant; 
           locant_path[path_size].locant = 'X';
-
           goto path_solve; 
         }
 
@@ -1008,7 +1005,6 @@ path_solve:
     }
   }
   
-  std::cerr << best_notation << std::endl; 
   ring_order = best_order; 
   buffer = best_notation; 
   return best_path; 
@@ -3002,13 +2998,9 @@ struct BabelGraph{
     bool bridging = LocalSSRS_data.bridging;
     unsigned int path_size = LocalSSRS_data.path_size;
     bool macro_ring = false; 
+    unsigned int branch_locants = 0; 
     std::string ring_segment; 
 
-    if(OPT_DEBUG){
-      fprintf(stderr,"  multi-cyclic: %d\n",multi);
-      fprintf(stderr,"  bridging: %d\n",bridging);
-      
-    }
     if(local_SSSR.size() == 1)
       locant_path = SingleWalk(mol,path_size,local_SSSR,ring_order, ring_segment);
     else if(!multi && !bridging)
@@ -3017,6 +3009,14 @@ struct BabelGraph{
       locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
     if(!locant_path)
       return Fatal("no locant path could be determined");
+
+    branch_locants = LocalSSRS_data.path_size - path_size; 
+    
+    if(OPT_DEBUG){
+      fprintf(stderr,"  multi-cyclic: %d\n",multi);
+      fprintf(stderr,"  bridging:     %d\n",bridging);
+      fprintf(stderr,"  off branches: %d\n",branch_locants);
+    }
 
     if(inline_ring){
       buffer+= '-';
