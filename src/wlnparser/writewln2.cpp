@@ -170,9 +170,30 @@ void write_ring_size(OBRing *ring, std::string &buffer){
                           Locant Path Functions
 **********************************************************************/
 
+struct LocantPos{
+  unsigned int locant;  // lets branch locants be placed at the back of the array, past 255 indexing
+  OBAtom *atom;         // atoms are mallocd by obabel so should be alive at all times
+};
+
+void copy_locant_path(LocantPos*new_path, LocantPos*locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++){
+    new_path[i].atom = locant_path[i].atom;
+    new_path->locant = locant_path->locant; 
+  }
+}
+
 void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++)
     new_path[i] = locant_path[i]; 
+}
+
+
+bool in_locant_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++){
+    if(atom == locant_path[i].atom)
+      return true; 
+  }
+  return false;
 }
 
 bool in_locant_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
@@ -193,7 +214,36 @@ unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path
   return 0; 
 }
 
+
+unsigned int position_in_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++){
+    if(atom == locant_path[i].atom)
+      return i; 
+  }
+
+  Fatal("Error: atom not found in locant path");
+  return 0; 
+}
+
+
+
+
 int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
+  unsigned int lpos = path_size; 
+  for(unsigned int i=0;i<ring->Size();i++){
+    OBAtom *latom = mol->GetAtom(ring->_path[i]); 
+    if(in_locant_path(latom,locant_path,path_size)){
+      unsigned int pos = position_in_path(latom,locant_path,path_size); 
+
+      if(pos < lpos)
+        lpos = pos;
+    }
+  }
+  return lpos; 
+}
+
+
+int fusion_locant(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned int path_size){
   unsigned int lpos = path_size; 
   for(unsigned int i=0;i<ring->Size();i++){
     OBAtom *latom = mol->GetAtom(ring->_path[i]); 
@@ -218,6 +268,19 @@ unsigned int ring_sum(OBMol *mol, OBRing *ring, OBAtom**locant_path,unsigned int
   return rsum;
 }
 
+
+/* overall ring sum, combinates rule 30d and 30e for symmetrical structures */
+unsigned int ring_sum(OBMol *mol, OBRing *ring, LocantPos*locant_path,unsigned int path_size){
+  unsigned int rsum = 0;
+  for(unsigned int i=0;i<ring->Size();i++){
+    OBAtom *ratom = mol->GetAtom(ring->_path[i]);
+    if(in_locant_path(ratom,locant_path, path_size))
+      rsum += position_in_path(ratom, locant_path,path_size) + 1;
+  }
+  return rsum;
+}
+
+
 unsigned int fusion_sum(OBMol *mol, OBAtom **locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
   unsigned int ret = 0; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
@@ -225,6 +288,13 @@ unsigned int fusion_sum(OBMol *mol, OBAtom **locant_path, unsigned int path_size
   return ret;
 }
 
+
+unsigned int fusion_sum(OBMol *mol, LocantPos*locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
+  unsigned int ret = 0; 
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
+    ret += fusion_locant(mol,*riter,locant_path,path_size) + 1; // A=1, B=2 etc 
+  return ret;
+}
 
 void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
@@ -244,6 +314,25 @@ void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned 
   free(sequence);
 }
 
+
+void print_ring_locants(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned int path_size){
+  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
+  
+  for(unsigned int i=0;i<ring->Size();i++){
+    unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
+    sequence[i] = INT_TO_LOCANT(pos+1); 
+  }
+
+  fprintf(stderr,"[ ");
+  for(unsigned int k=0;k<ring->Size();k++)
+    fprintf(stderr,"%c ",sequence[k]);
+  fprintf(stderr,"]\n");
+
+  free(sequence);
+}
+
+
+#if DEPRECATED
 bool sequential_chain(  OBMol *mol,OBRing *ring, 
                         OBAtom **locant_path, unsigned int path_size,
                         std::map<unsigned char, bool> &in_chain)
@@ -278,7 +367,6 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
 }
 
 
-
 unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                           std::vector<unsigned char>      &locant_order,
                           std::vector<OBRing*>            &ring_order,
@@ -288,7 +376,6 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
 
   unsigned int pseudo_pairs = 0;
 
-#if PSEUDO
   // set up the read shadowing algorithm
   std::map<unsigned char,unsigned int> connections;
   std::map<unsigned char, unsigned char> highest_jump;
@@ -392,13 +479,10 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       pseudo_pairs++;
     }
   }
-#else
-
-#endif
 
   return pseudo_pairs;
 }
-
+#endif
 
 bool ReachableFromEntry(OBAtom *entry, std::set<OBAtom*> &ring_atoms, std::set<OBAtom*> &seen){
   std::stack<OBAtom*> stack;  
@@ -439,8 +523,12 @@ void FillRingBonds(OBMol *mol,OBRing* obring, std::set<OBBond*> &ring_bonds){
     ring_bonds.insert(bond); 
 }
 
+
+
+#if DEPRECATED
 /* read locant path algorithm, we return the number of non consecutive blocks,
-pseudo check will add determined pairs and check notation is viable for read */
+pseudo check will add determined pairs and check notation is viable for read
+ - This is deprecated as rings are read on path read, but keep for posterity */
 unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int path_size,
                       std::set<OBRing*>               &local_SSSR,
                       std::map<OBAtom*,bool>          &bridge_atoms,
@@ -545,6 +633,8 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
   free(ring_arr);
   return assignment_score;  
 }
+#endif
+
 
 
 OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
@@ -636,7 +726,6 @@ void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos,
     }
   }
 }
-
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
@@ -825,29 +914,39 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
     best_path[i] = 0; 
   }
 
-  unsigned int           lowest_sum       = UINT32_MAX;
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
+  unsigned int           lowest_sum = UINT32_MAX;
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
 
+      std::string             peri_buffer; 
+      std::vector<OBRing*>    lring_order; 
+      std::map<OBAtom*,bool>  visited; 
+      std::map<OBRing*,bool>  handled_rings;
+      std::stack<OBAtom*>     multistack; 
+      std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
+      
+  
+      unsigned int locant_pos = 0;
       for(unsigned int i=0;i<path_size;i++)
         locant_path[i] = 0;
+      
+      
+      // used for off branch locants when needed
+      for(std::set<OBAtom*>::iterator multi_iter = ring_atoms.begin(); multi_iter != ring_atoms.end(); multi_iter++){
+        if(atom_shares[*multi_iter]>=3 && *multi_iter != *aiter)
+          multistack.push(*multi_iter); 
+      }
 
-      std::string peri_buffer = ""; 
-      std::vector<OBRing*> lring_order; 
-      std::map<OBAtom*,bool> visited; 
-      std::map<OBRing*,bool> handled_rings;
-      std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
-                                                // polycyclic junctions atoms have two. 
-      unsigned int locant_pos = 0;
+path_solve:        
       ratom = *aiter; 
-
+      locant_pos = 0;
       do{
-        
+
         if(!backtrack_stack.empty())
           backtrack_stack.pop(); 
 
@@ -937,6 +1036,21 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
           for(unsigned int t=0;t<locant_pos;t++)
             write_complete_rings(locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
+        else if(!best_path[0] && !multistack.empty()){
+          // this the where the broken locants happen, pop off a multistack atom 
+          OBAtom *branch_locant = multistack.top();
+          multistack.pop();
+          
+          visited.clear(); 
+          peri_buffer.clear();
+          handled_rings.clear();
+          lring_order.clear();
+          visited[branch_locant] = true;
+          path_size--;
+          locant_path[path_size] = branch_locant; 
+
+          goto path_solve; 
+        }
 
       } while(!backtrack_stack.empty()) ; 
     }
@@ -951,7 +1065,8 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
     }
   }
 
-
+  
+  std::cerr << best_notation << std::endl; 
   ring_order = best_order; 
   buffer = best_notation; 
   return best_path; 
