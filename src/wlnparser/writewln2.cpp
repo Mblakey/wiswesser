@@ -978,15 +978,14 @@ path_solve:
         else if(!best_path[0].atom && !multistack.empty()){
           // this the where the broken locants happen, pop off a multistack atom 
           OBAtom *branch_locant = multistack.top();
-          multistack.pop();
           
+          multistack.pop();
           visited.clear(); 
           peri_buffer.clear();
           handled_rings.clear();
           lring_order.clear();
           visited[branch_locant] = true;
-          path_size--;
-          locant_path[path_size].atom = branch_locant; 
+          
           // set the branch locant value here
 
           goto path_solve; 
@@ -1940,9 +1939,10 @@ struct BabelGraph{
   }
 
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
-  bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from,OBBond *inc_bond,
-                      OBMol *mol, std::string &buffer, unsigned char locant,
-                      LocantPos *locant_path, unsigned int path_size){
+  bool ParseNonCyclic(OBMol *mol, OBAtom* start_atom, OBAtom *spawned_from,OBBond *inc_bond,
+                      unsigned char locant, LocantPos *locant_path, unsigned int path_size, 
+                      std::string &buffer)
+  {
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
 
@@ -2056,11 +2056,11 @@ struct BabelGraph{
           buffer += '-';
           buffer += ' ';
           buffer += '0';
-          if(!RecursiveParse(atom,spawned_from,mol,false,buffer))
+          if(!RecursiveParse(mol,atom,spawned_from,false,buffer))
             Fatal("failed to make pi bonded ring");
         }
         else{
-          if(!RecursiveParse(atom,spawned_from,mol,true,buffer))
+          if(!RecursiveParse(mol,atom,spawned_from,true,buffer))
             Fatal("failed to make inline ring");
         }
         
@@ -2974,7 +2974,7 @@ struct BabelGraph{
 
 
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
-  void ParseCyclic(OBAtom *ring_root,OBAtom *spawned_from,OBMol *mol, bool inline_ring,std::string &buffer,PathData &pd){
+  void ParseCyclic(OBMol *mol, OBAtom *ring_root,OBAtom *spawned_from,bool inline_ring,PathData &pd,std::string &buffer){
     if(OPT_DEBUG)
       fprintf(stderr,"Reading Cyclic\n");
 
@@ -3120,11 +3120,11 @@ struct BabelGraph{
   }
     
 
-  bool RecursiveParse(OBAtom *atom, OBAtom *spawned_from, OBMol *mol, bool inline_ring,std::string &buffer){
+  bool RecursiveParse(OBMol *mol, OBAtom *atom, OBAtom *spawned_from, bool inline_ring,std::string &buffer){
     // assumes atom is a ring atom 
     
     PathData pd; 
-    ParseCyclic(atom,spawned_from,mol,inline_ring,buffer,pd);
+    ParseCyclic(mol,atom,spawned_from,inline_ring,pd,buffer);
     if(!pd.locant_path){
       fprintf(stderr,"Error: failed on cyclic parse\n");
       return false;
@@ -3196,9 +3196,8 @@ struct BabelGraph{
         OBAtom *latom = &(*iter);
         OBBond* lbond = pd.locant_path[i].atom->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,pd.locant_path[i].atom,lbond,
-                              mol,buffer,
-                              pd.locant_path[i].locant,pd.locant_path,pd.path_size)){
+          if(!ParseNonCyclic( mol,latom,pd.locant_path[i].atom,lbond,
+                              pd.locant_path[i].locant,pd.locant_path,pd.path_size,buffer)){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
@@ -3229,9 +3228,9 @@ struct BabelGraph{
                 OBAtom* next_pi =  &(*negc); 
                 if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
                     && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
-                  if(!ParseNonCyclic(next_pi,pd.locant_path[i].atom,0,
-                              mol,buffer,
-                              '0',pd.locant_path,pd.path_size)){
+                  if(!ParseNonCyclic(mol,next_pi,pd.locant_path[i].atom,0,
+                              '0',pd.locant_path,pd.path_size,buffer)){
+                          
 
                     fprintf(stderr,"Error: failed on non-cyclic parse\n");
                     return false;
@@ -3337,7 +3336,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         if(started)
           buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(&(*a),0,0,mol_copy,buffer,0,0,0))
+        if(!obabel.ParseNonCyclic(mol_copy,&(*a),0,0,0,0,0,buffer))
           Fatal("failed on recursive branch parse");
 
         started = true; 
@@ -3352,7 +3351,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
           buffer += " &"; // ionic species
         }
         
-        if(!obabel.RecursiveParse(mol_copy->GetAtom( (&(*r))->_path[0]),0,mol_copy,false,buffer))
+        if(!obabel.RecursiveParse(mol_copy,mol_copy->GetAtom( (&(*r))->_path[0]),0,false,buffer))
           Fatal("failed on recursive ring parse");
 
         started = true;
@@ -3364,7 +3363,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
       OBAtom *satom = &(*a); 
       if(!obabel.atoms_seen[satom] && (satom->GetExplicitDegree()==1 || satom->GetExplicitDegree() == 0) ){
         buffer += " &"; // ionic species
-        if(!obabel.ParseNonCyclic(satom,0,0,mol_copy,buffer,0,0,0))
+        if(!obabel.ParseNonCyclic(mol_copy,satom,0,0,0,0,0,buffer))
           Fatal("failed on recursive branch parse");
       }
     }
