@@ -831,8 +831,11 @@ Some rules to follow when walking the path:
    false in the walk back
 
   - this significantly speeds up and removes an NP-hard algorithm 
+
+
+  path size can now change to accomadate whether the locant path reduces due to branching locants
 */
-LocantPos *PeriWalk2(   OBMol *mol, unsigned int path_size,
+LocantPos *PeriWalk2(   OBMol *mol,       unsigned int &path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
@@ -987,6 +990,7 @@ path_solve:
           visited[branch_locant] = true;
           
           // set the branch locant value here
+          path_size--; // decrement the path size
 
           goto path_solve; 
         }
@@ -1003,7 +1007,6 @@ path_solve:
       return 0; 
     }
   }
-
   
   std::cerr << best_notation << std::endl; 
   ring_order = best_order; 
