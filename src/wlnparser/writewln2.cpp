@@ -2906,8 +2906,8 @@ struct BabelGraph{
       OBBond *fbond = *biter; 
       
       if(!bonds_checked[fbond] && fbond->GetBondOrder() > 1 && !fbond->IsAromatic()){
-        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
-        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        unsigned int floc = locant_path[position_in_path(fbond->GetBeginAtom(),locant_path,path_size)].locant; 
+        unsigned int bloc = locant_path[position_in_path(fbond->GetEndAtom(),locant_path,path_size)].locant; 
         
         buffer += ' ';
         write_locant(floc,buffer);
@@ -2926,8 +2926,9 @@ struct BabelGraph{
       }
 #if MODERN && STEREO 
       else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
-        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
-        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+
+        unsigned int floc = locant_path[position_in_path(fbond->GetBeginAtom(),locant_path,path_size)].locant; 
+        unsigned int bloc = locant_path[position_in_path(fbond->GetEndAtom(),locant_path,path_size)].locant; 
         buffer += ' ';
         write_locant(floc,buffer);
         
@@ -2956,7 +2957,7 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_size;i++){
       if(ring_shares[locant_path[i].atom] > 2){
         count++; 
-        write_locant(INT_TO_LOCANT(i+1),append);
+        write_locant(locant_path[i].locant,append);
       }
     }
 
@@ -3019,11 +3020,11 @@ struct BabelGraph{
       unsigned char root_locant = 0;
       for(unsigned int i=0;i<path_size;i++){
         if(locant_path[i].atom == ring_root)
-          root_locant = INT_TO_LOCANT(i+1);
+          root_locant = locant_path[i].locant;
 
         if(locant_path[i].atom == spawned_from){
           // must be spiro ring
-          root_locant = INT_TO_LOCANT(i+1);
+          root_locant = locant_path[i].locant;
           spiro = true;
           break;
         }
@@ -3051,7 +3052,7 @@ struct BabelGraph{
       for(unsigned int i=0;i<path_size;i++){
         if(bridge_atoms[locant_path[i].atom]){
           buffer+= ' ';
-          unsigned char bloc = INT_TO_LOCANT(i+1);
+          unsigned char bloc = locant_path[i].locant;
           write_locant(bloc,buffer);
         }
       }
