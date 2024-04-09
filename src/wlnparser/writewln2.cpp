@@ -873,7 +873,6 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
       unsigned int locant_pos = 0;
       zero_locant_path(locant_path, path_size);
       
-      
       // used for off branch locants when needed
       for(std::set<OBAtom*>::iterator multi_iter = ring_atoms.begin(); multi_iter != ring_atoms.end(); multi_iter++){
         if(atom_shares[*multi_iter]>=3 && *multi_iter != *aiter)
@@ -955,6 +954,7 @@ path_solve:
         }
        
         if(locant_pos == path_size){
+          
           unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
           if(fsum < lowest_sum){ // rule 30d.
             lowest_sum = fsum;
@@ -978,12 +978,20 @@ path_solve:
         else if(!best_path[0].atom && !multistack.empty()){
           // this the where the broken locants happen, pop off a multistack atom 
           OBAtom *branch_locant = multistack.top();
-          
           multistack.pop();
-          visited.clear(); 
+          
+          // clear the path, not the map
+          for(unsigned int p=0;p<path_size;p++)
+            visited[locant_path[p].atom] = 0;
+          
+          zero_locant_path(locant_path, path_size); 
+        
           peri_buffer.clear();
           handled_rings.clear();
           lring_order.clear();
+          while(!backtrack_stack.empty())
+            backtrack_stack.pop(); 
+
           visited[branch_locant] = true;
           
           // set the branch locant value here
@@ -991,8 +999,11 @@ path_solve:
           locant_path[path_size].atom = branch_locant; 
           locant_path[path_size].locant = 'X';
           
+          fprintf(stderr,"jumping\n"); 
           goto path_solve; 
         }
+        else
+          break; 
 
       } while(!backtrack_stack.empty()) ; 
     }
