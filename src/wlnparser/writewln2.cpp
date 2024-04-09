@@ -76,8 +76,6 @@ struct SubsetData{
 };
 
 
-
-
 static void Fatal(const char *str){
   fprintf(stderr,"Fatal: %s\n",str);
   exit(1);
@@ -182,14 +180,14 @@ void write_ring_size(OBRing *ring, std::string &buffer){
 void copy_locant_path(LocantPos*new_path, LocantPos*locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
     new_path[i].atom = locant_path[i].atom;
-    new_path->locant = locant_path->locant; 
+    new_path[i].locant = locant_path[i].locant; 
   }
 }
 
 void zero_locant_path(LocantPos *locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
     locant_path[i].atom = 0;
-    locant_path->locant = 0; 
+    locant_path[i].locant = 0; 
   }
 }
 
@@ -255,8 +253,7 @@ void print_ring_locants(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned
   unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
   
   for(unsigned int i=0;i<ring->Size();i++){
-    unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
-    sequence[i] = INT_TO_LOCANT(pos+1); 
+    sequence[i] = locant_path[position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)].locant; 
   }
 
   fprintf(stderr,"[ ");
@@ -1951,11 +1948,6 @@ struct BabelGraph{
 
     unsigned int border = 0; 
     unsigned char stereo = 0; 
-    if(locant && locant != '0' && border > 0){ // allows OM through
-      buffer+=' ';
-      write_locant(locant,buffer);
-    }
-
 
     if(inc_bond){
       border = inc_bond->GetBondOrder();
@@ -1963,6 +1955,11 @@ struct BabelGraph{
         stereo = 'D';
       else if (inc_bond->IsWedge())
         stereo =  'A'; 
+    }
+
+    if(locant && locant != '0' && border > 0){ // allows OM through
+      buffer+=' ';
+      write_locant(locant,buffer);
     }
 
     
@@ -2777,18 +2774,22 @@ struct BabelGraph{
       last_locant = ' ';
     
     for(unsigned int i=0;i<path_size;i++){
-      if(!locant_path[i].atom)
-        Fatal("dead locant path atom ptr");
       
       unsigned char het_char = 0;
       locant_atom = locant_path[i].atom; 
       locant_char = locant_path[i].locant;
+      
+      if(!locant_path[i].atom)
+        Fatal("dead locant path atom ptr in hetero read");
 
+      if(!locant_path[i].locant)
+        Fatal("dead locant path position in hetero read");
+      
       bool carbonyl = CheckCarbonyl(locant_atom);
 
       if( !carbonyl &&  
         locant_atom->GetAtomicNum() == 6 &&
-        locant_path[i].atom->GetFormalCharge() == -1){
+        locant_atom->GetFormalCharge() == -1){
         // organometallics logic 
         if(locant_char != last_locant){
           buffer += ' ';
@@ -2927,8 +2928,8 @@ struct BabelGraph{
 #if MODERN && STEREO 
       else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
 
-        unsigned int floc = locant_path[position_in_path(fbond->GetBeginAtom(),locant_path,path_size)].locant; 
-        unsigned int bloc = locant_path[position_in_path(fbond->GetEndAtom(),locant_path,path_size)].locant; 
+        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
         buffer += ' ';
         write_locant(floc,buffer);
         
@@ -2957,7 +2958,7 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_size;i++){
       if(ring_shares[locant_path[i].atom] > 2){
         count++; 
-        write_locant(locant_path[i].locant,append);
+        write_locant(INT_TO_LOCANT(i+1),append);
       }
     }
 
@@ -3020,11 +3021,11 @@ struct BabelGraph{
       unsigned char root_locant = 0;
       for(unsigned int i=0;i<path_size;i++){
         if(locant_path[i].atom == ring_root)
-          root_locant = locant_path[i].locant;
+          root_locant = INT_TO_LOCANT(i+1);
 
         if(locant_path[i].atom == spawned_from){
           // must be spiro ring
-          root_locant = locant_path[i].locant;
+          root_locant = INT_TO_LOCANT(i+1);
           spiro = true;
           break;
         }
@@ -3052,7 +3053,7 @@ struct BabelGraph{
       for(unsigned int i=0;i<path_size;i++){
         if(bridge_atoms[locant_path[i].atom]){
           buffer+= ' ';
-          unsigned char bloc = locant_path[i].locant;
+          unsigned char bloc = INT_TO_LOCANT(i+1);
           write_locant(bloc,buffer);
         }
       }
