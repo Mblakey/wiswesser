@@ -54,8 +54,14 @@ using namespace OpenBabel;
 #define INT_TO_LOCANT(X) (X+64)
 #define LOCANT_TO_INT(X) (X-64)
 
+
+struct LocantPos{
+  unsigned int locant;  // lets branch locants be placed at the back of the array, past 255 indexing
+  OBAtom *atom;         // atoms are mallocd by obabel so should be alive at all times
+};
+
 struct PathData {
-  OBAtom **locant_path = 0;
+  LocantPos *locant_path = 0;
   unsigned int path_size = 0;
   bool macro_ring = false;
 };
@@ -68,6 +74,8 @@ struct SubsetData{
   bool bridging = false; 
   bool multi = 0;
 };
+
+
 
 
 static void Fatal(const char *str){
@@ -92,13 +100,13 @@ void static write_locant(unsigned char locant,std::string &buffer){
 }
 
 
-static void print_locant_array(OBAtom **locant_path, unsigned int size){
+static void print_locant_array(LocantPos* locant_path, unsigned int size){
   fprintf(stderr,"[ ");
   for(unsigned int i=0; i<size;i++){
-    if(!locant_path[i])
+    if(!locant_path[i].atom)
       fprintf(stderr,"0 ");
     else
-      fprintf(stderr,"%d ",locant_path[i]->GetIdx());
+      fprintf(stderr,"%d ",locant_path[i].atom->GetIdx());
   }
     
   fprintf(stderr,"]\n");
@@ -125,9 +133,9 @@ void sort_locants(unsigned char *arr,unsigned int len){
                           Write Helper Functions
 **********************************************************************/
 
-void write_lowest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen, std::string &buffer){
+void write_lowest_ring_locant(OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
   for(unsigned int i=0;i<plen;i++){
-    if(ring->IsMember(locant_path[i])){
+    if(ring->IsMember(locant_path[i].atom)){
       if(i>0){
         buffer += ' '; 
         write_locant(INT_TO_LOCANT(i+1),buffer); 
@@ -170,10 +178,6 @@ void write_ring_size(OBRing *ring, std::string &buffer){
                           Locant Path Functions
 **********************************************************************/
 
-struct LocantPos{
-  unsigned int locant;  // lets branch locants be placed at the back of the array, past 255 indexing
-  OBAtom *atom;         // atoms are mallocd by obabel so should be alive at all times
-};
 
 void copy_locant_path(LocantPos*new_path, LocantPos*locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
@@ -182,10 +186,13 @@ void copy_locant_path(LocantPos*new_path, LocantPos*locant_path,unsigned int pat
   }
 }
 
-void copy_locant_path(OBAtom ** new_path,OBAtom **locant_path,unsigned int path_size){
-  for(unsigned int i=0;i<path_size;i++)
-    new_path[i] = locant_path[i]; 
+void zero_locant_path(LocantPos *locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++){
+    locant_path[i].atom = 0;
+    locant_path->locant = 0; 
+  }
 }
+
 
 
 bool in_locant_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
@@ -196,23 +203,6 @@ bool in_locant_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
   return false;
 }
 
-bool in_locant_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
-  for(unsigned int i=0;i<path_size;i++){
-    if(atom == locant_path[i])
-      return true; 
-  }
-  return false; 
-}
-
-unsigned int position_in_path(OBAtom *atom,OBAtom**locant_path,unsigned int path_size){
-  for(unsigned int i=0;i<path_size;i++){
-    if(atom == locant_path[i])
-      return i; 
-  }
-
-  Fatal("Error: atom not found in locant path");
-  return 0; 
-}
 
 
 unsigned int position_in_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
@@ -223,23 +213,6 @@ unsigned int position_in_path(OBAtom *atom,LocantPos*locant_path,unsigned int pa
 
   Fatal("Error: atom not found in locant path");
   return 0; 
-}
-
-
-
-
-int fusion_locant(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size){
-  unsigned int lpos = path_size; 
-  for(unsigned int i=0;i<ring->Size();i++){
-    OBAtom *latom = mol->GetAtom(ring->_path[i]); 
-    if(in_locant_path(latom,locant_path,path_size)){
-      unsigned int pos = position_in_path(latom,locant_path,path_size); 
-
-      if(pos < lpos)
-        lpos = pos;
-    }
-  }
-  return lpos; 
 }
 
 
@@ -257,17 +230,6 @@ int fusion_locant(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned int p
   return lpos; 
 }
 
-/* overall ring sum, combinates rule 30d and 30e for symmetrical structures */
-unsigned int ring_sum(OBMol *mol, OBRing *ring, OBAtom**locant_path,unsigned int path_size){
-  unsigned int rsum = 0;
-  for(unsigned int i=0;i<ring->Size();i++){
-    OBAtom *ratom = mol->GetAtom(ring->_path[i]);
-    if(in_locant_path(ratom,locant_path, path_size))
-      rsum += position_in_path(ratom, locant_path,path_size) + 1;
-  }
-  return rsum;
-}
-
 
 /* overall ring sum, combinates rule 30d and 30e for symmetrical structures */
 unsigned int ring_sum(OBMol *mol, OBRing *ring, LocantPos*locant_path,unsigned int path_size){
@@ -281,37 +243,11 @@ unsigned int ring_sum(OBMol *mol, OBRing *ring, LocantPos*locant_path,unsigned i
 }
 
 
-unsigned int fusion_sum(OBMol *mol, OBAtom **locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
-  unsigned int ret = 0; 
-  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
-    ret += fusion_locant(mol,*riter,locant_path,path_size) + 1; // A=1, B=2 etc 
-  return ret;
-}
-
-
 unsigned int fusion_sum(OBMol *mol, LocantPos*locant_path, unsigned int path_size, std::set<OBRing*> &local_SSSR){
   unsigned int ret = 0; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end();riter++)
     ret += fusion_locant(mol,*riter,locant_path,path_size) + 1; // A=1, B=2 etc 
   return ret;
-}
-
-void print_ring_locants(OBMol *mol,OBRing *ring, OBAtom **locant_path, unsigned int path_size, bool sort=false){
-  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
-  
-  for(unsigned int i=0;i<ring->Size();i++){
-    unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
-    sequence[i] = INT_TO_LOCANT(pos+1); 
-  }
-
-  if(sort)
-    sort_locants(sequence,ring->Size());
-  fprintf(stderr,"[ ");
-  for(unsigned int k=0;k<ring->Size();k++)
-    fprintf(stderr,"%c ",sequence[k]);
-  fprintf(stderr,"]\n");
-
-  free(sequence);
 }
 
 
@@ -637,19 +573,20 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
 
 
-OBAtom **SingleWalk(OBMol *mol, unsigned int path_size,
+LocantPos *SingleWalk(OBMol *mol, unsigned int path_size,
                     std::set<OBRing*> &local_SSSR,
                     std::vector<OBRing*> &ring_order,
                     std::string &buffer )
 {
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  for(unsigned int i=0;i<path_size;i++)
-    locant_path[i] = 0; 
+  LocantPos *locant_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
+  zero_locant_path(locant_path, path_size); 
 
   OBRing *mono = *(local_SSSR.begin());
 
-  for(unsigned int i=0;i<mono->Size();i++)
-    locant_path[i] = mol->GetAtom(mono->_path[i]);
+  for(unsigned int i=0;i<mono->Size();i++){
+    locant_path[i].atom = mol->GetAtom(mono->_path[i]);
+    locant_path[i].locant = INT_TO_LOCANT(i+1); 
+  }
   
   write_ring_size(mono, buffer); 
   ring_order.push_back(mono);
@@ -684,10 +621,10 @@ bool IsRingJunction(OBMol*mol, OBAtom *curr, OBAtom *ahead, std::set<OBRing*>&lo
   return false; 
 }
 
-bool IsRingComplete(OBRing *ring, OBAtom **locant_path, unsigned int path_len){
+bool IsRingComplete(OBRing *ring, LocantPos *locant_path, unsigned int path_len){
   unsigned int size = 0; 
   for(unsigned int i=0;i<path_len;i++){
-    if(ring->IsMember(locant_path[i]))
+    if(ring->IsMember(locant_path[i].atom))
       size++; 
   }
 
@@ -713,7 +650,7 @@ builds iteratively so ordering is correct, when a ring is filled, write the nota
 there is some bit logic to speed all this up, - concepts first, optimisation later
 Some rules to follow when walking the path:
 */
-void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos, 
+void write_complete_rings(  LocantPos *locant_path, unsigned int locant_pos, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
                             std::vector<OBRing*> &ring_order,std::string &buffer)
 {
@@ -750,25 +687,25 @@ void write_complete_rings(  OBAtom **locant_path, unsigned int locant_pos,
 
 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 */
-OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
-                     std::set<OBAtom*>               &ring_atoms,
-                     std::map<OBAtom*,unsigned int>  &atom_shares,
-                     std::map<OBAtom*,bool>          &bridge_atoms,
-                     std::set<OBRing*>               &local_SSSR,
-                     std::vector<OBRing*>            &ring_order,
-                     std::string                     &buffer)
+LocantPos *PolyWalk(    OBMol *mol, unsigned int path_size,
+                        std::set<OBAtom*>               &ring_atoms,
+                        std::map<OBAtom*,unsigned int>  &atom_shares,
+                        std::map<OBAtom*,bool>          &bridge_atoms,
+                        std::set<OBRing*>               &local_SSSR,
+                        std::vector<OBRing*>            &ring_order,
+                        std::string                     &buffer)
 {
 
   // create the path
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
+  LocantPos *locant_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
+  LocantPos *best_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
+    
+  zero_locant_path(locant_path, path_size);
+  zero_locant_path(best_path, path_size); 
+
   std::string best_notation; 
   std::vector<OBRing*> best_order; 
-  for(unsigned int i=0;i<path_size;i++){
-    locant_path[i] = 0;
-    best_path[i] = 0; 
-  }
-
+    
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
@@ -777,8 +714,7 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     if(atom_shares[*aiter] == 2){ // these are the starting points 
      
-      for(unsigned int i=0;i<path_size;i++)
-        locant_path[i] = 0;
+      zero_locant_path(locant_path, path_size);
 
       std::string poly_buffer = "";
       std::vector<OBRing*> lring_order; 
@@ -788,7 +724,11 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
       
       ratom = *aiter; 
       for(;;){
-        locant_path[locant_pos++] = ratom; 
+
+        locant_path[locant_pos].atom = ratom; 
+        locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);        
+        locant_pos++; 
+
         visited[ratom] = true;
 
         write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,poly_buffer); 
@@ -826,7 +766,7 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
 
   free(locant_path);
   for(unsigned int i=0;i<path_size;i++){
-    if(!best_path[i]){
+    if(!best_path[i].atom){
       free(best_path);
       return 0; 
     }
@@ -838,22 +778,22 @@ OBAtom **PolyWalk(   OBMol *mol, unsigned int path_size,
 }
 
 
-void BackTrackWalk(  OBAtom *clear,OBAtom **locant_path, unsigned int path_size,unsigned int &locant_pos, std::map<OBAtom*,bool> &visited_atoms)
+void BackTrackWalk(  OBAtom *clear, LocantPos*locant_path, unsigned int path_size,unsigned int &locant_pos, std::map<OBAtom*,bool> &visited_atoms)
 {
 
   // find the position in the path where the lowest one of these are, the other gets placed into locant path 
   unsigned int p=0;
   unsigned int q=0;
   for(p=0;p<path_size;p++,q++){
-    if(locant_path[p] == clear){
+    if(locant_path[p].atom == clear){
       break;
     }
   }
 
   // everything from p gets cleared, but not including
   for(++p;p<path_size;p++){
-    visited_atoms[locant_path[p]] = 0;
-    locant_path[p] = 0; 
+    visited_atoms[locant_path[p].atom] = 0;
+    locant_path[p].atom = 0; 
   }
   
   locant_pos = q+1;
@@ -895,7 +835,7 @@ Some rules to follow when walking the path:
 
   - this significantly speeds up and removes an NP-hard algorithm 
 */
-OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
+LocantPos *PeriWalk2(   OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
@@ -905,19 +845,20 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
 {
 
   // create the path
-  OBAtom **locant_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  OBAtom **best_path = (OBAtom**)malloc(sizeof(OBAtom*) * path_size); 
-  std::string best_notation; 
-  std::vector<OBRing*> best_order; 
-  for(unsigned int i=0;i<path_size;i++){
-    locant_path[i] = 0;
-    best_path[i] = 0; 
-  }
+   
+  
+  LocantPos *locant_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
+  LocantPos *best_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
+ 
+  zero_locant_path(locant_path, path_size);
+  zero_locant_path(best_path, path_size); 
 
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
   unsigned int           lowest_sum = UINT32_MAX;
+  std::string best_notation; 
+  std::vector<OBRing*> best_order; 
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
@@ -930,10 +871,8 @@ OBAtom **PeriWalk2(   OBMol *mol, unsigned int path_size,
       std::stack<OBAtom*>     multistack; 
       std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
       
-  
       unsigned int locant_pos = 0;
-      for(unsigned int i=0;i<path_size;i++)
-        locant_path[i] = 0;
+      zero_locant_path(locant_path, path_size);
       
       
       // used for off branch locants when needed
@@ -952,8 +891,11 @@ path_solve:
 
         for(;;){
           
-          locant_path[locant_pos++] = ratom;
-          visited[ratom] = true; 
+          locant_path[locant_pos].atom = ratom;
+          locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);
+          locant_pos++; 
+          visited[ratom] = true;
+
           write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,peri_buffer); 
           
           if(locant_pos >= path_size)
@@ -1036,7 +978,7 @@ path_solve:
           for(unsigned int t=0;t<locant_pos;t++)
             write_complete_rings(locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
-        else if(!best_path[0] && !multistack.empty()){
+        else if(!best_path[0].atom && !multistack.empty()){
           // this the where the broken locants happen, pop off a multistack atom 
           OBAtom *branch_locant = multistack.top();
           multistack.pop();
@@ -1047,7 +989,8 @@ path_solve:
           lring_order.clear();
           visited[branch_locant] = true;
           path_size--;
-          locant_path[path_size] = branch_locant; 
+          locant_path[path_size].atom = branch_locant; 
+          // set the branch locant value here
 
           goto path_solve; 
         }
@@ -1058,7 +1001,7 @@ path_solve:
 
   free(locant_path);
   for(unsigned int i=0;i<path_size;i++){
-    if(!best_path[i]){
+    if(!best_path[i].atom){
       fprintf(stderr,"Error: locant path is missing a value at %d\n",i); 
       free(best_path);
       return 0; 
@@ -2002,7 +1945,7 @@ struct BabelGraph{
   /* parse non-cyclic atoms DFS style - return last atom seen in chain */
   bool ParseNonCyclic(OBAtom* start_atom, OBAtom *spawned_from,OBBond *inc_bond,
                       OBMol *mol, std::string &buffer, unsigned char locant,
-                      OBAtom **locant_path, unsigned int path_size){
+                      LocantPos *locant_path, unsigned int path_size){
     if(!start_atom)
       Fatal("writing notation from dead atom ptr");
 
@@ -2555,7 +2498,7 @@ struct BabelGraph{
             }
             else{
               for (unsigned int i=0;i<path_size;i++) {
-                if(locant_path[i] == nbor){
+                if(locant_path[i].atom == nbor){
                   write_locant(INT_TO_LOCANT(i+1), buffer);
                   break;
                 }
@@ -2817,7 +2760,7 @@ struct BabelGraph{
 
 
   /* create the heteroatoms and locant path unsaturations where neccesary */
-  bool ReadLocantAtomsBonds(  OBMol *mol, OBAtom** locant_path,unsigned int path_size,
+  bool ReadLocantAtomsBonds(  OBMol *mol, LocantPos* locant_path,unsigned int path_size,
                               std::vector<OBRing*> &ring_order,
                               std::set<OBBond*>   &ring_bonds,
                               std::string &buffer)
@@ -2831,17 +2774,17 @@ struct BabelGraph{
       last_locant = ' ';
     
     for(unsigned int i=0;i<path_size;i++){
-      if(!locant_path[i])
+      if(!locant_path[i].atom)
         Fatal("dead locant path atom ptr");
 
       unsigned char het_char = 0;
       locant = INT_TO_LOCANT(i+1);
 
-      bool carbonyl = CheckCarbonyl(locant_path[i]);
+      bool carbonyl = CheckCarbonyl(locant_path[i].atom);
 
       if( !carbonyl &&  
-        locant_path[i]->GetAtomicNum() == 6 &&
-        locant_path[i]->GetFormalCharge() == -1){
+        locant_path[i].atom->GetAtomicNum() == 6 &&
+        locant_path[i].atom->GetFormalCharge() == -1){
         // organometallics logic 
         if(locant != last_locant){
           buffer += ' ';
@@ -2850,13 +2793,13 @@ struct BabelGraph{
         } 
 
         buffer += '0';
-        locant_path[i]->SetFormalCharge(0);
+        locant_path[i].atom->SetFormalCharge(0);
       }
       
-      if(locant_path[i]->GetAtomicNum() == 6)
-        atom_chars[locant_path[i]] = '1'; 
+      if(locant_path[i].atom->GetAtomicNum() == 6)
+        atom_chars[locant_path[i].atom] = '1'; 
 
-      if(carbonyl || locant_path[i]->GetAtomicNum() != 6){
+      if(carbonyl || locant_path[i].atom->GetAtomicNum() != 6){
         if(locant != last_locant){
           buffer += ' ';
           write_locant(locant,buffer);
@@ -2865,15 +2808,15 @@ struct BabelGraph{
         
         if(carbonyl){
           buffer += 'V';
-          string_position[locant_path[i]] = buffer.size();
+          string_position[locant_path[i].atom] = buffer.size();
           last_locant++;
         }
         else{
-          het_char = WriteSingleChar(locant_path[i]);
-          atom_chars[locant_path[i]] = het_char; 
+          het_char = WriteSingleChar(locant_path[i].atom);
+          atom_chars[locant_path[i].atom] = het_char; 
           if(het_char != '*'){
             if(het_char == 'K')
-              locant_path[i]->SetFormalCharge(0);
+              locant_path[i].atom->SetFormalCharge(0);
 
 #if MODERN
             if(locant_path[i]->GetFormalCharge() != 0){
@@ -2887,20 +2830,20 @@ struct BabelGraph{
 #else
             buffer+=het_char;
 #endif
-            string_position[locant_path[i]] = buffer.size();
+            string_position[locant_path[i].atom] = buffer.size();
           }
           else{
-            WriteSpecial(locant_path[i],buffer); 
+            WriteSpecial(locant_path[i].atom,buffer); 
           }
 
           last_locant++;
         }
       }
 
-      if(locant_path[i]->GetAtomicNum() == 6){
+      if(locant_path[i].atom->GetAtomicNum() == 6){
         unsigned int rbonds = 0; 
         for(unsigned int k=0;k<path_size;k++){
-          if(mol->GetBond(locant_path[i],locant_path[k]))
+          if(mol->GetBond(locant_path[i].atom,locant_path[k].atom))
             rbonds++;
         }
         if(rbonds == 4){
@@ -2918,11 +2861,11 @@ struct BabelGraph{
       OBAtom *first   = 0;
       OBAtom *second  = 0;
       // handles sequential locant unsaturations, when not aromatic
-      first = locant_path[i];
+      first = locant_path[i].atom;
       if(i < path_size-1)
-        second = locant_path[i+1];
+        second = locant_path[i+1].atom;
       else
-        second = locant_path[0];
+        second = locant_path[0].atom;
 
       OBBond *locant_bond = first->GetBond(second);
       bonds_checked[locant_bond] = true;
@@ -3000,14 +2943,14 @@ struct BabelGraph{
   }
 
 
-  void ReadMultiCyclicPoints( OBAtom**locant_path,unsigned int path_size, 
+  void ReadMultiCyclicPoints( LocantPos *locant_path,unsigned int path_size, 
                               std::map<OBAtom*,unsigned int> &ring_shares,std::string &buffer)
   { 
 
     unsigned int count = 0;
     std::string append = ""; 
     for(unsigned int i=0;i<path_size;i++){
-      if(ring_shares[locant_path[i]] > 2){
+      if(ring_shares[locant_path[i].atom] > 2){
         count++; 
         write_locant(INT_TO_LOCANT(i+1),append);
       }
@@ -3029,7 +2972,7 @@ struct BabelGraph{
     if(OPT_DEBUG)
       fprintf(stderr,"Reading Cyclic\n");
 
-    OBAtom **                       locant_path = 0; 
+    LocantPos*                      locant_path = 0; 
     std::set<OBRing*>               local_SSSR;
     std::set<OBAtom*>               ring_atoms;
     std::set<OBBond*>               ring_bonds;
@@ -3071,10 +3014,10 @@ struct BabelGraph{
       bool spiro = false;
       unsigned char root_locant = 0;
       for(unsigned int i=0;i<path_size;i++){
-        if(locant_path[i] == ring_root)
+        if(locant_path[i].atom == ring_root)
           root_locant = INT_TO_LOCANT(i+1);
 
-        if(locant_path[i] == spawned_from){
+        if(locant_path[i].atom == spawned_from){
           // must be spiro ring
           root_locant = INT_TO_LOCANT(i+1);
           spiro = true;
@@ -3102,7 +3045,7 @@ struct BabelGraph{
     
     if(bridging){
       for(unsigned int i=0;i<path_size;i++){
-        if(bridge_atoms[locant_path[i]]){
+        if(bridge_atoms[locant_path[i].atom]){
           buffer+= ' ';
           unsigned char bloc = INT_TO_LOCANT(i+1);
           write_locant(bloc,buffer);
@@ -3183,8 +3126,8 @@ struct BabelGraph{
     
     // handle hydrogens here
     for(unsigned int i=0;i<pd.path_size;i++){
-      atoms_seen[pd.locant_path[i]] = true;
-      OBAtom *lc = pd.locant_path[i];
+      atoms_seen[pd.locant_path[i].atom] = true;
+      OBAtom *lc = pd.locant_path[i].atom;
       
       switch(atom_chars[lc]){
         case '1':
@@ -3242,11 +3185,11 @@ struct BabelGraph{
     }
       
     for(unsigned int i=0;i<pd.path_size;i++){
-      FOR_NBORS_OF_ATOM(iter,pd.locant_path[i]){
+      FOR_NBORS_OF_ATOM(iter,pd.locant_path[i].atom){
         OBAtom *latom = &(*iter);
-        OBBond* lbond = pd.locant_path[i]->GetBond(latom);
+        OBBond* lbond = pd.locant_path[i].atom->GetBond(latom);
         if(!atoms_seen[latom]){
-          if(!ParseNonCyclic( latom,pd.locant_path[i],lbond,
+          if(!ParseNonCyclic( latom,pd.locant_path[i].atom,lbond,
                               mol,buffer,
                               INT_TO_LOCANT(i+1),pd.locant_path,pd.path_size)){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
@@ -3257,7 +3200,7 @@ struct BabelGraph{
       }
 
       // OM logic 
-      if(pd.locant_path[i]->GetAtomicNum() == 6 && pd.locant_path[i]->GetFormalCharge() == -1){
+      if(pd.locant_path[i].atom->GetAtomicNum() == 6 && pd.locant_path[i].atom->GetFormalCharge() == -1){
         FOR_ATOMS_OF_MOL(om,mol){
           OBAtom *organometallic = &(*om);
           if( organometallic->GetAtomicNum() >= 20 && 
@@ -3270,7 +3213,7 @@ struct BabelGraph{
               buffer += '0';
               WriteSpecial(organometallic,buffer);
               atoms_seen[organometallic] = true;
-              pd.locant_path[i]->SetFormalCharge(0);
+              pd.locant_path[i].atom->SetFormalCharge(0);
               if(charge)
                 charge--;
 
@@ -3279,7 +3222,7 @@ struct BabelGraph{
                 OBAtom* next_pi =  &(*negc); 
                 if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
                     && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
-                  if(!ParseNonCyclic(next_pi,pd.locant_path[i],0,
+                  if(!ParseNonCyclic(next_pi,pd.locant_path[i].atom,0,
                               mol,buffer,
                               '0',pd.locant_path,pd.path_size)){
 
