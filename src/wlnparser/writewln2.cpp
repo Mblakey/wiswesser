@@ -1951,6 +1951,12 @@ struct BabelGraph{
 
     unsigned int border = 0; 
     unsigned char stereo = 0; 
+    if(locant && locant != '0' && border > 0){ // allows OM through
+      buffer+=' ';
+      write_locant(locant,buffer);
+    }
+
+
     if(inc_bond){
       border = inc_bond->GetBondOrder();
       if(inc_bond->IsHash())
@@ -1959,10 +1965,6 @@ struct BabelGraph{
         stereo =  'A'; 
     }
 
-    if(locant && locant != '0' && border > 0){ // allows OM through
-      buffer+=' ';
-      write_locant(locant,buffer);
-    }
     
 #if MODERN
     if(stereo)
@@ -2499,7 +2501,7 @@ struct BabelGraph{
             else{
               for (unsigned int i=0;i<path_size;i++) {
                 if(locant_path[i].atom == nbor){
-                  write_locant(INT_TO_LOCANT(i+1), buffer);
+                  write_locant(locant_path[i].locant, buffer);
                   break;
                 }
               }
@@ -2766,8 +2768,9 @@ struct BabelGraph{
                               std::string &buffer)
   {
 
-    unsigned char locant = 0;
-    unsigned char last_locant = 'A'; 
+    OBAtom *locant_atom = 0; 
+    unsigned int locant_char = 0;
+    unsigned int last_locant = 'A';
     std::map<OBBond*,bool> bonds_checked; 
 
     if(!std::isdigit(buffer.back()))
@@ -2776,50 +2779,51 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_size;i++){
       if(!locant_path[i].atom)
         Fatal("dead locant path atom ptr");
-
+      
       unsigned char het_char = 0;
-      locant = INT_TO_LOCANT(i+1);
+      locant_atom = locant_path[i].atom; 
+      locant_char = locant_path[i].locant;
 
-      bool carbonyl = CheckCarbonyl(locant_path[i].atom);
+      bool carbonyl = CheckCarbonyl(locant_atom);
 
       if( !carbonyl &&  
-        locant_path[i].atom->GetAtomicNum() == 6 &&
+        locant_atom->GetAtomicNum() == 6 &&
         locant_path[i].atom->GetFormalCharge() == -1){
         // organometallics logic 
-        if(locant != last_locant){
+        if(locant_char != last_locant){
           buffer += ' ';
-          write_locant(locant,buffer);
-          last_locant = locant;
+          write_locant(locant_char,buffer);
+          last_locant = locant_char;
         } 
 
         buffer += '0';
-        locant_path[i].atom->SetFormalCharge(0);
+        locant_atom->SetFormalCharge(0);
       }
       
-      if(locant_path[i].atom->GetAtomicNum() == 6)
-        atom_chars[locant_path[i].atom] = '1'; 
+      if(locant_atom->GetAtomicNum() == 6)
+        atom_chars[locant_atom] = '1'; 
 
-      if(carbonyl || locant_path[i].atom->GetAtomicNum() != 6){
-        if(locant != last_locant){
+      if(carbonyl || locant_atom->GetAtomicNum() != 6){
+        if(locant_char != last_locant){
           buffer += ' ';
-          write_locant(locant,buffer);
-          last_locant = locant;
+          write_locant(locant_char,buffer);
+          last_locant = locant_char;
         } 
         
         if(carbonyl){
           buffer += 'V';
-          string_position[locant_path[i].atom] = buffer.size();
+          string_position[locant_atom] = buffer.size();
           last_locant++;
         }
         else{
-          het_char = WriteSingleChar(locant_path[i].atom);
-          atom_chars[locant_path[i].atom] = het_char; 
+          het_char = WriteSingleChar(locant_atom);
+          atom_chars[locant_atom] = het_char; 
           if(het_char != '*'){
             if(het_char == 'K')
-              locant_path[i].atom->SetFormalCharge(0);
+              locant_atom->SetFormalCharge(0);
 
 #if MODERN
-            if(locant_path[i]->GetFormalCharge() != 0){
+            if(locant_atom->GetFormalCharge() != 0){
               buffer += '<';
               buffer += het_char; 
               ModernCharge(locant_path[i], buffer);
@@ -2830,27 +2834,27 @@ struct BabelGraph{
 #else
             buffer+=het_char;
 #endif
-            string_position[locant_path[i].atom] = buffer.size();
+            string_position[locant_atom] = buffer.size();
           }
           else{
-            WriteSpecial(locant_path[i].atom,buffer); 
+            WriteSpecial(locant_atom,buffer); 
           }
 
           last_locant++;
         }
       }
 
-      if(locant_path[i].atom->GetAtomicNum() == 6){
+      if(locant_atom->GetAtomicNum() == 6){
         unsigned int rbonds = 0; 
         for(unsigned int k=0;k<path_size;k++){
-          if(mol->GetBond(locant_path[i].atom,locant_path[k].atom))
+          if(mol->GetBond(locant_atom,locant_path[k].atom))
             rbonds++;
         }
         if(rbonds == 4){
-          if(locant != last_locant){
+          if(locant_char != last_locant){
             buffer += ' ';
-            write_locant(locant,buffer);
-            last_locant = locant;
+            write_locant(locant_char,buffer);
+            last_locant = locant_char;
           } 
           buffer += 'X';
         }
@@ -2872,7 +2876,7 @@ struct BabelGraph{
 
       if(locant_bond && !locant_bond->IsAromatic() && locant_bond->GetBondOrder()>1){
         buffer += ' ';
-        write_locant(locant,buffer);
+        write_locant(locant_char,buffer);
 
 #if MODERN && STEREO      
         if(locant_bond->IsHash())
@@ -3128,6 +3132,7 @@ struct BabelGraph{
     for(unsigned int i=0;i<pd.path_size;i++){
       atoms_seen[pd.locant_path[i].atom] = true;
       OBAtom *lc = pd.locant_path[i].atom;
+      unsigned int locant = pd.locant_path[i].locant;
       
       switch(atom_chars[lc]){
         case '1':
@@ -3136,7 +3141,7 @@ struct BabelGraph{
         case 'M':
           for(unsigned int h=1;h<lc->GetImplicitHCount();h++){
             buffer += " ";
-            buffer += INT_TO_LOCANT(i+1);
+            write_locant(locant, buffer); 
             buffer += 'H';
           }
           break;
@@ -3145,7 +3150,7 @@ struct BabelGraph{
         case 'Z':
           for(unsigned int h=2;h<lc->GetImplicitHCount();h++){
             buffer += " ";
-            buffer += INT_TO_LOCANT(i+1);
+            write_locant(locant, buffer); 
             buffer += 'H';
           }
           break;
@@ -3156,7 +3161,7 @@ struct BabelGraph{
           else{
             for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
               buffer += " ";
-              buffer += INT_TO_LOCANT(i+1);
+              write_locant(locant, buffer); 
               buffer += 'H';
             }
           }
@@ -3168,7 +3173,7 @@ struct BabelGraph{
           else{
             for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
               buffer += " ";
-              buffer += INT_TO_LOCANT(i+1);
+              write_locant(locant, buffer); 
               buffer += 'H';
             }
           }
@@ -3177,7 +3182,7 @@ struct BabelGraph{
         default:
           for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
             buffer += " ";
-            buffer += INT_TO_LOCANT(i+1);
+            write_locant(locant, buffer); 
             buffer += 'H';
           }
           break;
@@ -3191,7 +3196,7 @@ struct BabelGraph{
         if(!atoms_seen[latom]){
           if(!ParseNonCyclic( latom,pd.locant_path[i].atom,lbond,
                               mol,buffer,
-                              INT_TO_LOCANT(i+1),pd.locant_path,pd.path_size)){
+                              pd.locant_path[i].locant,pd.locant_path,pd.path_size)){
             fprintf(stderr,"Error: failed on non-cyclic parse\n");
             return false;
           }
