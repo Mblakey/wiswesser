@@ -82,100 +82,6 @@ static void Fatal(const char *str){
 }
 
 
-void static write_locant(unsigned char locant,std::string &buffer){
-  if(locant < 'X')
-    buffer += locant;
-  else{
-    unsigned int amps = 0;
-    while(locant >= 'X'){
-      amps++; 
-      locant+= -23;
-    }
-    buffer += locant; 
-    for(unsigned int i=0;i<amps;i++)
-      buffer += '&';
-  }
-}
-
-
-static void print_locant_array(LocantPos* locant_path, unsigned int size){
-  fprintf(stderr,"[ ");
-  for(unsigned int i=0; i<size;i++){
-    if(!locant_path[i].atom)
-      fprintf(stderr,"0 ");
-    else
-      fprintf(stderr,"%d ",locant_path[i].atom->GetIdx());
-  }
-    
-  fprintf(stderr,"]\n");
-}
-
-
-void sort_locants(unsigned char *arr,unsigned int len){
-	for (unsigned int j=1;j<len;j++){
-		unsigned char key = arr[j];
-		int i = j-1;
-		while(i>=0 && arr[i] > key){
-			arr[i+1] = arr[i];
-			i--;
-		}
-		arr[i+1] = key;
-	}
-}
-
-
-
-
-
-/**********************************************************************
-                          Write Helper Functions
-**********************************************************************/
-
-void write_lowest_ring_locant(OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
-  unsigned int lowest_locant = 'A'; 
-  for(unsigned int i=0;i<plen;i++){
-    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom))
-      lowest_locant = locant_path[i].locant; 
-  }
-
-  if(!lowest_locant){
-    fprintf(stderr,"gotcha bitch\n");
-    exit(1); 
-  }
-
-  if(lowest_locant != 'A'){
-    buffer += ' '; 
-    write_locant(lowest_locant,buffer); 
-  }
-}
-
-
-unsigned char highest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen){
-  unsigned char loc = 0; 
-  for(unsigned int i=0;i<plen;i++){
-    if(ring->IsMember(locant_path[i]))
-      loc = i; 
-  }
-  return INT_TO_LOCANT(loc+1); 
-}
-
-
-void write_ring_size(OBRing *ring, std::string &buffer){
-  if(ring->Size() < 9)
-    buffer += ring->Size() + '0'; 
-  else{
-#if MODERN
-    buffer += '-';
-    buffer += std::to_string(ring->Size()); 
-    buffer += '-';
-#else
-    buffer += '-';
-    buffer += std::to_string(ring->Size()); 
-    buffer += '-';
-#endif
-  }
-
-}
 
 
 /**********************************************************************
@@ -198,7 +104,6 @@ void zero_locant_path(LocantPos *locant_path,unsigned int path_size){
 }
 
 
-
 bool in_locant_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
   for(unsigned int i=0;i<path_size;i++){
     if(atom == locant_path[i].atom)
@@ -207,6 +112,14 @@ bool in_locant_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
   return false;
 }
 
+
+bool char_in_locant_path(unsigned int locant,LocantPos*locant_path,unsigned int path_size){
+  for(unsigned int i=0;i<path_size;i++){
+    if(locant == locant_path[i].locant)
+      return true; 
+  }
+  return false;
+}
 
 
 unsigned int position_in_path(OBAtom *atom,LocantPos*locant_path,unsigned int path_size){
@@ -269,6 +182,183 @@ void print_ring_locants(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned
 
   free(sequence);
 }
+
+
+
+unsigned char highest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen){
+  unsigned char loc = 0; 
+  for(unsigned int i=0;i<plen;i++){
+    if(ring->IsMember(locant_path[i]))
+      loc = i; 
+  }
+  return INT_TO_LOCANT(loc+1); 
+}
+
+
+void write_ring_size(OBRing *ring, std::string &buffer){
+  if(ring->Size() < 9)
+    buffer += ring->Size() + '0'; 
+  else{
+#if MODERN
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#else
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#endif
+  }
+
+}
+
+
+void static write_locant(unsigned int locant,std::string &buffer){
+  if(locant >= 128){
+    unsigned int loc_start = 0; 
+    unsigned int offset = 0; 
+    for(unsigned char ch = 'A'; ch < 'X';ch++){ // could expand this later on
+      if(locant >= 128+(LOCANT_TO_INT(ch)*6) && locant < 128+(LOCANT_TO_INT(ch)*6) +6) {
+        loc_start = ch; 
+        break;
+      }
+    }
+
+    offset = locant - (128 + (LOCANT_TO_INT(loc_start)*6)); // 0 = E-, 1 = E-&
+    buffer += loc_start;
+
+    switch (offset) {
+      case 0:
+        buffer +='-';
+        break;
+      case 1:
+        buffer +="-&";
+        break;
+      case 2:
+        buffer += "--";
+        break;
+      case 3:
+        buffer += "--&";
+        break;
+      case 4:
+        buffer += "-&-"; 
+        break;
+      case 5:
+        buffer += "-&&";
+        break;
+
+      default:
+        Fatal("broken locants exceeding tree limit of 6"); 
+    }
+  }
+  else{
+    if(locant < 'X')
+      buffer += locant;
+    else{
+      unsigned int amps = 0;
+      while(locant >= 'X'){
+        amps++; 
+        locant+= -23;
+      }
+      buffer += locant; 
+      for(unsigned int i=0;i<amps;i++)
+        buffer += '&';
+    }
+  }
+}
+
+static void print_locant_array(LocantPos* locant_path, unsigned int size){
+  fprintf(stderr,"[ ");
+  for(unsigned int i=0; i<size;i++){
+    if(!locant_path[i].atom)
+      fprintf(stderr,"0 ");
+    else
+      fprintf(stderr,"%d ",locant_path[i].atom->GetIdx());
+  }
+    
+  fprintf(stderr,"]\n");
+}
+
+
+void sort_locants(unsigned char *arr,unsigned int len){
+	for (unsigned int j=1;j<len;j++){
+		unsigned char key = arr[j];
+		int i = j-1;
+		while(i>=0 && arr[i] > key){
+			arr[i+1] = arr[i];
+			i--;
+		}
+		arr[i+1] = key;
+	}
+}
+
+
+/* this does the same calculation as done in readwln, broken locants are given values
+ * from 128 in the form of a binary tree, with a max tree depth of two, spawning 6
+ * potential branches when needed, see readwln for tree structure and notes */
+unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant_path, unsigned int path_size)
+{
+  // if on E, then check for E-, if E- exists, create E-&
+  // if either of these exist, make E--, E--& etc. 
+  
+  // involes reversing the calculation when neccessary, first of all
+  // walk back to a standard locant in the path
+  OBAtom *lowest_atom = atom; 
+  unsigned char broken_locant = 0; 
+  do{
+    for(unsigned int i=0;i<path_size;i++){
+      if(mol->GetBond(locant_path[i].atom,lowest_atom)){
+        broken_locant = locant_path[i].locant;
+        fprintf(stderr,"attached to %c\n",broken_locant); 
+        break;
+      }
+    }
+  }while(broken_locant >= 128); 
+ 
+  // since the array is layed out as follow: 
+  // E-, E-&, E--, E--&, E-&-, E-&& 
+  
+  unsigned int value = 128 + (LOCANT_TO_INT(broken_locant) * 6); 
+  unsigned int limit = value + 6; 
+  
+  // while this is in the path, incremement by 1. 
+  while(char_in_locant_path(value, locant_path, path_size) && value<limit)
+    value++;
+
+  if(char_in_locant_path(value, locant_path, path_size))
+    Fatal("blowing branching locant tree limit"); 
+  
+  return value; 
+}
+
+/* writes the lowest locant in the ring given, an unspecified broken locant is given 'A'-1, since
+ * this is impossible under normal operations, if this locant exists, it needs specifying, and then checking
+ * whether its actually the lowest locant possible in that chain */
+void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
+  unsigned int lowest_i = 0; 
+  unsigned int lowest_locant = 0; 
+  for(unsigned int i=0;i<plen;i++){
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
+      if(!lowest_locant || locant_path[i].locant < lowest_locant){
+        lowest_locant = locant_path[i].locant;
+        lowest_i = i; 
+      }
+    }
+  }
+  
+  // off path locant with an unspecified value
+  if(lowest_locant == 'A'-1){
+    unsigned int broken_int = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
+    locant_path[lowest_i].locant = broken_int;
+    lowest_locant = broken_int; 
+  }
+
+  if(lowest_locant != 'A'){
+    buffer += ' '; 
+    write_locant(lowest_locant,buffer); 
+  }
+}
+
 
 
 #if DEPRECATED
@@ -655,13 +745,13 @@ Some rules to follow when walking the path,
 as long as the sequential order is FORCED, we can take the max array size as 
 max_path_size
 */
-void write_complete_rings(  LocantPos *locant_path, unsigned int max_path_size, 
+void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
                             std::vector<OBRing*> &ring_order,std::string &buffer)
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
-      write_lowest_ring_locant(*riter, locant_path, max_path_size, buffer);
+      write_lowest_ring_locant(mol,*riter, locant_path, max_path_size, buffer);
       write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
       ring_order.push_back(*riter); 
@@ -736,7 +826,7 @@ LocantPos *PolyWalk(    OBMol *mol, unsigned int path_size,
 
         visited[ratom] = true;
 
-        write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,poly_buffer); 
+        write_complete_rings(mol,locant_path, locant_pos, local_SSSR, handled_rings, lring_order,poly_buffer); 
         if(locant_pos >= path_size)
           break;
         
@@ -902,7 +992,7 @@ path_solve:
           locant_pos++; 
           visited[ratom] = true;
 
-          write_complete_rings(locant_path, starting_path_size, local_SSSR, handled_rings, lring_order,peri_buffer); 
+          write_complete_rings(mol,locant_path, starting_path_size, local_SSSR, handled_rings, lring_order,peri_buffer); 
           
           if(locant_pos >= path_size)
             break;
@@ -981,7 +1071,7 @@ path_solve:
           handled_rings.clear(); 
           lring_order.clear(); 
           for(unsigned int t=0;t<locant_pos;t++)
-            write_complete_rings(locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
+            write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
         else if(!best_path[0].atom && !multistack.empty()){
           // this the where the broken locants happen, pop off a multistack atom 
@@ -1005,7 +1095,7 @@ path_solve:
           // set the branch locant value here
           path_size--; // decrement the path size, this is globally changed
           locant_path[path_size].atom = branch_locant; 
-          locant_path[path_size].locant = 'X';
+          locant_path[path_size].locant = 'A' - 1; // impossible under normal operations
           
           fprintf(stderr,"jumping\n"); 
           goto path_solve; 
