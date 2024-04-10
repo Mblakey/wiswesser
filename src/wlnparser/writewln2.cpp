@@ -1021,9 +1021,9 @@ path_solve:
           visited[ratom] = true;
 
           write_complete_rings(mol,locant_path, starting_path_size, local_SSSR, handled_rings, lring_order,peri_buffer); 
-          
-          if(locant_pos >= path_size)
+          if(locant_pos >= path_size){
             break;
+          }
 
           // here we allow multicyclics to cross ring junctions
           matom = 0; 
@@ -1079,8 +1079,7 @@ path_solve:
           ratom = matom; 
         }
        
-        if(locant_pos == path_size){
-          
+        if(locant_pos == path_size && atom_shares[locant_path[path_size-1].atom] < 3){
           unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
           if(fsum < lowest_sum){ // rule 30d.
             lowest_sum = fsum;
@@ -3157,6 +3156,7 @@ struct BabelGraph{
       fprintf(stderr,"  off branches: %d\n",branch_locants);
     }
 
+
     if(inline_ring){
       buffer+= '-';
       bool spiro = false;
@@ -3204,6 +3204,8 @@ struct BabelGraph{
     if(multi){
       ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
       
+    print_locant_array(locant_path, path_size); 
+
 #if MODERN
       write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
 #else

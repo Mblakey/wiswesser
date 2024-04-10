@@ -1990,13 +1990,24 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
           }
         }
         else if(child_loc >= 128){ 
-          // broken locant sections, where the hierachy of broken locants is ascending order  
-          for(unsigned int bs=0;bs<b_locant;bs++){
-            if(branch_locants[bs].locant == child && branch_locants[bs].active){
-              highest_loc = child_loc;
-              edge_taken = &curr_locant->locant->bond_array[ei]; 
-              broken_position = bs; 
-              break; 
+          // broken locant sections, where the hierachy of broken locants is ascending order
+          
+          bool ignore = false;
+          for(unsigned int bi=0;bi<curr_locant->locant->barr_n;bi++){
+            unsigned char test_loc = ring->locants_ch[curr_locant->locant->bond_array[bi].child];
+            if(test_loc < 128 && test_loc > ring->locants_ch[curr_locant->locant]+1)
+              ignore = true; 
+          }
+          //  a prototype rule could be if there is a normal locant of greater size then
+          //  subject + 1, take it. e.g choosing between B- and C is B-, choosing between B- and D is D.
+          if(!ignore){
+            for(unsigned int bs=0;bs<b_locant;bs++){
+              if(branch_locants[bs].locant == child && branch_locants[bs].active){
+                highest_loc = child_loc;
+                edge_taken = &curr_locant->locant->bond_array[ei]; 
+                broken_position = bs; 
+                break; 
+              }
             }
           }
         }
