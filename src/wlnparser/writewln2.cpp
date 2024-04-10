@@ -371,14 +371,14 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
     locant_path[lowest_i].locant = broken_assignment;
     lowest_locant = broken_parent;  
     
-    fprintf(stderr,"here? - %c vs %c\n",broken_parent,lowest_locant); 
-    std::cerr << buffer << std::endl; 
   }
   else if(highest_broken){
     // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
     unsigned char broken_parent = get_broken_char_parent(highest_broken); 
+    if(!broken_parent)
+      Fatal("could not fetch off path parent for broken locant"); 
     
-    if(broken_parent <= lowest_locant)
+    if(broken_parent < lowest_locant)
       lowest_locant = highest_broken; 
   }
   
@@ -985,9 +985,9 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
   unsigned int           lowest_sum = UINT32_MAX;
   unsigned int           starting_path_size = path_size; // important if path size changes
   
-  std::string best_notation; 
-  std::vector<OBRing*> best_order; 
-  unsigned int best_path_size = 0; 
+  std::string           best_notation; 
+  std::vector<OBRing*>  best_order; 
+  unsigned int          best_path_size = 0; 
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
@@ -1091,14 +1091,28 @@ path_solve:
             copy_locant_path(best_path,locant_path,starting_path_size);
             best_notation = peri_buffer; 
             best_order = lring_order;
-            best_path_size = path_size; 
+            best_path_size = path_size;
+
+            print_locant_array(locant_path, starting_path_size); 
+            std::cerr << peri_buffer << std::endl; 
           }
         }
         
         if(!backtrack_stack.empty()){
           ratom = backtrack_stack.top().second;
           BackTrackWalk(backtrack_stack.top().first, locant_path, path_size,locant_pos,visited); 
+          // when we back track, if we go past the spawning atom of the broken path, undo the broken path
           
+#define ON 1
+#if ON
+          for(unsigned int b=0;b<starting_path_size;b++){
+            if(locant_path[b].atom && locant_path[b].locant >= 128){
+              if(get_broken_char_parent(locant_path[b].locant) > INT_TO_LOCANT(locant_pos))
+                locant_path[b].locant = 'A'-1;
+                // just zero the locant, not anything else
+            }
+          }
+#endif
           // this is expensive but guarantees sequential ordeirng
           peri_buffer.clear();
           handled_rings.clear(); 
@@ -1106,7 +1120,7 @@ path_solve:
           for(unsigned int t=0;t<locant_pos;t++)
             write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
-        else if(!best_path[0].atom && !multistack.empty()){
+        else if(!best_path[0].atom && !multistack.empty()){ // once you find a branch path, take it!
           // this the where the broken locants happen, pop off a multistack atom 
           OBAtom *branch_locant = multistack.top();
           multistack.pop();
@@ -1115,7 +1129,6 @@ path_solve:
           for(unsigned int p=0;p<path_size;p++)
             visited[locant_path[p].atom] = 0;
           
-          zero_locant_path(locant_path, path_size); 
         
           peri_buffer.clear();
           handled_rings.clear();
@@ -1129,10 +1142,12 @@ path_solve:
           path_size--; // decrement the path size, this is globally changed
           locant_path[path_size].atom = branch_locant; 
           locant_path[path_size].locant = 'A' - 1; // impossible under normal operations
+          zero_locant_path(locant_path, path_size); 
           goto path_solve; 
         }
         else
-          break; 
+          break;
+        
 
       } while(!backtrack_stack.empty()) ; 
     }
