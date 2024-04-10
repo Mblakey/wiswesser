@@ -375,7 +375,7 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
     // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
     unsigned char broken_parent = get_broken_char_parent(highest_broken); 
     if(broken_parent < lowest_locant)
-      lowest_locant = broken_parent; 
+      lowest_locant = highest_broken; 
   }
   
 
