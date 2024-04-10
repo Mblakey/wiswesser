@@ -359,10 +359,8 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
 
     broken_assignment = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
     locant_path[lowest_i].locant = broken_assignment;
-    
-    // when its spawned in, the lowest locant must be its parent in the path
-    lowest_locant = broken_parent; 
-  }
+    lowest_locant = broken_parent;  
+   }
 
   if(lowest_locant != 'A'){
     buffer += ' '; 
