@@ -1006,7 +1006,7 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
       
       // used for off branch locants when needed
       for(std::set<OBAtom*>::iterator multi_iter = ring_atoms.begin(); multi_iter != ring_atoms.end(); multi_iter++){
-        if(atom_shares[*multi_iter]>=3 && *multi_iter != *aiter)
+        if( (atom_shares[*multi_iter]>=3 || bridge_atoms[*multi_iter]) && *multi_iter != *aiter)
           multistack.push(*multi_iter); 
       }
 
@@ -1041,7 +1041,7 @@ path_solve:
                 
                 // if its a ring junction, we can move if this is going to/from a multicyclic point,
                 // if pointing at a multicyclic, or an edge atoms, try both
-                if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3)){
+                if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3) || (bridge_atoms[ratom] || bridge_atoms[catom]) ){
                   if(!matom)
                     matom = catom; 
                   else if(atom_shares[catom] > atom_shares[matom]){
@@ -1102,17 +1102,12 @@ path_solve:
           ratom = backtrack_stack.top().second;
           BackTrackWalk(backtrack_stack.top().first, locant_path, path_size,locant_pos,visited); 
           // when we back track, if we go past the spawning atom of the broken path, undo the broken path
-          
-#define ON 1
-#if ON
           for(unsigned int b=0;b<starting_path_size;b++){
             if(locant_path[b].atom && locant_path[b].locant >= 128){
               if(get_broken_char_parent(locant_path[b].locant) > INT_TO_LOCANT(locant_pos))
                 locant_path[b].locant = 'A'-1;
-                // just zero the locant, not anything else
             }
           }
-#endif
           // this is expensive but guarantees sequential ordeirng
           peri_buffer.clear();
           handled_rings.clear(); 
