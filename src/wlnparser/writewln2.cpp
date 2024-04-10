@@ -309,7 +309,6 @@ unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant
     for(unsigned int i=0;i<path_size;i++){
       if(mol->GetBond(locant_path[i].atom,lowest_atom)){
         broken_locant = locant_path[i].locant;
-        fprintf(stderr,"attached to %c\n",broken_locant); 
         break;
       }
     }
@@ -348,9 +347,21 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
   
   // off path locant with an unspecified value
   if(lowest_locant == 'A'-1){
-    unsigned int broken_int = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
-    locant_path[lowest_i].locant = broken_int;
-    lowest_locant = broken_int; 
+    unsigned int broken_parent = 0; 
+    unsigned int broken_assignment = 0; 
+    
+    for(unsigned int i=0;i<plen;i++){
+      if(mol->GetBond(locant_path[i].atom,locant_path[lowest_i].atom)){
+        broken_parent = locant_path[i].locant;
+        break;
+      }
+    }
+
+    broken_assignment = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
+    locant_path[lowest_i].locant = broken_assignment;
+    
+    // when its spawned in, the lowest locant must be its parent in the path
+    lowest_locant = broken_parent; 
   }
 
   if(lowest_locant != 'A'){
