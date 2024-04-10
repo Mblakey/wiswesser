@@ -1065,7 +1065,7 @@ path_solve:
           unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
           if(fsum < lowest_sum){ // rule 30d.
             lowest_sum = fsum;
-            copy_locant_path(best_path,locant_path,path_size);
+            copy_locant_path(best_path,locant_path,starting_path_size);
             best_notation = peri_buffer; 
             best_order = lring_order;
           }
@@ -1105,8 +1105,6 @@ path_solve:
           path_size--; // decrement the path size, this is globally changed
           locant_path[path_size].atom = branch_locant; 
           locant_path[path_size].locant = 'A' - 1; // impossible under normal operations
-          
-          fprintf(stderr,"jumping\n"); 
           goto path_solve; 
         }
         else
@@ -1117,7 +1115,7 @@ path_solve:
   } 
 
   free(locant_path);
-  for(unsigned int i=0;i<path_size;i++){
+  for(unsigned int i=0;i<starting_path_size;i++){
     if(!best_path[i].atom){
       fprintf(stderr,"Error: locant path is missing a value at %d\n",i); 
       free(best_path);
@@ -2898,8 +2896,10 @@ struct BabelGraph{
       locant_atom = locant_path[i].atom; 
       locant_char = locant_path[i].locant;
       
-      if(!locant_path[i].atom)
+      if(!locant_path[i].atom){
+        print_locant_array(locant_path, path_size); 
         Fatal("dead locant path atom ptr in hetero read");
+      }
 
       if(!locant_path[i].locant)
         Fatal("dead locant path position in hetero read");
@@ -3193,6 +3193,7 @@ struct BabelGraph{
 #endif
     }
 
+    path_size = LocalSSRS_data.path_size; 
     ReadLocantAtomsBonds(mol,locant_path,path_size,ring_order,ring_bonds,buffer);
 
     // breaks incremented locant notation
