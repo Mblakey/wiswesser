@@ -212,17 +212,24 @@ void write_ring_size(OBRing *ring, std::string &buffer){
 
 }
 
+/* calculates the locant path A->X site for a broken locant */
+unsigned char get_broken_char_parent(unsigned int locant){
+  for(unsigned char ch = 'A'; ch < 'X';ch++){ // could expand this later on
+    if(locant >= 128+(LOCANT_TO_INT(ch)*6) && locant < 128+(LOCANT_TO_INT(ch)*6) +6) 
+      return ch; 
+  }
+  return 0; 
+}
+
 
 void static write_locant(unsigned int locant,std::string &buffer){
   if(locant >= 128){
     unsigned int loc_start = 0; 
     unsigned int offset = 0; 
-    for(unsigned char ch = 'A'; ch < 'X';ch++){ // could expand this later on
-      if(locant >= 128+(LOCANT_TO_INT(ch)*6) && locant < 128+(LOCANT_TO_INT(ch)*6) +6) {
-        loc_start = ch; 
-        break;
-      }
-    }
+    
+    loc_start = get_broken_char_parent(locant); 
+    if(!loc_start)
+      Fatal("could not fetch off path parent for broken locant"); 
 
     offset = locant - (128 + (LOCANT_TO_INT(loc_start)*6)); // 0 = E-, 1 = E-&
     buffer += loc_start;
@@ -336,12 +343,15 @@ unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant
 void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
   unsigned int lowest_i = 0; 
   unsigned int lowest_locant = 0; 
+  unsigned int highest_broken = 0; 
   for(unsigned int i=0;i<plen;i++){
     if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
       if(!lowest_locant || locant_path[i].locant < lowest_locant){
         lowest_locant = locant_path[i].locant;
         lowest_i = i; 
       }
+      else if(locant_path[i].locant >= 128)
+        highest_broken = locant_path[i].locant; 
     }
   }
   
@@ -360,7 +370,16 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
     broken_assignment = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
     locant_path[lowest_i].locant = broken_assignment;
     lowest_locant = broken_parent;  
-   }
+  }
+  else if(highest_broken){
+    // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
+    unsigned char broken_parent = get_broken_char_parent(highest_broken); 
+    if(broken_parent < lowest_locant)
+      lowest_locant = broken_parent; 
+  }
+  
+
+
 
   if(lowest_locant != 'A'){
     buffer += ' '; 
