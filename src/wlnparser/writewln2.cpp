@@ -370,16 +370,18 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
     broken_assignment = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
     locant_path[lowest_i].locant = broken_assignment;
     lowest_locant = broken_parent;  
+    
+    fprintf(stderr,"here? - %c vs %c\n",broken_parent,lowest_locant); 
+    std::cerr << buffer << std::endl; 
   }
   else if(highest_broken){
     // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
     unsigned char broken_parent = get_broken_char_parent(highest_broken); 
-    if(broken_parent < lowest_locant)
+    
+    if(broken_parent <= lowest_locant)
       lowest_locant = highest_broken; 
   }
   
-
-
 
   if(lowest_locant != 'A'){
     buffer += ' '; 
@@ -982,8 +984,10 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
   OBAtom*                matom  = 0; // move atom
   unsigned int           lowest_sum = UINT32_MAX;
   unsigned int           starting_path_size = path_size; // important if path size changes
+  
   std::string best_notation; 
   std::vector<OBRing*> best_order; 
+  unsigned int best_path_size = 0; 
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
@@ -997,6 +1001,7 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
       std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
       
       unsigned int locant_pos = 0;
+      path_size = starting_path_size; 
       zero_locant_path(locant_path, path_size);
       
       // used for off branch locants when needed
@@ -1079,13 +1084,14 @@ path_solve:
           ratom = matom; 
         }
        
-        if(locant_pos == path_size && atom_shares[locant_path[path_size-1].atom] < 3){
+        if(locant_pos == path_size){
           unsigned int fsum = fusion_sum(mol,locant_path,path_size,local_SSSR);
           if(fsum < lowest_sum){ // rule 30d.
             lowest_sum = fsum;
             copy_locant_path(best_path,locant_path,starting_path_size);
             best_notation = peri_buffer; 
             best_order = lring_order;
+            best_path_size = path_size; 
           }
         }
         
@@ -1141,6 +1147,7 @@ path_solve:
     }
   }
   
+  path_size = best_path_size; 
   ring_order = best_order; 
   buffer = best_notation; 
   return best_path; 
