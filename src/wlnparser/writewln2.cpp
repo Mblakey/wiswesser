@@ -132,14 +132,20 @@ void sort_locants(unsigned char *arr,unsigned int len){
 **********************************************************************/
 
 void write_lowest_ring_locant(OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
+  unsigned int lowest_locant = 'A'; 
   for(unsigned int i=0;i<plen;i++){
-    if(ring->IsMember(locant_path[i].atom)){
-      if(i>0){
-        buffer += ' '; 
-        write_locant(INT_TO_LOCANT(i+1),buffer); 
-      }
-      break;
-    }
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom))
+      lowest_locant = locant_path[i].locant; 
+  }
+
+  if(!lowest_locant){
+    fprintf(stderr,"gotcha bitch\n");
+    exit(1); 
+  }
+
+  if(lowest_locant != 'A'){
+    buffer += ' '; 
+    write_locant(lowest_locant,buffer); 
   }
 }
 
