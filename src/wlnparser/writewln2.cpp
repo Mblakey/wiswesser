@@ -621,7 +621,7 @@ bool IsRingJunction(OBMol*mol, OBAtom *curr, OBAtom *ahead, std::set<OBRing*>&lo
 bool IsRingComplete(OBRing *ring, LocantPos *locant_path, unsigned int path_len){
   unsigned int size = 0; 
   for(unsigned int i=0;i<path_len;i++){
-    if(ring->IsMember(locant_path[i].atom))
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom))
       size++; 
   }
 
@@ -645,15 +645,17 @@ unsigned int connected_multicycles(OBAtom *atom, std::map<OBAtom*,unsigned int> 
 /*
 builds iteratively so ordering is correct, when a ring is filled, write the notation
 there is some bit logic to speed all this up, - concepts first, optimisation later
-Some rules to follow when walking the path:
+Some rules to follow when walking the path,
+as long as the sequential order is FORCED, we can take the max array size as 
+max_path_size
 */
-void write_complete_rings(  LocantPos *locant_path, unsigned int locant_pos, 
+void write_complete_rings(  LocantPos *locant_path, unsigned int max_path_size, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
                             std::vector<OBRing*> &ring_order,std::string &buffer)
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-    if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, locant_pos)){
-      write_lowest_ring_locant(*riter, locant_path, locant_pos, buffer);
+    if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
+      write_lowest_ring_locant(*riter, locant_path, max_path_size, buffer);
       write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
       ring_order.push_back(*riter); 
@@ -894,7 +896,7 @@ path_solve:
           locant_pos++; 
           visited[ratom] = true;
 
-          write_complete_rings(locant_path, locant_pos, local_SSSR, handled_rings, lring_order,peri_buffer); 
+          write_complete_rings(locant_path, starting_path_size, local_SSSR, handled_rings, lring_order,peri_buffer); 
           
           if(locant_pos >= path_size)
             break;
