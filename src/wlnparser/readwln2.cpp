@@ -273,11 +273,6 @@ struct LocantPos{
 
 }; 
 
-void debug_locant_array(WLNRing *ring, LocantPos *locant_path, unsigned int size){
-  for(unsigned int i=0;i<size;i++){
-    fprintf(stderr,"%p - %c vs %c\n",locant_path[i].locant, INT_TO_LOCANT(i+1), ring->locants_ch[locant_path[i].locant]); 
-  }
-}
 
 // needed as not to mess up the locant path algorithm
 struct LocantPair{
@@ -2273,8 +2268,6 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     return 0; 
   }
 
-  debug_locant_array(ring, locant_path, local_size); 
-
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -2285,7 +2278,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     unsigned int start_char     = component.second;
     ring->aromatic_atoms        = ring->aromatic_atoms ? 1:aromatic; 
 
-    // --- PATHFINDER III, see notes on function for rules and use --- 
+    // --- PATHSOLVER III, see notes on function for rules and use --- 
 
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
@@ -2302,7 +2295,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     std::vector<WLNSymbol*> best_path; 
     
     if(start_char < 128)
-      start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+      start_locant = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
     else
       start_locant = fetch_branch_locant(ring, start_char, branch_locants, b_locant);
     
@@ -2335,44 +2328,48 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
               }
             }
             
-            if(child_loc < 128){
-              if(child_loc > highest_loc){
-     
+            if(child_loc < 128 && child_loc > highest_loc){
+#define BACKTRACK 0 
 #if BACKTRACK
-                if(highest_loc && path_size < comp_size-2){
-                  backtrack_stack.push({edge_taken,path_size}); // push the old
-                  fprintf(stderr,"pushing %c -> %c at psize: %d\n",
-                          ring->locants_ch[edge_taken->parent],
-                          ring->locants_ch[edge_taken->child],
-                          path_size); 
-                }
-#endif
-                highest_loc = child_loc;
-                edge_taken = &curr_locant->locant->bond_array[ei];
+              if(highest_loc && path_size < comp_size-2){
+                backtrack_stack.push({edge_taken,path_size}); // push the old
+                fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
+                        ring->locants_ch[edge_taken->parent],
+                        ring->locants_ch[edge_taken->child],
+                        path_size);
               }
-#if BACKTRACK
-              else if(path_size < comp_size-2)
+              else if(path_size < comp_size-2){
                 backtrack_stack.push({&curr_locant->locant->bond_array[ei],path_size}); // push a new
-#endif 
+                fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
+                        ring->locants_ch[curr_locant->locant->bond_array[ei].parent],
+                        ring->locants_ch[curr_locant->locant->bond_array[ei].child],
+                        path_size); 
+              }
+#endif        
+              highest_loc = child_loc;
+              edge_taken = &curr_locant->locant->bond_array[ei];
             }
             else if(child_loc >= 128 && !total_highest){ // this says no backtracking with broken locs 
               // broken locant sections, where the hierachy of broken locants is ascending order
-              bool ignore = false;
-              for(unsigned int bi=0;bi<curr_locant->locant->barr_n;bi++){
-                unsigned char test_loc = ring->locants_ch[curr_locant->locant->bond_array[bi].child];
-                if(test_loc < 128 && test_loc > ring->locants_ch[curr_locant->locant]+1){
-                  ignore = true;
+              LocantPos *branch_pos = fetch_branch_locant(ring, child_loc, branch_locants, b_locant);
+              if(branch_pos->active){
+                bool ignore = false;
+                for(unsigned int bi=0;bi<curr_locant->locant->barr_n;bi++){
+                  unsigned char test_loc = ring->locants_ch[curr_locant->locant->bond_array[bi].child];
+                  if(test_loc < 128 && test_loc > ring->locants_ch[curr_locant->locant]+1){
+                    ignore = true;
+                  }
                 }
-              }
-              if(!ignore){
-                highest_loc = child_loc;
-                edge_taken = &curr_locant->locant->bond_array[ei]; 
-                break; 
+                if(!ignore){
+                  highest_loc = child_loc;
+                  edge_taken = &curr_locant->locant->bond_array[ei]; 
+                  break; 
+                }
               }
             }
           } 
         }
-
+      
         if(!highest_loc && curr_locant->locant == ring->locants[max_locant]){
           // if at the end of the path, its okay, break the loop and do post shifting 
           over_shoot++;
@@ -2380,18 +2377,22 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
           // on any overshoot we dont need to look back, at maximal limit
           while(!backtrack_stack.empty())
             backtrack_stack.pop();
-          
         }
         else if(highest_loc) {
+
           // standard logic 
           if(highest_loc < 128)
             curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
           else
             curr_locant = fetch_branch_locant(ring, highest_loc, branch_locants, b_locant);  
           
-          symbol_path.push_back(curr_locant->locant); 
+          symbol_path.push_back(curr_locant->locant);
           end_char = highest_loc; 
           path_size++; 
+        }
+        else {
+          fprintf(stderr,"Error: locant traversal failure\n");
+          return 0; 
         }
       }
         
@@ -2401,15 +2402,23 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
       }
      
       if(!backtrack_stack.empty()){
+        WLNEdge *back_edge = backtrack_stack.top().first; 
         unsigned int lb = ring->locants_ch[backtrack_stack.top().first->child]; 
         if(lb<128)
           curr_locant = &locant_path[LOCANT_TO_INT(lb-1)];
         else
           curr_locant = fetch_branch_locant(ring, ring->locants_ch[backtrack_stack.top().first->child], branch_locants, b_locant);  
-        
+         
         path_size = backtrack_stack.top().second+1; 
-        while(symbol_path.back() != backtrack_stack.top().first->parent)
+        while(symbol_path.back() != back_edge->parent && !symbol_path.empty())
           symbol_path.pop_back(); 
+        
+        if(symbol_path.empty()){
+          fprintf(stderr,"Error: %c could not be found in previous path\n", ring->locants_ch[back_edge->parent]);
+          return 0; 
+        }
+
+        symbol_path.push_back(curr_locant->locant); 
       }
 
     }while(!backtrack_stack.empty());  
@@ -2463,10 +2472,6 @@ pseudo_jump:
 
         if(start_locant->allowed_connections > 0){
           
-          fprintf(stderr,"c: %d\n", start_locant->allowed_connections); 
-          fprintf(stderr,"start_locant: %c\n",ring->locants_ch[start_locant->locant]);
-          fprintf(stderr,"start char: %c\n",start_char); 
-
           bool broken_shifting = true; 
           while(broken_shifting){
             broken_shifting = false; 
@@ -2526,7 +2531,7 @@ pseudo_jump:
           start_locant->allowed_connections--; 
           curr_locant->allowed_connections--;
 
-#define STRANGE 0
+#define STRANGE 1
 #if STRANGE
           // weird bit of logic, but works nicely for tight rings
           while(!curr_locant->allowed_connections && end_char <= max_locant){
@@ -2540,7 +2545,6 @@ pseudo_jump:
           start_char++;
           start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
           
-          fprintf(stderr,"%c vs %c\n",start_char,ring->locants_ch[start_locant->locant]); 
           //best_path.insert(best_path.begin(),start_locant->locant);  
           // the current then moves back by 1
           if(over_shoot)
