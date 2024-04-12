@@ -2277,7 +2277,7 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
 #if PSEUDO
         // pseudo logic goes here, comes in pairs, look behind for its earlier
         for(unsigned int pb=1;pb<pseudo_locants.size();pb+=2){
-          if(child_loc==pseudo_locants[pb]){
+          if(child_loc==pseudo_locants[pb] && path_size < comp_size-2){ // only pseudo bond if +1 avaliable
             total_highest = child_loc; 
             pseudo_back_bond = pseudo_locants[pb-1]; 
             end_char = child_loc; 
