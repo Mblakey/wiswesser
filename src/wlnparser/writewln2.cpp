@@ -830,7 +830,7 @@ void write_pseudo_locants(OBMol *mol, LocantPos *locant_path, unsigned int path_
 
 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 */
-LocantPos *PolyWalk(    OBMol *mol, unsigned int path_size,
+LocantPos *PathFinerIIIa(    OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
@@ -983,7 +983,7 @@ Some rules to follow when walking the path:
 
   path size can now change to accomadate whether the locant path reduces due to branching locants
 */
-LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
+LocantPos *PathFinderIIIb(   OBMol *mol,        unsigned int &path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
@@ -3176,9 +3176,9 @@ struct BabelGraph{
     if(local_SSSR.size() == 1)
       locant_path = SingleWalk(mol,path_size,local_SSSR,ring_order, ring_segment);
     else if(!multi && !bridging)
-      locant_path = PolyWalk(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,ring_order,ring_segment);
+      locant_path = PathFinerIIIa(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,ring_order,ring_segment);
     else
-      locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
+      locant_path = PathFinderIIIb(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
     if(!locant_path)
       return Fatal("no locant path could be determined");
     

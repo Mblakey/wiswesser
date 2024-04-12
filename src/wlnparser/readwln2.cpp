@@ -1791,7 +1791,7 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
  128 + (1 * 6) = 'B' node, 134 = B-, 135 = B-&, 136 = B--, 137 = B--&, 138 = B-&-, 139 = B-&&
  128 + (2 * 6) = 'C' node, 140... 
 */
-unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
+int OffPathLocants(WLNRing*ring, unsigned int local_size,
                             std::map<unsigned int,unsigned int> &bridge_locants,
                             LocantPos*branch_locants)
 {
@@ -1810,7 +1810,7 @@ unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
 
         if(b_locant == 32){
           fprintf(stderr,"Error: branching locant exceed 32, is this even possible?\n");
-          return 0; 
+          return -1; 
         }
       }
     }
@@ -2201,6 +2201,19 @@ bool assign_locant_path_connections(WLNRing *ring, LocantPos *locant_path, unsig
   return true; 
 }
 
+void AromatiseSymbolPath(std::vector<WLNSymbol*> &symbol_path){
+  WLNEdge *edge = 0; 
+  for(unsigned int i=0;i<symbol_path.size()-1;i++){
+    for(unsigned int j=i+1;j<symbol_path.size();j++){
+      edge = search_edge(symbol_path[i], symbol_path[j]);
+      if(edge)
+        edge->aromatic = true; 
+      symbol_path[i]->aromatic = true; 
+      symbol_path[j]->aromatic = true; 
+    }
+  }
+}
+
 /* the big change here is that the maximal path can be obtained by other routes, therefore 
  * when psuedo locants are used, exhaustive search for the maximal locant is needed - 
  *
@@ -2211,7 +2224,8 @@ bool assign_locant_path_connections(WLNRing *ring, LocantPos *locant_path, unsig
     pseudo locants are in pairs, with the first being lower and the second higher,
     this can be enforced during parse, not here 
 */
-unsigned int PathFinderIII( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
+
+unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
                             std::vector<bool>                                   &aromaticity,
                             std::vector<unsigned int>                           &pseudo_locants,
                             std::map<unsigned int,unsigned int>                 &bridge_locants,
@@ -2236,9 +2250,12 @@ unsigned int PathFinderIII( std::vector<std::pair<unsigned int,unsigned int>>   
   }
 
   LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
-  unsigned int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
-  
-  
+  int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
+  if(b_locant == -1){
+    delete[] locant_path; 
+    delete[] branch_locants; 
+  }
+
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
@@ -2262,8 +2279,8 @@ unsigned int PathFinderIII( std::vector<std::pair<unsigned int,unsigned int>>   
     unsigned int total_highest = 0; // allow for branch 
     std::stack<std::pair<WLNEdge*,unsigned int>> backtrack_stack; // both in order to move to child, plus path size 
     
-    std::vector<WLNEdge*> edge_path; 
-    std::vector<WLNEdge*> best_edges; // used for aromaticity
+    std::vector<WLNSymbol*> symbol_path; 
+    std::vector<WLNSymbol*> best_path; 
     
     if(start_char < 128){
       start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
@@ -2278,6 +2295,8 @@ unsigned int PathFinderIII( std::vector<std::pair<unsigned int,unsigned int>>   
         }
       }
     }
+    
+    symbol_path.push_back(start_locant->locant); 
     
     do{
       if(!backtrack_stack.empty())
@@ -2365,22 +2384,26 @@ unsigned int PathFinderIII( std::vector<std::pair<unsigned int,unsigned int>>   
           else
             curr_locant = &branch_locants[broken_position]; 
           
-          edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
-          edge_taken->child->aromatic = edge_taken->child->aromatic ? 1:aromatic; 
-          edge_taken->parent->aromatic = edge_taken->parent->aromatic ? 1:aromatic; 
+
+          symbol_path.push_back(curr_locant->locant); 
           end_char = highest_loc; 
           path_size++; 
         }
       }
 
-      if(end_char > total_highest)
+      if(end_char > total_highest){
+        best_path = symbol_path; 
         total_highest = end_char; 
+      }
       
       if(!backtrack_stack.empty()){
         unsigned int lb = ring->locants_ch[backtrack_stack.top().first->child]; 
         curr_locant = &locant_path[LOCANT_TO_INT(lb-1)];
         path_size = backtrack_stack.top().second+1; 
-        fprintf(stderr,"backtracking to %c, current winner is %c\n",lb,total_highest); 
+        
+        // walk the path back its back track position
+        while(symbol_path.back() != backtrack_stack.top().first->parent)
+          symbol_path.pop_back(); 
       }
 
     }while(!backtrack_stack.empty());  
@@ -2433,12 +2456,6 @@ pseudo_jump:
         return false;
       }
 
-      new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
-      new_edge->child->aromatic = new_edge->aromatic; 
-      new_edge->child->aromatic = new_edge->child->aromatic ? 1:aromatic; 
-      new_edge->parent->aromatic = new_edge->parent->aromatic ? 1:aromatic; 
-      
-
       start_locant->allowed_connections--;
       curr_locant->allowed_connections--; 
     }
@@ -2480,28 +2497,30 @@ pseudo_jump:
 
           if(OPT_DEBUG){
             if(start_char >= 128 && end_char <= 128)
-              fprintf(stderr,"  fusing  (%d): %d --> %c\n",comp_size,start_char,end_char);
+              fprintf(stderr,"  fusing  (%d): %d --> %c",comp_size,start_char,end_char);
             else if(start_char <= 128 && end_char >= 128)
-              fprintf(stderr,"  fusing  (%d): %c --> %d\n",comp_size,start_char,end_char);
+              fprintf(stderr,"  fusing  (%d): %c --> %d",comp_size,start_char,end_char);
             else if(start_char >= 128 && end_char >= 128)
-              fprintf(stderr,"  fusing  (%d): %d --> %d\n",comp_size,start_char,end_char);
+              fprintf(stderr,"  fusing  (%d): %d --> %d",comp_size,start_char,end_char);
             else
-              fprintf(stderr,"  fusing  (%d): %c --> %c\n",comp_size,start_char,end_char);
+              fprintf(stderr,"  fusing  (%d): %c --> %c",comp_size,start_char,end_char);
+            
+            fprintf(stderr," [ "); 
+            for (WLNSymbol *ch: best_path)
+              fprintf(stderr,"%c, ",ring->locants_ch[ch]);  
+            fprintf(stderr,"]\n"); 
           }
-
+          
           WLNEdge *new_edge = AddEdge(curr_locant->locant,start_locant->locant);  
           if(!new_edge){
             fprintf(stderr,"Error: failed to bond locant path edge\n");    
             return false;
           }
 
-          new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
-          new_edge->child->aromatic = new_edge->aromatic; 
-          new_edge->child->aromatic = new_edge->child->aromatic ? 1:aromatic; 
-          new_edge->parent->aromatic = new_edge->parent->aromatic ? 1:aromatic; 
-          
+          if(aromatic)
+            AromatiseSymbolPath(best_path); 
+
           start_locant->allowed_connections--; 
-          
 #if STRANGE
           // weird bit of logic, but works nicely for tight rings
           while(!curr_locant->allowed_connections && end_char <= max_locant){
@@ -2515,7 +2534,7 @@ pseudo_jump:
           // increase the start char and move the path locant
           start_char++;
           start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
-          
+          best_path.insert(best_path.begin(),start_locant->locant);  
           // the current then moves back by 1
           if(over_shoot)
             over_shoot--;
@@ -3674,12 +3693,12 @@ character_start_ring:
   }
   
   unsigned int final_size = 0;
-  final_size = PathFinderIII( ring_components,aromaticity,
-                                      pseudo_locants,
-                            bridge_locants,
-                            ring_size_specifier,
-                            ring,
-                            graph);
+  final_size = PathSolverIII( ring_components,aromaticity,
+                              pseudo_locants,
+                              bridge_locants,
+                              ring_size_specifier,
+                              ring,
+                              graph);
   
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
