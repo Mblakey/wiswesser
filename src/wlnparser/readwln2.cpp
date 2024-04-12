@@ -1937,9 +1937,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
     prev = curr;
   }
   
-  // use pseudo locants as a catch all, more stable then traditional WLN for now
-  for(int i=0;i<(pseudo_locants.size()/2);i++)
-    ring_assignments.pop_back(); 
 
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
@@ -2049,7 +2046,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
           unsigned int move_index = 0; 
           for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
             WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
-            // while loop needed
+            
             if(ring->locants_ch[bchild] > 128){
               for(unsigned int bs=0;bs<b_locant;bs++){
                 if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
@@ -2097,8 +2094,9 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
         start_locant->allowed_connections--; 
         
         // weird bit of logic, but works nicely for tight rings
-        while(!curr_locant->allowed_connections && end_char <= max_locant)
-          curr_locant = &locant_path[LOCANT_TO_INT(++end_char-1)]; 
+        while(!curr_locant->allowed_connections && end_char <= max_locant){
+          curr_locant = &locant_path[LOCANT_TO_INT(++end_char-1)];
+        }
       
         curr_locant->allowed_connections--; 
         break;
@@ -2119,26 +2117,288 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
     }
   }
   
+  
+  delete [] locant_path;
+  delete [] branch_locants;
+  return local_size; 
+}
 
-  if(!pseudo_locants.empty()){
-    for(int i=0;i<pseudo_locants.size()-1;i+=2){
 
-      if(!AddEdge(ring->locants[pseudo_locants[i]],ring->locants[pseudo_locants[i+1]]))
-        fprintf(stderr,"Error: pseudo locants could not be bonded"); 
+/* the big change here is that the maximal path can be obtained by other routes, therefore 
+ * when psuedo locants are used, exhaustive search for the maximal locant is needed - 
+ *
+ * For the pseudo locants themselves, the ring is traversed until the higher of the pair is seen. The 
+ * routine is then terminated, with the pseudo bond made immediately - this is now avaliable 
+ * for use in a taken path, which must be exhaustive searched
+*/
+unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
+                                    std::vector<bool>                                   &aromaticity,
+                                    std::vector<unsigned int>                           &pseudo_locants,
+                                    std::map<unsigned int,unsigned int>                 &bridge_locants,
+                                    unsigned char size_designator,
+                                    WLNRing *ring,
+                                    WLNGraph &graph) 
+{
+  unsigned int local_size = 0;
+  if(!size_designator){
+ 
+    for (unsigned int i=0;i<ring_assignments.size();i++){
+      std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
+      if(local_size)
+        local_size += component.first - 2;
+      else
+        local_size = component.first;
+    }
 
-      if(OPT_DEBUG){
-        if(pseudo_locants[i] >= 128 && pseudo_locants[i+1] <= 128)
-          fprintf(stderr,"  fusing: %d --> %c\n",pseudo_locants[i],pseudo_locants[i+1]);
-        else if(pseudo_locants[i] <= 128 && pseudo_locants[i+1] >= 128)
-          fprintf(stderr,"  fusing: %c --> %d\n",pseudo_locants[i],pseudo_locants[i+1]);
-        else if(pseudo_locants[i] >= 128 && pseudo_locants[i+1] >= 128)
-          fprintf(stderr,"  fusing: %d --> %d\n",pseudo_locants[i],pseudo_locants[i+1]);
+    for (unsigned int i=0;i<255;i++){
+      if(bridge_locants[i]){
+        local_size+= -1; 
+      }
+
+      if(ring->locants[i] && i >= 128)
+        local_size+= -1; 
+    }
+
+
+    if(OPT_DEBUG)
+      fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
+  }
+  else
+    local_size = LOCANT_TO_INT(size_designator);
+  
+  if(OPT_DEBUG)
+    fputc('\n',stderr); 
+
+  // create all the nodes in a large straight chain and assign how many bonds
+  // each atom is allowed to take
+  
+  // just use the contructors with new
+  
+  LocantPos *locant_path = new LocantPos[local_size];  
+  LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
+  unsigned int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
+  
+  WLNSymbol *curr = 0; 
+  WLNSymbol *prev = 0; 
+
+  for (unsigned int i=0;i<local_size;i++){
+    unsigned char loc = INT_TO_LOCANT(i+1);
+  
+    // default ring chain connections
+    if(i == 0 || i == local_size-1)
+      locant_path[i].allowed_connections = 2; 
+    else
+      locant_path[i].allowed_connections = 1; 
+
+    if(!ring->locants[loc]){
+      curr = AllocateWLNSymbol('C',graph);
+      if(!curr)
+        return 0;
+
+      curr->allowed_edges = 4;
+      assign_locant(loc,curr,ring);
+    }
+    else
+      curr = ring->locants[loc];
+
+    locant_path[i].locant = curr; 
+    
+    if(curr->ch == 'X'){
+      locant_path[i].allowed_connections++;
+    }
+    else if(curr->ch == '*')
+      locant_path[i].allowed_connections = 6;
+    
+    if(bridge_locants[loc])
+      locant_path[i].allowed_connections--; // decrement any bridging positions
+      
+    if(prev){
+      if(!AddEdge(curr, prev))
+        return false;
+    }
+    prev = curr;
+  }
+  
+
+  // calculate bindings and then traversals round the loops
+  unsigned char max_locant = INT_TO_LOCANT(local_size);
+  for (unsigned int i=0;i<ring_assignments.size();i++){
+    
+    std::pair<unsigned int, unsigned int> component = ring_assignments[i];
+    
+    bool aromatic           = aromaticity[i];
+    unsigned int comp_size  = component.first;
+    unsigned int start_char  = component.second;
+    ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
+
+    // --- MULTI ALGORITHM, see notes on function for rules and use --- 
+    unsigned int  path_size   = 0;  
+    unsigned char end_char    = 0; 
+    unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
+
+    LocantPos *start_locant=0;
+    LocantPos *curr_locant=0; 
+
+    if(start_char < 128){
+      start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+      curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+    }
+    else{
+      for(unsigned int bs=0;bs<b_locant;bs++){
+        if(branch_locants[bs].locant == ring->locants[start_char]){
+          start_locant   = &branch_locants[bs]; 
+          curr_locant   =  &branch_locants[bs]; 
+          break;
+        }
+      }
+    }
+
+    // -1 as one locant is already given in start
+    while(path_size < comp_size-1){
+      WLNEdge*      edge_taken  = 0; 
+      unsigned char highest_loc = 0; // highest of each child iteration 
+      unsigned int  broken_position = 0; 
+      // walk the ring
+      for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
+        WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
+        unsigned char child_loc = ring->locants_ch[child];
+        if(child_loc < 128){
+          if(child_loc > highest_loc){
+            highest_loc = child_loc;
+            edge_taken = &curr_locant->locant->bond_array[ei]; 
+          }
+        }
+        else if(child_loc >= 128){ 
+          // broken locant sections, where the hierachy of broken locants is ascending order
+          
+          //  a prototype rule: if is a normal locant of greater size then
+          //  subject + 1, take it. e.g choosing between B- and C is B-, choosing between B- and D is D.
+          bool ignore = false;
+          for(unsigned int bi=0;bi<curr_locant->locant->barr_n;bi++){
+            unsigned char test_loc = ring->locants_ch[curr_locant->locant->bond_array[bi].child];
+            if(test_loc < 128 && test_loc > ring->locants_ch[curr_locant->locant]+1)
+              ignore = true; 
+          }
+          if(!ignore){
+            for(unsigned int bs=0;bs<b_locant;bs++){
+              if(branch_locants[bs].locant == child && branch_locants[bs].active){
+                highest_loc = child_loc;
+                edge_taken = &curr_locant->locant->bond_array[ei]; 
+                broken_position = bs; 
+                break; 
+              }
+            }
+          }
+        }
+      }
+      
+      if(!highest_loc){
+        // if at the end of the path, its okay, break the loop and do post shifting 
+        if(curr_locant->locant != ring->locants[max_locant]){
+          fprintf(stderr,"Error: highest locant not found in path walk\n");
+          return false;
+        }
+
+        over_shoot++;
+        path_size++; 
+      }
+      else {
+        if(highest_loc < 128)
+          curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
         else
-          fprintf(stderr,"  fusing: %c --> %c\n",pseudo_locants[i],pseudo_locants[i+1]);
+          curr_locant = &branch_locants[broken_position]; 
+        
+        edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
+        edge_taken->child->aromatic = edge_taken->child->aromatic ? 1:aromatic; 
+        edge_taken->parent->aromatic = edge_taken->parent->aromatic ? 1:aromatic; 
+        end_char = highest_loc; 
+        path_size++; 
+      }
+    }
+      
+    for(;;){
+
+      if(start_locant->allowed_connections > 0){
+        bool broken_shifting = true; 
+        while(broken_shifting){
+          broken_shifting = false; 
+          
+          // take the lowest possible branch locant
+          WLNSymbol *branch_move = 0; 
+          unsigned int move_index = 0; 
+          for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
+            WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+            
+            if(ring->locants_ch[bchild] > 128){
+              for(unsigned int bs=0;bs<b_locant;bs++){
+                if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
+                  if (!branch_move || ring->locants_ch[branch_locants[bs].locant] < ring->locants_ch[branch_move]){
+                    branch_move = branch_locants[bs].locant; 
+                    move_index = bs; 
+                  }
+                }
+              }
+            }
+          }
+          
+          if(branch_move){
+            start_locant->allowed_connections--; 
+            start_char = ring->locants_ch[branch_move]; 
+            start_locant = &branch_locants[move_index];
+            start_locant->active = true; 
+            curr_locant = &locant_path[LOCANT_TO_INT(--end_char-1)]; 
+            broken_shifting = true; 
+          }
+        }
+
+        if(OPT_DEBUG){
+          if(start_char >= 128 && end_char <= 128)
+            fprintf(stderr,"  fusing (%d): %d --> %c\n",comp_size,start_char,end_char);
+          else if(start_char <= 128 && end_char >= 128)
+            fprintf(stderr,"  fusing (%d): %c --> %d\n",comp_size,start_char,end_char);
+          else if(start_char >= 128 && end_char >= 128)
+            fprintf(stderr,"  fusing (%d): %d --> %d\n",comp_size,start_char,end_char);
+          else
+            fprintf(stderr,"  fusing (%d): %c --> %c\n",comp_size,start_char,end_char);
+        }
+
+        WLNEdge *new_edge = AddEdge(curr_locant->locant,start_locant->locant);  
+        if(!new_edge){
+          fprintf(stderr,"Error: failed to bond locant path edge\n");    
+          return false;
+        }
+
+        new_edge->aromatic = new_edge->aromatic ? 1: aromatic;
+        new_edge->child->aromatic = new_edge->aromatic; 
+        new_edge->child->aromatic = new_edge->child->aromatic ? 1:aromatic; 
+        new_edge->parent->aromatic = new_edge->parent->aromatic ? 1:aromatic; 
+        
+        start_locant->allowed_connections--; 
+        
+        // weird bit of logic, but works nicely for tight rings
+        while(!curr_locant->allowed_connections && end_char <= max_locant){
+          curr_locant = &locant_path[LOCANT_TO_INT(++end_char-1)];
+        }
+      
+        curr_locant->allowed_connections--; 
+        break;
+      }
+      else{
+        // increase the start char and move the path locant
+        start_char++;
+        start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
+        
+        // the current then moves back by 1
+        if(over_shoot)
+          over_shoot--;
+        else
+          end_char--; 
+        
+        curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 
       }
     }
   }
-
+  
   
   delete [] locant_path;
   delete [] branch_locants;
@@ -3269,14 +3529,24 @@ character_start_ring:
     fprintf(stderr,"  heterocyclic: %s\n", heterocyclic ? "yes":"no");
   }
   
-  unsigned int final_size = 0; 
-  final_size = BuildCyclic( ring_components,aromaticity,
+  unsigned int final_size = 0;
+
+  if(!pseudo_locants.empty()){
+    final_size = BuildCyclicWithPseudo( ring_components,aromaticity,
+                                        pseudo_locants,
+                                        bridge_locants,
+                                        ring_size_specifier,
+                                        ring,
+                                        graph);
+  }
+  else{
+    final_size = BuildCyclic( ring_components,aromaticity,
                             pseudo_locants,
                             bridge_locants,
                             ring_size_specifier,
                             ring,
                             graph);
-
+  }
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
   ring->pseudo_points = pseudo_locants.size(); 

@@ -94,7 +94,7 @@ main(){
     NEW_SMILES=$($READER -osmi "${NEW_WLN}" 2> /dev/null) 
     
     if [ -z "$NEW_SMILES" ]; then
-      echo -ne "$NEW_WLN\tre-read fail\t$SMILES\n"
+      echo -ne "$WLN\tre-read fail\t$SMILES\n"
 
       continue
     fi;
@@ -106,7 +106,7 @@ main(){
         echo -ne "\r"
       fi; 
     else
-      echo -ne  "$NEW_WLN\tnot equal\t$SMILES\n"
+      echo -ne  "$WLN\tnot equal\t$SMILES\n"
     fi;
 
   done <$FILE

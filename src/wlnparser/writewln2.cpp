@@ -312,18 +312,16 @@ unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant
   // walk back to a standard locant in the path
   OBAtom *lowest_atom = atom; 
   unsigned char broken_locant = 0; 
-  do{
-    for(unsigned int i=0;i<path_size;i++){
-      if(mol->GetBond(locant_path[i].atom,lowest_atom)){
-        broken_locant = locant_path[i].locant;
-        break;
-      }
+  for(unsigned int i=0;i<path_size;i++){
+    if(mol->GetBond(locant_path[i].atom,lowest_atom)){
+      broken_locant = locant_path[i].locant;
+      lowest_atom = locant_path[i].atom;
+      break;
     }
-  }while(broken_locant >= 128); 
+  }
  
   // since the array is layed out as follow: 
   // E-, E-&, E--, E--&, E-&-, E-&& 
-  
   unsigned int value = 128 + (LOCANT_TO_INT(broken_locant) * 6); 
   unsigned int limit = value + 6; 
   
@@ -343,15 +341,17 @@ unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant
 void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
   unsigned int lowest_i = 0; 
   unsigned int lowest_locant = 0; 
-  unsigned int highest_broken = 0; 
+  unsigned int lowest_broken = 0; 
   for(unsigned int i=0;i<plen;i++){
     if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
       if(!lowest_locant || locant_path[i].locant < lowest_locant){
         lowest_locant = locant_path[i].locant;
-        lowest_i = i; 
+        lowest_i = i;
       }
-      else if(locant_path[i].locant >= 128)
-        highest_broken = locant_path[i].locant; 
+      else if(locant_path[i].locant >= 128){
+        if(!lowest_broken || locant_path[i].locant < lowest_broken)
+          lowest_broken = locant_path[i].locant; // not the highest 
+      }
     }
   }
   
@@ -372,14 +372,14 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
     lowest_locant = broken_parent;  
     
   }
-  else if(highest_broken){
+  else if(lowest_broken){
     // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
-    unsigned char broken_parent = get_broken_char_parent(highest_broken); 
+    unsigned char broken_parent = get_broken_char_parent(lowest_broken); 
     if(!broken_parent)
       Fatal("could not fetch off path parent for broken locant"); 
     
     if(broken_parent < lowest_locant)
-      lowest_locant = highest_broken; 
+      lowest_locant = lowest_broken; 
   }
   
 
@@ -566,7 +566,7 @@ bool ReachableFromEntry(OBAtom *entry, std::set<OBAtom*> &ring_atoms, std::set<O
 
 // helper function whenever we need the ring bonds
 void FillRingBonds(OBMol *mol,OBRing* obring, std::set<OBBond*> &ring_bonds){
-  
+   
   for(unsigned int i=0;i<obring->Size()-1;i++){
     OBAtom *satom = mol->GetAtom(obring->_path[i]);    
     OBAtom *eatom = mol->GetAtom(obring->_path[i+1]);
@@ -777,14 +777,32 @@ max_path_size
 */
 void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
-                            std::vector<OBRing*> &ring_order,std::string &buffer)
+                            std::vector<OBRing*> &ring_order,
+                            std::string &buffer)
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
       write_lowest_ring_locant(mol,*riter, locant_path, max_path_size, buffer);
       write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
-      ring_order.push_back(*riter); 
+      ring_order.push_back(*riter);
+    }
+  }
+
+}
+
+
+void write_pseudo_locants(OBMol *mol, LocantPos *locant_path, unsigned int path_size, 
+                          std::set<OBBond*> &ring_junctions, std::string &buffer)
+{
+  for(unsigned int a=0;a<path_size;a++){
+    for(unsigned int b=a+2;b<path_size;b++){
+      OBBond *bond = mol->GetBond(locant_path[a].atom,locant_path[b].atom); 
+      if(bond && !ring_junctions.count(bond)){
+        buffer += '/';
+        write_locant(locant_path[a].locant, buffer); 
+        write_locant(locant_path[b].locant, buffer); 
+      }
     }
   }
 }
@@ -842,7 +860,8 @@ LocantPos *PolyWalk(    OBMol *mol, unsigned int path_size,
       zero_locant_path(locant_path, path_size);
 
       std::string poly_buffer = "";
-      std::vector<OBRing*> lring_order; 
+      std::vector<OBRing*>   lring_order; 
+      std::set<OBBond*>      ring_junctions;
       std::map<OBAtom*,bool> visited; 
       std::map<OBRing*,bool> handled_rings; 
       unsigned int locant_pos = 0;
@@ -856,7 +875,8 @@ LocantPos *PolyWalk(    OBMol *mol, unsigned int path_size,
 
         visited[ratom] = true;
 
-        write_complete_rings(mol,locant_path, locant_pos, local_SSSR, handled_rings, lring_order,poly_buffer); 
+        write_complete_rings( mol,locant_path, locant_pos, local_SSSR, handled_rings, 
+                              lring_order,poly_buffer); 
         if(locant_pos >= path_size)
           break;
         
@@ -994,6 +1014,7 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
 
       std::string             peri_buffer; 
+      std::set<OBBond*>       ring_junctions; 
       std::vector<OBRing*>    lring_order; 
       std::map<OBAtom*,bool>  visited; 
       std::map<OBRing*,bool>  handled_rings;
@@ -1004,12 +1025,6 @@ LocantPos *PeriWalk2(   OBMol *mol,        unsigned int &path_size,
       path_size = starting_path_size; 
       zero_locant_path(locant_path, path_size);
       
-      // used for off branch locants when needed
-      for(std::set<OBAtom*>::iterator multi_iter = ring_atoms.begin(); multi_iter != ring_atoms.end(); multi_iter++){
-        if( (atom_shares[*multi_iter]>=3 || bridge_atoms[*multi_iter]) && *multi_iter != *aiter)
-          multistack.push(*multi_iter); 
-      }
-
 path_solve:        
       ratom = *aiter; 
       locant_pos = 0;
@@ -1025,20 +1040,23 @@ path_solve:
           locant_pos++; 
           visited[ratom] = true;
 
-          write_complete_rings(mol,locant_path, starting_path_size, local_SSSR, handled_rings, lring_order,peri_buffer); 
-          if(locant_pos >= path_size){
+          write_complete_rings( mol,locant_path, starting_path_size, 
+                                local_SSSR, handled_rings, 
+                                lring_order,
+                                peri_buffer); 
+
+          if(locant_pos >= path_size)
             break;
-          }
+          
 
           // here we allow multicyclics to cross ring junctions
           matom = 0; 
           FOR_NBORS_OF_ATOM(a,ratom){ 
             catom = &(*a);  
             if(!visited[catom]){
-              
               // two things can happen, either we're at a ring junction or we're not
               if(IsRingJunction(mol, ratom, catom, local_SSSR)){
-                
+                ring_junctions.insert(mol->GetBond(ratom,catom)); 
                 // if its a ring junction, we can move if this is going to/from a multicyclic point,
                 // if pointing at a multicyclic, or an edge atoms, try both
                 if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3) || (bridge_atoms[ratom] || bridge_atoms[catom]) ){
@@ -1080,8 +1098,10 @@ path_solve:
             //fprintf(stderr,"Error: did not move in locant path walk!\n"); 
             break;
           }
-
-          ratom = matom; 
+            
+          ratom = matom;
+          if(atom_shares[ratom ]>= 3 || bridge_atoms[ratom]) // ignores the first one
+            multistack.push(ratom); 
         }
        
         if(locant_pos == path_size){
@@ -1090,11 +1110,9 @@ path_solve:
             lowest_sum = fsum;
             copy_locant_path(best_path,locant_path,starting_path_size);
             best_notation = peri_buffer; 
+            std::cerr << peri_buffer << std::endl; 
             best_order = lring_order;
             best_path_size = path_size;
-
-            print_locant_array(locant_path, starting_path_size); 
-            std::cerr << peri_buffer << std::endl; 
           }
         }
         
@@ -1143,7 +1161,6 @@ path_solve:
         else
           break;
         
-
       } while(!backtrack_stack.empty()) ; 
     }
   } 
@@ -3164,7 +3181,8 @@ struct BabelGraph{
       locant_path = PeriWalk2(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
     if(!locant_path)
       return Fatal("no locant path could be determined");
-
+    
+    print_locant_array(locant_path, LocalSSRS_data.path_size); 
     branch_locants = LocalSSRS_data.path_size - path_size; 
     
     if(OPT_DEBUG){
@@ -3209,20 +3227,17 @@ struct BabelGraph{
     buffer += ring_segment; 
     
     if(bridging){
-      for(unsigned int i=0;i<path_size;i++){
+      for(unsigned int i=0;i<LocalSSRS_data.path_size;i++){
         if(bridge_atoms[locant_path[i].atom]){
           buffer+= ' ';
-          unsigned char bloc = INT_TO_LOCANT(i+1);
-          write_locant(bloc,buffer);
+          write_locant(locant_path[i].locant,buffer);
         }
       }
     }
 
     if(multi){
-      ReadMultiCyclicPoints(locant_path,path_size,atom_shares,buffer);
+      ReadMultiCyclicPoints(locant_path,LocalSSRS_data.path_size,atom_shares,buffer);
       
-    print_locant_array(locant_path, path_size); 
-
 #if MODERN
       write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
 #else
