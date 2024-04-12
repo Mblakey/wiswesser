@@ -1796,7 +1796,7 @@ unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
                             LocantPos*branch_locants)
 {
   unsigned int b_locant = 0; 
-  for (unsigned int i=0;i<local_size;i++){
+  for (unsigned int i=1;i<=local_size;i++){
 
     for(unsigned int b=0;b<BROKEN_TREE_LIMIT;b++){
       if(ring->locants[b+128 + (i * BROKEN_TREE_LIMIT)]){
@@ -1806,7 +1806,7 @@ unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
         b_locant++;
 
         if(bridge_locants[b+ 128 + (i * BROKEN_TREE_LIMIT)])
-          branch_locants->allowed_connections --; //bridge_locants[b+ 128 + (i * BROKEN_TREE_LIMIT)]; 
+          branch_locants->allowed_connections --; 
 
         if(b_locant == 32){
           fprintf(stderr,"Error: branching locant exceed 32, is this even possible?\n");
@@ -1970,6 +1970,7 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
       }
     }
 
+    fprintf(stderr,"on %c\n",ring->locants_ch[curr_locant->locant]); 
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
@@ -1978,7 +1979,8 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
       // walk the ring
       for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
         WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
-        unsigned char child_loc = ring->locants_ch[child];
+        unsigned int child_loc = ring->locants_ch[child];
+        
         if(child_loc < 128){
           if(child_loc > highest_loc){
             highest_loc = child_loc;
@@ -1987,7 +1989,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
         }
         else if(child_loc >= 128){ 
           // broken locant sections, where the hierachy of broken locants is ascending order
-          
           //  a prototype rule: if is a normal locant of greater size then
           //  subject + 1, take it. e.g choosing between B- and C is B-, choosing between B- and D is D.
           bool ignore = false;
@@ -2530,6 +2531,58 @@ bool post_bond_handling( std::vector<LocantPair> &bonds,
 }
 
 
+unsigned int attach_offpath_locant( unsigned int positional_locant,unsigned int locant_attached,
+                                    WLNRing *ring, WLNGraph &graph){
+  WLNEdge *edge = 0; 
+  WLNSymbol *locant_a = 0; 
+  WLNSymbol *locant_b = 0; 
+
+  if(positional_locant < 128){
+    if(!ring->locants[positional_locant]){
+      locant_a = AllocateWLNSymbol('C', graph); 
+      locant_a->allowed_edges = 4;  
+      assign_locant(positional_locant, locant_a, ring);
+    }
+    else 
+      locant_a = ring->locants[positional_locant]; 
+    
+    // shift into tree range
+    positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
+
+    if(!ring->locants[positional_locant]){
+      locant_b = AllocateWLNSymbol('C', graph); 
+      locant_b->allowed_edges = 4;  
+      assign_locant(positional_locant, locant_b, ring);
+    }
+    else
+      locant_b = ring->locants[positional_locant]; 
+  }
+
+  else if (128 + ( LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT) == positional_locant ){
+    // means E--, which is position 3, binds to E-
+      
+    // to even get here we would of created the E, and E-
+    // create the node in the chain if its not there
+    locant_a = ring->locants[positional_locant]; 
+    
+    // from E-, E-- is 2 away, 
+    positional_locant+=2; 
+    if(!ring->locants[positional_locant]){
+      locant_b = AllocateWLNSymbol('C', graph); 
+      locant_b->allowed_edges = 4;  
+      assign_locant(positional_locant, locant_b, ring);
+    }
+    else
+      locant_b = ring->locants[positional_locant]; 
+  }
+
+  edge = AddEdge(locant_b, locant_a); 
+  if(!edge)
+    return 0;
+
+  return positional_locant; 
+}
+
 /* parse the WLN ring block, use ignore for already predefined spiro atoms */
 bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned int len,WLNGraph &graph,unsigned char spiro_atom='\0'){
 
@@ -2852,7 +2905,7 @@ character_start_ring:
           2. A buffer to consume and move all the positions is needed, and can track the tree size
 */
       case '-':
-        if(state_multi == 3){
+        if(state_multi){
           if(state_multi == 1 && !multicyclic_locants.empty())
             multicyclic_locants.back() = positional_locant;
           else if(state_multi == 3){
@@ -2860,7 +2913,6 @@ character_start_ring:
             state_aromatics = true;
           }
         }
-
 
         // conditions for - within a ring system:
         // i+2 == '-' for hypervalent
@@ -2871,55 +2923,54 @@ character_start_ring:
         // two things to do in the lookahead here, determine whether branching or non-branching, 
         // and then access the branching tree
         else if( i + 3 < len && wln_block[i+3] == '-'){
- 
-            if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
-              unsigned int big_ring = ( (wln_block[i+1]-'0') * 10) + wln_block[i+2]-'0';
-              if(!big_ring)
-                return Fatal(i,"Error: non numeric value entered as ring size");
+          if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
+            unsigned int big_ring = ( (wln_block[i+1]-'0') * 10) + wln_block[i+2]-'0';
+            if(!big_ring)
+              return Fatal(i,"Error: non numeric value entered as ring size");
 
-              ring_components.push_back({big_ring,positional_locant}); //big ring
-              positional_locant = 'A';
-              locant_attached = 0;
-              i+= 3; 
-            }
-            else if (wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z' && wln_block[i+2] >= 'A' && wln_block[i+2] <= 'Z'){
-              
-              if(positional_locant != spiro_atom){
-
-                // must be a special element
-                WLNSymbol *new_locant =  define_element(wln_block[i+1],wln_block[i+2],graph); 
-                if(!new_locant)
-                  return Fatal(i, "Error: could not create periodic code element");
-
-                assign_locant(positional_locant,new_locant,ring);  // elemental definition
-
-                new_locant->str_position = i + 2; // attaches directly to the starting letter
-                ring->position_offset[new_locant] = i+1;
-      
-                if(OPT_DEBUG)
-                  fprintf(stderr,"  assigning element %c%c to position %c\n",
-                                 wln_block[i+1],wln_block[i+2],positional_locant);
-                
-                positional_locant++;
-              }
-              else
-                positional_locant++;
-              
-              locant_attached = 0;
-              i+= 3; 
-            }
-            else{
-              // must be a branching modifier - these are built in a tree, so must be bound to its previous
-              if(positional_locant && positional_locant < 128)
-                positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
-              else
-                positional_locant++;
-
-              if(state_pseudo)
-                pseudo_locants.back() = positional_locant; 
-            }
+            ring_components.push_back({big_ring,positional_locant}); //big ring
+            positional_locant = 'A';
+            locant_attached = 0;
+            i+= 3; 
           }
+          else if (wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z' && wln_block[i+2] >= 'A' && wln_block[i+2] <= 'Z'){
+            
+            if(positional_locant != spiro_atom){
+
+              // must be a special element
+              WLNSymbol *new_locant =  define_element(wln_block[i+1],wln_block[i+2],graph); 
+              if(!new_locant)
+                return Fatal(i, "Error: could not create periodic code element");
+
+              assign_locant(positional_locant,new_locant,ring);  // elemental definition
+
+              new_locant->str_position = i + 2; // attaches directly to the starting letter
+              ring->position_offset[new_locant] = i+1;
+    
+              if(OPT_DEBUG)
+                fprintf(stderr,"  assigning element %c%c to position %c\n",
+                               wln_block[i+1],wln_block[i+2],positional_locant);
+              
+              positional_locant++;
+            }
+            else
+              positional_locant++;
+            
+            locant_attached = 0;
+            i+= 3; 
+          }
+          else{
+            // must be a branching modifier - these are built in a tree, so must be bound to its previous
+            positional_locant = attach_offpath_locant(positional_locant, locant_attached, ring, graph); 
+            if(!positional_locant)
+              return Fatal(i, "Error: failed to attach off branch locant"); 
+
+            if(state_pseudo)
+              pseudo_locants.back() = positional_locant; 
+          }
+        }
         else if (i+2 < len && wln_block[i+2] == '-'){
+          
           if(wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z'){
 
             if(positional_locant != spiro_atom){
@@ -2943,76 +2994,23 @@ character_start_ring:
           } 
           else{
             // this must also be branching modifier 
-            if(positional_locant && positional_locant < 128)
-              positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
-            else
-              positional_locant++;
+            positional_locant = attach_offpath_locant(positional_locant, locant_attached, ring, graph); 
+            if(!positional_locant)
+              return Fatal(i, "Error: failed to attach off branch locant"); 
             
             if(state_pseudo)
               pseudo_locants.back() = positional_locant; 
           }
         }
         else{
-          // enter the tree or move left which is one 
-          if(positional_locant < 128){
-            if(!ring->locants[positional_locant]){
-              locant_a = AllocateWLNSymbol('C', graph); 
-              locant_a->allowed_edges = 4;  
-              assign_locant(positional_locant, locant_a, ring);
-            }
-            else 
-              locant_a = ring->locants[positional_locant]; 
-            
-            // shift into tree range
-            positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
-
-            if(!ring->locants[positional_locant]){
-              locant_b = AllocateWLNSymbol('C', graph); 
-              locant_b->allowed_edges = 4;  
-              assign_locant(positional_locant, locant_b, ring);
-            }
-            else
-              locant_b = ring->locants[positional_locant]; 
-            
-            edge = AddEdge(locant_b, locant_a); 
-            if(!edge)
-              return Fatal(i,"Error: could not create bond in off path branching"); 
-            
-            if(state_pseudo)
-              pseudo_locants.back() = positional_locant; 
-
-          }
-          else if (128 + ( LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT) == positional_locant ){
-            // means E--, which is position 3, binds to E-
-              
-            // to even get here we would of created the E, and E-
-            // create the node in the chain if its not there
-            locant_a = ring->locants[positional_locant]; 
-            
-            // from E-, E-- is 2 away, 
-            positional_locant+=2; 
-            if(!ring->locants[positional_locant]){
-              locant_b = AllocateWLNSymbol('C', graph); 
-              locant_b->allowed_edges = 4;  
-              assign_locant(positional_locant, locant_b, ring);
-            }
-            else
-              locant_b = ring->locants[positional_locant]; 
-
-            // bond this back to the starting char
-            edge = AddEdge(locant_b, locant_a); 
-            if(!edge)
-              return Fatal(i,"Error: could not create bond in off path branching"); 
-            
-            if(state_pseudo)
-              pseudo_locants.back() = positional_locant; 
-            //
-          }
-          else
-            return Fatal(i, "Error: expanding past the tree limit, <loc>-- is the maximal branched locant supported"); 
+          positional_locant = attach_offpath_locant(positional_locant, locant_attached, ring, graph); 
+          if(!positional_locant)
+            return Fatal(i, "Error: failed to attach off branch locant"); 
+           
+          if(state_pseudo)
+            pseudo_locants.back() = positional_locant; 
         }
         break;
-      
 
       case '0':
         if(!ring_components.empty()){
@@ -3621,9 +3619,9 @@ character_start_ring:
     fprintf(stderr,"\n");
 
     fprintf(stderr,"  bridge points: ");
-    for (unsigned int i=0;i<252;i++){
+    for (unsigned int i=0;i<1024;i++){
       if(bridge_locants[i])
-        fprintf(stderr,"%c ",i);
+        fprintf(stderr,"%d ",i);
     }
     fprintf(stderr,"\n");
 
