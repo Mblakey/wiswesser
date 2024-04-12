@@ -270,8 +270,14 @@ struct LocantPos{
     locant = 0;
     allowed_connections = 0;
   }
+
 }; 
 
+void debug_locant_array(WLNRing *ring, LocantPos *locant_path, unsigned int size){
+  for(unsigned int i=0;i<size;i++){
+    fprintf(stderr,"%p - %c vs %c\n",locant_path[i].locant, INT_TO_LOCANT(i+1), ring->locants_ch[locant_path[i].locant]); 
+  }
+}
 
 // needed as not to mess up the locant path algorithm
 struct LocantPair{
@@ -2234,6 +2240,7 @@ void AromatiseSymbolPath(std::vector<WLNSymbol*> &symbol_path){
     this can be enforced during parse, not here 
 */
 
+
 unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
                             std::vector<bool>                                   &aromaticity,
                             std::vector<unsigned int>                           &pseudo_locants,
@@ -2266,15 +2273,17 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     return 0; 
   }
 
+  debug_locant_array(ring, locant_path, local_size); 
+
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
     std::pair<unsigned int, unsigned int> component = ring_assignments[i];
     
-    bool aromatic           = aromaticity[i];
-    unsigned int comp_size  = component.first;
-    unsigned int start_char  = component.second;
-    ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
+    bool aromatic               = aromaticity[i];
+    unsigned int comp_size      = component.first;
+    unsigned int start_char     = component.second;
+    ring->aromatic_atoms        = ring->aromatic_atoms ? 1:aromatic; 
 
     // --- PATHFINDER III, see notes on function for rules and use --- 
 
@@ -2282,30 +2291,22 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     unsigned char end_char    = 0; 
     unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
     
-    LocantPos *start_locant=0;
-    LocantPos *curr_locant=0; 
+    LocantPos *start_locant   = 0;
+    LocantPos *curr_locant    = 0; 
     
     unsigned int pseudo_back_bond = 0; 
-    unsigned int total_highest = 0; // allow for branch 
+    unsigned int total_highest    = 0; // allow for branch 
     std::stack<std::pair<WLNEdge*,unsigned int>> backtrack_stack; // both in order to move to child, plus path size 
     
     std::vector<WLNSymbol*> symbol_path; 
     std::vector<WLNSymbol*> best_path; 
     
-    if(start_char < 128){
+    if(start_char < 128)
       start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
-      curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
-    }
-    else{
-      for(unsigned int bs=0;bs<b_locant;bs++){
-        if(branch_locants[bs].locant == ring->locants[start_char]){
-          start_locant   = &branch_locants[bs]; 
-          curr_locant   =  &branch_locants[bs]; 
-          break;
-        }
-      }
-    }
+    else
+      start_locant = fetch_branch_locant(ring, start_char, branch_locants, b_locant);
     
+    curr_locant = start_locant; 
     symbol_path.push_back(start_locant->locant); 
     
     do{
@@ -2336,7 +2337,8 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
             
             if(child_loc < 128){
               if(child_loc > highest_loc){
-                
+     
+#if BACKTRACK
                 if(highest_loc && path_size < comp_size-2){
                   backtrack_stack.push({edge_taken,path_size}); // push the old
                   fprintf(stderr,"pushing %c -> %c at psize: %d\n",
@@ -2344,13 +2346,14 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
                           ring->locants_ch[edge_taken->child],
                           path_size); 
                 }
-
+#endif
                 highest_loc = child_loc;
                 edge_taken = &curr_locant->locant->bond_array[ei];
               }
+#if BACKTRACK
               else if(path_size < comp_size-2)
                 backtrack_stack.push({&curr_locant->locant->bond_array[ei],path_size}); // push a new
-              
+#endif 
             }
             else if(child_loc >= 128 && !total_highest){ // this says no backtracking with broken locs 
               // broken locant sections, where the hierachy of broken locants is ascending order
@@ -2396,7 +2399,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
         best_path = symbol_path; 
         total_highest = end_char; 
       }
-      
+     
       if(!backtrack_stack.empty()){
         unsigned int lb = ring->locants_ch[backtrack_stack.top().first->child]; 
         if(lb<128)
@@ -2432,6 +2435,7 @@ pseudo_jump:
         curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)];
       else
         curr_locant = fetch_branch_locant(ring, end_char, branch_locants, b_locant);  
+      
 
       if(OPT_DEBUG){
         if(start_char >= 128 && end_char <= 128)
@@ -2472,7 +2476,6 @@ pseudo_jump:
             unsigned int move_index = 0; 
             for(unsigned int ei=0;ei<start_locant->locant->barr_n;ei++){
               WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
-              
               if(ring->locants_ch[bchild] > 128){
                 for(unsigned int bs=0;bs<b_locant;bs++){
                   if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
