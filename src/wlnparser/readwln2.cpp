@@ -1820,6 +1820,9 @@ unsigned int OffPathLocants(WLNRing*ring, unsigned int local_size,
 }
 
 
+
+#if DEPRECATED
+
 /*
  Some rules for solving ring systems in WLN. 
 
@@ -1970,7 +1973,6 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
       }
     }
 
-    fprintf(stderr,"on %c\n",ring->locants_ch[curr_locant->locant]); 
     // -1 as one locant is already given in start
     while(path_size < comp_size-1){
       WLNEdge*      edge_taken  = 0; 
@@ -2122,65 +2124,40 @@ unsigned int BuildCyclic( std::vector<std::pair<unsigned int,unsigned int>>   &r
   delete [] branch_locants;
   return local_size; 
 }
+#endif
 
 
-/* the big change here is that the maximal path can be obtained by other routes, therefore 
- * when psuedo locants are used, exhaustive search for the maximal locant is needed - 
- *
- * For the pseudo locants themselves, the ring is traversed until the higher of the pair is seen. The 
- * routine is then terminated, with the pseudo bond made immediately - this is now avaliable 
- * for use in a taken path, which must be exhaustive searched
-
-    pseudo locants are in pairs, with the first being lower and the second higher,
-    this can be enforced during parse, not here 
-*/
-unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
-                                    std::vector<bool>                                   &aromaticity,
-                                    std::vector<unsigned int>                           &pseudo_locants,
-                                    std::map<unsigned int,unsigned int>                 &bridge_locants,
-                                    unsigned char size_designator,
-                                    WLNRing *ring,
-                                    WLNGraph &graph) 
-{
+unsigned int calculate_ring_size( WLNRing *ring,
+                                  std::vector<std::pair<unsigned int, unsigned int>> &ring_assignments,
+                                  std::map<unsigned int, unsigned int> &bridge_locants){
   unsigned int local_size = 0;
-  if(!size_designator){
- 
-    for (unsigned int i=0;i<ring_assignments.size();i++){
-      std::pair<unsigned int, unsigned char> component = ring_assignments[i]; 
-      if(local_size)
-        local_size += component.first - 2;
-      else
-        local_size = component.first;
-    }
-
-    for (unsigned int i=0;i<255;i++){
-      if(bridge_locants[i]){
-        local_size+= -1; 
-      }
-
-      if(ring->locants[i] && i >= 128)
-        local_size+= -1; 
-    }
-
-
-    if(OPT_DEBUG)
-      fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
+  for (unsigned int i=0;i<ring_assignments.size();i++){
+    std::pair<unsigned int, unsigned int> component = ring_assignments[i]; 
+    if(local_size)
+      local_size += component.first - 2;
+    else
+      local_size = component.first;
   }
-  else
-    local_size = LOCANT_TO_INT(size_designator);
-  
-  if(OPT_DEBUG)
-    fputc('\n',stderr); 
 
-  // create all the nodes in a large straight chain and assign how many bonds
-  // each atom is allowed to take
-  
-  // just use the contructors with new
-  
-  LocantPos *locant_path = new LocantPos[local_size];  
-  LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
-  unsigned int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
-  
+  for (unsigned int i=0;i<255;i++){
+    if(bridge_locants[i]){
+      local_size+= -1; 
+    }
+
+    if(ring->locants[i] && i >= 128)
+      local_size+= -1; 
+  }
+
+  if(OPT_DEBUG)
+    fprintf(stderr,"  calculated size: %c(%d)\n",INT_TO_LOCANT(local_size),local_size);
+
+  return local_size;
+}
+
+bool assign_locant_path_connections(WLNRing *ring, LocantPos *locant_path, unsigned int local_size, 
+                                    std::map<unsigned int, unsigned int> &bridge_locants,
+                                    WLNGraph &graph){
+
   WLNSymbol *curr = 0; 
   WLNSymbol *prev = 0; 
 
@@ -2221,12 +2198,50 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
     }
     prev = curr;
   }
-  
+  return true; 
+}
 
+/* the big change here is that the maximal path can be obtained by other routes, therefore 
+ * when psuedo locants are used, exhaustive search for the maximal locant is needed - 
+ *
+ * For the pseudo locants themselves, the ring is traversed until the higher of the pair is seen. The 
+ * routine is then terminated, with the pseudo bond made immediately - this is now avaliable 
+ * for use in a taken path, which must be exhaustive searched
+
+    pseudo locants are in pairs, with the first being lower and the second higher,
+    this can be enforced during parse, not here 
+*/
+unsigned int PathFinderIII( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
+                            std::vector<bool>                                   &aromaticity,
+                            std::vector<unsigned int>                           &pseudo_locants,
+                            std::map<unsigned int,unsigned int>                 &bridge_locants,
+                            unsigned char size_designator,
+                            WLNRing *ring,
+                            WLNGraph &graph) 
+{
+  unsigned int local_size = 0;
+  if(!size_designator)
+    local_size = calculate_ring_size(ring, ring_assignments, bridge_locants); 
+  else
+    local_size = LOCANT_TO_INT(size_designator);
+  
+  if(OPT_DEBUG)
+    fputc('\n',stderr); 
+
+  LocantPos *locant_path = new LocantPos[local_size];  
+  if(!assign_locant_path_connections(ring, locant_path, local_size,bridge_locants, graph)){
+    delete [] locant_path; 
+    fprintf(stderr,"Error: couldn't assign path connections\n");
+    return 0; 
+  }
+
+  LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
+  unsigned int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
+  
+  
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
   for (unsigned int i=0;i<ring_assignments.size();i++){
-    
     std::pair<unsigned int, unsigned int> component = ring_assignments[i];
     
     bool aromatic           = aromaticity[i];
@@ -2234,7 +2249,8 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
     unsigned int start_char  = component.second;
     ring->aromatic_atoms = ring->aromatic_atoms ? 1:aromatic; 
 
-    // --- MULTI ALGORITHM, see notes on function for rules and use --- 
+    // --- PATHFINDER III, see notes on function for rules and use --- 
+
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
     unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
@@ -2242,14 +2258,13 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
     LocantPos *start_locant=0;
     LocantPos *curr_locant=0; 
     
-    // for backtracking
     unsigned int pseudo_back_bond = 0; 
     unsigned int total_highest = 0; // allow for branch 
-    std::stack<std::pair<LocantPos*,LocantPos*>> backtrack_stack; // came from first, going to second. 
-    LocantPos **forward_path = (LocantPos**)malloc(sizeof(LocantPos*)*local_size+1);
-    for(unsigned int f=0;f<local_size+1;f++)
-      forward_path[f] = 0; 
-
+    std::stack<std::pair<WLNEdge*,unsigned int>> backtrack_stack; // both in order to move to child, plus path size 
+    
+    std::vector<WLNEdge*> edge_path; 
+    std::vector<WLNEdge*> best_edges; // used for aromaticity
+    
     if(start_char < 128){
       start_locant   = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
       curr_locant    = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
@@ -2263,93 +2278,118 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
         }
       }
     }
-
-    // -1 as one locant is already given in start
-    while(path_size < comp_size-1){
-      WLNEdge*      edge_taken  = 0; 
-      unsigned int  highest_loc = 0; // highest of each child iteration 
-      unsigned int  broken_position = 0; 
-      // walk the ring
-      for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
-        WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
-        unsigned int child_loc = ring->locants_ch[child];
-
-        // pseudo logic goes here, comes in pairs, look behind for its earlier
-        for(unsigned int pb=1;pb<pseudo_locants.size();pb+=2){
-          if(child_loc==pseudo_locants[pb] && path_size < comp_size-2){ // only pseudo bond if +1 avaliable
-            total_highest = child_loc; 
-            pseudo_back_bond = pseudo_locants[pb-1]; 
-            end_char = child_loc; 
-            start_char = pseudo_back_bond; 
-            pseudo_locants[pb] = 0;
-            pseudo_locants[pb-1] = 0; // so they are next taken again    
-            break;
-          }
-        }
-
-        if(pseudo_back_bond)
-          break;
+    
+    do{
+      if(!backtrack_stack.empty())
+        backtrack_stack.pop(); 
+      
+      while(path_size < comp_size-1){
+        WLNEdge*      edge_taken  = 0; 
+        unsigned int  highest_loc = 0; // highest of each child iteration 
+        unsigned int  broken_position = 0; 
         
-        if(child_loc < 128){
-          if(child_loc > highest_loc){
-            highest_loc = child_loc;
-            edge_taken = &curr_locant->locant->bond_array[ei]; 
-          }
-        }
-        else if(child_loc >= 128){ 
-          // broken locant sections, where the hierachy of broken locants is ascending order
-          
-          //  a prototype rule: if is a normal locant of greater size then
-          //  subject + 1, take it. e.g choosing between B- and C is B-, choosing between B- and D is D.
-          bool ignore = false;
-          for(unsigned int bi=0;bi<curr_locant->locant->barr_n;bi++){
-            unsigned char test_loc = ring->locants_ch[curr_locant->locant->bond_array[bi].child];
-            if(test_loc < 128 && test_loc > ring->locants_ch[curr_locant->locant]+1)
-              ignore = true; 
-          }
-          if(!ignore){
-            for(unsigned int bs=0;bs<b_locant;bs++){
-              if(branch_locants[bs].locant == child && branch_locants[bs].active){
-                highest_loc = child_loc;
-                edge_taken = &curr_locant->locant->bond_array[ei]; 
-                broken_position = bs; 
-                break; 
+        // walk the ring
+        for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
+          WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
+          unsigned int child_loc = ring->locants_ch[child];
+          if(child_loc){
+
+            // pseudo logic goes here, comes in pairs, look behind for its earlier
+            for(unsigned int pb=1;pb<pseudo_locants.size();pb+=2){
+              if(child_loc==pseudo_locants[pb] && path_size < comp_size-2){ // only pseudo bond if +1 avaliable
+                total_highest = child_loc; 
+                pseudo_back_bond = pseudo_locants[pb-1]; 
+                end_char = child_loc; 
+                start_char = pseudo_back_bond; 
+                pseudo_locants[pb] = 0;
+                pseudo_locants[pb-1] = 0; // so they are next taken again    
+                goto pseudo_jump; 
               }
             }
-          }
+            
+            if(child_loc < 128){
+              if(child_loc > highest_loc){
+                if(highest_loc){
+                  backtrack_stack.push({edge_taken,path_size}); // push the old
+                  // fprintf(stderr,"pushing %c -> %c at psize: %d\n",
+                  //         ring->locants_ch[edge_taken->parent],
+                  //         ring->locants_ch[edge_taken->child],
+                  //         path_size); 
+                }
+                highest_loc = child_loc;
+                edge_taken = &curr_locant->locant->bond_array[ei];
+                
+              }
+              else{
+                backtrack_stack.push({&curr_locant->locant->bond_array[ei],path_size}); // push a new
+              }
+            }
+            else if(child_loc >= 128){ 
+              // broken locant sections, where the hierachy of broken locants is ascending order
+              
+              //  a prototype rule: if is a normal locant of greater size then
+              //  subject + 1, take it. e.g choosing between B- and C is B-, choosing between B- and D is D.
+              bool ignore = false;
+              for(unsigned int bi=0;bi<curr_locant->locant->barr_n;bi++){
+                unsigned char test_loc = ring->locants_ch[curr_locant->locant->bond_array[bi].child];
+                if(test_loc < 128 && test_loc > ring->locants_ch[curr_locant->locant]+1)
+                  ignore = true; 
+              }
+              if(!ignore){
+                for(unsigned int bs=0;bs<b_locant;bs++){
+                  if(branch_locants[bs].locant == child && branch_locants[bs].active){
+                    highest_loc = child_loc;
+                    edge_taken = &curr_locant->locant->bond_array[ei]; 
+                    broken_position = bs; 
+                    break; 
+                  }
+                }
+              }
+            }
+          } 
+        }
+        if(!highest_loc && curr_locant->locant == ring->locants[max_locant]){
+          // if at the end of the path, its okay, break the loop and do post shifting 
+          over_shoot++;
+          path_size++;
+          // on any overshoot we dont need to look back, at maximal limit
+          while(!backtrack_stack.empty())
+            backtrack_stack.pop();
+          
+          end_char = max_locant; 
+        }
+        else if(highest_loc) {
+          // standard logic 
+          if(highest_loc < 128)
+            curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
+          else
+            curr_locant = &branch_locants[broken_position]; 
+          
+          edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
+          edge_taken->child->aromatic = edge_taken->child->aromatic ? 1:aromatic; 
+          edge_taken->parent->aromatic = edge_taken->parent->aromatic ? 1:aromatic; 
+          end_char = highest_loc; 
+          path_size++; 
         }
       }
 
-      if(pseudo_back_bond)
-        break; 
-
-      if(!highest_loc){
-        // if at the end of the path, its okay, break the loop and do post shifting 
-        if(curr_locant->locant != ring->locants[max_locant]){
-          fprintf(stderr,"Error: highest locant not found in path walk\n");
-          return false;
-        }
-
-        over_shoot++;
-        path_size++; 
+      if(end_char > total_highest)
+        total_highest = end_char; 
+      
+      if(!backtrack_stack.empty()){
+        unsigned int lb = ring->locants_ch[backtrack_stack.top().first->child]; 
+        curr_locant = &locant_path[LOCANT_TO_INT(lb-1)];
+        path_size = backtrack_stack.top().second+1; 
+        fprintf(stderr,"backtracking to %c, current winner is %c\n",lb,total_highest); 
       }
-      else {
 
-        // standard logic 
-        if(highest_loc < 128)
-          curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
-        else
-          curr_locant = &branch_locants[broken_position]; 
-        
-        edge_taken->aromatic = edge_taken->aromatic==1 ? 1:aromatic;
-        edge_taken->child->aromatic = edge_taken->child->aromatic ? 1:aromatic; 
-        edge_taken->parent->aromatic = edge_taken->parent->aromatic ? 1:aromatic; 
-        end_char = highest_loc; 
-        path_size++; 
-      }
-    }
-     
+    }while(!backtrack_stack.empty());  
+    
+    end_char = total_highest;
+    curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 
+    
     if(pseudo_back_bond){
+pseudo_jump:
 
       if(start_char < 128)
         start_locant = &locant_path[LOCANT_TO_INT(start_char-1)];
@@ -2362,7 +2402,6 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
           }
         }
       }
-
 
       if(end_char < 128)
         curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)];
@@ -2463,11 +2502,12 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
           
           start_locant->allowed_connections--; 
           
+#if STRANGE
           // weird bit of logic, but works nicely for tight rings
           while(!curr_locant->allowed_connections && end_char <= max_locant){
             curr_locant = &locant_path[LOCANT_TO_INT(++end_char-1)];
           }
-        
+#endif
           curr_locant->allowed_connections--; 
           break;
         }
@@ -2486,9 +2526,6 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
         }
       }
     }
-
-    free(forward_path);
-    forward_path = 0; 
   }
   
   
@@ -3637,22 +3674,13 @@ character_start_ring:
   }
   
   unsigned int final_size = 0;
-
-  if(!pseudo_locants.empty()){
-    final_size = BuildCyclicWithPseudo( ring_components,aromaticity,
-                                        pseudo_locants,
-                                        bridge_locants,
-                                        ring_size_specifier,
-                                        ring,
-                                        graph);
-  }
-  else{
-    final_size = BuildCyclic( ring_components,aromaticity,
-                              bridge_locants,
-                              ring_size_specifier,
-                              ring,
-                              graph);
-  }
+  final_size = PathFinderIII( ring_components,aromaticity,
+                                      pseudo_locants,
+                            bridge_locants,
+                            ring_size_specifier,
+                            ring,
+                            graph);
+  
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
   ring->pseudo_points = pseudo_locants.size(); 
@@ -3695,7 +3723,6 @@ bool multiply_carbon(WLNSymbol *sym){
   if(!forward||!bedge)
     return false;
   
-
   unsigned int back_edges = back->allowed_edges - back->num_edges; 
   unsigned int forward_edges = forward->allowed_edges - forward->num_edges;
 
