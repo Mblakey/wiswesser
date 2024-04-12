@@ -2296,9 +2296,10 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     
     if(start_char < 128)
       start_locant = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
-    else
+    else{
       start_locant = fetch_branch_locant(ring, start_char, branch_locants, b_locant);
-    
+      start_locant->active = true; 
+    }
     curr_locant = start_locant; 
     symbol_path.push_back(start_locant->locant); 
     
@@ -2530,14 +2531,6 @@ pseudo_jump:
 
           start_locant->allowed_connections--; 
           curr_locant->allowed_connections--;
-
-#define STRANGE 1
-#if STRANGE
-          // weird bit of logic, but works nicely for tight rings
-          while(!curr_locant->allowed_connections && end_char <= max_locant){
-            curr_locant = &locant_path[LOCANT_TO_INT(++end_char-1)];
-          }
-#endif
           break;
         }
         else{
