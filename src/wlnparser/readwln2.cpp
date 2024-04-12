@@ -2200,6 +2200,16 @@ bool assign_locant_path_connections(WLNRing *ring, LocantPos *locant_path, unsig
   return true; 
 }
 
+
+LocantPos *fetch_branch_locant(WLNRing*ring, unsigned int locant_value, LocantPos* branch_array, unsigned int len){
+  LocantPos *branch = 0; 
+  for(unsigned int i=0;i<len;i++){
+    if( ring->locants_ch[branch_array[i].locant] == locant_value)
+      return &branch_array[i]; 
+  }
+  return branch; 
+}
+
 void AromatiseSymbolPath(std::vector<WLNSymbol*> &symbol_path){
   WLNEdge *edge = 0; 
   for(unsigned int i=0;i<symbol_path.size()-1;i++){
@@ -2305,7 +2315,6 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
       while(path_size < comp_size-1){
         WLNEdge*      edge_taken  = 0; 
         unsigned int  highest_loc = 0; // highest of each child iteration 
-        unsigned int  broken_position = 0; 
         
         // walk the ring
         for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
@@ -2353,14 +2362,9 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
                 }
               }
               if(!ignore){
-                for(unsigned int bs=0;bs<b_locant;bs++){
-                  if(branch_locants[bs].locant == child && branch_locants[bs].active){
-                    highest_loc = child_loc;
-                    edge_taken = &curr_locant->locant->bond_array[ei]; 
-                    broken_position = bs; 
-                    break; 
-                  }
-                }
+                highest_loc = child_loc;
+                edge_taken = &curr_locant->locant->bond_array[ei]; 
+                break; 
               }
             }
           } 
@@ -2380,7 +2384,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
           if(highest_loc < 128)
             curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
           else
-            curr_locant = &branch_locants[broken_position]; 
+            curr_locant = fetch_branch_locant(ring, highest_loc, branch_locants, b_locant);  
           
           symbol_path.push_back(curr_locant->locant); 
           end_char = highest_loc; 
@@ -2397,15 +2401,9 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
         unsigned int lb = ring->locants_ch[backtrack_stack.top().first->child]; 
         if(lb<128)
           curr_locant = &locant_path[LOCANT_TO_INT(lb-1)];
-        else{
-          for(int bs=0;bs<b_locant;bs++){
-            if(branch_locants[bs].locant == backtrack_stack.top().first->child){
-              curr_locant = &branch_locants[bs];
-              break; 
-            }
-          }
-        }
-          
+        else
+          curr_locant = fetch_branch_locant(ring, ring->locants_ch[backtrack_stack.top().first->child], branch_locants, b_locant);  
+        
         path_size = backtrack_stack.top().second+1; 
         while(symbol_path.back() != backtrack_stack.top().first->parent)
           symbol_path.pop_back(); 
@@ -2416,16 +2414,9 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     end_char = total_highest;
     if(end_char<128)
       curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)];
-    else{
-      for(unsigned int bs=0;bs<b_locant;bs++){
-        if(ring->locants_ch[branch_locants[bs].locant] == end_char){ 
-          curr_locant = &branch_locants[bs];
-          break; 
-        }
-      }
-    }
+    else
+      curr_locant = fetch_branch_locant(ring, end_char, branch_locants, b_locant);  
    
-
 
     if(pseudo_back_bond){
 pseudo_jump:
@@ -2433,26 +2424,14 @@ pseudo_jump:
       if(start_char < 128)
         start_locant = &locant_path[LOCANT_TO_INT(start_char-1)];
       else{
-        for(unsigned int bs=0;bs<b_locant;bs++){
-          if(ring->locants_ch[branch_locants[bs].locant] == start_char){ 
-            start_locant = &branch_locants[bs]; 
-            branch_locants[bs].active = 1;
-            break;
-          }
-        }
+        start_locant = fetch_branch_locant(ring, start_char, branch_locants, b_locant);  
+        start_locant->active = true; 
       }
 
       if(end_char < 128)
         curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)];
-      else{
-        for(unsigned int bs=0;bs<b_locant;bs++){
-          if(ring->locants_ch[branch_locants[bs].locant] == end_char){ 
-            curr_locant = &branch_locants[bs]; 
-            branch_locants[bs].active = 1;
-            break;
-          }
-        }
-      }
+      else
+        curr_locant = fetch_branch_locant(ring, end_char, branch_locants, b_locant);  
 
       if(OPT_DEBUG){
         if(start_char >= 128 && end_char <= 128)
