@@ -267,8 +267,8 @@ struct LocantPos{
 
   LocantPos(){
     active = false; 
-    locant = 0; 
-    allowed_connections = 0; 
+    locant = 0;
+    allowed_connections = 0;
   }
 }; 
 
@@ -2273,8 +2273,6 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
         WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
         unsigned int child_loc = ring->locants_ch[child];
 
-#define PSEUDO 1
-#if PSEUDO
         // pseudo logic goes here, comes in pairs, look behind for its earlier
         for(unsigned int pb=1;pb<pseudo_locants.size();pb+=2){
           if(child_loc==pseudo_locants[pb] && path_size < comp_size-2){ // only pseudo bond if +1 avaliable
@@ -2287,14 +2285,10 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
             break;
           }
         }
-        if(pseudo_back_bond){
-          start_locant   = &locant_path[ LOCANT_TO_INT(pseudo_back_bond-1)]; 
-          edge_taken     = &curr_locant->locant->bond_array[ei]; 
-          curr_locant    = &locant_path[LOCANT_TO_INT(child_loc-1)];
 
+        if(pseudo_back_bond)
           break;
-        }
-#endif
+        
         if(child_loc < 128){
           if(child_loc > highest_loc){
             highest_loc = child_loc;
@@ -2355,6 +2349,32 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
     }
      
     if(pseudo_back_bond){
+
+      if(start_char < 128)
+        start_locant = &locant_path[LOCANT_TO_INT(start_char-1)];
+      else{
+        for(unsigned int bs=0;bs<b_locant;bs++){
+          if(ring->locants_ch[branch_locants[bs].locant] == start_char){ 
+            start_locant = &branch_locants[bs]; 
+            branch_locants[bs].active = 1;
+            break;
+          }
+        }
+      }
+
+
+      if(end_char < 128)
+        curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)];
+      else{
+        for(unsigned int bs=0;bs<b_locant;bs++){
+          if(ring->locants_ch[branch_locants[bs].locant] == end_char){ 
+            curr_locant = &branch_locants[bs]; 
+            branch_locants[bs].active = 1;
+            break;
+          }
+        }
+      }
+
       if(OPT_DEBUG){
         if(start_char >= 128 && end_char <= 128)
           fprintf(stderr,"  pseudo fuse: %d --> %c\n",start_char,end_char);
@@ -2377,6 +2397,7 @@ unsigned int BuildCyclicWithPseudo( std::vector<std::pair<unsigned int,unsigned 
       new_edge->child->aromatic = new_edge->aromatic; 
       new_edge->child->aromatic = new_edge->child->aromatic ? 1:aromatic; 
       new_edge->parent->aromatic = new_edge->parent->aromatic ? 1:aromatic; 
+      
 
       start_locant->allowed_connections--;
       curr_locant->allowed_connections--; 
@@ -2626,13 +2647,16 @@ character_start_ring:
               
               if(!AddEdge(locant_a,ring->locants[locant_attached]))
                 return Fatal(i,"Error: failure on attaching off path locant"); 
+
+              if(state_pseudo)
+                pseudo_locants.back()=positional_locant; 
             }
             else if( positional_locant ==  2+ (LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128){
               // case from E-- to get to E--&, which is bonded to E-
               
               locant_a = ring->locants[(LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT)+128];
               positional_locant++; // 1 movement
-
+        
               if(!ring->locants[positional_locant]){ 
                 locant_b = AllocateWLNSymbol('C', graph);
                 locant_b->allowed_edges = 4;
@@ -2642,10 +2666,13 @@ character_start_ring:
                 locant_b = ring->locants[positional_locant]; 
 
               if(!AddEdge(locant_b,locant_a))
-                return Fatal(i,"Error: failure on attaching off path locant"); 
+                return Fatal(i,"Error: failure on attaching off path locant");
+
+              if(state_pseudo)
+                pseudo_locants.back()=positional_locant; 
             }
-              
-            
+            else if(state_pseudo)
+              pseudo_locants.back() += AMPERSAND_EXPAND;
           }
           else
             positional_locant += AMPERSAND_EXPAND;
@@ -2825,7 +2852,7 @@ character_start_ring:
           2. A buffer to consume and move all the positions is needed, and can track the tree size
 */
       case '-':
-        if(state_multi){
+        if(state_multi == 3){
           if(state_multi == 1 && !multicyclic_locants.empty())
             multicyclic_locants.back() = positional_locant;
           else if(state_multi == 3){
@@ -2833,18 +2860,18 @@ character_start_ring:
             state_aromatics = true;
           }
         }
-        else if(!expected_locants){
-          
-          // conditions for - within a ring system:
-          // i+2 == '-' for hypervalent
-          // i+3 == '-' for element and large ring with 2 digits
-          // 
-          // branching locants - come to these another time
 
-          // two things to do in the lookahead here, determine whether branching or non-branching, 
-          // and then access the branching tree
-          if( i + 3 < len && wln_block[i+3] == '-'){
-             
+
+        // conditions for - within a ring system:
+        // i+2 == '-' for hypervalent
+        // i+3 == '-' for element and large ring with 2 digits
+        // 
+        // branching locants - come to these another time
+
+        // two things to do in the lookahead here, determine whether branching or non-branching, 
+        // and then access the branching tree
+        else if( i + 3 < len && wln_block[i+3] == '-'){
+ 
             if(wln_block[i+1] >= '0' && wln_block[i+1] <= '9' && wln_block[i+2] >= '0' && wln_block[i+2] <= '9'){
               unsigned int big_ring = ( (wln_block[i+1]-'0') * 10) + wln_block[i+2]-'0';
               if(!big_ring)
@@ -2870,7 +2897,8 @@ character_start_ring:
                 ring->position_offset[new_locant] = i+1;
       
                 if(OPT_DEBUG)
-                  fprintf(stderr,"  assigning element %c%c to position %c\n",wln_block[i+1],wln_block[i+2],positional_locant);
+                  fprintf(stderr,"  assigning element %c%c to position %c\n",
+                                 wln_block[i+1],wln_block[i+2],positional_locant);
                 
                 positional_locant++;
               }
@@ -2886,91 +2914,102 @@ character_start_ring:
                 positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
               else
                 positional_locant++;
+
+              if(state_pseudo)
+                pseudo_locants.back() = positional_locant; 
             }
           }
-          else if (i+2 < len && wln_block[i+2] == '-'){
-            if(wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z'){
+        else if (i+2 < len && wln_block[i+2] == '-'){
+          if(wln_block[i+1] >= 'A' && wln_block[i+1] <= 'Z'){
 
-              if(positional_locant != spiro_atom){
-                WLNSymbol *new_locant = define_hypervalent_element(wln_block[i+1],graph); 
-                if(!new_locant)
-                  return Fatal(i, "Error: could not create hypervalent element");
-                
-                assign_locant(positional_locant,new_locant,ring);
-                
-                new_locant->str_position = i+1+1;
-                ring->position_offset[new_locant] = i+1;
-                if(OPT_DEBUG)
-                  fprintf(stderr,"  assigning hypervalent %c to position %c\n",wln_block[i+1],positional_locant);
-              }
-              else 
-                positional_locant++;
-
+            if(positional_locant != spiro_atom){
+              WLNSymbol *new_locant = define_hypervalent_element(wln_block[i+1],graph); 
+              if(!new_locant)
+                return Fatal(i, "Error: could not create hypervalent element");
+              
+              assign_locant(positional_locant,new_locant,ring);
+              
+              new_locant->str_position = i+1+1;
+              ring->position_offset[new_locant] = i+1;
+              if(OPT_DEBUG)
+                fprintf(stderr,"  assigning hypervalent %c to position %c\n",wln_block[i+1],positional_locant);
+            }
+            else 
               positional_locant++;
-              locant_attached = 0;
-              i+= 2; 
-            } 
-            else{
-              // this must also be branching modifier 
-              if(positional_locant && positional_locant < 128)
-                positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
-              else
-                positional_locant++;
-            }
-          }
+
+            positional_locant++;
+            locant_attached = 0;
+            i+= 2; 
+          } 
           else{
-            // enter the tree or move left which is one 
-            if(positional_locant < 128){
-              if(!ring->locants[positional_locant]){
-                locant_a = AllocateWLNSymbol('C', graph); 
-                locant_a->allowed_edges = 4;  
-                assign_locant(positional_locant, locant_a, ring);
-              }
-              else 
-                locant_a = ring->locants[positional_locant]; 
-              
-              // shift into tree range
+            // this must also be branching modifier 
+            if(positional_locant && positional_locant < 128)
               positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
-
-              if(!ring->locants[positional_locant]){
-                locant_b = AllocateWLNSymbol('C', graph); 
-                locant_b->allowed_edges = 4;  
-                assign_locant(positional_locant, locant_b, ring);
-              }
-              else
-                locant_b = ring->locants[positional_locant]; 
-              
-              edge = AddEdge(locant_b, locant_a); 
-              if(!edge)
-                return Fatal(i,"Error: could not create bond in off path branching"); 
+            else
+              positional_locant++;
+            
+            if(state_pseudo)
+              pseudo_locants.back() = positional_locant; 
+          }
+        }
+        else{
+          // enter the tree or move left which is one 
+          if(positional_locant < 128){
+            if(!ring->locants[positional_locant]){
+              locant_a = AllocateWLNSymbol('C', graph); 
+              locant_a->allowed_edges = 4;  
+              assign_locant(positional_locant, locant_a, ring);
             }
-            else if (128 + ( LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT) == positional_locant ){
-              // means E--, which is position 3, binds to E-
-                
-              // to even get here we would of created the E, and E-
-              // create the node in the chain if its not there
+            else 
               locant_a = ring->locants[positional_locant]; 
-              
-              // from E-, E-- is 2 away, 
-              positional_locant+=2; 
-              if(!ring->locants[positional_locant]){
-                locant_b = AllocateWLNSymbol('C', graph); 
-                locant_b->allowed_edges = 4;  
-                assign_locant(positional_locant, locant_b, ring);
-              }
-              else
-                locant_b = ring->locants[positional_locant]; 
+            
+            // shift into tree range
+            positional_locant = 128 + (LOCANT_TO_INT(positional_locant) * BROKEN_TREE_LIMIT); 
 
-              // bond this back to the starting char
-              edge = AddEdge(locant_b, locant_a); 
-              if(!edge)
-                return Fatal(i,"Error: could not create bond in off path branching"); 
-              
-              //
+            if(!ring->locants[positional_locant]){
+              locant_b = AllocateWLNSymbol('C', graph); 
+              locant_b->allowed_edges = 4;  
+              assign_locant(positional_locant, locant_b, ring);
             }
             else
-              return Fatal(i, "Error: expanding past the tree limit, <loc>-- is the maximal branched locant supported"); 
+              locant_b = ring->locants[positional_locant]; 
+            
+            edge = AddEdge(locant_b, locant_a); 
+            if(!edge)
+              return Fatal(i,"Error: could not create bond in off path branching"); 
+            
+            if(state_pseudo)
+              pseudo_locants.back() = positional_locant; 
+
           }
+          else if (128 + ( LOCANT_TO_INT(locant_attached) * BROKEN_TREE_LIMIT) == positional_locant ){
+            // means E--, which is position 3, binds to E-
+              
+            // to even get here we would of created the E, and E-
+            // create the node in the chain if its not there
+            locant_a = ring->locants[positional_locant]; 
+            
+            // from E-, E-- is 2 away, 
+            positional_locant+=2; 
+            if(!ring->locants[positional_locant]){
+              locant_b = AllocateWLNSymbol('C', graph); 
+              locant_b->allowed_edges = 4;  
+              assign_locant(positional_locant, locant_b, ring);
+            }
+            else
+              locant_b = ring->locants[positional_locant]; 
+
+            // bond this back to the starting char
+            edge = AddEdge(locant_b, locant_a); 
+            if(!edge)
+              return Fatal(i,"Error: could not create bond in off path branching"); 
+            
+            if(state_pseudo)
+              pseudo_locants.back() = positional_locant; 
+            //
+          }
+          else
+            return Fatal(i, "Error: expanding past the tree limit, <loc>-- is the maximal branched locant supported"); 
         }
         break;
       
