@@ -1821,7 +1821,7 @@ int OffPathLocants(WLNRing*ring, unsigned int local_size,
 }
 
 
-
+#define DEPRECATED 0
 #if DEPRECATED
 
 /*
@@ -2208,6 +2208,7 @@ LocantPos *fetch_branch_locant(WLNRing*ring, unsigned int locant_value, LocantPo
     if( ring->locants_ch[branch_array[i].locant] == locant_value)
       return &branch_array[i]; 
   }
+
   return branch; 
 }
 
@@ -2234,7 +2235,6 @@ void AromatiseSymbolPath(std::vector<WLNSymbol*> &symbol_path){
     pseudo locants are in pairs, with the first being lower and the second higher,
     this can be enforced during parse, not here 
 */
-
 
 unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   &ring_assignments, 
                             std::vector<bool>                                   &aromaticity,
@@ -2263,10 +2263,14 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
   LocantPos *branch_locants = new LocantPos[32]; // anything over this would be excessive? even possible?   
   int b_locant = OffPathLocants(ring,local_size, bridge_locants, branch_locants); 
   if(b_locant == -1){
+    fprintf(stderr,"Error: couldn't assign off-path connections\n");
     delete[] locant_path; 
     delete[] branch_locants;
     return 0; 
   }
+
+
+    // --- PATHSOLVER III, see notes on function for rules and use --- 
 
   // calculate bindings and then traversals round the loops
   unsigned char max_locant = INT_TO_LOCANT(local_size);
@@ -2277,8 +2281,6 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     unsigned int comp_size      = component.first;
     unsigned int start_char     = component.second;
     ring->aromatic_atoms        = ring->aromatic_atoms ? 1:aromatic; 
-
-    // --- PATHSOLVER III, see notes on function for rules and use --- 
 
     unsigned int  path_size   = 0;  
     unsigned char end_char    = 0; 
@@ -2310,7 +2312,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
       while(path_size < comp_size-1){
         WLNEdge*      edge_taken  = 0; 
         unsigned int  highest_loc = 0; // highest of each child iteration 
-        
+       
         // walk the ring
         for(unsigned int ei=0;ei<curr_locant->locant->barr_n;ei++){
           WLNSymbol *child = curr_locant->locant->bond_array[ei].child;
@@ -2330,7 +2332,8 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
             }
             
             if(child_loc < 128 && child_loc > highest_loc){
-#define BACKTRACK 0 
+
+#define BACKTRACK 1 
 #if BACKTRACK
               if(highest_loc && path_size < comp_size-2){
                 backtrack_stack.push({edge_taken,path_size}); // push the old
@@ -2361,12 +2364,13 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
                     ignore = true;
                   }
                 }
+
                 if(!ignore){
                   highest_loc = child_loc;
                   edge_taken = &curr_locant->locant->bond_array[ei]; 
-                  break; 
                 }
               }
+              
             }
           } 
         }
@@ -2380,7 +2384,6 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
             backtrack_stack.pop();
         }
         else if(highest_loc) {
-
           // standard logic 
           if(highest_loc < 128)
             curr_locant = &locant_path[LOCANT_TO_INT(highest_loc-1)];
@@ -2408,7 +2411,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
         if(lb<128)
           curr_locant = &locant_path[LOCANT_TO_INT(lb-1)];
         else
-          curr_locant = fetch_branch_locant(ring, ring->locants_ch[backtrack_stack.top().first->child], branch_locants, b_locant);  
+          curr_locant = fetch_branch_locant(ring, lb, branch_locants, b_locant);  
          
         path_size = backtrack_stack.top().second+1; 
         while(symbol_path.back() != back_edge->parent && !symbol_path.empty())
@@ -2429,7 +2432,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
       curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)];
     else
       curr_locant = fetch_branch_locant(ring, end_char, branch_locants, b_locant);  
-   
+  
 
     if(pseudo_back_bond){
 pseudo_jump:
@@ -2469,6 +2472,7 @@ pseudo_jump:
       curr_locant->allowed_connections--;
     }
     else{
+
       for(;;){
 
         if(start_locant->allowed_connections > 0){
@@ -2487,7 +2491,7 @@ pseudo_jump:
                   if(branch_locants[bs].locant == bchild && !branch_locants[bs].active){
                     if (!branch_move || ring->locants_ch[branch_locants[bs].locant] < ring->locants_ch[branch_move]){
                       branch_move = branch_locants[bs].locant; 
-                      move_index = bs; 
+                      move_index = bs;
                     }
                   }
                 }
@@ -2552,7 +2556,6 @@ pseudo_jump:
       }
     }
   }
-  
   
   delete [] locant_path;
   delete [] branch_locants;
@@ -3699,13 +3702,21 @@ character_start_ring:
   }
   
   unsigned int final_size = 0;
+
+#if DEPRECATED
+  final_size = BuildCyclic( ring_components,aromaticity,
+                            bridge_locants,
+                            ring_size_specifier,
+                            ring,
+                            graph);
+#else
   final_size = PathSolverIII( ring_components,aromaticity,
                               pseudo_locants,
                               bridge_locants,
                               ring_size_specifier,
                               ring,
                               graph);
-  
+#endif
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
   ring->pseudo_points = pseudo_locants.size(); 
