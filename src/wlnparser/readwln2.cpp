@@ -2337,17 +2337,17 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
 #if BACKTRACK
               if(highest_loc && path_size < comp_size-2){
                 backtrack_stack.push({edge_taken,path_size}); // push the old
-                fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
-                        ring->locants_ch[edge_taken->parent],
-                        ring->locants_ch[edge_taken->child],
-                        path_size);
+                // fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
+                //         ring->locants_ch[edge_taken->parent],
+                //         ring->locants_ch[edge_taken->child],
+                //         path_size);
               }
               else if(path_size < comp_size-2){
                 backtrack_stack.push({&curr_locant->locant->bond_array[ei],path_size}); // push a new
-                fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
-                        ring->locants_ch[curr_locant->locant->bond_array[ei].parent],
-                        ring->locants_ch[curr_locant->locant->bond_array[ei].child],
-                        path_size); 
+                // fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
+                //         ring->locants_ch[curr_locant->locant->bond_array[ei].parent],
+                //         ring->locants_ch[curr_locant->locant->bond_array[ei].child],
+                //         path_size); 
               }
 #endif        
               highest_loc = child_loc;
@@ -3132,10 +3132,13 @@ character_start_ring:
 
       // bring this out as chelating notation is seperate
       case 'D':
-        if(i == 0){
+        if(ring_start){
           heterocyclic = true;
+          ring_start = false; 
+          
           if(OPT_DEBUG)
             fprintf(stderr,"  opening chelating notation\n");
+          break;
         }
 
         if(state_aromatics)
@@ -4339,7 +4342,6 @@ character_start:
       }
       else if(pending_ring_in_ring && pending_inline_ring){
         // onlocant holds the char needed to wrap the ring back, 
-        
         if(on_locant != '0'){
           curr = wrap_ring->locants[on_locant];
           if(!curr)
@@ -5865,32 +5867,36 @@ character_start:
       else if (pending_inline_ring && pending_ring_in_ring) // macro_closure
       { 
         
-        // onlocant holds the char needed to wrap the ring back, 
+        // on-locant holds the char needed to wrap the ring back, 
         if(!wrap_ring)
           return Fatal(i, "Error: wrap ring is not active");
-
-        curr = wrap_ring->locants[on_locant];
-        if(!curr)
-          return Fatal(i, "Error: cannot access looping ring structure");
-      
-        if(prev){  
-
-          edge = AddEdge(curr, prev); 
-          if(!edge)
-            return Fatal(i, "Error: failed to bond to previous symbol");
-          edge->stereo = pending_stereo; 
-          pending_stereo = 0;
-
-          wrap_ring->macro_return = edge; 
-          if(inline_unsaturate){
-            if(!unsaturate_edge(edge,inline_unsaturate))
-              return Fatal(i, "Error: failed to unsaturate bond"); 
-            inline_unsaturate = 0;
-          }
-        }
-        else
-          return Fatal(i,"Error: no previous symbol for inline ring defintion");
         
+        if(on_locant != '0'){
+
+          curr = wrap_ring->locants[on_locant];
+          if(!curr)
+            return Fatal(i, "Error: cannot access looping ring structure");
+        
+          if(prev){  
+
+            edge = AddEdge(curr, prev); 
+            if(!edge)
+              return Fatal(i, "Error: failed to bond to previous symbol");
+            edge->stereo = pending_stereo; 
+            pending_stereo = 0;
+
+            wrap_ring->macro_return = edge; 
+            if(inline_unsaturate){
+              if(!unsaturate_edge(edge,inline_unsaturate))
+                return Fatal(i, "Error: failed to unsaturate bond"); 
+              inline_unsaturate = 0;
+            }
+          }
+          else
+            return Fatal(i,"Error: no previous symbol for inline ring defintion");
+          
+        }
+
         if(i+3 < len && wln_ptr[i+3] == '-')
           i+=3;
         else if(i+2 < len && wln_ptr[i+2] == '-')
