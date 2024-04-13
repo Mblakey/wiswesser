@@ -2290,7 +2290,8 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     LocantPos *curr_locant    = 0; 
     
     unsigned int pseudo_back_bond = 0; 
-    unsigned int total_highest    = 0; // allow for branch 
+    unsigned int total_highest    = 0; // allow for branch
+    unsigned int last_locant      = 0; // rare mega backtrack
     std::stack<std::pair<WLNEdge*,unsigned int>> backtrack_stack; // both in order to move to child, plus path size 
     
     std::vector<WLNSymbol*> symbol_path; 
@@ -2332,24 +2333,12 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
             }
             
             if(child_loc < 128 && child_loc > highest_loc){
-
-#define BACKTRACK 1 
-#if BACKTRACK
-              if(highest_loc && path_size < comp_size-2){
+              // backtracking to maximise 
+              if(highest_loc && path_size < comp_size-2)
                 backtrack_stack.push({edge_taken,path_size}); // push the old
-                // fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
-                //         ring->locants_ch[edge_taken->parent],
-                //         ring->locants_ch[edge_taken->child],
-                //         path_size);
-              }
-              else if(path_size < comp_size-2){
+              else if(path_size < comp_size-2)
                 backtrack_stack.push({&curr_locant->locant->bond_array[ei],path_size}); // push a new
-                // fprintf(stderr,"pushing: %c -> %c at psize: %d\n",
-                //         ring->locants_ch[curr_locant->locant->bond_array[ei].parent],
-                //         ring->locants_ch[curr_locant->locant->bond_array[ei].child],
-                //         path_size); 
-              }
-#endif        
+            
               highest_loc = child_loc;
               edge_taken = &curr_locant->locant->bond_array[ei];
             }
@@ -2390,6 +2379,7 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
           else
             curr_locant = fetch_branch_locant(ring, highest_loc, branch_locants, b_locant);  
           
+          last_locant = highest_loc; 
           symbol_path.push_back(curr_locant->locant);
           end_char = highest_loc; 
           path_size++; 
@@ -2542,13 +2532,13 @@ pseudo_jump:
           start_char++;
           start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
           
-          //best_path.insert(best_path.begin(),start_locant->locant);  
+          best_path.insert(best_path.begin(),start_locant->locant);  
           // the current then moves back by 1
           if(over_shoot)
             over_shoot--;
           else{
             end_char--; 
-            //best_path.pop_back(); 
+            best_path.pop_back(); 
           }
           
           curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 
