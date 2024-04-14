@@ -338,7 +338,7 @@ unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant
 /* writes the lowest locant in the ring given, an unspecified broken locant is given 'A'-1, since
  * this is impossible under normal operations, if this locant exists, it needs specifying, and then checking
  * whether its actually the lowest locant possible in that chain */
-void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen, std::string &buffer){
+unsigned int write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
   unsigned int lowest_i = 0; 
   unsigned int lowest_locant = 0; 
   unsigned int lowest_broken = 0; 
@@ -382,11 +382,7 @@ void write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, u
       lowest_locant = lowest_broken; 
   }
   
-
-  if(lowest_locant != 'A'){
-    buffer += ' '; 
-    write_locant(lowest_locant,buffer); 
-  }
+  return lowest_locant; 
 }
 
 
@@ -768,6 +764,30 @@ unsigned int connected_multicycles(OBAtom *atom, std::map<OBAtom*,unsigned int> 
   return m;
 }
 
+
+
+void print_bond_locants(OBMol *mol, OBBond *bond, LocantPos*locant_path, unsigned int path_size){
+  for(unsigned int i=0;i<path_size-2;i++){
+    for(unsigned int j=i+2;j<path_size;j++){
+      if(mol->GetBond(locant_path[i].atom,locant_path[j].atom) == bond){
+        fprintf(stderr,"%c --> %c\n",locant_path[i].locant,locant_path[j].locant); 
+        break; 
+      }
+    }
+  }
+}
+
+
+bool non_sequential_path_bond(OBMol *mol, OBBond *bond, LocantPos*locant_path, unsigned int path_size){
+  for(unsigned int i=0;i<path_size-2;i++){
+    for(unsigned int j=i+2;j<path_size;j++){
+      if(mol->GetBond(locant_path[i].atom,locant_path[j].atom) == bond)
+        return true; 
+    }
+  }
+  return false; 
+}
+
 /*
 builds iteratively so ordering is correct, when a ring is filled, write the notation
 there is some bit logic to speed all this up, - concepts first, optimisation later
@@ -777,12 +797,17 @@ max_path_size
 */
 void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
-                            std::vector<OBRing*> &ring_order,
+                            std::vector<OBRing*> &ring_order, std::vector<unsigned int> &starting_locants,
                             std::string &buffer)
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
-      write_lowest_ring_locant(mol,*riter, locant_path, max_path_size, buffer);
+      unsigned int lowest_locant = write_lowest_ring_locant(mol,*riter, locant_path, max_path_size);
+      if(lowest_locant != 'A'){
+        buffer += ' '; 
+        write_locant(lowest_locant,buffer); 
+      }
+      starting_locants.push_back(lowest_locant); 
       write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
       ring_order.push_back(*riter);
@@ -792,19 +817,45 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
 }
 
 
-void write_pseudo_locants(OBMol *mol, LocantPos *locant_path, unsigned int path_size, 
-                          std::set<OBBond*> &ring_junctions, std::string &buffer)
+
+
+/*
+If there is a three share bond, there will be a ring that contains this bond AND
+another non sequential bond. If this bond does not contain the lowest locant of the three share
+pair, then the bond could never be inferred from the path. 
+*/
+void AppendPseudoLocants(OBMol *mol, LocantPos *locant_path, unsigned int path_size, 
+                         std::set<OBRing*> &local_SSSR,
+                         std::set<OBBond*> &ring_bonds,
+                         std::map<OBBond*,unsigned int> &bond_shares, 
+                         std::string &buffer)
 {
-  for(unsigned int a=0;a<path_size;a++){
-    for(unsigned int b=a+2;b<path_size;b++){
-      OBBond *bond = mol->GetBond(locant_path[a].atom,locant_path[b].atom); 
-      if(bond && !ring_junctions.count(bond)){
-        buffer += '/';
-        write_locant(locant_path[a].locant, buffer); 
-        write_locant(locant_path[b].locant, buffer); 
+  
+  return; 
+  // search the path for non sequential bonds, if shares is 3, write their position
+  std::map<OBBond*,bool> handled; 
+  for(std::set<OBBond*>::iterator biter = ring_bonds.begin();biter != ring_bonds.end(); biter++){  
+    OBBond *bond = *biter;  
+    if(bond && bond_shares[bond] >=3){
+      print_bond_locants(mol, bond, locant_path, path_size); 
+      for(std::set<OBRing*>::iterator riter = local_SSSR.begin();riter != local_SSSR.end();riter++){
+        OBRing *ring = *riter; 
+        if(ring->IsMember(bond)){
+          std::set<OBBond*> local_rbonds; 
+          FillRingBonds(mol, ring, local_rbonds);
+          for(std::set<OBBond*>::iterator lbiter = local_rbonds.begin();lbiter != local_rbonds.end(); lbiter++){
+            if(*lbiter != bond && !handled[*lbiter] && non_sequential_path_bond(mol, *lbiter, locant_path, path_size)){
+              handled[*lbiter] = true;
+              print_bond_locants(mol, *lbiter, locant_path, path_size); 
+            }
+          } 
+        }
       }
     }
   }
+        // buffer += '/';
+        // write_locant(locant_path[a].locant, buffer); 
+        // write_locant(locant_path[b].locant, buffer); 
 }
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
@@ -830,7 +881,7 @@ void write_pseudo_locants(OBMol *mol, LocantPos *locant_path, unsigned int path_
 
 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 */
-LocantPos *PathFinerIIIa(    OBMol *mol, unsigned int path_size,
+LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
                         std::set<OBAtom*>               &ring_atoms,
                         std::map<OBAtom*,unsigned int>  &atom_shares,
                         std::map<OBAtom*,bool>          &bridge_atoms,
@@ -864,6 +915,7 @@ LocantPos *PathFinerIIIa(    OBMol *mol, unsigned int path_size,
       std::set<OBBond*>      ring_junctions;
       std::map<OBAtom*,bool> visited; 
       std::map<OBRing*,bool> handled_rings; 
+      std::vector<unsigned int> starting_locants; 
       unsigned int locant_pos = 0;
       
       ratom = *aiter; 
@@ -876,7 +928,7 @@ LocantPos *PathFinerIIIa(    OBMol *mol, unsigned int path_size,
         visited[ratom] = true;
 
         write_complete_rings( mol,locant_path, locant_pos, local_SSSR, handled_rings, 
-                              lring_order,poly_buffer); 
+                              lring_order,starting_locants,poly_buffer); 
         if(locant_pos >= path_size)
           break;
         
@@ -983,13 +1035,13 @@ Some rules to follow when walking the path:
 
   path size can now change to accomadate whether the locant path reduces due to branching locants
 */
-LocantPos *PathFinderIIIb(   OBMol *mol,        unsigned int &path_size,
-                        std::set<OBAtom*>               &ring_atoms,
-                        std::map<OBAtom*,unsigned int>  &atom_shares,
-                        std::map<OBAtom*,bool>          &bridge_atoms,
-                        std::set<OBRing*>               &local_SSSR,
-                        std::vector<OBRing*>            &ring_order,
-                        std::string                     &buffer)
+LocantPos *PathFinderIIIb(  OBMol *mol,        unsigned int &path_size,
+                            std::set<OBAtom*>               &ring_atoms,
+                            std::map<OBAtom*,unsigned int>  &atom_shares,
+                            std::map<OBAtom*,bool>          &bridge_atoms,
+                            std::set<OBRing*>               &local_SSSR,
+                            std::vector<OBRing*>            &ring_order,
+                            std::string                     &buffer)
 {
 
   // create the path
@@ -1005,20 +1057,22 @@ LocantPos *PathFinderIIIb(   OBMol *mol,        unsigned int &path_size,
   unsigned int           lowest_sum = UINT32_MAX;
   unsigned int           starting_path_size = path_size; // important if path size changes
   
-  std::string           best_notation; 
-  std::vector<OBRing*>  best_order; 
-  unsigned int          best_path_size = 0; 
+  std::string                best_notation; 
+  std::vector<OBRing*>       best_order; 
+  std::vector<unsigned int>  best_locants; 
+  unsigned int               best_path_size = 0; 
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
 
-      std::string             peri_buffer; 
-      std::set<OBBond*>       ring_junctions; 
-      std::vector<OBRing*>    lring_order; 
-      std::map<OBAtom*,bool>  visited; 
-      std::map<OBRing*,bool>  handled_rings;
-      std::stack<OBAtom*>     multistack; 
+      std::string               peri_buffer; 
+      std::set<OBBond*>         ring_junctions; 
+      std::vector<OBRing*>      lring_order; 
+      std::map<OBAtom*,bool>    visited; 
+      std::map<OBRing*,bool>    handled_rings;
+      std::stack<OBAtom*>       multistack; 
+      std::vector<unsigned int> starting_locants; 
       std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
       
       unsigned int locant_pos = 0;
@@ -1042,13 +1096,12 @@ path_solve:
 
           write_complete_rings( mol,locant_path, starting_path_size, 
                                 local_SSSR, handled_rings, 
-                                lring_order,
+                                lring_order,starting_locants, 
                                 peri_buffer); 
 
           if(locant_pos >= path_size)
             break;
           
-
           // here we allow multicyclics to cross ring junctions
           matom = 0; 
           FOR_NBORS_OF_ATOM(a,ratom){ 
@@ -1092,7 +1145,6 @@ path_solve:
             }
           }
           
-
           if(!matom){
             // no locant path! add logic for off branches here! and pseudo locants
             //fprintf(stderr,"Error: did not move in locant path walk!\n"); 
@@ -1110,8 +1162,8 @@ path_solve:
             lowest_sum = fsum;
             copy_locant_path(best_path,locant_path,starting_path_size);
             best_notation = peri_buffer; 
-            std::cerr << peri_buffer << std::endl; 
             best_order = lring_order;
+            best_locants = starting_locants;
             best_path_size = path_size;
           }
         }
@@ -1129,9 +1181,10 @@ path_solve:
           // this is expensive but guarantees sequential ordeirng
           peri_buffer.clear();
           handled_rings.clear(); 
-          lring_order.clear(); 
+          lring_order.clear();
+          starting_locants.clear(); 
           for(unsigned int t=0;t<locant_pos;t++)
-            write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
+            write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,starting_locants,peri_buffer); 
         }
         else if(!best_path[0].atom && !multistack.empty()){ // once you find a branch path, take it!
           // this the where the broken locants happen, pop off a multistack atom 
@@ -1174,6 +1227,10 @@ path_solve:
     }
   }
   
+
+  for(unsigned int i : best_locants)
+    fprintf(stderr,"%c\n",i); 
+
   path_size = best_path_size; 
   ring_order = best_order; 
   buffer = best_notation; 
@@ -2771,11 +2828,12 @@ struct BabelGraph{
 
   /* parses the local ring system, return the size for creating the locant path with 
   non bonds to avoid */
-  bool  ConstructLocalSSRS( OBMol *mol, OBAtom *ring_root,
+  bool  ConstructLocalSSSR( OBMol *mol, OBAtom *ring_root,
                             std::set<OBAtom*>         &ring_atoms,
                             std::set<OBBond*>         &ring_bonds,
                             std::map<OBAtom*,bool>    &bridge_atoms,
                             std::map<OBAtom*,unsigned int> &atom_shares,
+                            std::map<OBBond*,unsigned int> &bond_shares, 
                             std::set<OBRing*> &local_SSSR,
                             SubsetData &local_data)
   {
@@ -2811,17 +2869,19 @@ struct BabelGraph{
             prev = ratom; 
           else{
             bond = mol->GetBond(prev,ratom);
-            if(bond)
+            if(bond){
               ring_bonds.insert(bond); 
-            
+              bond_shares[bond]++; 
+            }
             prev = ratom; 
           }
         }
         // get the last bond
         bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
-        if(bond)
+        if(bond){
           ring_bonds.insert(bond); 
-
+          bond_shares[bond]++; 
+        }
         break;
       }
     }
@@ -2874,17 +2934,19 @@ struct BabelGraph{
                 prev = ratom;
               else{
                 bond = mol->GetBond(prev,ratom);
-                if(bond)
+                if(bond){
                   ring_bonds.insert(bond); 
-                
+                  bond_shares[bond]++; 
+                }
                 prev = ratom; 
               }
             }
             // get the last bond
             bond = mol->GetBond(mol->GetAtom(obring->_path.front()),mol->GetAtom(obring->_path.back()));
-            if(bond)
+            if(bond){
               ring_bonds.insert(bond); 
-            
+              bond_shares[bond]++; 
+            }
             rings_seen[obring] = true; 
             local_SSSR.insert(obring);
             running = true;
@@ -2915,9 +2977,14 @@ struct BabelGraph{
       fprintf(stderr,"  ring atoms: %lu\n",ring_atoms.size());
       fprintf(stderr,"  ring bonds: %lu\n",ring_bonds.size());
       fprintf(stderr,"  ring subcycles: %lu/%lu\n",local_SSSR.size(),mol->GetSSSR().size());
-      if(bridge_count)
-        fprintf(stderr,"  bridging atoms: %d\n",bridge_count);
+      fprintf(stderr,"  bridging atoms: %d\n",bridge_count);
       
+      unsigned int max_share = 0; 
+      for(std::set<OBBond*>::iterator biter = ring_bonds.begin();biter != ring_bonds.end(); biter++)
+        if(bond_shares[*biter] > max_share)
+          max_share = bond_shares[*biter];
+
+      fprintf(stderr,"  bond share max: %d\n",max_share);
     }
 
 
@@ -3143,7 +3210,6 @@ struct BabelGraph{
 #endif
   }
 
-
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
   void ParseCyclic(OBMol *mol, OBAtom *ring_root,OBAtom *spawned_from,bool inline_ring,PathData &pd,std::string &buffer){
     if(OPT_DEBUG)
@@ -3157,11 +3223,12 @@ struct BabelGraph{
 
     std::map<OBAtom*,bool>          bridge_atoms;
     std::map<OBAtom*,unsigned int>  atom_shares;
+    std::map<OBBond*,unsigned int>  bond_shares;
     
     // can we get the local SSSR data out of this?
     SubsetData LocalSSRS_data;
 
-    if(!ConstructLocalSSRS(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,local_SSSR, LocalSSRS_data)){
+    if(!ConstructLocalSSSR(mol,ring_root,ring_atoms,ring_bonds,bridge_atoms,atom_shares,bond_shares,local_SSSR, LocalSSRS_data)){
       Fatal("failed to contruct SSSR"); 
     }
     
@@ -3176,12 +3243,14 @@ struct BabelGraph{
     if(local_SSSR.size() == 1)
       locant_path = SingleWalk(mol,path_size,local_SSSR,ring_order, ring_segment);
     else if(!multi && !bridging)
-      locant_path = PathFinerIIIa(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,ring_order,ring_segment);
+      locant_path = PathFinderIIIa(mol,path_size,ring_atoms,atom_shares,bridge_atoms,local_SSSR,ring_order,ring_segment);
     else
       locant_path = PathFinderIIIb(mol,path_size, ring_atoms, atom_shares, bridge_atoms, local_SSSR,ring_order,ring_segment); 
     if(!locant_path)
       return Fatal("no locant path could be determined");
     
+
+
     print_locant_array(locant_path, LocalSSRS_data.path_size); 
     branch_locants = LocalSSRS_data.path_size - path_size; 
     
@@ -3225,6 +3294,7 @@ struct BabelGraph{
     
 
     buffer += ring_segment; 
+    AppendPseudoLocants(mol, locant_path, LocalSSRS_data.path_size,local_SSSR,ring_bonds,bond_shares, buffer); 
     
     if(bridging){
       for(unsigned int i=0;i<LocalSSRS_data.path_size;i++){
@@ -3454,7 +3524,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
 
 #define PERCEPTION_DEBUG 1
 #if PERCEPTION_DEBUG
-    fprintf(stderr,"debugging ring perception:\n"); 
+    fprintf(stderr,"babel ring perception:\n"); 
     
     unsigned int rc = 0;
     FOR_RINGS_OF_MOL(r,mol){
