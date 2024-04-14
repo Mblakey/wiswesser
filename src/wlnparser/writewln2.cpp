@@ -185,16 +185,6 @@ void print_ring_locants(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned
 
 
 
-unsigned char highest_ring_locant(OBRing *ring, OBAtom **locant_path, unsigned int plen){
-  unsigned char loc = 0; 
-  for(unsigned int i=0;i<plen;i++){
-    if(ring->IsMember(locant_path[i]))
-      loc = i; 
-  }
-  return INT_TO_LOCANT(loc+1); 
-}
-
-
 void write_ring_size(OBRing *ring, std::string &buffer){
   if(ring->Size() < 9)
     buffer += ring->Size() + '0'; 
@@ -765,29 +755,6 @@ unsigned int connected_multicycles(OBAtom *atom, std::map<OBAtom*,unsigned int> 
 }
 
 
-
-void print_bond_locants(OBMol *mol, OBBond *bond, LocantPos*locant_path, unsigned int path_size){
-  for(unsigned int i=0;i<path_size-2;i++){
-    for(unsigned int j=i+2;j<path_size;j++){
-      if(mol->GetBond(locant_path[i].atom,locant_path[j].atom) == bond){
-        fprintf(stderr,"%c --> %c\n",locant_path[i].locant,locant_path[j].locant); 
-        break; 
-      }
-    }
-  }
-}
-
-
-bool non_sequential_path_bond(OBMol *mol, OBBond *bond, LocantPos*locant_path, unsigned int path_size){
-  for(unsigned int i=0;i<path_size-2;i++){
-    for(unsigned int j=i+2;j<path_size;j++){
-      if(mol->GetBond(locant_path[i].atom,locant_path[j].atom) == bond)
-        return true; 
-    }
-  }
-  return false; 
-}
-
 /*
 builds iteratively so ordering is correct, when a ring is filled, write the notation
 there is some bit logic to speed all this up, - concepts first, optimisation later
@@ -820,43 +787,59 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
 
 
 /*
-If there is a three share bond, there will be a ring that contains this bond AND
-another non sequential bond. If this bond does not contain the lowest locant of the three share
-pair, then the bond could never be inferred from the path. 
+ * Performs a santity check on the starting locant set, if the starting locant is impossible
+ * under path walk conditions, it must be a pseudo locant and be given a pseudo code - 
+ * This acts as a fail safe for all compounds, but its useage should be rare. 
+ * - This must be the full path size, detection made on locant value for bridging broken points
 */
-void AppendPseudoLocants(OBMol *mol, LocantPos *locant_path, unsigned int path_size, 
-                         std::set<OBRing*> &local_SSSR,
-                         std::set<OBBond*> &ring_bonds,
-                         std::map<OBBond*,unsigned int> &bond_shares, 
-                         std::string &buffer)
+void AppendPseudoLocants( OBMol *mol, LocantPos *locant_path, unsigned int starting_path_size,
+                          unsigned int path_size,
+                          std::vector<unsigned int>      &starting_locants,
+                          std::map<OBAtom*,unsigned int> &atom_shares,
+                          std::map<OBAtom*,bool>         &bridge_atoms,
+                          std::string &buffer)
 {
-  
-  return; 
-  // search the path for non sequential bonds, if shares is 3, write their position
-  std::map<OBBond*,bool> handled; 
-  for(std::set<OBBond*>::iterator biter = ring_bonds.begin();biter != ring_bonds.end(); biter++){  
-    OBBond *bond = *biter;  
-    if(bond && bond_shares[bond] >=3){
-      print_bond_locants(mol, bond, locant_path, path_size); 
-      for(std::set<OBRing*>::iterator riter = local_SSSR.begin();riter != local_SSSR.end();riter++){
-        OBRing *ring = *riter; 
-        if(ring->IsMember(bond)){
-          std::set<OBBond*> local_rbonds; 
-          FillRingBonds(mol, ring, local_rbonds);
-          for(std::set<OBBond*>::iterator lbiter = local_rbonds.begin();lbiter != local_rbonds.end(); lbiter++){
-            if(*lbiter != bond && !handled[*lbiter] && non_sequential_path_bond(mol, *lbiter, locant_path, path_size)){
-              handled[*lbiter] = true;
-              print_bond_locants(mol, *lbiter, locant_path, path_size); 
-            }
-          } 
-        }
-      }
-    }
+  std::map<unsigned int,unsigned int> allowed_connections; // mirrors read logic 
+  for(unsigned int i=0;i<path_size;i++){
+    if(i==0 || i == path_size-1)
+      allowed_connections[locant_path[i].locant] = 2; 
+    else
+      allowed_connections[locant_path[i].locant] = 1;
+
+    if(atom_shares[locant_path[i].atom] > 3)
+      allowed_connections[locant_path[i].locant]++; // these are X locants
+    
+    if(bridge_atoms[locant_path[i].atom]) 
+      allowed_connections[locant_path[i].locant]--; // bridges naturally decrement. 
   }
+  
+  for(unsigned int i=path_size; i < starting_path_size;i++){
+    allowed_connections[locant_path[i].locant] = 2; 
+    if(bridge_atoms[locant_path[i].atom])
+      allowed_connections[locant_path[i].locant]--; // bridges naturally decrement. 
+  }
+
+  // we santity check the starting points that come from the path walk, if not in the set, add pseudo
+  for (unsigned int i=0;i<starting_locants.size();i++){
+    while(!allowed_connections[starting_locants[i]])
+      starting_locants[i]++; 
+    
+    allowed_connections[starting_locants[i]]--; 
+  } 
+
+
+  for (unsigned int i=0;i<starting_locants.size();i++){
+    fprintf(stderr,"%c\n",starting_locants[i]); 
+  }
+
+
+  return; 
         // buffer += '/';
         // write_locant(locant_path[a].locant, buffer); 
         // write_locant(locant_path[b].locant, buffer); 
 }
+
+
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
@@ -982,33 +965,19 @@ void BackTrackWalk(  OBAtom *clear, LocantPos*locant_path, unsigned int path_siz
   unsigned int p=0;
   unsigned int q=0;
   for(p=0;p<path_size;p++,q++){
-    if(locant_path[p].atom == clear){
+    if(locant_path[p].atom == clear)
       break;
-    }
   }
 
   // everything from p gets cleared, but not including
   for(++p;p<path_size;p++){
     visited_atoms[locant_path[p].atom] = 0;
-    locant_path[p].atom = 0; 
+    locant_path[p].atom   = 0;
+    locant_path[p].locant = 0; 
   }
-  
   locant_pos = q+1;
 }
 
-
-bool duplicates_path(OBAtom **locant_path, unsigned int path_size){
-  bool f = 0; 
-  for(unsigned int i=0;i<path_size;i++){
-    for(unsigned int j=i+1;j<path_size;j++){
-      if(locant_path[i] && locant_path[j] && locant_path[i] == locant_path[j]){
-        fprintf(stderr,"duplicate in path - pos %d == %d\n",i,j); 
-        f = 1;
-      }
-    }
-  }
-  return f; 
-}
 
 /*
 Some rules to follow when walking the path:
@@ -1092,6 +1061,7 @@ path_solve:
           locant_path[locant_pos].atom = ratom;
           locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);
           locant_pos++; 
+
           visited[ratom] = true;
 
           write_complete_rings( mol,locant_path, starting_path_size, 
@@ -1195,7 +1165,6 @@ path_solve:
           for(unsigned int p=0;p<path_size;p++)
             visited[locant_path[p].atom] = 0;
           
-        
           peri_buffer.clear();
           handled_rings.clear();
           lring_order.clear();
@@ -1226,11 +1195,9 @@ path_solve:
       return 0; 
     }
   }
+
+  AppendPseudoLocants(mol, best_path, starting_path_size,path_size,best_locants,atom_shares,bridge_atoms,buffer); 
   
-
-  for(unsigned int i : best_locants)
-    fprintf(stderr,"%c\n",i); 
-
   path_size = best_path_size; 
   ring_order = best_order; 
   buffer = best_notation; 
@@ -3294,7 +3261,6 @@ struct BabelGraph{
     
 
     buffer += ring_segment; 
-    AppendPseudoLocants(mol, locant_path, LocalSSRS_data.path_size,local_SSSR,ring_bonds,bond_shares, buffer); 
     
     if(bridging){
       for(unsigned int i=0;i<LocalSSRS_data.path_size;i++){
