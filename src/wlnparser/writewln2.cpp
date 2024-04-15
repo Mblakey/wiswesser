@@ -82,11 +82,15 @@ static void Fatal(const char *str){
 }
 
 
-
-
 /**********************************************************************
                           Locant Path Functions
 **********************************************************************/
+
+template <typename T>
+void burn_stack(std::stack<T> &stack){
+  while(!stack.empty())
+    stack.pop(); 
+}
 
 
 void copy_locant_path(LocantPos*new_path, LocantPos*locant_path,unsigned int path_size){
@@ -168,20 +172,6 @@ unsigned int fusion_sum(OBMol *mol, LocantPos*locant_path, unsigned int path_siz
 }
 
 
-void print_ring_locants(OBMol *mol,OBRing *ring, LocantPos*locant_path, unsigned int path_size){
-  unsigned char *sequence = (unsigned char*)malloc(sizeof(unsigned char)*ring->Size()); 
-  
-  for(unsigned int i=0;i<ring->Size();i++){
-    sequence[i] = locant_path[position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)].locant; 
-  }
-
-  fprintf(stderr,"[ ");
-  for(unsigned int k=0;k<ring->Size();k++)
-    fprintf(stderr,"%c ",sequence[k]);
-  fprintf(stderr,"]\n");
-
-  free(sequence);
-}
 
 
 
@@ -328,7 +318,7 @@ unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant
 /* writes the lowest locant in the ring given, an unspecified broken locant is given 'A'-1, since
  * this is impossible under normal operations, if this locant exists, it needs specifying, and then checking
  * whether its actually the lowest locant possible in that chain */
-unsigned int write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
+unsigned int lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
   unsigned int lowest_i = 0; 
   unsigned int lowest_locant = 0; 
   unsigned int lowest_broken = 0; 
@@ -375,6 +365,77 @@ unsigned int write_lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant
   return lowest_locant; 
 }
 
+unsigned int highest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
+  unsigned int highest_locant = 0; 
+  for(unsigned int i=0;i<plen;i++){
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
+      if(!highest_locant || locant_path[i].locant > highest_locant){
+        highest_locant = locant_path[i].locant;
+      }
+    }
+  }
+  return highest_locant; 
+}
+
+
+bool IsConsecutiveLocants(LocantPos *a, LocantPos *b){
+  if(a->locant == b->locant+1)
+    return true;
+  else if(a->locant == b->locant-1)
+    return true;
+  return false; 
+}
+
+/*
+ * Performs a santity check on the ring set, if the starting locant is impossible
+ * under path walk conditions, it must be a pseudo locant and be given a pseudo code - 
+ * This acts as a fail safe for all compounds, but its useage should be rare. 
+ * - This must be the full path size, detection made on locant value for bridging broken points
+*/
+void TestPathSequences(OBMol *mol,LocantPos*locant_path, unsigned int path_size, std::vector<OBRing*> &ring_order){
+  
+  std::map<OBBond*,bool> allowed_jumps; 
+  for(unsigned int r=0;r<ring_order.size();r++){
+    OBRing *ring = ring_order[r]; 
+    LocantPos *sequence = (LocantPos*)malloc(sizeof(LocantPos)*ring->Size()); 
+    for(unsigned int i=0;i<ring->Size();i++){
+      sequence[i].atom    = locant_path[position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)].atom; 
+      sequence[i].locant  = locant_path[position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size)].locant; 
+    }
+
+    unsigned int lowest = lowest_ring_locant(mol, ring, sequence, ring->Size()); 
+    while(sequence[0].locant != lowest){
+      LocantPos tmp = sequence[0]; 
+      for(unsigned int i=0;i<ring->Size()-1;i++){
+        sequence[i] = sequence[i+1]; 
+      }
+      sequence[ring->Size()-1] = tmp; 
+    }
+
+    fprintf(stderr,"[ ");
+    for(unsigned int k=0;k<ring->Size();k++)
+      fprintf(stderr,"%c ",sequence[k].locant);
+    fprintf(stderr,"]\n");
+
+    bool non_sequential_used = false;
+
+    // always check that the ends first, as this takes highest priotrity due to fusion sum
+    if(!IsConsecutiveLocants(&sequence[0], &sequence[ring->Size()-1]) && 
+       !allowed_jumps[mol->GetBond(sequence[0].atom,sequence[ring->Size()-1].atom)])
+    {
+      
+      fprintf(stderr,"%c --> %c\n",sequence[0].locant, sequence[ring->Size()-1].locant); 
+    }
+    for(unsigned int k=1;k<ring->Size();k++){
+      if(!IsConsecutiveLocants(&sequence[k], &sequence[k-1]) && 
+         !allowed_jumps[mol->GetBond(sequence[k].atom,sequence[k-1].atom)])
+        fprintf(stderr,"%c --> %c\n",sequence[k].locant, sequence[k-1].locant); 
+    }
+    
+
+    free(sequence);
+  }
+}
 
 
 #if DEPRECATED
@@ -651,7 +712,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
     if(OPT_DEBUG && verbose){
       fprintf(stderr,"  %d(%d): %c(%d) -",rings_done,pos_to_write,lowest_in_ring,lowest_in_ring);
-      print_ring_locants(mol,to_write,locant_path,path_size,false);
+      TestPathSequences(mol,to_write,locant_path,path_size,false);
     }
 
     if(lowest_in_ring != 'A'){
@@ -764,17 +825,18 @@ max_path_size
 */
 void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
                             std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
-                            std::vector<OBRing*> &ring_order, std::vector<unsigned int> &starting_locants,
+                            std::vector<OBRing*> &ring_order, 
                             std::string &buffer)
 {
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
-      unsigned int lowest_locant = write_lowest_ring_locant(mol,*riter, locant_path, max_path_size);
+      unsigned int lowest_locant = lowest_ring_locant(mol,*riter, locant_path, max_path_size);
+    //  unsigned int highest_locant = highest_ring_locant(mol,*riter, locant_path, max_path_size); 
       if(lowest_locant != 'A'){
         buffer += ' '; 
         write_locant(lowest_locant,buffer); 
       }
-      starting_locants.push_back(lowest_locant); 
+
       write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
       ring_order.push_back(*riter);
@@ -782,63 +844,6 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
   }
 
 }
-
-
-
-
-/*
- * Performs a santity check on the starting locant set, if the starting locant is impossible
- * under path walk conditions, it must be a pseudo locant and be given a pseudo code - 
- * This acts as a fail safe for all compounds, but its useage should be rare. 
- * - This must be the full path size, detection made on locant value for bridging broken points
-*/
-void AppendPseudoLocants( OBMol *mol, LocantPos *locant_path, unsigned int starting_path_size,
-                          unsigned int path_size,
-                          std::vector<unsigned int>      &starting_locants,
-                          std::map<OBAtom*,unsigned int> &atom_shares,
-                          std::map<OBAtom*,bool>         &bridge_atoms,
-                          std::string &buffer)
-{
-  std::map<unsigned int,unsigned int> allowed_connections; // mirrors read logic 
-  for(unsigned int i=0;i<path_size;i++){
-    if(i==0 || i == path_size-1)
-      allowed_connections[locant_path[i].locant] = 2; 
-    else
-      allowed_connections[locant_path[i].locant] = 1;
-
-    if(atom_shares[locant_path[i].atom] > 3)
-      allowed_connections[locant_path[i].locant]++; // these are X locants
-    
-    if(bridge_atoms[locant_path[i].atom]) 
-      allowed_connections[locant_path[i].locant]--; // bridges naturally decrement. 
-  }
-  
-  for(unsigned int i=path_size; i < starting_path_size;i++){
-    allowed_connections[locant_path[i].locant] = 2; 
-    if(bridge_atoms[locant_path[i].atom])
-      allowed_connections[locant_path[i].locant]--; // bridges naturally decrement. 
-  }
-
-  // we santity check the starting points that come from the path walk, if not in the set, add pseudo
-  for (unsigned int i=0;i<starting_locants.size();i++){
-    while(!allowed_connections[starting_locants[i]])
-      starting_locants[i]++; 
-    
-    allowed_connections[starting_locants[i]]--; 
-  } 
-
-
-  for (unsigned int i=0;i<starting_locants.size();i++){
-    fprintf(stderr,"%c\n",starting_locants[i]); 
-  }
-
-
-  return; 
-        // buffer += '/';
-        // write_locant(locant_path[a].locant, buffer); 
-        // write_locant(locant_path[b].locant, buffer); 
-}
-
 
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
@@ -898,7 +903,6 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
       std::set<OBBond*>      ring_junctions;
       std::map<OBAtom*,bool> visited; 
       std::map<OBRing*,bool> handled_rings; 
-      std::vector<unsigned int> starting_locants; 
       unsigned int locant_pos = 0;
       
       ratom = *aiter; 
@@ -911,7 +915,7 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
         visited[ratom] = true;
 
         write_complete_rings( mol,locant_path, locant_pos, local_SSSR, handled_rings, 
-                              lring_order,starting_locants,poly_buffer); 
+                              lring_order,poly_buffer); 
         if(locant_pos >= path_size)
           break;
         
@@ -1028,7 +1032,6 @@ LocantPos *PathFinderIIIb(  OBMol *mol,        unsigned int &path_size,
   
   std::string                best_notation; 
   std::vector<OBRing*>       best_order; 
-  std::vector<unsigned int>  best_locants; 
   unsigned int               best_path_size = 0; 
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
@@ -1046,7 +1049,7 @@ LocantPos *PathFinderIIIb(  OBMol *mol,        unsigned int &path_size,
       
       unsigned int locant_pos = 0;
       path_size = starting_path_size; 
-      zero_locant_path(locant_path, path_size);
+      zero_locant_path(locant_path, starting_path_size);
       
 path_solve:        
       ratom = *aiter; 
@@ -1066,7 +1069,7 @@ path_solve:
 
           write_complete_rings( mol,locant_path, starting_path_size, 
                                 local_SSSR, handled_rings, 
-                                lring_order,starting_locants, 
+                                lring_order,
                                 peri_buffer); 
 
           if(locant_pos >= path_size)
@@ -1133,7 +1136,6 @@ path_solve:
             copy_locant_path(best_path,locant_path,starting_path_size);
             best_notation = peri_buffer; 
             best_order = lring_order;
-            best_locants = starting_locants;
             best_path_size = path_size;
           }
         }
@@ -1154,29 +1156,32 @@ path_solve:
           lring_order.clear();
           starting_locants.clear(); 
           for(unsigned int t=0;t<locant_pos;t++)
-            write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,starting_locants,peri_buffer); 
+            write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
         else if(!best_path[0].atom && !multistack.empty()){ // once you find a branch path, take it!
           // this the where the broken locants happen, pop off a multistack atom 
           OBAtom *branch_locant = multistack.top();
           multistack.pop();
           
-          // clear the path, not the map
+          // clear the path, not the map,keeps other branch locants out
           for(unsigned int p=0;p<path_size;p++)
             visited[locant_path[p].atom] = 0;
           
           peri_buffer.clear();
           handled_rings.clear();
           lring_order.clear();
-          while(!backtrack_stack.empty())
-            backtrack_stack.pop(); 
 
+          burn_stack(backtrack_stack); 
+          burn_stack(multistack);  
+          
           visited[branch_locant] = true;
           
           // set the branch locant value here
           path_size--; // decrement the path size, this is globally changed
           locant_path[path_size].atom = branch_locant; 
           locant_path[path_size].locant = 'A' - 1; // impossible under normal operations
+          
+          fprintf(stderr,"removing atom: %d\n",locant_path[path_size].atom->GetIdx()); 
           zero_locant_path(locant_path, path_size); 
           goto path_solve; 
         }
@@ -1196,8 +1201,8 @@ path_solve:
     }
   }
 
-  AppendPseudoLocants(mol, best_path, starting_path_size,path_size,best_locants,atom_shares,bridge_atoms,buffer); 
-  
+  //TestPathSequences(mol, best_path, starting_path_size,best_order); 
+
   path_size = best_path_size; 
   ring_order = best_order; 
   buffer = best_notation; 
