@@ -314,26 +314,33 @@ void update_broken_locant(OBMol* mol, LocantPos *ratom,
  * whether its actually the lowest locant possible in that chain */
 unsigned int lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
   unsigned int lowest_locant = 0; 
-  unsigned int lowest_broken = 0; 
   for(unsigned int i=0;i<plen;i++){
-    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
-      if(!lowest_locant || locant_path[i].locant < lowest_locant)
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)
+       && (!lowest_locant || locant_path[i].locant < lowest_locant)){
         lowest_locant = locant_path[i].locant;
-      else if(locant_path[i].locant >= 128){
-        if(!lowest_broken || locant_path[i].locant < lowest_broken)
-          lowest_broken = locant_path[i].locant; // not the highest 
-      }
     }
   }
-  
-  if(lowest_broken){
-    // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
-    unsigned char broken_parent = get_broken_char_parent(lowest_broken); 
-    if(!broken_parent)
-      Fatal("could not fetch off path parent for broken locant"); 
-    
-    if(broken_parent < lowest_locant)
-      lowest_locant = lowest_broken; 
+  return lowest_locant; 
+}
+
+
+unsigned int lowest_ring_locantWB(OBMol*mol, OBRing *ring, 
+                                  LocantPos* locant_path, unsigned int plen,
+                                  LocantPos* branching_path, unsigned int blen){
+  unsigned int lowest_locant = 0; 
+  for(unsigned int i=0;i<plen;i++){
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)
+       && (!lowest_locant || locant_path[i].locant < lowest_locant)){
+        lowest_locant = locant_path[i].locant;
+    }
+  }
+
+  for(unsigned int i=0;i<blen;i++){
+    if(branching_path[i].atom && ring->IsMember(branching_path[i].atom)){
+      unsigned int parent_ch = get_broken_char_parent(branching_path->locant); 
+      if(parent_ch && parent_ch < lowest_locant)
+        lowest_locant = branching_path[i].locant; 
+    }
   }
   
   return lowest_locant; 
@@ -761,6 +768,22 @@ bool IsRingComplete(OBRing *ring, LocantPos *locant_path, unsigned int path_len)
   return (size == ring->Size()); 
 }
 
+bool IsRingCompleteWB(OBRing *ring, 
+                      LocantPos *locant_path, unsigned int path_len,
+                      LocantPos *broken_path, unsigned int b_len){
+  unsigned int size = 0; 
+  for(unsigned int i=0;i<path_len;i++){
+    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom))
+      size++; 
+  }
+
+  for(unsigned int i=0;i<b_len;i++){
+    if(broken_path[i].atom && ring->IsMember(broken_path[i].atom))
+      size++; 
+  }
+
+  return (size == ring->Size()); 
+}
 
 /*  a valid starting multicyclic point cannot be nested within others, it must only point to 
  *  1 other multicyclic, within the ring walk this is not true, and both routes must be taken
@@ -784,10 +807,11 @@ as long as the sequential order is FORCED, we can take the max array size as
 max_path_size
 */
 void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
-                            std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
+                            std::set<OBRing*> &local_SSSR,
                             std::vector<OBRing*> &ring_order, 
                             std::string &buffer)
 {
+  std::map<OBRing*,bool> handled_rings; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
       unsigned int lowest_locant = lowest_ring_locant(mol,*riter, locant_path, max_path_size);
@@ -804,15 +828,17 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
 }
 
 /* same as before but allow through a branching locant array to check solves */
-void write_complete_ringsII(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
+void write_complete_ringsWB(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
                             LocantPos *branching_locants, unsigned int branch_n,
-                            std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
+                            std::set<OBRing*> &local_SSSR,
                             std::vector<OBRing*> &ring_order, 
                             std::string &buffer)
 {
+
+  std::map<OBRing*,bool> handled_rings; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
-    if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
-      unsigned int lowest_locant = lowest_ring_locant(mol,*riter, locant_path, max_path_size);
+    if(!handled_rings[*riter] && IsRingCompleteWB(*riter, locant_path, max_path_size,branching_locants,branch_n)){
+      unsigned int lowest_locant = lowest_ring_locantWB(mol,*riter, locant_path, max_path_size,branching_locants,branch_n);
       if(lowest_locant != 'A'){
         buffer += ' '; 
         write_locant(lowest_locant,buffer); 
@@ -924,7 +950,7 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
 
   std::map<OBRing*,bool> handled_rings; 
   for(unsigned int i=0;i<=path_size;i++){ // inner function are less than i, therefore <=
-    write_complete_rings( mol,best_path, i, local_SSSR, handled_rings, 
+    write_complete_rings( mol,best_path, i, local_SSSR, 
                           ring_order,buffer); 
   }
   return best_path; 
@@ -1149,11 +1175,10 @@ path_solve:
   free(locant_path);
   free(off_branches); 
 
-  std::map<OBRing*,bool> handled_rings; 
   for(unsigned int i=0;i<=path_size;i++){ // inner function are less than i, therefore <=
-    write_complete_ringsII( mol,best_path, i, 
+    write_complete_ringsWB( mol,best_path, i, 
                             best_off_branches,best_off_branch_n,
-                            local_SSSR, handled_rings, 
+                            local_SSSR,
                             ring_order,buffer); 
   }
 
