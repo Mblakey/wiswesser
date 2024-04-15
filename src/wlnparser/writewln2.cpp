@@ -283,51 +283,42 @@ void sort_locants(unsigned char *arr,unsigned int len){
 /* this does the same calculation as done in readwln, broken locants are given values
  * from 128 in the form of a binary tree, with a max tree depth of two, spawning 6
  * potential branches when needed, see readwln for tree structure and notes */
-unsigned int calculate_broken_locant(OBMol* mol, OBAtom *atom, LocantPos *locant_path, unsigned int path_size)
+void update_broken_locant(OBMol* mol, LocantPos *ratom,
+                          LocantPos *locant_path, unsigned int path_size,
+                          LocantPos *off_branches, unsigned int off_branch_n)
 {
   // if on E, then check for E-, if E- exists, create E-&
   // if either of these exist, make E--, E--& etc. 
-  
-  // involes reversing the calculation when neccessary, first of all
-  // walk back to a standard locant in the path
-  OBAtom *lowest_atom = atom; 
-  unsigned char broken_locant = 0; 
-  for(unsigned int i=0;i<path_size;i++){
-    if(mol->GetBond(locant_path[i].atom,lowest_atom)){
-      broken_locant = locant_path[i].locant;
-      lowest_atom = locant_path[i].atom;
-      break;
+
+  // since the array is layed out as follow: 
+  // E-, E-&, E--, E--&, E-&-, E-&&
+  //
+  for(unsigned int b=0;b<off_branch_n;b++){
+    if( mol->GetBond(ratom->atom,off_branches[b].atom)){
+      unsigned int off_path_char = 128 + (LOCANT_TO_INT(ratom->locant) * 6);
+
+      if(!off_branches[b].locant || off_branches[b].locant > off_path_char)
+        off_branches[b].locant = off_path_char; 
+      
+      for(unsigned int bn=0;bn<off_branch_n;bn++){ // and update its children in the tree
+       if(mol->GetBond(off_branches[b].atom, off_branches[bn].atom))
+         off_branches[bn].locant = off_branches[b].locant; 
+      }
     }
   }
  
-  // since the array is layed out as follow: 
-  // E-, E-&, E--, E--&, E-&-, E-&& 
-  unsigned int value = 128 + (LOCANT_TO_INT(broken_locant) * 6); 
-  unsigned int limit = value + 6; 
-  
-  // while this is in the path, incremement by 1. 
-  while(char_in_locant_path(value, locant_path, path_size) && value<limit)
-    value++;
-
-  if(char_in_locant_path(value, locant_path, path_size))
-    Fatal("blowing branching locant tree limit"); 
-  
-  return value; 
 }
 
 /* writes the lowest locant in the ring given, an unspecified broken locant is given 'A'-1, since
  * this is impossible under normal operations, if this locant exists, it needs specifying, and then checking
  * whether its actually the lowest locant possible in that chain */
 unsigned int lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
-  unsigned int lowest_i = 0; 
   unsigned int lowest_locant = 0; 
   unsigned int lowest_broken = 0; 
   for(unsigned int i=0;i<plen;i++){
     if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
-      if(!lowest_locant || locant_path[i].locant < lowest_locant){
+      if(!lowest_locant || locant_path[i].locant < lowest_locant)
         lowest_locant = locant_path[i].locant;
-        lowest_i = i;
-      }
       else if(locant_path[i].locant >= 128){
         if(!lowest_broken || locant_path[i].locant < lowest_broken)
           lowest_broken = locant_path[i].locant; // not the highest 
@@ -335,24 +326,7 @@ unsigned int lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path,
     }
   }
   
-  // off path locant with an unspecified value
-  if(lowest_locant == 'A'-1){
-    unsigned int broken_parent = 0; 
-    unsigned int broken_assignment = 0; 
-    
-    for(unsigned int i=0;i<plen;i++){
-      if(mol->GetBond(locant_path[i].atom,locant_path[lowest_i].atom)){
-        broken_parent = locant_path[i].locant;
-        break;
-      }
-    }
-
-    broken_assignment = calculate_broken_locant(mol, locant_path[lowest_i].atom, locant_path, plen); 
-    locant_path[lowest_i].locant = broken_assignment;
-    lowest_locant = broken_parent;  
-    
-  }
-  else if(lowest_broken){
+  if(lowest_broken){
     // get the parent, and compare to the lowest found. e.g E < E- < E-& ... < F
     unsigned char broken_parent = get_broken_char_parent(lowest_broken); 
     if(!broken_parent)
@@ -1012,10 +986,8 @@ LocantPos *PathFinderIIIb(  OBMol *mol,        unsigned int &path_size,
                             std::string                     &buffer)
 {
 
-  // create the path
-  
-  unsigned int off_branch_n = 0; 
   unsigned int locant_pos   = 0; 
+  unsigned int off_branch_n = 0; 
   
   LocantPos *locant_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
   LocantPos *best_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
@@ -1024,7 +996,8 @@ LocantPos *PathFinderIIIb(  OBMol *mol,        unsigned int &path_size,
   LocantPos *best_off_branches = (LocantPos*)malloc(sizeof(LocantPos) * 32); // hard limit 
 
   zero_locant_path(locant_path, path_size);
-  zero_locant_path(best_path, path_size); 
+  zero_locant_path(best_path, path_size);
+
   zero_locant_path(off_branches, 32); 
   zero_locant_path(best_off_branches, 32); 
 
@@ -1063,7 +1036,9 @@ path_solve:
           locant_path[locant_pos].atom = ratom;
           locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);
           locant_pos++; 
-
+          
+          // check if attached to broken, if yes, update their locants
+          update_broken_locant(mol, &locant_path[locant_pos-1], locant_path, path_size, off_branches, off_branch_n); 
           visited[ratom] = true;
 
           if(locant_pos >= path_size)
@@ -1137,12 +1112,12 @@ path_solve:
           ratom = backtrack_stack.top().second;
           BackTrackWalk(backtrack_stack.top().first, locant_path, path_size,locant_pos,visited); 
           // when we back track, if we go past the spawning atom of the broken path, undo the broken path
-          for(unsigned int b=0;b<starting_path_size;b++){
-            if(locant_path[b].atom && locant_path[b].locant >= 128){
-              if(get_broken_char_parent(locant_path[b].locant) > INT_TO_LOCANT(locant_pos))
-                locant_path[b].locant = 'A'-1;
-            }
-          }
+          // for(unsigned int b=0;b<starting_path_size;b++){
+          //   if(locant_path[b].atom && locant_path[b].locant >= 128){
+          //     if(get_broken_char_parent(locant_path[b].locant) > INT_TO_LOCANT(locant_pos))
+          //       locant_path[b].locant = 'A'-1;
+          //   }
+          // }
         }
         else if(!best_path[0].atom && !multistack.empty()){ // once you find a branch path, take it!
           // this the where the broken locants happen, pop off a multistack atom 
@@ -1155,21 +1130,12 @@ path_solve:
           burn_stack(multistack);  
           visited[branch_locant] = true;
           
-          path_size--; // decrement the path size, this is globally changed
           off_branches[off_branch_n].atom   = branch_locant; 
-          off_branches[off_branch_n].locant = 'X'; 
-
-          // deterministic algorithm, its lowest locant here, will be its lowest on the next path calculation
-          for(unsigned int p=0;p<path_size;p++){
-            if(mol->GetBond(locant_path[p].atom, branch_locant)){
-              off_branches[off_branch_n].locant = locant_path[p].locant;
-              break;
-            }
-          }
-
-
+          off_branches[off_branch_n].locant = 0; 
           off_branch_n++;
-          fprintf(stderr,"removing atom: %d\n",branch_locant->GetIdx()); 
+          path_size--; // decrement the path size, this is globally changed
+          
+          //fprintf(stderr,"removing atom: %d\n",branch_locant->GetIdx()); 
           zero_locant_path(locant_path, starting_path_size); 
           goto path_solve; 
         }
@@ -2986,11 +2952,11 @@ struct BabelGraph{
       
       if(!locant_path[i].atom){
         print_locant_array(locant_path, path_size); 
-        Fatal("dead locant path atom ptr in hetero read");
+        Fatal("dead locant path atom ptr in hetero read - atom");
       }
 
       if(!locant_path[i].locant)
-        Fatal("dead locant path position in hetero read");
+        Fatal("dead locant path position in hetero read - locant");
       
       bool carbonyl = CheckCarbonyl(locant_atom);
 
@@ -3165,7 +3131,7 @@ struct BabelGraph{
     for(unsigned int i=0;i<path_size;i++){
       if(ring_shares[locant_path[i].atom] > 2){
         count++; 
-        write_locant(INT_TO_LOCANT(i+1),append);
+        write_locant(locant_path[i].locant,append);
       }
     }
 
