@@ -829,6 +829,28 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
   }
 }
 
+/* same as before but allow through a branching locant array to check solves */
+void write_complete_ringsII(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
+                            LocantPos *branching_locants, unsigned int branch_n,
+                            std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
+                            std::vector<OBRing*> &ring_order, 
+                            std::string &buffer)
+{
+  for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
+    if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
+      unsigned int lowest_locant = lowest_ring_locant(mol,*riter, locant_path, max_path_size);
+      if(lowest_locant != 'A'){
+        buffer += ' '; 
+        write_locant(lowest_locant,buffer); 
+      }
+      
+      write_ring_size(*riter, buffer); 
+      handled_rings[*riter] = true;
+      ring_order.push_back(*riter);
+    }
+  }
+}
+
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
@@ -881,6 +903,7 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
      
       zero_locant_path(locant_path, path_size);
 
+      std::set<OBBond*>      ring_junctions;
       std::map<OBAtom*,bool> visited; 
       unsigned int locant_pos = 0;
       
@@ -990,39 +1013,43 @@ LocantPos *PathFinderIIIb(  OBMol *mol,        unsigned int &path_size,
 {
 
   // create the path
+  
+  unsigned int off_branch_n = 0; 
+  unsigned int locant_pos   = 0; 
+  
   LocantPos *locant_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
   LocantPos *best_path = (LocantPos*)malloc(sizeof(LocantPos) * path_size); 
- 
+
+  LocantPos *off_branches = (LocantPos*)malloc(sizeof(LocantPos) * 32); // hard limit 
+  LocantPos *best_off_branches = (LocantPos*)malloc(sizeof(LocantPos) * 32); // hard limit 
+
   zero_locant_path(locant_path, path_size);
   zero_locant_path(best_path, path_size); 
+  zero_locant_path(off_branches, 32); 
+  zero_locant_path(best_off_branches, 32); 
 
   OBAtom*                ratom  = 0; // ring
   OBAtom*                catom  = 0; // child
   OBAtom*                matom  = 0; // move atom
-  unsigned int           lowest_sum = UINT32_MAX;
+  unsigned int           lowest_sum         = UINT32_MAX;
   unsigned int           starting_path_size = path_size; // important if path size changes
-  
-  std::string                best_notation; 
-  std::vector<OBRing*>       best_order; 
-  unsigned int               best_path_size = 0; 
+  unsigned int           best_path_size     = 0; 
+  unsigned int           best_off_branch_n  = 0; 
 
   for(std::set<OBAtom*>::iterator aiter = ring_atoms.begin(); aiter != ring_atoms.end(); aiter++){
     // a multicyclic that connects to two other multicyclic points can never be the start, always take an edge case
     if( (atom_shares[*aiter] >= 3 && connected_multicycles(*aiter,atom_shares)<=1)  || bridge_atoms[*aiter]){ // these are the starting points 
 
-      std::string               peri_buffer; 
-      std::set<OBBond*>         ring_junctions; 
-      std::vector<OBRing*>      lring_order; 
       std::map<OBAtom*,bool>    visited; 
-      std::map<OBRing*,bool>    handled_rings;
       std::stack<OBAtom*>       multistack; 
-      std::vector<unsigned int> starting_locants; 
       std::stack<std::pair<OBAtom*,OBAtom*>> backtrack_stack;   // multicyclics have three potential routes, 
       
-      unsigned int locant_pos = 0;
+      locant_pos = 0;
+      off_branch_n = 0; 
       path_size = starting_path_size; 
       zero_locant_path(locant_path, starting_path_size);
-      
+      zero_locant_path(off_branches, 32);
+    
 path_solve:        
       ratom = *aiter; 
       locant_pos = 0;
@@ -1039,11 +1066,6 @@ path_solve:
 
           visited[ratom] = true;
 
-          write_complete_rings( mol,locant_path, starting_path_size, 
-                                local_SSSR, handled_rings, 
-                                lring_order,
-                                peri_buffer); 
-
           if(locant_pos >= path_size)
             break;
           
@@ -1054,7 +1076,6 @@ path_solve:
             if(!visited[catom]){
               // two things can happen, either we're at a ring junction or we're not
               if(IsRingJunction(mol, ratom, catom, local_SSSR)){
-                ring_junctions.insert(mol->GetBond(ratom,catom)); 
                 // if its a ring junction, we can move if this is going to/from a multicyclic point,
                 // if pointing at a multicyclic, or an edge atoms, try both
                 if( (atom_shares[ratom]>=3 || atom_shares[catom]>=3) || (bridge_atoms[ratom] || bridge_atoms[catom]) ){
@@ -1106,9 +1127,9 @@ path_solve:
           if(fsum < lowest_sum){ // rule 30d.
             lowest_sum = fsum;
             copy_locant_path(best_path,locant_path,starting_path_size);
-            best_notation = peri_buffer; 
-            best_order = lring_order;
+            copy_locant_path(best_off_branches,off_branches,32);
             best_path_size = path_size;
+            best_off_branch_n = off_branch_n; 
           }
         }
         
@@ -1122,39 +1143,29 @@ path_solve:
                 locant_path[b].locant = 'A'-1;
             }
           }
-          // this is expensive but guarantees sequential ordeirng
-          peri_buffer.clear();
-          handled_rings.clear(); 
-          lring_order.clear();
-          starting_locants.clear(); 
-          for(unsigned int t=0;t<locant_pos;t++)
-            write_complete_rings(mol,locant_path, t, local_SSSR, handled_rings, lring_order,peri_buffer); 
         }
         else if(!best_path[0].atom && !multistack.empty()){ // once you find a branch path, take it!
           // this the where the broken locants happen, pop off a multistack atom 
           OBAtom *branch_locant = multistack.top();
           multistack.pop();
-          
-          // clear the path, not the map,keeps other branch locants out
-          for(unsigned int p=0;p<path_size;p++)
+          for(unsigned int p=0;p<starting_path_size;p++)
             visited[locant_path[p].atom] = 0;
           
-          peri_buffer.clear();
-          handled_rings.clear();
-          lring_order.clear();
-
           burn_stack(backtrack_stack); 
           burn_stack(multistack);  
-          
           visited[branch_locant] = true;
           
-          // set the branch locant value here
           path_size--; // decrement the path size, this is globally changed
-          locant_path[path_size].atom = branch_locant; 
-          locant_path[path_size].locant = 'A' - 1; // impossible under normal operations
-          
-          fprintf(stderr,"removing atom: %d\n",locant_path[path_size].atom->GetIdx()); 
-          zero_locant_path(locant_path, path_size); 
+          off_branches[off_branch_n].atom   = branch_locant; 
+          off_branches[off_branch_n].locant = 'X'; 
+          off_branch_n++;
+
+          // deterministic algorithm, its lowest locant here, will be its lowest on the next path calculation
+
+
+
+          fprintf(stderr,"removing atom: %d\n",branch_locant->GetIdx()); 
+          zero_locant_path(locant_path, starting_path_size); 
           goto path_solve; 
         }
         else
@@ -1165,19 +1176,28 @@ path_solve:
   } 
 
   free(locant_path);
-  for(unsigned int i=0;i<starting_path_size;i++){
-    if(!best_path[i].atom){
-      fprintf(stderr,"Error: locant path is missing a value at %d\n",i); 
-      free(best_path);
-      return 0; 
-    }
+  free(off_branches); 
+
+  std::map<OBRing*,bool> handled_rings; 
+  for(unsigned int i=0;i<=path_size;i++){ // inner function are less than i, therefore <=
+    write_complete_ringsII( mol,best_path, i, 
+                            best_off_branches,best_off_branch_n,
+                            local_SSSR, handled_rings, 
+                            ring_order,buffer); 
   }
 
+  // add the branching locants at the back of the locant_array for indexing
+  for(unsigned int i=0;i<best_off_branch_n;i++){
+    best_path[best_path_size+i].atom = best_off_branches[i].atom; 
+    best_path[best_path_size+i].locant = best_off_branches[i].locant; 
+  }
+  free(best_off_branches);
+
+
   //TestPathSequences(mol, best_path, starting_path_size,best_order); 
+  
 
   path_size = best_path_size; 
-  ring_order = best_order; 
-  buffer = best_notation; 
   return best_path; 
 }
 
