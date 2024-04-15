@@ -405,8 +405,6 @@ void TestPathSequences(OBMol *mol,LocantPos*locant_path, unsigned int path_size,
       fprintf(stderr,"%c ",sequence[k].locant);
     fprintf(stderr,"]\n");
 
-    bool non_sequential_used = false;
-
     // always check that the ends first, as this takes highest priotrity due to fusion sum
     if(!IsConsecutiveLocants(&sequence[0], &sequence[ring->Size()-1]) && 
        !allowed_jumps[mol->GetBond(sequence[0].atom,sequence[ring->Size()-1].atom)])
@@ -785,7 +783,7 @@ bool IsRingComplete(OBRing *ring, LocantPos *locant_path, unsigned int path_len)
     if(locant_path[i].atom && ring->IsMember(locant_path[i].atom))
       size++; 
   }
-
+  
   return (size == ring->Size()); 
 }
 
@@ -819,18 +817,16 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
       unsigned int lowest_locant = lowest_ring_locant(mol,*riter, locant_path, max_path_size);
-    //  unsigned int highest_locant = highest_ring_locant(mol,*riter, locant_path, max_path_size); 
       if(lowest_locant != 'A'){
         buffer += ' '; 
         write_locant(lowest_locant,buffer); 
       }
-
+      
       write_ring_size(*riter, buffer); 
       handled_rings[*riter] = true;
       ring_order.push_back(*riter);
     }
   }
-
 }
 
 
@@ -858,12 +854,12 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
 3 and 4 are likely not needed for polycyclic, see ComplexWalk for implementation on multicyclics, bridges etc. 
 */
 LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
-                        std::set<OBAtom*>               &ring_atoms,
-                        std::map<OBAtom*,unsigned int>  &atom_shares,
-                        std::map<OBAtom*,bool>          &bridge_atoms,
-                        std::set<OBRing*>               &local_SSSR,
-                        std::vector<OBRing*>            &ring_order,
-                        std::string                     &buffer)
+                              std::set<OBAtom*>               &ring_atoms,
+                              std::map<OBAtom*,unsigned int>  &atom_shares,
+                              std::map<OBAtom*,bool>          &bridge_atoms,
+                              std::set<OBRing*>               &local_SSSR,
+                              std::vector<OBRing*>            &ring_order,
+                              std::string                     &buffer)
 {
 
   // create the path
@@ -873,7 +869,6 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
   zero_locant_path(locant_path, path_size);
   zero_locant_path(best_path, path_size); 
 
-  std::string best_notation; 
   std::vector<OBRing*> best_order; 
     
   OBAtom*                ratom  = 0; // ring
@@ -886,11 +881,7 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
      
       zero_locant_path(locant_path, path_size);
 
-      std::string poly_buffer = "";
-      std::vector<OBRing*>   lring_order; 
-      std::set<OBBond*>      ring_junctions;
       std::map<OBAtom*,bool> visited; 
-      std::map<OBRing*,bool> handled_rings; 
       unsigned int locant_pos = 0;
       
       ratom = *aiter; 
@@ -899,11 +890,8 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
         locant_path[locant_pos].atom = ratom; 
         locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);        
         locant_pos++; 
-
         visited[ratom] = true;
 
-        write_complete_rings( mol,locant_path, locant_pos, local_SSSR, handled_rings, 
-                              lring_order,poly_buffer); 
         if(locant_pos >= path_size)
           break;
         
@@ -930,22 +918,18 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
       if(fsum < lowest_sum){ // rule 30d.
         lowest_sum = fsum;
         copy_locant_path(best_path,locant_path,path_size);
-        best_notation = poly_buffer; 
-        best_order = lring_order; 
       }
     }
   }
 
   free(locant_path);
-  for(unsigned int i=0;i<path_size;i++){
-    if(!best_path[i].atom){
-      free(best_path);
-      return 0; 
-    }
-  }
   
-  ring_order = best_order; 
-  buffer = best_notation; 
+
+  std::map<OBRing*,bool> handled_rings; 
+  for(unsigned int i=0;i<=path_size;i++){ // inner function are less than i, therefore <=
+    write_complete_rings( mol,best_path, i, local_SSSR, handled_rings, 
+                          ring_order,buffer); 
+  }
   return best_path; 
 }
 
