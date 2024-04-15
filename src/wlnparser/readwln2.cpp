@@ -1772,6 +1772,9 @@ bool assign_locant(unsigned char loc,WLNSymbol *locant, WLNRing *ring){
 }  
 
 
+unsigned int get_offbranch_tree_root(unsigned int locant){
+  return 128 + (LOCANT_TO_INT(locant) * BROKEN_TREE_LIMIT); 
+}
 /*
  The broken locant conventions are as follows, the first broken position is given a value of 
  128, its extremely unlikly that a reasonable chemical will have 128 non broken cyclic atoms:
@@ -2191,7 +2194,12 @@ bool assign_locant_path_connections(WLNRing *ring, LocantPos *locant_path, unsig
     
     if(bridge_locants[loc])
       locant_path[i].allowed_connections--; // decrement any bridging positions
-    
+
+    // for(unsigned int ei=0;ei<curr->barr_n;ei++){
+    //   if(ring->locants_ch[curr->bond_array[ei].child] > 128 && locant_path[i].allowed_connections > 2)
+    //     locant_path[i].allowed_connections--; 
+    // }
+
     if(prev){
       if(!AddEdge(curr, prev))
         return false;
@@ -2210,6 +2218,59 @@ LocantPos *fetch_branch_locant(WLNRing*ring, unsigned int locant_value, LocantPo
   }
 
   return branch; 
+}
+
+void traverse_branching_locants(WLNRing *ring,unsigned int start_char,
+                                LocantPos *branch_locants, unsigned int b_locant,
+                                std::vector<WLNSymbol*> &off_paths){
+  
+  // need to check each sub tree and move off if not seen. 
+  unsigned int btree_val = get_offbranch_tree_root(start_char);
+  LocantPos* offbranch_locant = fetch_branch_locant(ring, btree_val, branch_locants, b_locant);   
+  LocantPos *next_off_branch = 0; 
+  WLNSymbol *sym = 0; 
+
+  if(!offbranch_locant)
+    return; 
+  
+  // since the off branches are limited, is it more sensible to hard code?
+  if(!offbranch_locant->active)
+    off_paths.push_back(offbranch_locant->locant);  // check the A-
+  for(unsigned int ei=0;ei<offbranch_locant->locant->barr_n;ei++){
+    sym = offbranch_locant->locant->bond_array[ei].child;
+    if(ring->locants_ch[sym]>128){
+      next_off_branch = fetch_branch_locant(ring, 
+                                            ring->locants_ch[sym],
+                                            branch_locants,b_locant); 
+      
+      if(!next_off_branch->active){
+
+        off_paths.push_back(next_off_branch->locant);
+        break;
+      }
+    }
+  }
+  
+  if(off_paths.empty()){
+    offbranch_locant = fetch_branch_locant(ring, btree_val+1, branch_locants, b_locant);   
+    if(!offbranch_locant)
+      return; 
+    
+    if(!offbranch_locant->active)
+      off_paths.push_back(offbranch_locant->locant);  // check the A-& tree
+    for(unsigned int ei=0;ei<offbranch_locant->locant->barr_n;ei++){
+      sym = offbranch_locant->locant->bond_array[ei].child;
+      if(ring->locants_ch[sym]>128){
+        next_off_branch = fetch_branch_locant(ring, 
+                                              ring->locants_ch[sym],
+                                              branch_locants,b_locant); 
+        if(!next_off_branch->active){
+          off_paths.push_back(next_off_branch->locant);
+          break;
+        }
+      }
+    }
+  }
 }
 
 void AromatiseSymbolPath(std::vector<WLNSymbol*> &symbol_path){
@@ -2286,22 +2347,43 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
     unsigned char end_char    = 0; 
     unsigned int  over_shoot  = 0; // simplification on the end of chain logic 
     
-    LocantPos *start_locant   = 0;
-    LocantPos *curr_locant    = 0; 
+    LocantPos *start_locant     = 0;
+    LocantPos *curr_locant      = 0; 
     
     unsigned int pseudo_back_bond = 0; 
     unsigned int total_highest    = 0; // allow for branch
-    unsigned int last_locant      = 0; // rare mega backtrack
     std::stack<std::pair<WLNEdge*,unsigned int>> backtrack_stack; // both in order to move to child, plus path size 
     
     std::vector<WLNSymbol*> symbol_path; 
-    std::vector<WLNSymbol*> best_path; 
+    std::vector<WLNSymbol*> best_path;
+    std::vector<WLNSymbol*> off_paths; // for arom only
     
-    if(start_char < 128)
+    if(start_char < 128){
       start_locant = &locant_path[ LOCANT_TO_INT(start_char-1) ]; 
+      
+      // if b_locant, this the the spawn condition for maximal branching chains 
+      // we want to decend down the branch tree as long as there is a path with non-active branch locants
+      if(b_locant){
+        traverse_branching_locants(ring, start_char, branch_locants, b_locant, off_paths); 
+        path_size += off_paths.size(); 
+      }
+
+    }
     else{
       start_locant = fetch_branch_locant(ring, start_char, branch_locants, b_locant);
-      start_locant->active = true; 
+      start_locant->active = true;
+
+      // check its children for off locants
+      for(unsigned int ei=0;ei < start_locant->locant->barr_n;ei++){
+        WLNSymbol *bchild = start_locant->locant->bond_array[ei].child; 
+        unsigned int b_val = ring->locants_ch[start_locant->locant->bond_array[ei].child];
+        if(ring->locants_ch[bchild] >= 128 && !fetch_branch_locant(ring, b_val, branch_locants, b_locant)->active){
+          off_paths.push_back(bchild);
+          path_size++;
+          break; 
+        }
+      }
+      
     }
     curr_locant = start_locant; 
     symbol_path.push_back(start_locant->locant); 
@@ -2379,7 +2461,6 @@ unsigned int PathSolverIII( std::vector<std::pair<unsigned int,unsigned int>>   
           else
             curr_locant = fetch_branch_locant(ring, highest_loc, branch_locants, b_locant);  
           
-          last_locant = highest_loc; 
           symbol_path.push_back(curr_locant->locant);
           end_char = highest_loc; 
           path_size++; 
@@ -2466,7 +2547,18 @@ pseudo_jump:
       for(;;){
 
         if(start_locant->allowed_connections > 0){
+
+          if(!off_paths.empty()){
+            start_locant->allowed_connections--; 
+            for(unsigned int b=0;b<off_paths.size();b++){  
+              start_locant = fetch_branch_locant(ring, ring->locants_ch[off_paths[b]], branch_locants, b_locant);
+              start_char = ring->locants_ch[start_locant->locant]; 
+              best_path.push_back(off_paths[b]);
+              start_locant->active = true;
+            }
+          }
           
+#if OLD_BROKEN
           bool broken_shifting = true; 
           while(broken_shifting){
             broken_shifting = false; 
@@ -2497,7 +2589,7 @@ pseudo_jump:
               broken_shifting = true; 
             }
           }
-
+#endif
           if(OPT_DEBUG){
             if(start_char >= 128 && end_char <= 128)
               fprintf(stderr,"  fusing  (%d): %d --> %c",comp_size,start_char,end_char);
@@ -2509,9 +2601,13 @@ pseudo_jump:
               fprintf(stderr,"  fusing  (%d): %c --> %c",comp_size,start_char,end_char);
             
             fprintf(stderr," [ "); 
-            for (WLNSymbol *ch: best_path)
-              fprintf(stderr,"%c, ",ring->locants_ch[ch]);  
-            fprintf(stderr,"]\n"); 
+            for (WLNSymbol *ch: best_path){
+              if(ring->locants_ch[ch] < 128)
+                fprintf(stderr,"%c, ",ring->locants_ch[ch]);  
+              else
+                fprintf(stderr,"%d, ",ring->locants_ch[ch]);  
+            }
+              fprintf(stderr,"]\n"); 
           }
           
           WLNEdge *new_edge = AddEdge(curr_locant->locant,start_locant->locant);  
@@ -2528,6 +2624,7 @@ pseudo_jump:
           break;
         }
         else{
+
           // increase the start char and move the path locant
           start_char++;
           start_locant = &locant_path[LOCANT_TO_INT(start_char-1)]; 
@@ -2539,6 +2636,15 @@ pseudo_jump:
           else{
             end_char--; 
             best_path.pop_back(); 
+          }
+
+          // whenever we move the start char, also need to check if its got broken locants
+          if(b_locant){
+            traverse_branching_locants(ring, start_char, branch_locants, b_locant, off_paths); 
+            for(unsigned int p=0;p<off_paths.size();p++)
+              best_path.pop_back();
+            
+            end_char = ring->locants_ch[best_path.back()]; 
           }
           
           curr_locant = &locant_path[LOCANT_TO_INT(end_char-1)]; 

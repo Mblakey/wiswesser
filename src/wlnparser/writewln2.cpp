@@ -365,18 +365,6 @@ unsigned int lowest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path,
   return lowest_locant; 
 }
 
-unsigned int highest_ring_locant(OBMol*mol, OBRing *ring, LocantPos* locant_path, unsigned int plen){
-  unsigned int highest_locant = 0; 
-  for(unsigned int i=0;i<plen;i++){
-    if(locant_path[i].atom && ring->IsMember(locant_path[i].atom)){
-      if(!highest_locant || locant_path[i].locant > highest_locant){
-        highest_locant = locant_path[i].locant;
-      }
-    }
-  }
-  return highest_locant; 
-}
-
 
 bool IsConsecutiveLocants(LocantPos *a, LocantPos *b){
   if(a->locant == b->locant+1)
