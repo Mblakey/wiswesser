@@ -1158,12 +1158,17 @@ path_solve:
           path_size--; // decrement the path size, this is globally changed
           off_branches[off_branch_n].atom   = branch_locant; 
           off_branches[off_branch_n].locant = 'X'; 
-          off_branch_n++;
 
           // deterministic algorithm, its lowest locant here, will be its lowest on the next path calculation
+          for(unsigned int p=0;p<path_size;p++){
+            if(mol->GetBond(locant_path[p].atom, branch_locant)){
+              off_branches[off_branch_n].locant = locant_path[p].locant;
+              break;
+            }
+          }
 
 
-
+          off_branch_n++;
           fprintf(stderr,"removing atom: %d\n",branch_locant->GetIdx()); 
           zero_locant_path(locant_path, starting_path_size); 
           goto path_solve; 
