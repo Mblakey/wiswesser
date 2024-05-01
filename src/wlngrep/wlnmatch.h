@@ -17,6 +17,7 @@ DFA, NFA and eNFA simultion.
 
 #define BUFF_SIZE 2048
 #define SINGLE_CHAR 0
+#define PDA 0
 
 struct MatchOptions{
 
@@ -118,10 +119,12 @@ bool isTerminator(unsigned char ch){
 
 // If not on locant, pop stack
 bool PopAmpersand(std::stack<unsigned char> &amp_stack){
+#if PDA
   if(amp_stack.empty())
     return false;
 
   amp_stack.pop(); 
+#endif
   return true; 
 }
 

@@ -193,7 +193,7 @@ void write_ring_size(OBRing *ring, std::string &buffer){
 }
 
 /* calculates the locant path A->X site for a broken locant */
-unsigned char get_broken_char_parent(unsigned int locant){
+unsigned char broken_parent_char(unsigned int locant){
   for(unsigned char ch = 'A'; ch < 'X';ch++){ // could expand this later on
     if(locant >= 128+(LOCANT_TO_INT(ch)*6) && locant < 128+(LOCANT_TO_INT(ch)*6) +6) 
       return ch; 
@@ -207,7 +207,7 @@ void static write_locant(unsigned int locant,std::string &buffer){
     unsigned int loc_start = 0; 
     unsigned int offset = 0; 
     
-    loc_start = get_broken_char_parent(locant); 
+    loc_start = broken_parent_char(locant); 
     if(!loc_start)
       Fatal("could not fetch off path parent for broken locant"); 
 
@@ -254,13 +254,17 @@ void static write_locant(unsigned int locant,std::string &buffer){
   }
 }
 
-static void print_locant_array(LocantPos* locant_path, unsigned int size){
+static void print_locant_array(LocantPos* locant_path, unsigned int size,bool locants=false){
   fprintf(stderr,"[ ");
   for(unsigned int i=0; i<size;i++){
     if(!locant_path[i].atom)
       fprintf(stderr,"0 ");
-    else
-      fprintf(stderr,"%d ",locant_path[i].atom->GetIdx());
+    else{
+      if(locants)
+        fprintf(stderr,"%d ",locant_path[i].locant);
+      else
+        fprintf(stderr,"%d ",locant_path[i].atom->GetIdx());
+    }
   }
     
   fprintf(stderr,"]\n");
@@ -283,7 +287,7 @@ void sort_locants(unsigned char *arr,unsigned int len){
 /* this does the same calculation as done in readwln, broken locants are given values
  * from 128 in the form of a binary tree, with a max tree depth of two, spawning 6
  * potential branches when needed, see readwln for tree structure and notes */
-void update_broken_locant(OBMol* mol, LocantPos *ratom,
+void update_broken_locants(OBMol* mol, LocantPos *ratom,
                           LocantPos *locant_path, unsigned int path_size,
                           LocantPos *off_branches, unsigned int off_branch_n)
 {
@@ -292,17 +296,28 @@ void update_broken_locant(OBMol* mol, LocantPos *ratom,
 
   // since the array is layed out as follow: 
   // E-, E-&, E--, E--&, E-&-, E-&&
-  //
   for(unsigned int b=0;b<off_branch_n;b++){
     if( mol->GetBond(ratom->atom,off_branches[b].atom)){
+
+      // this could be E- or E-&, where E- should always get set first. 
+      unsigned int movement = 1;
+      unsigned int offset = 1; // skip the E-& 
       unsigned int off_path_char = 128 + (LOCANT_TO_INT(ratom->locant) * 6);
+      // check the atom, does it already have a E-, if so E-&, this has to be exact.
+      if(off_branches[b].locant == off_path_char){
+        off_path_char++; // move it to E-&;
+        movement = 1; 
+        offset = 0; // E-& E-&- and E-&& are all in a line
+      }
 
       if(!off_branches[b].locant || off_branches[b].locant > off_path_char)
         off_branches[b].locant = off_path_char; 
       
       for(unsigned int bn=0;bn<off_branch_n;bn++){ // and update its children in the tree
-       if(mol->GetBond(off_branches[b].atom, off_branches[bn].atom))
-         off_branches[bn].locant = off_branches[b].locant; 
+       if(mol->GetBond(off_branches[b].atom, off_branches[bn].atom)){
+          //if(!off_branches[bn].locant || off_branches[bn].locant > off_branches[b].locant)
+            off_branches[bn].locant = off_branches[b].locant + offset + movement++;
+        }
       }
     }
   }
@@ -337,7 +352,7 @@ unsigned int lowest_ring_locantWB(OBMol*mol, OBRing *ring,
 
   for(unsigned int i=0;i<blen;i++){
     if(branching_path[i].atom && ring->IsMember(branching_path[i].atom)){
-      unsigned int parent_ch = get_broken_char_parent(branching_path->locant); 
+      unsigned int parent_ch = broken_parent_char(branching_path->locant); 
       if(parent_ch && parent_ch < lowest_locant)
         lowest_locant = branching_path[i].locant; 
     }
@@ -361,9 +376,28 @@ bool IsConsecutiveLocants(LocantPos *a, LocantPos *b){
  * This acts as a fail safe for all compounds, but its useage should be rare. 
  * - This must be the full path size, detection made on locant value for bridging broken points
 */
-void TestPathSequences(OBMol *mol,LocantPos*locant_path, unsigned int path_size, std::vector<OBRing*> &ring_order){
+void TestPathSequences( OBMol *mol,LocantPos*locant_path, unsigned int path_size, 
+                        std::vector<OBRing*> &ring_order,std::map<OBAtom*,unsigned int> &atom_shares,
+                        std::map<OBAtom*,bool> &bridge_atoms, std::string &buffer){
   
   std::map<OBBond*,bool> allowed_jumps; 
+  std::map<unsigned int,unsigned int> allowed_connection; 
+
+  // set up an allowed connections similar to read logic, but only needed on first char
+  for(unsigned int i=0;i<path_size;i++){
+    unsigned int a = locant_path[i].locant; 
+    if(i==0 || i == path_size-1)
+      allowed_connection[a] = 2;
+    else
+      allowed_connection[a] = 1;
+
+    if(atom_shares[locant_path[i].atom] > 3)
+      allowed_connection[a]++;
+
+    if(bridge_atoms[locant_path[i].atom])
+      allowed_connection[a]--; 
+  }
+
   for(unsigned int r=0;r<ring_order.size();r++){
     OBRing *ring = ring_order[r]; 
     LocantPos *sequence = (LocantPos*)malloc(sizeof(LocantPos)*ring->Size()); 
@@ -381,6 +415,9 @@ void TestPathSequences(OBMol *mol,LocantPos*locant_path, unsigned int path_size,
       sequence[ring->Size()-1] = tmp; 
     }
 
+    while(allowed_connection[lowest] < 1)
+      lowest++; 
+
     fprintf(stderr,"[ ");
     for(unsigned int k=0;k<ring->Size();k++)
       fprintf(stderr,"%c ",sequence[k].locant);
@@ -389,17 +426,34 @@ void TestPathSequences(OBMol *mol,LocantPos*locant_path, unsigned int path_size,
     // always check that the ends first, as this takes highest priotrity due to fusion sum
     if(!IsConsecutiveLocants(&sequence[0], &sequence[ring->Size()-1]) && 
        !allowed_jumps[mol->GetBond(sequence[0].atom,sequence[ring->Size()-1].atom)])
-    {
-      
-      fprintf(stderr,"%c --> %c\n",sequence[0].locant, sequence[ring->Size()-1].locant); 
+    { 
+      allowed_jumps[mol->GetBond(sequence[0].atom,sequence[ring->Size()-1].atom)] = true; 
     }
-    for(unsigned int k=1;k<ring->Size();k++){
-      if(!IsConsecutiveLocants(&sequence[k], &sequence[k-1]) && 
-         !allowed_jumps[mol->GetBond(sequence[k].atom,sequence[k-1].atom)])
-        fprintf(stderr,"%c --> %c\n",sequence[k].locant, sequence[k-1].locant); 
-    }
-    
 
+    for(unsigned int k=1;k<ring->Size();k++){
+      if( mol->GetBond(sequence[k].atom,sequence[k-1].atom) && 
+          !IsConsecutiveLocants(&sequence[k], &sequence[k-1]) && 
+          !allowed_jumps[mol->GetBond(sequence[k].atom,sequence[k-1].atom)] 
+          && (sequence[k].locant < 128 && sequence[k-1].locant < 128)){
+
+        if(sequence[k-1].locant == lowest || sequence[k].locant==lowest)
+          allowed_jumps[mol->GetBond(sequence[k].atom,sequence[k-1].atom)] = true; 
+        else{
+          if(sequence[k].locant < sequence[k-1].locant){
+            buffer += '/'; 
+            write_locant(sequence[k].locant, buffer); 
+            write_locant(sequence[k-1].locant, buffer); 
+          }
+          else{
+            buffer += '/'; 
+            write_locant(sequence[k-1].locant, buffer); 
+            write_locant(sequence[k].locant, buffer); 
+          }
+        }
+      }
+    }
+
+    allowed_connection[lowest]--; 
     free(sequence);
   }
 }
@@ -807,11 +861,11 @@ as long as the sequential order is FORCED, we can take the max array size as
 max_path_size
 */
 void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
-                            std::set<OBRing*> &local_SSSR,
+                            std::set<OBRing*> &local_SSSR, 
+                            std::map<OBRing*,bool>  &handled_rings, 
                             std::vector<OBRing*> &ring_order, 
                             std::string &buffer)
 {
-  std::map<OBRing*,bool> handled_rings; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingComplete(*riter, locant_path, max_path_size)){
       unsigned int lowest_locant = lowest_ring_locant(mol,*riter, locant_path, max_path_size);
@@ -830,12 +884,11 @@ void write_complete_rings(  OBMol *mol, LocantPos *locant_path, unsigned int max
 /* same as before but allow through a branching locant array to check solves */
 void write_complete_ringsWB(  OBMol *mol, LocantPos *locant_path, unsigned int max_path_size, 
                             LocantPos *branching_locants, unsigned int branch_n,
-                            std::set<OBRing*> &local_SSSR,
+                            std::set<OBRing*> &local_SSSR, std::map<OBRing*,bool> &handled_rings,
                             std::vector<OBRing*> &ring_order, 
                             std::string &buffer)
 {
 
-  std::map<OBRing*,bool> handled_rings; 
   for(std::set<OBRing*>::iterator riter = local_SSSR.begin(); riter != local_SSSR.end(); riter++){
     if(!handled_rings[*riter] && IsRingCompleteWB(*riter, locant_path, max_path_size,branching_locants,branch_n)){
       unsigned int lowest_locant = lowest_ring_locantWB(mol,*riter, locant_path, max_path_size,branching_locants,branch_n);
@@ -850,7 +903,6 @@ void write_complete_ringsWB(  OBMol *mol, LocantPos *locant_path, unsigned int m
     }
   }
 }
-
 
 /*  standard ring walk, can deal with all standard polycyclics without an NP-Hard
     solution, fusion sum is the only filter rule needed here, for optimal branch, 
@@ -950,7 +1002,7 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
 
   std::map<OBRing*,bool> handled_rings; 
   for(unsigned int i=0;i<=path_size;i++){ // inner function are less than i, therefore <=
-    write_complete_rings( mol,best_path, i, local_SSSR, 
+    write_complete_rings( mol,best_path, i, local_SSSR,handled_rings, 
                           ring_order,buffer); 
   }
   return best_path; 
@@ -1064,7 +1116,7 @@ path_solve:
           locant_pos++; 
           
           // check if attached to broken, if yes, update their locants
-          update_broken_locant(mol, &locant_path[locant_pos-1], locant_path, path_size, off_branches, off_branch_n); 
+          update_broken_locants(mol, &locant_path[locant_pos-1], locant_path, path_size, off_branches, off_branch_n); 
           visited[ratom] = true;
 
           if(locant_pos >= path_size)
@@ -1137,13 +1189,6 @@ path_solve:
         if(!backtrack_stack.empty()){
           ratom = backtrack_stack.top().second;
           BackTrackWalk(backtrack_stack.top().first, locant_path, path_size,locant_pos,visited); 
-          // when we back track, if we go past the spawning atom of the broken path, undo the broken path
-          // for(unsigned int b=0;b<starting_path_size;b++){
-          //   if(locant_path[b].atom && locant_path[b].locant >= 128){
-          //     if(get_broken_char_parent(locant_path[b].locant) > INT_TO_LOCANT(locant_pos))
-          //       locant_path[b].locant = 'A'-1;
-          //   }
-          // }
         }
         else if(!best_path[0].atom && !multistack.empty()){ // once you find a branch path, take it!
           // this the where the broken locants happen, pop off a multistack atom 
@@ -1175,10 +1220,11 @@ path_solve:
   free(locant_path);
   free(off_branches); 
 
+  std::map<OBRing*,bool> handled_rings; 
   for(unsigned int i=0;i<=path_size;i++){ // inner function are less than i, therefore <=
     write_complete_ringsWB( mol,best_path, i, 
                             best_off_branches,best_off_branch_n,
-                            local_SSSR,
+                            local_SSSR,handled_rings, 
                             ring_order,buffer); 
   }
 
@@ -1187,12 +1233,18 @@ path_solve:
     best_path[best_path_size+i].atom = best_off_branches[i].atom; 
     best_path[best_path_size+i].locant = best_off_branches[i].locant; 
   }
-  free(best_off_branches);
 
 
-  //TestPathSequences(mol, best_path, starting_path_size,best_order); 
+  print_locant_array(best_off_branches, best_off_branch_n);
+  print_locant_array(best_path, best_path_size); 
   
 
+
+  TestPathSequences(mol, best_path, starting_path_size,ring_order,atom_shares,bridge_atoms,buffer); 
+  
+
+
+  free(best_off_branches);
   path_size = best_path_size; 
   return best_path; 
 }
@@ -3211,7 +3263,6 @@ struct BabelGraph{
     
 
 
-    print_locant_array(locant_path, LocalSSRS_data.path_size); 
     branch_locants = LocalSSRS_data.path_size - path_size; 
     
     if(OPT_DEBUG){

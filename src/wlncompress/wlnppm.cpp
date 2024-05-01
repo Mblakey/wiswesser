@@ -8,11 +8,11 @@
 #include "ctree.h"
 #include "wlnzip.h"
 
-#define NGRAM 6
+#define NGRAM 1
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
-#define FSM_EXCLUSION 1
-#define FSM_ADAPT 1
+#define FSM_EXCLUSION 0
+#define FSM_ADAPT 0
 #define ESCAPE_INCREASE 0
 /* linked list bitstream, just for single string encoding
  * purposes 

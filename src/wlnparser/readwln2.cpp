@@ -7717,6 +7717,9 @@ bool ReadWLN(const char *ptr, OBMol* mol)
   if(!ParseWLNString(ptr,wln_graph))
     return false;
 
+#if OPT_DEBUG
+  WriteGraph(wln_graph, "wln-graph.dot"); 
+#endif
     // needs to be this order to allow K to take the methyl groups
   if(!WLNKekulize(wln_graph))
     return Fatal(len,"Error: failed to kekulize mol");

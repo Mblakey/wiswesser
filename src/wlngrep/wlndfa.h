@@ -79,7 +79,7 @@ FSMState * InsertAcyclic(FSMAutomata *acyclic){
   
   // allow repeats
   acyclic->AddTransition(branch,branch,'&');
-  acyclic->AddTransition(branch,open_dash,'&');
+  acyclic->AddTransition(branch,open_dash,'-');
 
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     switch(ch){
@@ -521,7 +521,7 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   wln->AddTransition(macro_size, macro_size,'x'); 
   wln->AddTransition(macro_close, macro_close,'&');
 
-  FSMState *macro_pass_through = wln->AddState();
+  FSMState *macro_pass_through = wln->AddState(false);
 
   for(unsigned char ch = 'A';ch <= 'Z';ch++)
     wln->AddTransition(macro_pass_through, macro_pass_through, ch); 
@@ -539,13 +539,11 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
 
 
   wln->AddTransition(inline_open,inline_locant,' '); // make use of the epsilons here
-  
   wln->AddTransition(multiple_closures,inline_open,'-');
   
   FSMState *spiro_open = wln->AddState(false); 
   FSMState *spiro_confirm = wln->AddState(false); 
   FSMState *spiro_locant = wln->AddState(false); 
-
 
   for(unsigned char ch = 'A';ch <= 'Z';ch++){
     wln->AddTransition(spiro_locant, macro_open, ch);
@@ -560,7 +558,7 @@ void BuildWLNFSM2(FSMAutomata *wln, bool charges_on=true){
   for(unsigned int i=0;i<wln->num_states;i++){
     if(wln->states[i]->accept){
       wln->AddTransition(wln->states[i],locant_open,' ');
-  
+ 
       if(wln->states[i] != cycle_accept){
         wln->AddTransition(wln->states[i],inline_open,'-');
         wln->AddTransition(wln->states[i],out_double,'U');
