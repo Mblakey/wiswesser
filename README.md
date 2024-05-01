@@ -3,15 +3,12 @@
 * WLN Parser               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
 * WLN FSM                  - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
 * WLN Compresser      - compress WLN strings using markov decision processes. <br>
-* WLN Generator         - reinforcement learning approach for fast generation of target molecule descriptors without any deep learning. <br>
-
 
 This is Linux and MacOS software only. <br>
 
 Note: This project is solely created by Michael as part of his PhD work, if you are interested using the project, or find any bugs or issues, reporting them would be extremely helpful. 
 
 <img src="./docs/intro_wln.png" width="800">
-
 
 ## Requirements
 
@@ -32,7 +29,6 @@ This repository contains a broad range of functionality using WLN notation for v
 * [WLN Conversion - Read and Write](./docs/convert.md) <br>
 * [WLN Compression - Lossless Compress/Decompress](./docs/compress.md)<br>
 * [WLN Extract - FSM wlngrep](./docs/extract.md) <br>
-* [WLN Generation - AI-less Q-learning reinforcement generation](./docs/generate.md) <br>
 
 
 ## Unit Testing
