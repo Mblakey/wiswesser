@@ -3,14 +3,13 @@
 
 #include "readdot.h"
 #include "rfsm.h"
-#include "wlndfa.h"
 #include "wlnzip.h"
 
 const char *input;
 const char *dotfile;
 unsigned int mode = 0; 
 
-#define DEFLATE 1 
+#define DEFLATE 0 
 
 static void DisplayUsage()
 {

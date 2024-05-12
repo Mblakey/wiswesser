@@ -8,10 +8,10 @@
 #include "ctree.h"
 #include "wlnzip.h"
 
-#define NGRAM 1
+#define NGRAM 4
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
-#define FSM_EXCLUSION 0
+#define FSM_EXCLUSION 1
 #define FSM_ADAPT 0
 #define ESCAPE_INCREASE 0
 /* linked list bitstream, just for single string encoding
@@ -290,11 +290,12 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
     }
   }
      
-//  WriteDotFile(root, stdout); 
   
   Append(0, bitstream);
   Append(1, bitstream);
   out_bits+=2; 
+  
+  WriteDotFile(root, stdout); 
 
   fprintf(stderr,"%d/%d bits = %f\n",out_bits,read_bytes*8, (read_bytes*8)/(double)out_bits); 
   RReleaseTree(root);
@@ -351,11 +352,19 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
     unsigned int Cn = 0;
     unsigned int e_o = 1; 
 
+
     if(!curr_context){
+#if FSM_ADAPT
+      for(FSMEdge *e = state->transitions;e;e=e->nxt){
+        if(!ascii_exclude[e->ch]) 
+          T+= e->c; 
+      }  
+#else
       for(unsigned int a=0;a<255;a++){
         if(wlnmodel->alphabet[a] && !ascii_exclude[a])
           T+= 1; 
       }
+#endif
     }
     else{
       for(cedge=curr_context->leaves;cedge;cedge=cedge->nxt){
@@ -363,9 +372,9 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
           T+= cedge->dwn->c;
       }
 #if ESCAPE_INCREASE
-      e_o += escape_counts[curr_context]; 
+      e_o += escape_counts[curr_context];
 #endif 
-      T+= e_o; 
+      T += e_o; 
     }
 
     unsigned int range = ((unsigned int)high+1)-(unsigned int)low;
@@ -398,7 +407,6 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
              
               BuildContextTree(root, (const char*)lookback, seen_context,UPDATE_EXCLUSION);
               memset(ascii_exclude,0,255);
-
               curr_context = UpdateCurrentContext(root,lookback,seen_context);    
               break;
             }
@@ -416,7 +424,11 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
           if(scaled_sym >= Cc && scaled_sym < Cn){   
             found = true;
             fputc(cedge->dwn->ch,stdout);
-
+            state = state->access[cedge->dwn->ch]; 
+            if(!state){
+              fprintf(stderr,"Error: invalid state movement - %c\n",cedge->dwn->ch); 
+              return 0; 
+            }
             if(seen_context < NGRAM)
               lookback[seen_context++] = cedge->dwn->ch;
             else{   
@@ -451,7 +463,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
     }
 
     unsigned int new_low = (unsigned int)low + (unsigned int)floor((range*Cc)/T); 
-    unsigned int new_high = (unsigned int)low + (unsigned int)floor((range*Cn)/T)-1;  // should there be a minus 1 here?
+    unsigned int new_high = (unsigned int)low + (unsigned int)floor((range*Cn)/T)-1;
      
      // truncate down
     low = new_low;
@@ -484,7 +496,8 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
         encoded |= bit->b;
         if(bit->nxt)
           bit = bit->nxt;
-    
+        else
+          bit->b = 1; // endless 111..... 
 
         high <<= 1; 
         high ^= (1 << 15);

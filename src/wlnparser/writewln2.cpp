@@ -3077,7 +3077,7 @@ struct BabelGraph{
             if(locant_atom->GetFormalCharge() != 0){
               buffer += '<';
               buffer += het_char; 
-              ModernCharge(locant_path[i], buffer);
+              ModernCharge(locant_path[i].atom, buffer);
               buffer += '>';
             }
             else 

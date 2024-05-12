@@ -293,6 +293,7 @@ Submodels differ mainly in their contexts.  These are as follows:
 a. DefaultModel.  (n0,n1) = (1,1) regardless of context.
 
 b. CharModel (N-gram model).  A context consists of the last 0 to N whole
+
 bytes, plus the 0 to 7 bits of the partially read current byte.
 The maximum N depends on the -MEM option as shown in the table below.
 The order 0 and 1 contexts use a counter state lookup table rather
@@ -1429,7 +1430,6 @@ public:
 //////////////////////////// defaultModel ////////////////////////////
 
 // DefaultModel predicts P(1) = 0.5
-
 class DefaultModel: public Model {
 public:
   void model() {mixer.write(1, 1);}
@@ -1439,10 +1439,11 @@ public:
 
 // A CharModel contains n-gram models from 0 to 9
 
+#define TWEAKS 1
 class CharModel: public Model {
   enum {N=10};        // Number of models
   Counter *t0, *t1;   // Model orders 0, 1 [256], [65536]
-  CounterMap t2, t3, t4, t5, t6, t7, t8, t9;  // Model orders 2-9
+  CounterMap t2, t3, t4, t5, t6, t7, t8, t9;  // Model orders 2-11
   U32 *cxt;           // Context hashes [N]
   Counter *cp0, *cp1; // Pointers to counters in t0, t1
 public:
@@ -1504,7 +1505,7 @@ inline void CharModel::model() {
   }
   if (MEM>=5) {
     t8.write();
-    t9.add();
+    t9.write();
   }
 }
 
@@ -1526,7 +1527,7 @@ class MatchModel: public Model {
 public:
   MatchModel(): N(17+MEM-(MEM>=6)), ptr(new U32[1 << N]) {
     memset(ptr, 0, (1 << N)*sizeof(U32));                             
-    hash[0]=hash[1]=0;
+    hash[0]hash[1]=0;
     for (int i=0; i<M; ++i)
       begin[i]=end[i]=0;
   }
@@ -1891,9 +1892,12 @@ class Predictor {
   MatchModel matchModel;
   RecordModel recordModel;
   SparseModel sparseModel;
+
+#if ROGUE_MODELS
   AnalogModel analogModel;
-  WordModel wordModel;
   ExeModel exeModel;
+#endif
+  WordModel wordModel;
 
   enum {SSE1=256*4*2, SSE2=32,  // SSE dimensions (contexts, probability bins)
     SSESCALE=1024/SSE2};      // Number of mapped probabilities between bins
@@ -1985,11 +1989,16 @@ inline void Predictor::update(int y) {
   if (MEM>=4) {
     recordModel.model();
     sparseModel.model();
+#if ROGUE_MODELS
     analogModel.model();
+#endif
     wordModel.model();
   }
+
+#if ROGUE_MODELS
   if (MEM>=3)
     exeModel.model();
+#endif
 
   // Combine probabilities
   nextp=mixer.predict();
