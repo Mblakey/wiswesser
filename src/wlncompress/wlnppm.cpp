@@ -8,7 +8,7 @@
 #include "ctree.h"
 #include "wlnzip.h"
 
-#define NGRAM 4
+#define NGRAM 10
 #define TERMINATE 127 // DEL character
 #define UPDATE_EXCLUSION 0
 #define FSM_EXCLUSION 1
@@ -295,9 +295,8 @@ BitStream* WLNPPMCompressBuffer(const char *str, FSMAutomata *wlnmodel){
   Append(1, bitstream);
   out_bits+=2; 
   
-  WriteDotFile(root, stdout); 
-
   fprintf(stderr,"%d/%d bits = %f\n",out_bits,read_bytes*8, (read_bytes*8)/(double)out_bits); 
+  fprintf(stdout,"%d\t%d\n",out_bits,read_bytes*8); 
   RReleaseTree(root);
   return bitstream; 
 }
@@ -390,7 +389,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
             if(a == TERMINATE)
               return true;
             else{
-              fputc(a,stdout);
+              fputc(a,stderr);
               state = state->access[a]; 
               if(!state){
                 fprintf(stderr,"Error: invalid state movement - %c\n",a); 
@@ -423,7 +422,7 @@ bool WLNPPMDecompressBuffer(BitStream *bitstream, FSMAutomata *wlnmodel){
           Cn += cedge->dwn->c; 
           if(scaled_sym >= Cc && scaled_sym < Cn){   
             found = true;
-            fputc(cedge->dwn->ch,stdout);
+            fputc(cedge->dwn->ch,stderr);
             state = state->access[cedge->dwn->ch]; 
             if(!state){
               fprintf(stderr,"Error: invalid state movement - %c\n",cedge->dwn->ch); 
@@ -1029,3 +1028,4 @@ bool WLNPPMDecompressFile(FILE *ifp, FSMAutomata *wlnmodel){
   RReleaseTree(root); 
   return true; 
 }
+

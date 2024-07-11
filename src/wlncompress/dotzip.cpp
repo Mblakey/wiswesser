@@ -170,7 +170,7 @@ int main(int argc, char *argv[]){
     if(!WLNPPMDecompressBuffer(bitstream, dotmodel))
       return 1; 
     
-    fprintf(stdout,"\n"); 
+    fprintf(stderr,"\n"); 
     DeleteStream(bitstream); 
   }
 #endif

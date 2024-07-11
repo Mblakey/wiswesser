@@ -2788,6 +2788,7 @@ bool FormWLNRing(WLNRing *ring, const char *wln_block,unsigned int i, unsigned i
 
   unsigned char ch = wln_block[i];
   while(i < len){
+    ring->str_notation+=ch; 
 
 character_start_ring:
     if(state_multi == 3 && ch != '-' && ch != '&'){
@@ -3637,12 +3638,12 @@ character_start_ring:
 #endif
   ring->rsize = final_size;
   ring->multi_points = multicyclic_locants.size(); 
-  ring->pseudo_points = pseudo_locants.size(); 
-  
-    for (unsigned int i=0;i<252;i++){
-      if(bridge_locants[i])
-        ring->bridge_points++; 
-    }
+  ring->pseudo_points = pseudo_locants.size();
+
+  for (unsigned int i=0;i<252;i++){
+    if(bridge_locants[i])
+      ring->bridge_points++; 
+  }
 
   for (std::pair<unsigned int, unsigned char> comp : ring_components){    
       ring->assignment_locants.push_back(comp.second); 
@@ -7025,7 +7026,6 @@ bool CanonicalWLNRing(WLNSymbol *node, WLNGraph &graph,WLNSymbol *ignore, std::s
 
   // expect the node to be within a ring, fetch ring and write the cycle
   WLNRing *ring = node->inRing; 
-  
   if(ring->macro_return){
     buffer += ring->str_notation[0];
     buffer += '-'; 
