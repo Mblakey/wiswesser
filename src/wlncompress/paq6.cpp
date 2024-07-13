@@ -559,7 +559,9 @@ This will prevent any confusion about versions or archive compatibility.
 Also, give yourself credit in the help message.
 */
 
+#include <stdio.h> 
 #include <sys/types.h>
+
 #define PROGNAME "PAQ6"  // Please change this if you change the program
 
 #define hash ___hash  // To avoid Digital MARS name collision
@@ -576,6 +578,7 @@ Also, give yourself credit in the help message.
 #include <algorithm>
 #include <map>
 #undef hash
+
 using namespace std;
 
 const int PSCALE=4096;  // Integer scale for representing probabilities
@@ -1527,7 +1530,7 @@ class MatchModel: public Model {
 public:
   MatchModel(): N(17+MEM-(MEM>=6)), ptr(new U32[1 << N]) {
     memset(ptr, 0, (1 << N)*sizeof(U32));                             
-    hash[0]hash[1]=0;
+    hash[0]=0,hash[1]=0;
     for (int i=0; i<M; ++i)
       begin[i]=end[i]=0;
   }

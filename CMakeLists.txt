@@ -1,12 +1,7 @@
-
-project(wisswesser)
 cmake_minimum_required(VERSION 3.21)
+project(wisswesser)
 
-
-if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(MACOSX TRUE)
-endif()
-
+message(STATUS "CMake System: ${CMAKE_SYSTEM_NAME}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3 -std=c++11")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -44,22 +39,22 @@ add_executable(wlnzip
 
 
 # this will not compile on Arm64 // fix at later date
-if(!MACOS)
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   add_executable(wlnpaq6
     ${PROJECT_SOURCE_DIR}/src/wlncompress/paq6.cpp
   )
   set_target_properties(wlnpaq6 PROPERTIES COMPILE_OPTIONS "-m32" LINK_FLAGS "-m32") 
 endif() 
 
-
-add_executable(dotzip 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/dotzip.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/wlndeflate.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/lempelz.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
-  ${PROJECT_SOURCE_DIR}/src/wlncompress/context_trie.cpp
-)
+#
+# add_executable(dotzip 
+#   ${PROJECT_SOURCE_DIR}/src/wlncompress/dotzip.cpp
+#   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlnppm.cpp 
+#   ${PROJECT_SOURCE_DIR}/src/wlncompress/wlndeflate.cpp 
+#   ${PROJECT_SOURCE_DIR}/src/wlncompress/lempelz.cpp
+#   ${PROJECT_SOURCE_DIR}/src/wlncompress/huffman.cpp
+#   ${PROJECT_SOURCE_DIR}/src/wlncompress/context_trie.cpp
+# )
 
 #add_executable(compareFP
 #  ${PROJECT_SOURCE_DIR}/src/wlnFP/compareFP.cpp

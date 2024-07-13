@@ -22,11 +22,11 @@ GNU General Public License for more details.
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include <set>
 #include <deque>
 #include <string>
-#include <strings.h>
 #include <vector>
 #include <map>
 
@@ -58,7 +58,6 @@ using namespace OpenBabel;
 
 // --- DEV OPTIONS  ---
 #define OPT_CORRECT 0
-
 
 const char *wln_input;
 struct WLNSymbol;
@@ -750,7 +749,6 @@ WLNSymbol *AllocateWLNSymbol(unsigned char ch, WLNGraph &graph)
 }
 
 bool IsTerminator(WLNSymbol *symbol){
-
   switch(symbol->ch){
     case 'E':
     case 'F':
@@ -759,8 +757,10 @@ bool IsTerminator(WLNSymbol *symbol){
     case 'Q':
     case 'Z':
       return true;
+
+    default:
+      return false;
   }
-  return false;
 }
 
 bool IsBranching(WLNSymbol *symbol){
