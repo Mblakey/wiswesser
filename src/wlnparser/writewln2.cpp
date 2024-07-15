@@ -418,10 +418,10 @@ void TestPathSequences( OBMol *mol,LocantPos*locant_path, unsigned int path_size
     while(allowed_connection[lowest] < 1)
       lowest++; 
 
-    fprintf(stderr,"[ ");
-    for(unsigned int k=0;k<ring->Size();k++)
-      fprintf(stderr,"%c ",sequence[k].locant);
-    fprintf(stderr,"]\n");
+    // fprintf(stderr,"[ ");
+    // for(unsigned int k=0;k<ring->Size();k++)
+    //   fprintf(stderr,"%c ",sequence[k].locant);
+    // fprintf(stderr,"]\n");
 
     // always check that the ends first, as this takes highest priotrity due to fusion sum
     if(!IsConsecutiveLocants(&sequence[0], &sequence[ring->Size()-1]) && 
@@ -1234,15 +1234,7 @@ path_solve:
     best_path[best_path_size+i].locant = best_off_branches[i].locant; 
   }
 
-
-  print_locant_array(best_off_branches, best_off_branch_n);
-  print_locant_array(best_path, best_path_size); 
-  
-
-
   TestPathSequences(mol, best_path, starting_path_size,ring_order,atom_shares,bridge_atoms,buffer); 
-  
-
 
   free(best_off_branches);
   path_size = best_path_size; 
@@ -3532,7 +3524,7 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
   BabelGraph obabel;
 
-#define PERCEPTION_DEBUG 1
+#define PERCEPTION_DEBUG 0
 #if PERCEPTION_DEBUG
     fprintf(stderr,"babel ring perception:\n"); 
     
