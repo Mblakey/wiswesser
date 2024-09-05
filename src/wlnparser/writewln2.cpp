@@ -45,6 +45,8 @@ GNU General Public License for more details.
 
 using namespace OpenBabel; 
 
+#define OPT_DEBUG 0
+
 #define WLNDEBUG 0
 #define REASONABLE 1024
 #define MACROTOOL 0
@@ -417,11 +419,6 @@ void TestPathSequences( OBMol *mol,LocantPos*locant_path, unsigned int path_size
 
     while(allowed_connection[lowest] < 1)
       lowest++; 
-
-    // fprintf(stderr,"[ ");
-    // for(unsigned int k=0;k<ring->Size();k++)
-    //   fprintf(stderr,"%c ",sequence[k].locant);
-    // fprintf(stderr,"]\n");
 
     // always check that the ends first, as this takes highest priotrity due to fusion sum
     if(!IsConsecutiveLocants(&sequence[0], &sequence[ring->Size()-1]) && 

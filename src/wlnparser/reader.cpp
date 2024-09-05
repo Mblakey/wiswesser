@@ -1,22 +1,30 @@
+/*********************************************************************
+ 
+Author : Michael Blakey
 
+This file is part of the Open Babel project.
+For more information, see <http://openbabel.org/>
 
-#include <cstring>
-#include <stdlib.h>
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation version 2 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+***********************************************************************/
+
 #include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
 
 #include "parser.h"
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
-#include <openbabel/atom.h>
-#include <openbabel/bond.h>
 #include <openbabel/obconversion.h>
-#include <openbabel/obiter.h>
-#include <openbabel/kekulize.h>
-#include <openbabel/ring.h>
 #include <openbabel/babelconfig.h>
-#include <openbabel/obmolecformat.h>
-#include <openbabel/graphsym.h>
 
 const char *cli_inp;
 const char *format; 
@@ -40,8 +48,15 @@ static void DisplayHelp()
                   " line notation (wln), the parser is native C\n"
                   " with a plug in function to OpenBabel\n"
         );
+  fprintf(stderr, " Input is expected to either be a WLN string\n"
+                  " or a file of WLN strings seperated with newline\n"
+                  " characters. Detection is done by checking for a\n"
+                  " file extension seperator . \n"
+        );
+
   DisplayUsage();
 }
+
 
 static void ProcessCommandLine(int argc, char *argv[])
 {
@@ -58,19 +73,17 @@ static void ProcessCommandLine(int argc, char *argv[])
 
   for (i = 1; i < argc; i++)
   {
-
     ptr = argv[i];
 
-    if (ptr[0] == '-' && ptr[1]){
+    if (ptr[0] == '-' && ptr[1]) {
 
-      if(ptr[1] >= 'A' && ptr[1] <= 'Z' && !j){
+      if (ptr[1] >= 'A' && ptr[1] <= 'Z' && !j) {
         cli_inp = ptr;
         j++; 
       }
     
-      else{
-        switch (ptr[1])
-        {
+      else {
+        switch (ptr[1]) {
 
         case 'h':
           DisplayHelp();
@@ -101,46 +114,44 @@ static void ProcessCommandLine(int argc, char *argv[])
             format  = "WLN";
             break;
           }
-          else{
+          else {
             fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','can','key','wln']\n");
             DisplayUsage();
           } 
         
         case '-':
-          if(!strcmp(ptr, "--old")){
+          if (!strcmp(ptr, "--old")) {
             opt_old = true;
             break;
           }
           
-
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
         }
       }
     }
-    else{
-      switch (j)
-      {
-      case 0:
-        cli_inp = ptr;
-        break;
-      
-      default:
-        fprintf(stderr,"Error: wln string already set - %s\n",cli_inp);
-        DisplayUsage();
+    else {
+      switch (j) {
+        case 0:
+          cli_inp = ptr;
+          break;
+        
+        default:
+          fprintf(stderr,"Error: wln string already set - %s\n",cli_inp);
+          DisplayUsage();
       }
       j++;
     }
   }
 
-  if(!format){
+  if (!format) {
     fprintf(stderr,"Error: no output format selected\n");
     DisplayUsage();
   }
 
-  if(!cli_inp){
-    fprintf(stderr,"Error: no input string entered\n");
+  if (!cli_inp) {
+    fprintf(stderr,"Error: no input entered\n");
     DisplayUsage();
   }
 
@@ -149,11 +160,11 @@ static void ProcessCommandLine(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+  OpenBabel::OBMol mol;
+  OpenBabel::OBConversion conv;
+  
   ProcessCommandLine(argc, argv);
   
-  std::string res;
-  OBMol mol;
-
   if(opt_old){
     if(!NMReadWLN(cli_inp,&mol))
       return 1;
@@ -163,14 +174,11 @@ int main(int argc, char *argv[])
       return 1;
   }
   else{
-    if(!ReadWLN(cli_inp,&mol))
+    if(!C_ReadWLN(cli_inp,&mol))
       return 1;
-    OBConversion conv;
-    conv.AddOption("h",OBConversion::OUTOPTIONS);
+    conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
     conv.SetOutFormat(format);
-
-    res = conv.WriteString(&mol);
-    std::cout << res;
+    conv.Write(&mol,&std::cout);
   }
   return 0;
 }
