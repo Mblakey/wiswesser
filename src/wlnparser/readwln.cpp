@@ -32,13 +32,18 @@ GNU General Public License for more details.
 
 #define DEBUG_FUNCS 1
 
+#define SPACE_READ  0x01 
+#define DIGIT_READ  0x02 
+#define RING_READ   0x04
+
+#define CARBON  6
+#define NITRO   7
+#define OXYGEN  8
+
 typedef struct symbol_t symbol_t; 
 
 /* returns atomic number of element packing */
-u16 get_atomic_num(u16 id){
-  u8 high = id >> 8;
-  u8 low  = id & 0x00FF; 
-  
+u16 get_atomic_num(u8 high, u8 low){
   switch (high){
     case 'A':
       switch (low) {
@@ -397,33 +402,21 @@ u16 get_atomic_num(u16 id){
         return 40;
       break;
   }
-
   return 0;
 }
 
 
-static __always_inline u16 pack_idenitifer(u8 high, u8 low)
-{
-  u16 r = high; 
-  r <<= 8; 
-  r += low; 
-  return r; 
-}
-
 typedef struct {
-  symbol_t* p; 
   symbol_t* c; 
   u8 order; 
 } edge_t; 
 
 struct symbol_t {
-  u16 identifier;   // packed 2 chars.
-  u8 valence_pack;  // [  max u4    ][ curr     u4 ]  0-8 range
-  u8 prop_pack;     // [ charge s4  ][ explit.H u4 ] -7 - +7 range
+  u8 atomic_num;   
+  u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
   u8 n_bonds; 
-  edge_t *bonds[MAX_DEGREE]; // directional (most memory usage)
+  edge_t bonds[MAX_DEGREE]; // directional (most memory usage)
 };
-
 
 typedef struct {
   symbol_t *s; 
@@ -441,68 +434,62 @@ typedef struct {
 typedef struct {
   u16 s_num; 
   u16 s_max; 
-  u16 e_num; 
-  u16 e_max; 
   symbol_t  *symbols; 
-  edge_t    *edges; 
 } graph_t; 
 
 
-static void alloc_graph_t(graph_t *g, size_t size)
+static void alloc_graph_t(graph_t *g, const size_t size)
 {
   g->s_num    = 0; 
-  g->e_num    = 0; 
   g->s_max    = size; 
-  g->e_max    = size; 
-  
   g->symbols = (symbol_t*)malloc(sizeof(symbol_t) * size);  
-  g->edges   = (edge_t*)malloc(sizeof(edge_t) * size);  
 }
 
-static void realloc_graph_t(graph_t *g, size_t size)
+static void realloc_graph_t(graph_t *g, const size_t size)
 {
   g->s_max += size; 
-  g->e_max   += size; 
-  
   g->symbols = (symbol_t*)realloc(g->symbols,sizeof(symbol_t) * g->s_max);  
-  g->edges   = (edge_t*)realloc(g->edges,sizeof(edge_t) * g->e_max);  
 }
 
 static void free_graph_t(graph_t *g)
 {
   free(g->symbols); 
-  free(g->edges); 
-  memset(g,0, (sizeof(u16) * 4) + sizeof(symbol_t*) + sizeof(edge_t*)); 
+  memset(g,0, (sizeof(u16) * 4) + sizeof(symbol_t*)); 
 }
 
 
-static symbol_t* add_symbol(graph_t *g, u16 id, u8 lim_valence){
-  if(g->s_num == g->s_max)
-    realloc_graph_t(g,g->s_max + REASONABLE); 
-  
-  symbol_t *s = &g->symbols[g->s_num++]; 
-  s->identifier = id; 
+static symbol_t* overwrite_symbol(graph_t *g, symbol_t *s, const u16 id, const u8 lim_valence)
+{
+  s->atomic_num = id; 
   s->n_bonds = 0;
   s->valence_pack = lim_valence; 
   s->valence_pack <<= 4; 
   return s; 
 }
 
-static edge_t* add_edge(graph_t *g, symbol_t *p, symbol_t *c, u8 state_unsaturate)
+static symbol_t* add_symbol(graph_t *g, symbol_t *c, const u16 id, const u8 lim_valence)
 {
-  state_unsaturate++; 
-  if(g->e_num == g->e_max)
-    realloc_graph_t(g,g->e_max + REASONABLE); 
+  if(g->s_num == g->s_max)
+    realloc_graph_t(g,g->s_max + REASONABLE); 
   
-  edge_t *e = &g->edges[g->e_num++]; 
-  e->p = p; 
-  e->c = c; 
-  e->order = state_unsaturate; 
+  symbol_t *s = &g->symbols[g->s_num++];
+  memset(s, 0, sizeof(symbol_t)); 
+  return overwrite_symbol(g, s, id, lim_valence); 
+}
 
-  e->p->bonds[p->n_bonds++] = e; 
-  p->valence_pack += state_unsaturate; 
-  c->valence_pack += state_unsaturate; 
-  
+static __always_inline edge_t* next_virtual_edge(symbol_t *p)
+{
+  edge_t *e = &p->bonds[p->n_bonds++]; 
+  e->order = 1; // allows unsaturate_edge on U read 
+  return e; 
+}
+
+static edge_t* spawn_edge(edge_t *e, symbol_t *p, symbol_t *c)
+{ 
+  e->c = c; 
+  p->valence_pack += e->order; 
+  c->valence_pack += e->order; 
+
   // TODO - nibble bit trick is definitely possible
   if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
       (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
@@ -518,20 +505,6 @@ static edge_t* add_edge(graph_t *g, symbol_t *p, symbol_t *c, u8 state_unsaturat
 
 // TODO - remove these once stable framework 
 #if DEBUG_FUNCS 
-static void debug_symbol(symbol_t *s) 
-{
-  fprintf(stderr, "symbol has: %d bonds valence: %d/%d\n", 
-          s->n_bonds, s->valence_pack & 0x0F, s->valence_pack >> 4);
-  
-  for (u16 i=0; i<s->n_bonds; i++)
-    fprintf(stderr,"  edge %d: %p\n",i,s->bonds[i]); 
-}
-
-static void debug_edge(edge_t *e) 
-{
-  fprintf(stderr, "edge (%p --> %p): order: %d\n", e->p, e->c, e->order);
-}
-
 static void graph_to_dotfile(FILE *fp, graph_t *g)
 {
   fprintf(fp, "digraph WLNdigraph {\n");
@@ -542,18 +515,11 @@ static void graph_to_dotfile(FILE *fp, graph_t *g)
   {
     symbol_t *node = &g->symbols[i]; 
 
-    fprintf(fp, "  %lu", node-offset);
-    u8 u = node->identifier >> 8;
-    u8 l = node->identifier & 0x00ff;
-    if(l)
-      fprintf(fp, "[shape=circle,label=\"%c%c\"];\n", u,l);
-    else
-      fprintf(fp, "[shape=circle,label=\"%c\"];\n", u); // avoid null byte in dot file 
-  
+    fprintf(fp, "  %lu [shape=circle,label=\"%d\"];\n", node-offset, node->atomic_num);
     for (u16 j=0;j<node->n_bonds;j++){
-      edge_t *edge = node->bonds[j];
+      edge_t *edge = &node->bonds[j];
       for (u8 b=0; b<edge->order; b++) 
-        fprintf(fp, "  %lu -> %lu;\n",edge->p-offset, edge->c-offset);
+        fprintf(fp, "  %lu -> %lu;\n",node-offset, edge->c-offset);
     }
   }
   fprintf(fp, "}\n");
@@ -566,6 +532,8 @@ typedef struct  {
   u8 arom; 
 } r_assignment; 
 
+
+#if 0
 static int path_solverIII(graph_t *g, ring_t *r, 
                           r_assignment *SSSR, u8 SSSR_ptr, 
                           u8 state_pseudo) 
@@ -576,7 +544,8 @@ static int path_solverIII(graph_t *g, ring_t *r,
    * 2. When lookback locants /XX are used, path property is 
    *    broken and a flood fill required. 
    */
-    
+   
+  edge_t *e; 
   locant *l;
   locant *start, *end; 
   u8 steps;
@@ -586,7 +555,7 @@ static int path_solverIII(graph_t *g, ring_t *r,
   // create the initial chain
   l = &r->path[0]; 
   if (!l->s) {
-    l->s = add_symbol(g, pack_idenitifer('C', 0), 4); 
+    l->s = add_symbol(g, 6, 4); 
     l->hloc = 1; 
     l->r_pack += 0x2; 
   }
@@ -594,8 +563,9 @@ static int path_solverIII(graph_t *g, ring_t *r,
   for (u16 i=1; i<r->size-1; i++) {
     l = &r->path[i]; 
     if (!l->s) { // edges might be made from unsaturates
-      l->s = add_symbol(g, pack_idenitifer('C', 0), 4); 
-      add_edge(g, r->path[i-1].s, l->s, 0); 
+      l->s = add_symbol(g, 6, 4); 
+      e = next_virtual_edge(r->path[i-1].s); 
+      e = spawn_edge(e, r->path[i-1].s, l->s); 
     }
     r->path[i-1].hloc = i; 
   }
@@ -611,7 +581,8 @@ static int path_solverIII(graph_t *g, ring_t *r,
       for (u16 s=0; s<steps; s++)
         end = &r->path[start->hloc]; 
       
-      add_edge(g, start->s, end->s, 0); 
+      e = next_virtual_edge(start->s); 
+      e = spawn_edge(e, start->s, end->s); 
       start->hloc = end - &r->path[0]; 
     }
 
@@ -625,7 +596,7 @@ static int path_solverIII(graph_t *g, ring_t *r,
 
   return 1;   
 }
-
+#endif
 
 static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g) 
 {
@@ -721,19 +692,39 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
 }
 
 
-static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p, u8 state_unsaturate, int size)
+static symbol_t *add_alkyl_chain(graph_t *g, edge_t *e, symbol_t *p, int size)
 {
+  return 0;
+#if 0
   symbol_t *c=0;  
   for (u16 i=0; i<size; i++) {
-    c = add_symbol(g, pack_idenitifer('C', 0), 3);
-    if(p)
-      add_edge(g, p, c, state_unsaturate); 
+    c = add_symbol(g, 6, 3);
+    if(p) 
+      spawn_edge(p, c); 
     state_unsaturate = 0; 
     p = c;  
   }
-  return c; 
+  return c;
+#endif
 }
 
+static void default_methyls(graph_t *g, symbol_t *c, u8 n)
+{
+  edge_t *e; 
+  symbol_t *m; 
+  for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
+    m = add_symbol(g, c, 6, 4); 
+    e = next_virtual_edge(c); 
+    e = spawn_edge(e, c, m); 
+  }
+  c->n_bonds = 0;  
+}
+
+
+/*
+ * -- Parse WLN Notation --
+ *
+ */
 static int parse_wln(const char *ptr, graph_t *g)
 {
   edge_t   *e=0; 
@@ -745,24 +736,27 @@ static int parse_wln(const char *ptr, graph_t *g)
   u8 alkyl_len  = 0; 
   u8 ring_chars = 0; 
   
-  u8 state = 0; // bit field:
-                // [][][][ring skip][U2][U1][digit][space]
+  u8 state = 0; // bit field: ordering allows quick U checks
+                // [][][U2][U1][0][ring skip][digit][space]
 
   u16 stack_ptr = 0; 
   struct stack_frame {
-    union f_addr{
+    union f_addr{ // safter than void* cast. 
       symbol_t *s; 
       ring_t   *r; 
     } addr; 
-    signed char close; // -1 for (ring_t*) else (symbol_t*) 
+    signed char ref; // -1 for (ring_t*) else (symbol_t*) 
   } stack[REASONABLE]; 
   
+  // avoids a branch on each symbol case
+  symbol_t* (*sym_fnPtr[2])(graph_t*, symbol_t*, const u16, const u8) = {&overwrite_symbol, &add_symbol}; 
+
   unsigned char ch = 1; 
   while(ch) {
     ch = *(ptr++);
     switch (ch) {
       case '0':
-        if (state < 0x2) {
+        if (state < DIGIT_READ) {
           fprintf(stderr,"Error: zero numeral without prefix digits\n"); 
           return 0; 
         }
@@ -779,13 +773,23 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '7':
       case '8':
       case '9':
-        if (state == 0x10)
+        if (state == RING_READ)
           ring_chars++; 
         else {
           alkyl_len *= 10; 
           alkyl_len += ch - '0'; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
-            c = add_alkyl_chain(g, p, state & 0xC, alkyl_len); 
+
+            if (e && e->c) {
+              c = overwrite_symbol(g, e->c, 6, 3); // overwrite the head node 
+              e = spawn_edge(e, p, c); 
+
+             // c = add_alkyl_chain(g, p, state & 0x30, alkyl_len-1); 
+            }
+            else 
+              c = add_symbol(g, c, 6, 4); 
+
+            state &= ~(0x30); 
             alkyl_len = 0; 
             p = c; 
           }
@@ -804,109 +808,129 @@ static int parse_wln(const char *ptr, graph_t *g)
         break; 
      
       case 'J':
-        if (1) {
-
-
-        }
-        else if (state == 0x10 && 
-                 (*ptr == '&' || *ptr == ' ' || *ptr == 0)) 
-        {
-          // J can be used inside ring notation, requires lookahead 
-          // condition 
-          
-          // note: the ptr passed in does not include the starting L/T or ending J
-          r = parse_cyclic(ptr-ring_chars, ptr-2, g);
-          if (!r) 
-            return 0; 
-          else {
-            stack[stack_ptr].addr.r = r; 
-            stack[stack_ptr++].close = -1; 
-            state &= ~(0x10);  
+        if (state == RING_READ) {
+        
+          if (*ptr == '&' || *ptr == ' ' || *ptr == 0) {
+            // J can be used inside ring notation, requires lookahead 
+            // condition 
+            
+            // note: the ptr passed in does not include the starting L/T or ending J
+            r = parse_cyclic(ptr-ring_chars, ptr-2, g);
+            if (!r) 
+              return 0; 
+            else {
+              stack[stack_ptr].addr.r = r; 
+              stack[stack_ptr++].ref = -1; 
+              state &= ~(0x04);
+              ring_chars = 0; 
+            }
           }
+          else
+            ring_chars++; 
         }
+
         break; 
 
       
       case 'L':
       case 'T':
-        ring_chars++; 
+        if (state == RING_READ) {
+          ring_chars++; 
+        }
         break; 
-      
-
-      case 'X':
-        if (state == 0x10) 
+     
+#if 0
+      /* nitrogen symbols */
+      case 'N':
+        if (state == RING_READ) 
           ring_chars++; 
         else {
-          c = add_symbol(g, pack_idenitifer('X', 0), 4); 
+          c = add_symbol(g, 7, 3); 
           stack[stack_ptr].addr.s = c; 
-          stack[stack_ptr].close = 3;
-          stack_ptr++; 
+          stack[stack_ptr++].ref = 2;
           if (p) {
-            e = add_edge(g, p, c, state & 0xC); 
-            state &= ~(0xC); 
+            e = spawn_edge(p, c); 
+            state &= ~(0x30); 
           }
           p = c; 
         }
         break;
-
+#endif
 
       case 'Y':
-        if (state == 0x10) 
+        if (state == RING_READ) 
           ring_chars++; 
         else {
-          c = add_symbol(g, pack_idenitifer('Y', 0), 3); 
-          stack[stack_ptr].addr.s = c; 
-          stack[stack_ptr].close  = 2;
-          stack_ptr++; 
-          if (p) {
-            e = add_edge(g, p, c, state & 0xC); 
-            state &= ~(0xC); 
+          
+          if (e) {
+            c = sym_fnPtr[(e->c==0)](g, c, CARBON, 4); 
+            e = spawn_edge(e, p, c); 
           }
+          else 
+            c = add_symbol(g, c, CARBON, 4); 
+
+          //default_methyls(g, c, 3);  
+
+          stack[stack_ptr].addr.s = c; 
+          stack[stack_ptr].ref  = 2;
+          stack_ptr++; 
+          
           p = c; 
+          e = next_virtual_edge(c); 
         }
         break;
       
 
       case ' ':
-        if (state == 0x10) 
+        if (state == RING_READ)
           ring_chars++; 
         break; 
 
       case '&':
-        if (state == 0x10) 
+        if (state == RING_READ) 
           ring_chars++; 
         else {
           if (!stack_ptr) {
-            fprintf(stderr,"Error: backtracking stack is empty\n");
+            fprintf(stderr,"Error: backtracking stack is empty - too many &\n");
             return 0; 
           }
-          else if (stack[stack_ptr-1].close == -1) {
+          else if (stack[stack_ptr-1].ref == -1) {
             // ring closures  
             free(stack[--stack_ptr].addr.r);
             stack[stack_ptr].addr.r = 0; 
-            stack[stack_ptr].close = 0; 
-          } 
+            stack[stack_ptr].ref = 0; 
+          }
           else {
             // stack logic for implied closures
-            while (stack_ptr > 0 && stack[stack_ptr-1].close != 0) {
-              c = stack[stack_ptr-1].addr.s;
-              if ((c->valence_pack & 0x0F) == (c->valence_pack >> 4))
+            while (stack_ptr) { 
+              c = stack[stack_ptr-1].addr.s; 
+              if (stack[stack_ptr-1].ref == 0) 
                 stack_ptr--; 
               else
                 break;
             }
-            stack[stack_ptr-1].close--; 
-            stack_ptr -= (stack[stack_ptr-1].close == 0); 
-            p = c; 
+            
+            if (!stack_ptr) {
+              fprintf(stderr,"Error: backtrack stack is empty - too many &\n");
+              return 0; 
+            }
+            else { 
+              stack[stack_ptr-1].ref--; 
+              p = c;
+            }
           }
         }
         break;
 
       case 'U':
-        if (state == 0x10) 
-          ring_chars++; 
-        else 
-          ;//state_unsaturate++; 
+        if (state == 0x04) 
+          ring_chars++;
+        else if (e)
+          e->order++; // should be virtual here
+        else {
+          fprintf(stderr,"Error: unsaturation called without previous bond\n");
+          return 0;
+        }
         break; 
 
       case 0:
@@ -922,7 +946,7 @@ static int parse_wln(const char *ptr, graph_t *g)
 }
 
 
-OpenBabel::OBAtom* ob_add_atom(OpenBabel::OBMol* mol, u16 elem, char charge, u8 hcount)
+OpenBabel::OBAtom* ob_add_atom(OpenBabel::OBMol* mol, u16 elem, char charge, char hcount)
 {
   OpenBabel::OBAtom* result = mol->NewAtom();
   if(!result)
@@ -930,7 +954,8 @@ OpenBabel::OBAtom* ob_add_atom(OpenBabel::OBMol* mol, u16 elem, char charge, u8 
 
   result->SetAtomicNum(elem);
   result->SetFormalCharge(charge);
-  result->SetImplicitHCount(hcount);
+  if(hcount >= 0)
+    result->SetImplicitHCount(hcount);
   return result;
 }
 
@@ -956,25 +981,35 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
 int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
   for (u16 i=0; i<g->s_num;i++) {
     symbol_t *node = &g->symbols[i]; 
-    u16 atomic_num = get_atomic_num(node->identifier); 
     
-    switch (atomic_num) {
+    switch (node->atomic_num) {
       case 6: // carbons
-        ob_add_atom(mol, atomic_num, 0, 0); 
+        ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F)); 
         break; 
       
+      case 7: // nitrogens
+        ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F)); 
+        break; 
+        
       default:
         break;
         //ob_add_atom(mol, atomic_num, 0, (node->max_valence-node->valence)); 
     }
   }
+  
 
   /* will have a 1-1 indexing */
-  for (u16 i=0; i<g->e_num;i++) {
-    edge_t *edge = &g->edges[i]; 
-    u16 beg = edge->p - g->symbols; 
-    u16 end = edge->c - g->symbols; 
-    ob_add_bond(mol, mol->GetAtom(beg+1), mol->GetAtom(end+1), edge->order); 
+  for (u16 i=0; i<g->s_num;i++) {
+    symbol_t *node = &g->symbols[i];
+
+    for (u16 j=0; j<MAX_DEGREE; j++) {
+      edge_t *e = &node->bonds[j];
+      if (e->c) {
+        u16 beg = node - g->symbols; 
+        u16 end = e->c - g->symbols; 
+        ob_add_bond(mol, mol->GetAtom(beg+1), mol->GetAtom(end+1), e->order); 
+      }
+    }
   }
   return 1; 
 }
