@@ -834,11 +834,39 @@ static int parse_wln(const char *ptr, graph_t *g)
         else {
           if (e) {
             p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[e->c==0](g, e->c, NITRO, 4); 
+            c = sym_fnPtr[e->c==0](g, e->c, NITRO, 3); 
             e = set_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, 0, NITRO, 4); 
+            c = add_symbol(g, 0, NITRO, 3); 
+          
+          stack[stack_ptr].addr.s = c; 
+          stack[stack_ptr].ref  = 2;
+          stack_ptr++; 
+
+          e = next_virtual_edge(c); 
+          p = c; 
+        }
+        break;
+
+      case 'X':
+        if (state == RING_READ) 
+          ring_chars++; 
+        else {
+          
+          if (e) {
+            p->valence_pack += (e->c == 0); 
+            c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4); 
+            e = set_edge(e, p, c); 
+          }
+          else 
+            c = add_symbol(g, c, CARBON, 4); 
+          
+          default_methyls(g, c, 4);  
+
+          stack[stack_ptr].addr.s = c; 
+          stack[stack_ptr].ref  = 3;
+          stack_ptr++; 
           
           e = next_virtual_edge(c); 
           p = c; 
@@ -878,30 +906,43 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '&':
         if (state == RING_READ) 
           ring_chars++; 
-        else {
-          if (!stack_ptr) {
-            fprintf(stderr,"Error: backtracking stack is empty - too many &\n");
-            return 0; 
-          }
-          else if (stack[stack_ptr-1].ref == -1) {
+        else if (!stack_ptr) {
+          fprintf(stderr,"Error: backtracking stack is empty - too many &\n");
+          return 0; 
+        }
+        else { 
+
+          if (stack[stack_ptr-1].ref == -1) {
             // ring closures  
             free(stack[--stack_ptr].addr.r);
             stack[stack_ptr].addr.r = 0; 
             stack[stack_ptr].ref = 0; 
           }
           else {
-            // stack logic for chain closures
-            
-            // there will be a virutal bond currently hanging
-
+            // branch closures
             c = stack[stack_ptr-1].addr.s; 
-
-            if (e != &c->bonds[c->n_bonds]) {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-              
+            stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
+            stack[stack_ptr-1].ref--; 
           }
+
+          while (stack_ptr && stack[stack_ptr-1].ref == 0)
+            stack_ptr--; 
+          
+          // reseting block
+          if (!stack_ptr) {
+            fprintf(stderr,"Error: empty stack - too many &?\n"); 
+            return 0; 
+          }
+          else if (stack[stack_ptr-1].ref != -1) {
+            p = stack[stack_ptr-1].addr.s; 
+            e = next_virtual_edge(p); 
+          }
+          else {
+            p = 0;
+            e = 0; 
+            r = stack[stack_ptr-1].addr.r; 
+          }
+
         }
         break;
 
