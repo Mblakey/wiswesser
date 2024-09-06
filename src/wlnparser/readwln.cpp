@@ -443,12 +443,14 @@ static void alloc_graph_t(graph_t *g, const size_t size)
   g->s_num    = 0; 
   g->s_max    = size; 
   g->symbols = (symbol_t*)malloc(sizeof(symbol_t) * size);  
+  memset(g->symbols,0,sizeof(symbol_t) * size); 
 }
 
 static void realloc_graph_t(graph_t *g, const size_t size)
 {
+  g->symbols = (symbol_t*)realloc(g->symbols,sizeof(symbol_t) * (g->s_max + size) );  
+  memset(g->symbols+g->s_max,0,sizeof(symbol_t) * size); 
   g->s_max += size; 
-  g->symbols = (symbol_t*)realloc(g->symbols,sizeof(symbol_t) * g->s_max);  
 }
 
 static void free_graph_t(graph_t *g)
@@ -457,13 +459,17 @@ static void free_graph_t(graph_t *g)
   memset(g,0, (sizeof(u16) * 4) + sizeof(symbol_t*)); 
 }
 
-
+/* 
+ * overwrite and add have to use the same func signiture to avoid branch 
+ * prediction when using fn_ptr lookup
+ * */
 static symbol_t* overwrite_symbol(graph_t *g, symbol_t *s, const u16 id, const u8 lim_valence)
 {
-  s->atomic_num = id; 
-  s->n_bonds = 0;
+  s->atomic_num   = id; 
+  s->n_bonds      = 0;
   s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4; 
+  s->valence_pack <<= 4;
+  memset(s->bonds,0,sizeof(edge_t) * MAX_DEGREE); 
   return s; 
 }
 
@@ -473,26 +479,32 @@ static symbol_t* add_symbol(graph_t *g, symbol_t *c, const u16 id, const u8 lim_
     realloc_graph_t(g,g->s_max + REASONABLE); 
   
   symbol_t *s = &g->symbols[g->s_num++];
-  memset(s, 0, sizeof(symbol_t)); 
-  return overwrite_symbol(g, s, id, lim_valence); 
+  s->atomic_num   = id; 
+  s->n_bonds      = 0;
+  s->valence_pack = lim_valence; 
+  s->valence_pack <<= 4; 
+  return s; 
 }
 
 static __always_inline edge_t* next_virtual_edge(symbol_t *p)
 {
   edge_t *e = &p->bonds[p->n_bonds++]; 
-  e->order = 1; // allows unsaturate_edge on U read 
+  e->order += (e->order==0); 
   return e; 
 }
 
-static edge_t* spawn_edge(edge_t *e, symbol_t *p, symbol_t *c)
+/* if the edge is vitual, spawn it in by modifying the packing
+ * for the child, packing for parent is modified on virtual spawn
+ * but only needs checked when a real edge is made. 
+ */
+static edge_t* set_edge(edge_t *e, symbol_t *p, symbol_t *c)
 { 
   e->c = c; 
-  p->valence_pack += e->order; 
   c->valence_pack += e->order; 
 
   // TODO - nibble bit trick is definitely possible
-  if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
-      (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
+  if ((p->valence_pack & 0x0F) >= (p->valence_pack >> 4) || 
+      (c->valence_pack & 0x0F) >= (c->valence_pack >> 4)) 
   {
     fprintf(stderr,"Error: symbol reached WLN allowed valence - %d/%d & %d/%d\n",
             p->valence_pack & 0x0F, p->valence_pack >> 4,
@@ -502,29 +514,6 @@ static edge_t* spawn_edge(edge_t *e, symbol_t *p, symbol_t *c)
   return e; 
 }
 
-
-// TODO - remove these once stable framework 
-#if DEBUG_FUNCS 
-static void graph_to_dotfile(FILE *fp, graph_t *g)
-{
-  fprintf(fp, "digraph WLNdigraph {\n");
-  fprintf(fp, "  rankdir = LR;\n");
-  
-  symbol_t *offset = &g->symbols[0]; 
-  for (u16 i=0; i<g->s_num;i++)
-  {
-    symbol_t *node = &g->symbols[i]; 
-
-    fprintf(fp, "  %lu [shape=circle,label=\"%d\"];\n", node-offset, node->atomic_num);
-    for (u16 j=0;j<node->n_bonds;j++){
-      edge_t *edge = &node->bonds[j];
-      for (u8 b=0; b<edge->order; b++) 
-        fprintf(fp, "  %lu -> %lu;\n",node-offset, edge->c-offset);
-    }
-  }
-  fprintf(fp, "}\n");
-}
-#endif
 
 typedef struct  {
   u8 r_loc; // use to calculate size + add in off-branch positions
@@ -565,7 +554,7 @@ static int path_solverIII(graph_t *g, ring_t *r,
     if (!l->s) { // edges might be made from unsaturates
       l->s = add_symbol(g, 6, 4); 
       e = next_virtual_edge(r->path[i-1].s); 
-      e = spawn_edge(e, r->path[i-1].s, l->s); 
+      e = set_edge(e, r->path[i-1].s, l->s); 
     }
     r->path[i-1].hloc = i; 
   }
@@ -582,7 +571,7 @@ static int path_solverIII(graph_t *g, ring_t *r,
         end = &r->path[start->hloc]; 
       
       e = next_virtual_edge(start->s); 
-      e = spawn_edge(e, start->s, end->s); 
+      e = set_edge(e, start->s, end->s); 
       start->hloc = end - &r->path[0]; 
     }
 
@@ -691,31 +680,30 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   return ring; 
 }
 
-
-static symbol_t *add_alkyl_chain(graph_t *g, edge_t *e, symbol_t *p, int size)
+/* assumes the head node contains only virtual bonds */
+static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p, int size)
 {
-  return 0;
-#if 0
-  symbol_t *c=0;  
+  edge_t *e;
+  symbol_t *c=p;  
   for (u16 i=0; i<size; i++) {
-    c = add_symbol(g, 6, 3);
-    if(p) 
-      spawn_edge(p, c); 
-    state_unsaturate = 0; 
-    p = c;  
+    p->valence_pack++; 
+    e = next_virtual_edge(c); 
+    c = add_symbol(g, c, CARBON, 4);
+    e = set_edge(e, p, c); 
+    p = c; 
   }
   return c;
-#endif
 }
 
-static void default_methyls(graph_t *g, symbol_t *c, u8 n)
+static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
 {
   edge_t *e; 
   symbol_t *m; 
   for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
-    m = add_symbol(g, c, 6, 4); 
+    c->valence_pack++; 
+    m = add_symbol(g, m, CARBON, 4); 
     e = next_virtual_edge(c); 
-    e = spawn_edge(e, c, m); 
+    e = set_edge(e, c, m); 
   }
   c->n_bonds = 0;  
 }
@@ -737,7 +725,7 @@ static int parse_wln(const char *ptr, graph_t *g)
   u8 ring_chars = 0; 
   
   u8 state = 0; // bit field: ordering allows quick U checks
-                // [][][U2][U1][0][ring skip][digit][space]
+                // [0][0][0][0] [0][ring skip][digit][space]
 
   u16 stack_ptr = 0; 
   struct stack_frame {
@@ -780,16 +768,16 @@ static int parse_wln(const char *ptr, graph_t *g)
           alkyl_len += ch - '0'; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
 
-            if (e && e->c) {
-              c = overwrite_symbol(g, e->c, 6, 3); // overwrite the head node 
-              e = spawn_edge(e, p, c); 
-
-             // c = add_alkyl_chain(g, p, state & 0x30, alkyl_len-1); 
+            if (e) {
+              p->valence_pack += (e->c == 0); 
+              c = sym_fnPtr[e->c==0](g, e->c, CARBON, 4); 
+              e = set_edge(e, p, c); 
             }
             else 
-              c = add_symbol(g, c, 6, 4); 
-
-            state &= ~(0x30); 
+              c = add_symbol(g, 0, CARBON, 4); 
+            
+            c = add_alkyl_chain(g, c, alkyl_len-1);  
+            e = next_virtual_edge(c); 
             alkyl_len = 0; 
             p = c; 
           }
@@ -849,7 +837,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           stack[stack_ptr].addr.s = c; 
           stack[stack_ptr++].ref = 2;
           if (p) {
-            e = spawn_edge(p, c); 
+            e = set_edge(p, c); 
             state &= ~(0x30); 
           }
           p = c; 
@@ -863,20 +851,21 @@ static int parse_wln(const char *ptr, graph_t *g)
         else {
           
           if (e) {
-            c = sym_fnPtr[(e->c==0)](g, c, CARBON, 4); 
-            e = spawn_edge(e, p, c); 
+            p->valence_pack += (e->c == 0); 
+            c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4); 
+            e = set_edge(e, p, c); 
           }
           else 
             c = add_symbol(g, c, CARBON, 4); 
-
-          //default_methyls(g, c, 3);  
+          
+          default_methyls(g, c, 3);  
 
           stack[stack_ptr].addr.s = c; 
           stack[stack_ptr].ref  = 2;
           stack_ptr++; 
           
-          p = c; 
           e = next_virtual_edge(c); 
+          p = c; 
         }
         break;
       
@@ -925,8 +914,10 @@ static int parse_wln(const char *ptr, graph_t *g)
       case 'U':
         if (state == 0x04) 
           ring_chars++;
-        else if (e)
-          e->order++; // should be virtual here
+        else if (e) {
+          e->order += 1; 
+          p->valence_pack++; 
+        }
         else {
           fprintf(stderr,"Error: unsaturation called without previous bond\n");
           return 0;
@@ -979,9 +970,8 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
 
 
 int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
-  for (u16 i=0; i<g->s_num;i++) {
+  for (u16 i=0; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i]; 
-    
     switch (node->atomic_num) {
       case 6: // carbons
         ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F)); 
@@ -997,16 +987,14 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
     }
   }
   
-
   /* will have a 1-1 indexing */
-  for (u16 i=0; i<g->s_num;i++) {
+  for (u16 i=0; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i];
-
     for (u16 j=0; j<MAX_DEGREE; j++) {
       edge_t *e = &node->bonds[j];
       if (e->c) {
         u16 beg = node - g->symbols; 
-        u16 end = e->c - g->symbols; 
+        u16 end = e->c - g->symbols;
         ob_add_bond(mol, mol->GetAtom(beg+1), mol->GetAtom(end+1), e->order); 
       }
     }
