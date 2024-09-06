@@ -503,8 +503,8 @@ static edge_t* set_edge(edge_t *e, symbol_t *p, symbol_t *c)
   c->valence_pack += e->order; 
 
   // TODO - nibble bit trick is definitely possible
-  if ((p->valence_pack & 0x0F) >= (p->valence_pack >> 4) || 
-      (c->valence_pack & 0x0F) >= (c->valence_pack >> 4)) 
+  if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
+      (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
   {
     fprintf(stderr,"Error: symbol reached WLN allowed valence - %d/%d & %d/%d\n",
             p->valence_pack & 0x0F, p->valence_pack >> 4,
@@ -827,23 +827,23 @@ static int parse_wln(const char *ptr, graph_t *g)
         }
         break; 
      
-#if 0
       /* nitrogen symbols */
       case 'N':
         if (state == RING_READ) 
           ring_chars++; 
         else {
-          c = add_symbol(g, 7, 3); 
-          stack[stack_ptr].addr.s = c; 
-          stack[stack_ptr++].ref = 2;
-          if (p) {
-            e = set_edge(p, c); 
-            state &= ~(0x30); 
+          if (e) {
+            p->valence_pack += (e->c == 0); 
+            c = sym_fnPtr[e->c==0](g, e->c, NITRO, 4); 
+            e = set_edge(e, p, c); 
           }
+          else 
+            c = add_symbol(g, 0, NITRO, 4); 
+          
+          e = next_virtual_edge(c); 
           p = c; 
         }
         break;
-#endif
 
       case 'Y':
         if (state == RING_READ) 
@@ -890,23 +890,17 @@ static int parse_wln(const char *ptr, graph_t *g)
             stack[stack_ptr].ref = 0; 
           }
           else {
-            // stack logic for implied closures
-            while (stack_ptr) { 
-              c = stack[stack_ptr-1].addr.s; 
-              if (stack[stack_ptr-1].ref == 0) 
-                stack_ptr--; 
-              else
-                break;
-            }
+            // stack logic for chain closures
             
-            if (!stack_ptr) {
-              fprintf(stderr,"Error: backtrack stack is empty - too many &\n");
-              return 0; 
+            // there will be a virutal bond currently hanging
+
+            c = stack[stack_ptr-1].addr.s; 
+
+            if (e != &c->bonds[c->n_bonds]) {
+              p = c; 
+              e = next_virtual_edge(p); 
             }
-            else { 
-              stack[stack_ptr-1].ref--; 
-              p = c;
-            }
+              
           }
         }
         break;
