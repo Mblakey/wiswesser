@@ -1,7 +1,3 @@
-//
-// Edited by Michael Blakey for NextMove Software
-//
-
 /**********************************************************************
 Copyright (C) 2019 by NextMove Software
 
@@ -43,11 +39,8 @@ GNU General Public License for more details.
 #define STACK_MASK    3
 
 unsigned int debug_wln_read = 0;
-unsigned int MB_ERROR_CATCH = 0;
 
 using namespace OpenBabel; 
-
-
 
 OpenBabel::OBAtom* NMOBMolNewAtom(OpenBabel::OBMol* mol, unsigned int elem)
 {

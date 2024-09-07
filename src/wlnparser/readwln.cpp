@@ -35,6 +35,9 @@ GNU General Public License for more details.
 #define SPACE_READ  0x01 
 #define DIGIT_READ  0x02 
 #define RING_READ   0x04
+#define DASH_READ   0x08
+
+#define SSSR_READ   0x04
 
 #define CARBON  6
 #define NITRO   7
@@ -427,7 +430,7 @@ typedef struct {
 
 typedef struct {
   u8  size; 
-  locant path[1]; // malloc sizeof(locant) *size-1 + (1 byte for size)
+  locant path[1]; // malloc sizeof(locant) * (size-1) + (1 byte for size)
 } ring_t;  
 
 /* memory pool - handle and reuse allocations */
@@ -522,10 +525,9 @@ typedef struct  {
 } r_assignment; 
 
 
-#if 0
-static int path_solverIII(graph_t *g, ring_t *r, 
-                          r_assignment *SSSR, u8 SSSR_ptr, 
-                          u8 state_pseudo) 
+static ring_t* path_solverIII(graph_t *g, ring_t *r, 
+                              r_assignment *SSSR, u8 SSSR_ptr, 
+                              u8 state_pseudo) 
 {
   /*
    * PathsolverIII - solving WLN Hamiltonian Paths 
@@ -534,31 +536,28 @@ static int path_solverIII(graph_t *g, ring_t *r,
    *    broken and a flood fill required. 
    */
    
-  edge_t *e; 
-  locant *l;
-  locant *start, *end; 
   u8 steps;
+  edge_t *e; 
+  locant *c, *p=0;
+  locant *start, *end; 
   r_assignment *subcycle; 
 
-
   // create the initial chain
-  l = &r->path[0]; 
-  if (!l->s) {
-    l->s = add_symbol(g, 6, 4); 
-    l->hloc = 1; 
-    l->r_pack += 0x2; 
-  }
-
-  for (u16 i=1; i<r->size-1; i++) {
-    l = &r->path[i]; 
-    if (!l->s) { // edges might be made from unsaturates
-      l->s = add_symbol(g, 6, 4); 
-      e = next_virtual_edge(r->path[i-1].s); 
-      e = set_edge(e, r->path[i-1].s, l->s); 
+  for (u16 i=0; i<r->size; i++) {
+    c = &r->path[i]; 
+    if (!c->s) { 
+      c->r_pack = 0x1 + (!i | (i==r->size-1)); 
+      c->s = add_symbol(g, 0, CARBON, 4); 
+      if (p) {
+        p->s->valence_pack++; 
+        e = next_virtual_edge(p->s); 
+        e = set_edge(e, p->s, c->s); 
+      }
     }
-    r->path[i-1].hloc = i; 
+    c->hloc = i+1; // pointing to the value in front 
+    p = c; 
   }
-
+  
   if (!state_pseudo) {
     // 1. WLN locants maximise path traversal, which is a flipped
     //    version of mimising the function sum as specified. 
@@ -566,64 +565,66 @@ static int path_solverIII(graph_t *g, ring_t *r,
       subcycle = &SSSR[i];   
       steps    = subcycle->r_size; 
       start    = &r->path[subcycle->r_loc]; 
+      end      = start; 
+
+      for (u16 s=0; s<steps-1; s++)
+        end = &r->path[end->hloc]; 
       
-      for (u16 s=0; s<steps; s++)
-        end = &r->path[start->hloc]; 
-      
+      start->s->valence_pack++; 
       e = next_virtual_edge(start->s); 
-      e = set_edge(e, start->s, end->s); 
+      e = set_edge(e, start->s, end->s);
       start->hloc = end - &r->path[0]; 
     }
-
   }
   else { 
-
+    // 2. when pseudo bonds are specified, a flood fill is needed to solve
+    // the path. Significantly slower therefore prefer the upper branch
 
 
   }
 
 
-  return 1;   
+  return r;   
 }
-#endif
 
 static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g) 
 {
+  // note: The WLN ring system will always be <= than the sum of 
+  //       the ring assignment values, therefore alloc'ing the sum 
+  //       wastes the least amount of space and avoids a hash map for 
+  //       bridging/pseudo bridging flags. 
+  
   ring_t *ring; 
 
   u8 locant_ch  = 0; 
   u8 arom_count = 0; 
+  u8 upper_r_size = 0; 
 
   u8 SSSR_ptr  = 0; 
-  r_assignment SSSR[REASONABLE]; // this really is upper bound sensible for WLN
+  r_assignment SSSR[REASONABLE]; // this really is sensible for WLN
 
   u8 dash_ptr = 0; 
   unsigned char dash_chars[3]; // last byte is mainly for overflow 
                                
-  u16 state = 0; // bit field:                      
-                 // [][][][][][][][][][][][][][dash][space][rings read]
+  u8 state = 0; // bit field:                      
+                 // [][][][][dash][SSSR][digit][space]
 
-  // note: The WLN ring system will always be <= than the sum of the ring assignment
-  //       values, therefore alloc'ing the sum wastes the least amount of space and 
-  //       avoids a hash map for bridging/pseudo bridging flags. 
-  
-  // ring_t *ring = (ring_t*)malloc((sizeof(locant)*REASONABLE-1)+1);  // realloc if needed
   
   // note: WLN has a lot of ambiguty due to the limited char set, therefore
   //       you have to reduce possible states in order to correctly handle. 
   //       Reading arom assignments first allows determined state of '& symbols. 
-
   while (*e_ptr == '&' || *e_ptr == 'T') {
     arom_count++; 
     e_ptr--; 
   }
   e_ptr++; 
 
+  // & symbols can now only be a position expansion
   for (u16 i=0; i<arom_count; i++) 
-    SSSR[i].arom = (*(e_ptr+i) == '&'); // & symbols can now only be a position expansion
-
+    SSSR[i].arom = (*(e_ptr+i) == '&'); 
 
   unsigned char ch = 1; 
+  state = SSSR_READ; 
   while (s_ptr != e_ptr) {
     ch = *(s_ptr++); 
     switch (ch) {
@@ -639,9 +640,12 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
       case '7':
       case '8':
       case '9':
-        SSSR[SSSR_ptr].r_size = ch - '0'; 
-        SSSR[SSSR_ptr++].r_loc = ((locant_ch == 0) * 'A') + locant_ch; // branchless check
-        locant_ch = 0; 
+        if (state == SSSR_READ){
+          upper_r_size += ch - '0'; 
+          SSSR[SSSR_ptr].r_size = ch - '0'; 
+          SSSR[SSSR_ptr++].r_loc = locant_ch;  
+          locant_ch = 0; 
+        }
         break; 
 
       // locant only symbols within ring
@@ -655,8 +659,6 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
           locant_ch = ch; 
         }
         break; 
-
-
 
       case 'T':
         break;
@@ -674,10 +676,16 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
         break; 
 
     }
-
   }
   
-  return ring; 
+  // simplest rings
+  if (state == SSSR_READ) {
+    ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(upper_r_size-1)); 
+    memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(upper_r_size-1)); 
+  }
+  
+  ring->size = upper_r_size; 
+  return path_solverIII(g, ring, SSSR, SSSR_ptr, 0);     
 }
 
 /* assumes the head node contains only virtual bonds */
@@ -708,6 +716,45 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
   c->n_bonds = 0;  
 }
 
+/* 
+ * WLN DFS style branch and ring stack
+ * notation gives options to immediately 
+ * close references and return to rings
+ * with skips. 
+ */ 
+
+typedef struct {
+  union f_addr{ // safter than void* cast. 
+    symbol_t *s; 
+    ring_t   *r; 
+  } addr; 
+  signed char ref; // -1 for (ring_t*) else (symbol_t*) 
+} stack_frame;  
+
+
+static void read_frame(symbol_t **p, edge_t **e, ring_t **r, 
+                       stack_frame *stack, u16 stack_ptr)
+{
+  if (stack[stack_ptr-1].ref != -1) {
+    *p = stack[stack_ptr-1].addr.s; 
+    *e = next_virtual_edge(*p); 
+  }
+  else {
+    *p = 0;
+    *e = 0; 
+    *r = stack[stack_ptr-1].addr.r; 
+  }
+}
+
+static u16 flush_to_ring(stack_frame *stack, u16 stack_ptr)
+{
+  u16 i=0; 
+  for (i=stack_ptr; i>0; i--) {
+    if (stack[stack_ptr-1].ref == -1)
+      return i; 
+  } 
+  return i; 
+}
 
 /*
  * -- Parse WLN Notation --
@@ -728,13 +775,10 @@ static int parse_wln(const char *ptr, graph_t *g)
                 // [0][0][0][0] [0][ring skip][digit][space]
 
   u16 stack_ptr = 0; 
-  struct stack_frame {
-    union f_addr{ // safter than void* cast. 
-      symbol_t *s; 
-      ring_t   *r; 
-    } addr; 
-    signed char ref; // -1 for (ring_t*) else (symbol_t*) 
-  } stack[REASONABLE]; 
+  stack_frame stack[REASONABLE]; 
+  
+  u8 dash_ptr = 0; 
+  unsigned char dash_chars[3]; // last byte is mainly for overflow 
   
   // avoids a branch on each symbol case
   symbol_t* (*sym_fnPtr[2])(graph_t*, symbol_t*, const u16, const u8) = {&overwrite_symbol, &add_symbol}; 
@@ -822,9 +866,8 @@ static int parse_wln(const char *ptr, graph_t *g)
       
       case 'L':
       case 'T':
-        if (state == RING_READ) {
-          ring_chars++; 
-        }
+        state = RING_READ; 
+        ring_chars++; 
         break; 
      
       /* nitrogen symbols */
@@ -865,7 +908,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           default_methyls(g, c, 4);  
 
           stack[stack_ptr].addr.s = c; 
-          stack[stack_ptr].ref  = 3;
+          stack[stack_ptr].ref  = 4;
           stack_ptr++; 
           
           e = next_virtual_edge(c); 
@@ -889,7 +932,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           default_methyls(g, c, 3);  
 
           stack[stack_ptr].addr.s = c; 
-          stack[stack_ptr].ref  = 2;
+          stack[stack_ptr].ref  = 3;
           stack_ptr++; 
           
           e = next_virtual_edge(c); 
@@ -897,6 +940,39 @@ static int parse_wln(const char *ptr, graph_t *g)
         }
         break;
       
+      case 'Z':
+        if (state == RING_READ) 
+          ring_chars++; 
+        else {
+          
+          if (e) {
+            p->valence_pack += (e->c == 0); 
+            c = sym_fnPtr[(e->c==0)](g, e->c, NITRO, 1); 
+            e = set_edge(e, p, c); 
+          }
+          else 
+            c = add_symbol(g, c, NITRO, 1); 
+          
+          // terminating symbol
+          if (stack_ptr && stack[stack_ptr-1].ref != -1){
+            stack[stack_ptr-1].ref--; 
+            stack_ptr -= (stack[stack_ptr-1].ref==0); 
+
+            // reseting block
+            if (!stack_ptr) {
+              fprintf(stderr,"Error: empty stack - too many &?\n"); 
+              return 0; 
+            }
+            else 
+              read_frame(&p, &e, &r, stack, stack_ptr); 
+          }
+          else {
+            p = c; 
+            e = next_virtual_edge(p); 
+          }
+        }
+        break;
+
 
       case ' ':
         if (state == RING_READ)
@@ -907,7 +983,7 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state == RING_READ) 
           ring_chars++; 
         else if (!stack_ptr) {
-          fprintf(stderr,"Error: backtracking stack is empty - too many &\n");
+          fprintf(stderr,"Error: empty stack - too many &?\n");
           return 0; 
         }
         else { 
@@ -920,34 +996,27 @@ static int parse_wln(const char *ptr, graph_t *g)
           }
           else {
             // branch closures
+            // note: methyl contractions will have a live virtual 
+            // bond, therefore can be used checked with AND. 
+
             c = stack[stack_ptr-1].addr.s; 
             stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
             stack[stack_ptr-1].ref--; 
+            stack_ptr -= (stack[stack_ptr-1].ref==0); 
           }
 
-          while (stack_ptr && stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-          
           // reseting block
           if (!stack_ptr) {
             fprintf(stderr,"Error: empty stack - too many &?\n"); 
             return 0; 
           }
-          else if (stack[stack_ptr-1].ref != -1) {
-            p = stack[stack_ptr-1].addr.s; 
-            e = next_virtual_edge(p); 
-          }
-          else {
-            p = 0;
-            e = 0; 
-            r = stack[stack_ptr-1].addr.r; 
-          }
-
+          else 
+            read_frame(&p, &e, &r, stack, stack_ptr); 
         }
         break;
 
       case 'U':
-        if (state == 0x04) 
+        if (state == RING_READ) 
           ring_chars++;
         else if (e) {
           e->order += 1; 
