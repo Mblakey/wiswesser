@@ -34,8 +34,10 @@ GNU General Public License for more details.
 
 #define SPACE_READ  0x01 
 #define DIGIT_READ  0x02 
-#define RING_READ   0x04
-#define DASH_READ   0x08
+#define DASH_READ   0x04
+
+#define RING_READ   0x08
+#define BIND_READ   0x10
 
 #define SSSR_READ   0x04
 
@@ -441,7 +443,7 @@ typedef struct {
 } graph_t; 
 
 
-static void alloc_graph_t(graph_t *g, const size_t size)
+static void gt_alloc(graph_t *g, const size_t size)
 {
   g->s_num    = 0; 
   g->s_max    = size; 
@@ -449,14 +451,14 @@ static void alloc_graph_t(graph_t *g, const size_t size)
   memset(g->symbols,0,sizeof(symbol_t) * size); 
 }
 
-static void realloc_graph_t(graph_t *g, const size_t size)
+static void gt_realloc(graph_t *g, const size_t size)
 {
   g->symbols = (symbol_t*)realloc(g->symbols,sizeof(symbol_t) * (g->s_max + size) );  
   memset(g->symbols+g->s_max,0,sizeof(symbol_t) * size); 
   g->s_max += size; 
 }
 
-static void free_graph_t(graph_t *g)
+static void gt_free(graph_t *g)
 {
   free(g->symbols); 
   memset(g,0, (sizeof(u16) * 4) + sizeof(symbol_t*)); 
@@ -479,7 +481,7 @@ static symbol_t* overwrite_symbol(graph_t *g, symbol_t *s, const u16 id, const u
 static symbol_t* add_symbol(graph_t *g, symbol_t *c, const u16 id, const u8 lim_valence)
 {
   if(g->s_num == g->s_max)
-    realloc_graph_t(g,g->s_max + REASONABLE); 
+    gt_realloc(g,g->s_max + REASONABLE); 
   
   symbol_t *s = &g->symbols[g->s_num++];
   s->atomic_num   = id; 
@@ -529,13 +531,6 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
                               r_assignment *SSSR, u8 SSSR_ptr, 
                               u8 state_pseudo) 
 {
-  /*
-   * PathsolverIII - solving WLN Hamiltonian Paths 
-   *
-   * 2. When lookback locants /XX are used, path property is 
-   *    broken and a flood fill required. 
-   */
-   
   u8 steps;
   edge_t *e; 
   locant *c, *p=0;
@@ -557,10 +552,24 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
     c->hloc = i+1; // pointing to the value in front 
     p = c; 
   }
-  
+ 
+  /*
+   * PathsolverIII Algorithm:
+   *
+   * Named after the original attempts at WLN hamiltonian paths
+   * from lynch et al. PathsolverIII iterates a given hamiltonian 
+   * path by using the "allowed connections" property. Please
+   * refer to my thesis for more details. 
+   *
+   * In short - ring bonds can have a maximum of 3 connections
+   *            unless specified as bridging (-1) or expanded (+1)
+   *
+   * The path is maximised at each step which mirrors the minimisation
+   * of the fusion sum as mentioned in the manuals. 
+   */
+
   if (!state_pseudo) {
-    // 1. WLN locants maximise path traversal, which is a flipped
-    //    version of mimising the function sum as specified. 
+
     for (u16 i=0; i<SSSR_ptr; i++) {
       subcycle = &SSSR[i];   
       steps    = subcycle->r_size; 
@@ -573,7 +582,9 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       start->s->valence_pack++; 
       e = next_virtual_edge(start->s); 
       e = set_edge(e, start->s, end->s);
+
       start->hloc = end - &r->path[0]; 
+      fprintf(stderr,"wrapping %d --> %d\n",subcycle->r_loc, start->hloc); 
     }
   }
   else { 
@@ -628,6 +639,7 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   while (s_ptr != e_ptr) {
     ch = *(s_ptr++); 
     switch (ch) {
+
       case '0':
         break;
 
@@ -724,10 +736,7 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
  */ 
 
 typedef struct {
-  union f_addr{ // safter than void* cast. 
-    symbol_t *s; 
-    ring_t   *r; 
-  } addr; 
+  void *addr; 
   signed char ref; // -1 for (ring_t*) else (symbol_t*) 
 } stack_frame;  
 
@@ -736,24 +745,14 @@ static void read_frame(symbol_t **p, edge_t **e, ring_t **r,
                        stack_frame *stack, u16 stack_ptr)
 {
   if (stack[stack_ptr-1].ref != -1) {
-    *p = stack[stack_ptr-1].addr.s; 
+    *p = (symbol_t*)stack[stack_ptr-1].addr; 
     *e = next_virtual_edge(*p); 
   }
   else {
     *p = 0;
     *e = 0; 
-    *r = stack[stack_ptr-1].addr.r; 
+    *r = (ring_t*)stack[stack_ptr-1].addr; 
   }
-}
-
-static u16 flush_to_ring(stack_frame *stack, u16 stack_ptr)
-{
-  u16 i=0; 
-  for (i=stack_ptr; i>0; i--) {
-    if (stack[stack_ptr-1].ref == -1)
-      return i; 
-  } 
-  return i; 
 }
 
 /*
@@ -771,9 +770,13 @@ static int parse_wln(const char *ptr, graph_t *g)
   u8 alkyl_len  = 0; 
   u8 ring_chars = 0; 
   
-  u8 state = 0; // bit field: ordering allows quick U checks
-                // [0][0][0][0] [0][ring skip][digit][space]
-
+  u8 state = 0; // bit field: 
+                // [0][0][0][inline state][ring skip][dash][digit][space]
+                //
+                // bind_prev indicates either a inline ring or spiro that
+                // must be bound to the previous chain
+  
+  u16 high_rptr = 0; // highest ring 
   u16 stack_ptr = 0; 
   stack_frame stack[REASONABLE]; 
   
@@ -788,7 +791,7 @@ static int parse_wln(const char *ptr, graph_t *g)
     ch = *(ptr++);
     switch (ch) {
       case '0':
-        if (state < DIGIT_READ) {
+        if (!(state & DIGIT_READ)) {
           fprintf(stderr,"Error: zero numeral without prefix digits\n"); 
           return 0; 
         }
@@ -805,7 +808,7 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '7':
       case '8':
       case '9':
-        if (state == RING_READ)
+        if (state & RING_READ)
           ring_chars++; 
         else {
           alkyl_len *= 10; 
@@ -830,6 +833,28 @@ static int parse_wln(const char *ptr, graph_t *g)
       
       case 'A':
       case 'B':
+        if (state & RING_READ)
+          ring_chars++; 
+        else if (state & SPACE_READ)  {
+          // switch on packing - state popcnt() >= hit bits. 
+          locant_ch = ch - 'A'; 
+          state &= ~(SPACE_READ); 
+          
+          if (state & BIND_READ)
+            break; 
+          else if (r && locant_ch < r->size) {
+            c = r->path[locant_ch].s; 
+            e = next_virtual_edge(c); 
+            p = c; 
+          } 
+          else {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return 0; 
+          }
+        }
+        break; 
+
+
       case 'C':
       case 'D':
       case 'E':
@@ -840,21 +865,34 @@ static int parse_wln(const char *ptr, graph_t *g)
         break; 
      
       case 'J':
-        if (state == RING_READ) {
+        if (state & RING_READ) {
         
           if (*ptr == '&' || *ptr == ' ' || *ptr == 0) {
             // J can be used inside ring notation, requires lookahead 
             // condition 
             
-            // note: the ptr passed in does not include the starting L/T or ending J
+            // note (2 magic number): The ptr passed in does not include the 
+            //                        starting L/T or ending J
+            
             r = parse_cyclic(ptr-ring_chars, ptr-2, g);
             if (!r) 
               return 0; 
             else {
-              stack[stack_ptr].addr.r = r; 
+              stack[stack_ptr].addr = r; 
               stack[stack_ptr++].ref = -1; 
-              state &= ~(0x04);
+              state &= ~(RING_READ);
               ring_chars = 0; 
+            }
+            
+            if (state == BIND_READ){
+              // virutal edge should be dangling at this frame. 
+
+              // this needs wrapping to avoid seg fault on a user error
+              c = r->path[locant_ch].s; 
+
+              p->valence_pack++; 
+              e = set_edge(e, p, c);  
+              state &= ~(BIND_READ); 
             }
           }
           else
@@ -866,13 +904,13 @@ static int parse_wln(const char *ptr, graph_t *g)
       
       case 'L':
       case 'T':
-        state = RING_READ; 
+        state |= RING_READ; 
         ring_chars++; 
         break; 
      
       /* nitrogen symbols */
       case 'N':
-        if (state == RING_READ) 
+        if (state & RING_READ) 
           ring_chars++; 
         else {
           if (e) {
@@ -883,7 +921,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           else 
             c = add_symbol(g, 0, NITRO, 3); 
           
-          stack[stack_ptr].addr.s = c; 
+          stack[stack_ptr].addr = c; 
           stack[stack_ptr].ref  = 2;
           stack_ptr++; 
 
@@ -893,7 +931,7 @@ static int parse_wln(const char *ptr, graph_t *g)
         break;
 
       case 'X':
-        if (state == RING_READ) 
+        if (state & RING_READ) 
           ring_chars++; 
         else {
           
@@ -907,7 +945,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           
           default_methyls(g, c, 4);  
 
-          stack[stack_ptr].addr.s = c; 
+          stack[stack_ptr].addr = c; 
           stack[stack_ptr].ref  = 4;
           stack_ptr++; 
           
@@ -917,7 +955,7 @@ static int parse_wln(const char *ptr, graph_t *g)
         break;
 
       case 'Y':
-        if (state == RING_READ) 
+        if (state & RING_READ) 
           ring_chars++; 
         else {
           
@@ -931,7 +969,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           
           default_methyls(g, c, 3);  
 
-          stack[stack_ptr].addr.s = c; 
+          stack[stack_ptr].addr = c; 
           stack[stack_ptr].ref  = 3;
           stack_ptr++; 
           
@@ -941,7 +979,7 @@ static int parse_wln(const char *ptr, graph_t *g)
         break;
       
       case 'Z':
-        if (state == RING_READ) 
+        if (state & RING_READ) 
           ring_chars++; 
         else {
           
@@ -972,15 +1010,29 @@ static int parse_wln(const char *ptr, graph_t *g)
           }
         }
         break;
-
+      
+      case '-':
+        if (state & RING_READ)
+          ring_chars++; 
+        else if (*ptr == ' ') {
+          // lookahead +1 on ptr state, inline ring MUST follow
+          state |= BIND_READ; 
+        }
+        else {
+          dash_ptr = 0; 
+          state |= DASH_READ; 
+        }
+        break; 
 
       case ' ':
-        if (state == RING_READ)
+        if (state & RING_READ)
           ring_chars++; 
+        else 
+          state |= SPACE_READ; 
         break; 
 
       case '&':
-        if (state == RING_READ) 
+        if (state & RING_READ) 
           ring_chars++; 
         else if (!stack_ptr) {
           fprintf(stderr,"Error: empty stack - too many &?\n");
@@ -990,8 +1042,8 @@ static int parse_wln(const char *ptr, graph_t *g)
 
           if (stack[stack_ptr-1].ref == -1) {
             // ring closures  
-            free(stack[--stack_ptr].addr.r);
-            stack[stack_ptr].addr.r = 0; 
+            free(stack[--stack_ptr].addr);
+            stack[stack_ptr].addr = 0; 
             stack[stack_ptr].ref = 0; 
           }
           else {
@@ -999,7 +1051,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             // note: methyl contractions will have a live virtual 
             // bond, therefore can be used checked with AND. 
 
-            c = stack[stack_ptr-1].addr.s; 
+            c = (symbol_t*)stack[stack_ptr-1].addr; 
             stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
             stack[stack_ptr-1].ref--; 
             stack_ptr -= (stack[stack_ptr-1].ref==0); 
@@ -1016,7 +1068,7 @@ static int parse_wln(const char *ptr, graph_t *g)
         break;
 
       case 'U':
-        if (state == RING_READ) 
+        if (state & RING_READ) 
           ring_chars++;
         else if (e) {
           e->order += 1; 
@@ -1111,7 +1163,7 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
-  alloc_graph_t(g, REASONABLE); 
+  gt_alloc(g, REASONABLE); 
   
   if (!parse_wln(ptr, g))
     return 0; 
@@ -1119,7 +1171,7 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   // graph_to_dotfile(stderr, g); 
   ob_convert_wln_graph(mol,g); 
 
-  free_graph_t(g); 
+  gt_free(g); 
   return 1; 
 }
 
