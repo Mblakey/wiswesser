@@ -28,9 +28,6 @@ GNU General Public License for more details.
 #include "parser.h"
 
 #define MAX_DEGREE 8
-#define REASONABLE 32
-
-#define DEBUG_FUNCS 1
 
 #define SPACE_READ  0x01 
 #define DIGIT_READ  0x02 
@@ -41,6 +38,12 @@ GNU General Public License for more details.
 
 #define SSSR_READ   0x04
 
+// Error codes 
+#define ERR_NONE   0 // success
+#define ERR_ABORT  1 
+#define ERR_MEMORY 2 
+
+// Element "magic numbers"
 #define CARBON  6
 #define NITRO   7
 #define OXYGEN  8
@@ -407,6 +410,7 @@ u16 get_atomic_num(u8 high, u8 low){
         return 40;
       break;
   }
+
   return 0;
 }
 
@@ -435,38 +439,66 @@ typedef struct {
   locant path[1]; // malloc sizeof(locant) * (size-1) + (1 byte for size)
 } ring_t;  
 
-/* memory pool - handle and reuse allocations */
+
 typedef struct {
   u16 s_num; 
   u16 s_max; 
+
+  u8 stack_ptr;  // WLN DFS style branch and ring stack
+  struct {
+    void *addr; 
+    signed char ref; // -1 for (ring_t*) else (symbol_t*) 
+  } stack[32];  
+
   symbol_t  *symbols; 
 } graph_t; 
 
 
 static void gt_alloc(graph_t *g, const size_t size)
 {
-  g->s_num    = 0; 
-  g->s_max    = size; 
-  g->symbols = (symbol_t*)malloc(sizeof(symbol_t) * size);  
-  memset(g->symbols,0,sizeof(symbol_t) * size); 
+  g->s_num      = 0; 
+  g->s_max      = size; 
+  g->stack_ptr  = 0; 
+  g->symbols    = (symbol_t*)malloc(sizeof(symbol_t) * size);  
+  memset(g->symbols, 0, sizeof(symbol_t) * size); 
 }
 
-static void gt_realloc(graph_t *g, const size_t size)
+// seperated in order to reuse the symbols memory on file read
+static void gt_stack_flush(graph_t *g) 
 {
-  g->symbols = (symbol_t*)realloc(g->symbols,sizeof(symbol_t) * (g->s_max + size) );  
-  memset(g->symbols+g->s_max,0,sizeof(symbol_t) * size); 
-  g->s_max += size; 
+  u16 stack_ptr = g->stack_ptr; 
+  for (u16 i=0;i<stack_ptr;i++) {
+    if (g->stack[i].ref < 0) {
+      free(g->stack[i].addr);
+      g->stack[i].addr = 0; 
+      g->stack[i].ref = 0;
+    }
+  }
+}
+
+static void gt_clear(graph_t *g)
+{
+  gt_stack_flush(g); 
+  g->stack_ptr = 0; 
+  g->s_num     = 0; 
 }
 
 static void gt_free(graph_t *g)
 {
+  gt_stack_flush(g); 
+  g->stack_ptr = 0; 
+  g->s_max     = 0; 
+  g->s_num     = 0; 
   free(g->symbols); 
-  memset(g,0, (sizeof(u16) * 4) + sizeof(symbol_t*)); 
 }
+
 
 /* 
  * overwrite and add have to use the same func signiture to avoid branch 
  * prediction when using fn_ptr lookup
+ *
+ * to propogate the address offset, zero is a success, else the offset is 
+ * returned which can be used to overwrite stack variables 
  * */
 static symbol_t* overwrite_symbol(graph_t *g, symbol_t *s, const u16 id, const u8 lim_valence)
 {
@@ -478,17 +510,19 @@ static symbol_t* overwrite_symbol(graph_t *g, symbol_t *s, const u16 id, const u
   return s; 
 }
 
-static symbol_t* add_symbol(graph_t *g, symbol_t *c, const u16 id, const u8 lim_valence)
+static symbol_t* add_symbol(graph_t *g, symbol_t *s, const u16 id, const u8 lim_valence)
 {
-  if(g->s_num == g->s_max)
-    gt_realloc(g,g->s_max + REASONABLE); 
+  if (g->s_num == g->s_max) {
+    fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
+    return (symbol_t*)0; 
+  }
   
-  symbol_t *s = &g->symbols[g->s_num++];
-  s->atomic_num   = id; 
-  s->n_bonds      = 0;
-  s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4; 
-  return s; 
+  symbol_t *sym   = &g->symbols[g->s_num++];
+  sym->atomic_num   = id; 
+  sym->n_bonds      = 0;
+  sym->valence_pack = lim_valence; 
+  sym->valence_pack <<= 4;
+  return sym; 
 }
 
 static __always_inline edge_t* next_virtual_edge(symbol_t *p)
@@ -519,6 +553,20 @@ static edge_t* set_edge(edge_t *e, symbol_t *p, symbol_t *c)
   return e; 
 }
 
+static void read_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
+{
+  u16 stack_top = g->stack_ptr - 1; 
+  if (g->stack[stack_top].ref > 0) {
+    *p = (symbol_t*)g->stack[stack_top].addr; 
+    *e = next_virtual_edge(*p); 
+  }
+  else {
+    *p = 0;
+    *e = 0; 
+    *r = (ring_t*)g->stack[stack_top].addr; 
+  }
+}
+
 
 typedef struct  {
   u8 r_loc; // use to calculate size + add in off-branch positions
@@ -543,6 +591,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
     if (!c->s) { 
       c->r_pack = 0x1 + (!i | (i==r->size-1)); 
       c->s = add_symbol(g, 0, CARBON, 4); 
+
       if (p) {
         p->s->valence_pack++; 
         e = next_virtual_edge(p->s); 
@@ -584,7 +633,6 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       e = set_edge(e, start->s, end->s);
 
       start->hloc = end - &r->path[0]; 
-      fprintf(stderr,"wrapping %d --> %d\n",subcycle->r_loc, start->hloc); 
     }
   }
   else { 
@@ -612,7 +660,7 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   u8 upper_r_size = 0; 
 
   u8 SSSR_ptr  = 0; 
-  r_assignment SSSR[REASONABLE]; // this really is sensible for WLN
+  r_assignment SSSR[32]; // this really is sensible for WLN
 
   u8 dash_ptr = 0; 
   unsigned char dash_chars[3]; // last byte is mainly for overflow 
@@ -704,13 +752,18 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
 static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p, int size)
 {
   edge_t *e;
-  symbol_t *c=p;  
+  symbol_t *c = p;  
   for (u16 i=0; i<size; i++) {
     p->valence_pack++; 
     e = next_virtual_edge(c); 
-    c = add_symbol(g, c, CARBON, 4);
-    e = set_edge(e, p, c); 
-    p = c; 
+    c = add_symbol(g, 0, CARBON, 4);
+    
+    if (!c)
+      return (symbol_t*)0; 
+    else { 
+      e = set_edge(e, p, c); 
+      p = c;
+    }
   }
   return c;
 }
@@ -721,39 +774,13 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
   symbol_t *m; 
   for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
     c->valence_pack++; 
-    m = add_symbol(g, m, CARBON, 4); 
+    m = add_symbol(g, 0, CARBON, 4); 
     e = next_virtual_edge(c); 
     e = set_edge(e, c, m); 
   }
   c->n_bonds = 0;  
 }
 
-/* 
- * WLN DFS style branch and ring stack
- * notation gives options to immediately 
- * close references and return to rings
- * with skips. 
- */ 
-
-typedef struct {
-  void *addr; 
-  signed char ref; // -1 for (ring_t*) else (symbol_t*) 
-} stack_frame;  
-
-
-static void read_frame(symbol_t **p, edge_t **e, ring_t **r, 
-                       stack_frame *stack, u16 stack_ptr)
-{
-  if (stack[stack_ptr-1].ref != -1) {
-    *p = (symbol_t*)stack[stack_ptr-1].addr; 
-    *e = next_virtual_edge(*p); 
-  }
-  else {
-    *p = 0;
-    *e = 0; 
-    *r = (ring_t*)stack[stack_ptr-1].addr; 
-  }
-}
 
 /*
  * -- Parse WLN Notation --
@@ -767,8 +794,9 @@ static int parse_wln(const char *ptr, graph_t *g)
   ring_t   *r=0;
 
   u8 locant_ch  = 0; 
-  u8 alkyl_len  = 0; 
   u8 ring_chars = 0; 
+  u8 atom_num   = 0; 
+  u16 alkyl_len = 0; 
   
   u8 state = 0; // bit field: 
                 // [0][0][0][inline state][ring skip][dash][digit][space]
@@ -776,13 +804,9 @@ static int parse_wln(const char *ptr, graph_t *g)
                 // bind_prev indicates either a inline ring or spiro that
                 // must be bound to the previous chain
   
-  u16 high_rptr = 0; // highest ring 
-  u16 stack_ptr = 0; 
-  stack_frame stack[REASONABLE]; 
-  
   u8 dash_ptr = 0; 
   unsigned char dash_chars[3]; // last byte is mainly for overflow 
-  
+ 
   // avoids a branch on each symbol case
   symbol_t* (*sym_fnPtr[2])(graph_t*, symbol_t*, const u16, const u8) = {&overwrite_symbol, &add_symbol}; 
 
@@ -793,10 +817,26 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '0':
         if (!(state & DIGIT_READ)) {
           fprintf(stderr,"Error: zero numeral without prefix digits\n"); 
-          return 0; 
+          return ERR_ABORT; 
         }
-        else
+        else {
           alkyl_len *= 10; 
+          if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
+
+            if (e) {
+              p->valence_pack += (e->c == 0); 
+              c = sym_fnPtr[e->c==0](g, e->c, CARBON, 4); 
+              e = set_edge(e, p, c); 
+            }
+            else 
+              c = add_symbol(g, 0, CARBON, 4); 
+            
+            c = add_alkyl_chain(g, c, alkyl_len-1);  
+            e = next_virtual_edge(c); 
+            alkyl_len = 0; 
+            p = c; 
+          }
+        }
         break;
 
       case '1':
@@ -824,10 +864,15 @@ static int parse_wln(const char *ptr, graph_t *g)
               c = add_symbol(g, 0, CARBON, 4); 
             
             c = add_alkyl_chain(g, c, alkyl_len-1);  
+            if (!c) 
+              return ERR_MEMORY; 
+
             e = next_virtual_edge(c); 
             alkyl_len = 0; 
             p = c; 
           }
+          else
+            state |= DIGIT_READ; 
         }
         break;
       
@@ -835,6 +880,14 @@ static int parse_wln(const char *ptr, graph_t *g)
       case 'B':
         if (state & RING_READ)
           ring_chars++; 
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) {
+            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
+            return ERR_ABORT; 
+          }
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
         else if (state & SPACE_READ)  {
           // switch on packing - state popcnt() >= hit bits. 
           locant_ch = ch - 'A'; 
@@ -849,7 +902,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           } 
           else {
             fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return 0; 
+            return ERR_ABORT; 
           }
         }
         break; 
@@ -862,6 +915,16 @@ static int parse_wln(const char *ptr, graph_t *g)
       case 'G':
       case 'H':
       case 'I':
+        if (state & RING_READ) 
+          ring_chars++; 
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) {
+            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
+            return ERR_ABORT; 
+          }
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
         break; 
      
       case 'J':
@@ -878,19 +941,19 @@ static int parse_wln(const char *ptr, graph_t *g)
             if (!r) 
               return 0; 
             else {
-              stack[stack_ptr].addr = r; 
-              stack[stack_ptr++].ref = -1; 
+              g->stack[g->stack_ptr].addr = r; 
+              g->stack[g->stack_ptr++].ref = -1; 
               state &= ~(RING_READ);
               ring_chars = 0; 
             }
-            
+
             if (state == BIND_READ){
               // virutal edge should be dangling at this frame. 
 
               // this needs wrapping to avoid seg fault on a user error
-              c = r->path[locant_ch].s; 
+              c = r->path[locant_ch].s;
 
-              p->valence_pack++; 
+              p->valence_pack += (e->c==0); 
               e = set_edge(e, p, c);  
               state &= ~(BIND_READ); 
             }
@@ -898,20 +961,48 @@ static int parse_wln(const char *ptr, graph_t *g)
           else
             ring_chars++; 
         }
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) {
+            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
+            return ERR_ABORT; 
+          }
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
 
         break; 
 
       
       case 'L':
       case 'T':
-        state |= RING_READ; 
-        ring_chars++; 
+        if (state & RING_READ) 
+          ring_chars++; 
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) {
+            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
+            return ERR_ABORT; 
+          }
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
+        else {
+          state |= RING_READ; 
+          ring_chars++; 
+        }
         break; 
      
       /* nitrogen symbols */
       case 'N':
         if (state & RING_READ) 
           ring_chars++; 
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) {
+            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
+            return ERR_ABORT; 
+          }
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
         else {
           if (e) {
             p->valence_pack += (e->c == 0); 
@@ -921,9 +1012,9 @@ static int parse_wln(const char *ptr, graph_t *g)
           else 
             c = add_symbol(g, 0, NITRO, 3); 
           
-          stack[stack_ptr].addr = c; 
-          stack[stack_ptr].ref  = 2;
-          stack_ptr++; 
+          g->stack[g->stack_ptr].addr = c; 
+          g->stack[g->stack_ptr].ref  = 2;
+          g->stack_ptr++; 
 
           e = next_virtual_edge(c); 
           p = c; 
@@ -933,21 +1024,29 @@ static int parse_wln(const char *ptr, graph_t *g)
       case 'X':
         if (state & RING_READ) 
           ring_chars++; 
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) {
+            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
+            return ERR_ABORT;  
+          }
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
         else {
           
           if (e) {
             p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4); 
+            c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4);
             e = set_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, c, CARBON, 4); 
+            c = add_symbol(g, 0, CARBON, 4); 
           
           default_methyls(g, c, 4);  
 
-          stack[stack_ptr].addr = c; 
-          stack[stack_ptr].ref  = 4;
-          stack_ptr++; 
+          g->stack[g->stack_ptr].addr = c; 
+          g->stack[g->stack_ptr].ref  = 4;
+          g->stack_ptr++; 
           
           e = next_virtual_edge(c); 
           p = c; 
@@ -962,16 +1061,17 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (e) {
             p->valence_pack += (e->c == 0); 
             c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4); 
+            c = e->c; 
             e = set_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, c, CARBON, 4); 
+            c = add_symbol(g, 0, CARBON, 4); 
           
           default_methyls(g, c, 3);  
 
-          stack[stack_ptr].addr = c; 
-          stack[stack_ptr].ref  = 3;
-          stack_ptr++; 
+          g->stack[g->stack_ptr].addr = c; 
+          g->stack[g->stack_ptr].ref  = 3;
+          g->stack_ptr++; 
           
           e = next_virtual_edge(c); 
           p = c; 
@@ -989,20 +1089,20 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = set_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, c, NITRO, 1); 
+            c = add_symbol(g, 0, NITRO, 1); 
           
           // terminating symbol
-          if (stack_ptr && stack[stack_ptr-1].ref != -1){
-            stack[stack_ptr-1].ref--; 
-            stack_ptr -= (stack[stack_ptr-1].ref==0); 
+          if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+            g->stack[g->stack_ptr-1].ref--; 
+            g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
             // reseting block
-            if (!stack_ptr) {
+            if (!g->stack_ptr) {
               fprintf(stderr,"Error: empty stack - too many &?\n"); 
-              return 0; 
+              return ERR_ABORT; 
             }
             else 
-              read_frame(&p, &e, &r, stack, stack_ptr); 
+              read_stack_frame(&p, &e, &r, g); 
           }
           else {
             p = c; 
@@ -1014,13 +1114,37 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '-':
         if (state & RING_READ)
           ring_chars++; 
-        else if (*ptr == ' ') {
-          // lookahead +1 on ptr state, inline ring MUST follow
-          state |= BIND_READ; 
+        else if (state & DASH_READ) {
+          
+          atom_num = get_atomic_num(dash_chars[0],dash_chars[1]); 
+          if (!atom_num) {
+            fprintf(stderr, "Error: %c%c is not a valid element code\n",dash_chars[0],dash_chars[1]); 
+            return ERR_ABORT; 
+          }
+
+          if (e) {
+            p->valence_pack += (e->c == 0); 
+            c = sym_fnPtr[(e->c==0)](g, e->c, atom_num, 8); 
+            e = set_edge(e, p, c); 
+          }
+          else 
+            c = add_symbol(g, 0, atom_num, 8); 
+          
+          p = c;
+          e = next_virtual_edge(p); 
+
+          memset(dash_chars,0,3); 
+          state &= ~DASH_READ; 
         }
         else {
-          dash_ptr = 0; 
-          state |= DASH_READ; 
+          if (*ptr == ' ') {
+            // lookahead +1 on ptr state, inline ring MUST follow
+            state |= BIND_READ; 
+          }
+          else {
+            dash_ptr = 0; 
+            state |= DASH_READ; 
+          }
         }
         break; 
 
@@ -1034,36 +1158,36 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '&':
         if (state & RING_READ) 
           ring_chars++; 
-        else if (!stack_ptr) {
+        else if (!g->stack_ptr) {
           fprintf(stderr,"Error: empty stack - too many &?\n");
-          return 0; 
+          return ERR_ABORT; 
         }
         else { 
 
-          if (stack[stack_ptr-1].ref == -1) {
+          if (g->stack[g->stack_ptr-1].ref < 0) {
             // ring closures  
-            free(stack[--stack_ptr].addr);
-            stack[stack_ptr].addr = 0; 
-            stack[stack_ptr].ref = 0; 
+            free(g->stack[--g->stack_ptr].addr);
+            g->stack[g->stack_ptr].addr = 0; 
+            g->stack[g->stack_ptr].ref = 0;
           }
           else {
             // branch closures
             // note: methyl contractions will have a live virtual 
             // bond, therefore can be used checked with AND. 
 
-            c = (symbol_t*)stack[stack_ptr-1].addr; 
-            stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
-            stack[stack_ptr-1].ref--; 
-            stack_ptr -= (stack[stack_ptr-1].ref==0); 
+            c = (symbol_t*)g->stack[g->stack_ptr-1].addr; 
+            g->stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
+            g->stack[g->stack_ptr-1].ref--; 
+            g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
           }
 
           // reseting block
-          if (!stack_ptr) {
+          if (!g->stack_ptr) {
             fprintf(stderr,"Error: empty stack - too many &?\n"); 
-            return 0; 
+            return ERR_ABORT; 
           }
           else 
-            read_frame(&p, &e, &r, stack, stack_ptr); 
+            read_stack_frame(&p, &e, &r, g); 
         }
         break;
 
@@ -1076,20 +1200,20 @@ static int parse_wln(const char *ptr, graph_t *g)
         }
         else {
           fprintf(stderr,"Error: unsaturation called without previous bond\n");
-          return 0;
+          return ERR_ABORT;
         }
         break; 
 
       case 0:
-        return 1; // allows the +1 look-ahead 
+        return ERR_NONE; // allows the +1 look-ahead 
 
       default:
         fprintf(stderr,"Error: invalid character - %c (%d) for WLN notation\n",ch,ch);
-        return 0; 
+        return ERR_ABORT; 
     }
   }
   
-  return 1; 
+  return ERR_ABORT; // should never get here unless pointer is mangled 
 }
 
 
@@ -1128,18 +1252,19 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
 int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
   for (u16 i=0; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i]; 
+    
+    // transition metals complicate this somewhat
     switch (node->atomic_num) {
-      case 6: // carbons
-        ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F)); 
+      case CARBON: 
+        ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F) ); 
         break; 
-      
-      case 7: // nitrogens
-        ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F)); 
+
+      case NITRO:
+        ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F) ); 
         break; 
-        
+
       default:
-        break;
-        //ob_add_atom(mol, atomic_num, 0, (node->max_valence-node->valence)); 
+        ob_add_atom(mol, node->atomic_num, 0, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
     }
   }
   
@@ -1161,17 +1286,34 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
+  int RET_CODE = 0; 
+  u16 st_pool_size = 256; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
-  gt_alloc(g, REASONABLE); 
-  
-  if (!parse_wln(ptr, g))
-    return 0; 
+  gt_alloc(g, st_pool_size); 
 
-  // graph_to_dotfile(stderr, g); 
-  ob_convert_wln_graph(mol,g); 
+  // allows recovery and resetting for super large WLN strings
+  for (;;) {
 
-  gt_free(g); 
-  return 1; 
+    RET_CODE = parse_wln(ptr, g); 
+    switch (RET_CODE) {
+      
+      case ERR_MEMORY: 
+        st_pool_size <<= 1; 
+        gt_free(g); 
+        gt_alloc(g, st_pool_size); 
+        break; 
+
+      case ERR_ABORT:
+        gt_free(g); 
+        return 0; 
+      
+      
+      default:
+        ob_convert_wln_graph(mol,g); 
+        gt_free(g); 
+        return 1; 
+    }
+  }
 }
 
