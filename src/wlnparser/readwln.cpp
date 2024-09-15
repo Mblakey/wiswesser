@@ -50,6 +50,12 @@ GNU General Public License for more details.
 
 typedef struct symbol_t symbol_t; 
 
+static u8 error(const char *message) 
+{
+  fprintf(stderr,"%s\n", message); 
+  return ERR_ABORT;  
+}
+
 /* returns atomic number of element packing */
 u16 get_atomic_num(u8 high, u8 low){
   switch (high){
@@ -537,7 +543,10 @@ static __always_inline edge_t* next_virtual_edge(symbol_t *p)
  * but only needs checked when a real edge is made. 
  */
 static edge_t* set_edge(edge_t *e, symbol_t *p, symbol_t *c)
-{ 
+{
+  if (!p || !c)
+    return (edge_t*)0; 
+
   e->c = c; 
   c->valence_pack += e->order; 
 
@@ -641,7 +650,6 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
 
 
   }
-
 
   return r;   
 }
@@ -751,6 +759,9 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
 /* assumes the head node contains only virtual bonds */
 static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p, int size)
 {
+  if (!p)
+    return (symbol_t*)0; 
+
   edge_t *e;
   symbol_t *c = p;  
   for (u16 i=0; i<size; i++) {
@@ -815,10 +826,8 @@ static int parse_wln(const char *ptr, graph_t *g)
     ch = *(ptr++);
     switch (ch) {
       case '0':
-        if (!(state & DIGIT_READ)) {
-          fprintf(stderr,"Error: zero numeral without prefix digits\n"); 
-          return ERR_ABORT; 
-        }
+        if (!(state & DIGIT_READ))
+          return error("Error: zero numeral without prefix digits"); 
         else {
           alkyl_len *= 10; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
@@ -832,9 +841,13 @@ static int parse_wln(const char *ptr, graph_t *g)
               c = add_symbol(g, 0, CARBON, 4); 
             
             c = add_alkyl_chain(g, c, alkyl_len-1);  
-            e = next_virtual_edge(c); 
-            alkyl_len = 0; 
-            p = c; 
+            if (!c) 
+              return ERR_MEMORY; 
+            else { 
+              e = next_virtual_edge(c); 
+              alkyl_len = 0; 
+              p = c;
+            }
           }
         }
         break;
@@ -862,14 +875,15 @@ static int parse_wln(const char *ptr, graph_t *g)
             }
             else 
               c = add_symbol(g, 0, CARBON, 4); 
-            
+              
             c = add_alkyl_chain(g, c, alkyl_len-1);  
             if (!c) 
               return ERR_MEMORY; 
-
-            e = next_virtual_edge(c); 
-            alkyl_len = 0; 
-            p = c; 
+            else {
+              e = next_virtual_edge(c); 
+              alkyl_len = 0; 
+              p = c;
+            }
           }
           else
             state |= DIGIT_READ; 
@@ -881,10 +895,8 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ)
           ring_chars++; 
         else if (state & DASH_READ) {
-          if (dash_ptr == 3) {
-            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
-            return ERR_ABORT; 
-          }
+          if (dash_ptr == 3) 
+            return error("Error: elemental code can only have 2 character symbols"); 
           else
             dash_chars[dash_ptr++] = ch; 
         }
@@ -900,10 +912,8 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = next_virtual_edge(c); 
             p = c; 
           } 
-          else {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return ERR_ABORT; 
-          }
+          else 
+            return error("Error: out of bounds locant access"); 
         }
         break; 
 
@@ -918,10 +928,8 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ) 
           ring_chars++; 
         else if (state & DASH_READ) {
-          if (dash_ptr == 3) {
-            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
-            return ERR_ABORT; 
-          }
+          if (dash_ptr == 3)
+            return error("Error: elemental code can only have 2 character symbols"); 
           else
             dash_chars[dash_ptr++] = ch; 
         }
@@ -962,10 +970,8 @@ static int parse_wln(const char *ptr, graph_t *g)
             ring_chars++; 
         }
         else if (state & DASH_READ) {
-          if (dash_ptr == 3) {
-            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
-            return ERR_ABORT; 
-          }
+          if (dash_ptr == 3) 
+            return error("Error: elemental code can only have 2 character symbols"); 
           else
             dash_chars[dash_ptr++] = ch; 
         }
@@ -978,10 +984,8 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ) 
           ring_chars++; 
         else if (state & DASH_READ) {
-          if (dash_ptr == 3) {
-            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
-            return ERR_ABORT; 
-          }
+          if (dash_ptr == 3) 
+            return error("Error: elemental code can only have 2 character symbols"); 
           else
             dash_chars[dash_ptr++] = ch; 
         }
@@ -996,10 +1000,8 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ) 
           ring_chars++; 
         else if (state & DASH_READ) {
-          if (dash_ptr == 3) {
-            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
-            return ERR_ABORT; 
-          }
+          if (dash_ptr == 3) 
+            return error("Error: elemental code can only have 2 character symbols"); 
           else
             dash_chars[dash_ptr++] = ch; 
         }
@@ -1025,10 +1027,8 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ) 
           ring_chars++; 
         else if (state & DASH_READ) {
-          if (dash_ptr == 3) {
-            fprintf(stderr,"Error: elemental code can only have 2 character symbols\n"); 
-            return ERR_ABORT;  
-          }
+          if (dash_ptr == 3) 
+            return error("Error: elemental code can only have 2 character symbols"); 
           else
             dash_chars[dash_ptr++] = ch; 
         }
@@ -1097,10 +1097,8 @@ static int parse_wln(const char *ptr, graph_t *g)
             g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
             // reseting block
-            if (!g->stack_ptr) {
-              fprintf(stderr,"Error: empty stack - too many &?\n"); 
-              return ERR_ABORT; 
-            }
+            if (!g->stack_ptr) 
+              return error("Error: empty stack - too many &?"); 
             else 
               read_stack_frame(&p, &e, &r, g); 
           }
@@ -1117,10 +1115,8 @@ static int parse_wln(const char *ptr, graph_t *g)
         else if (state & DASH_READ) {
           
           atom_num = get_atomic_num(dash_chars[0],dash_chars[1]); 
-          if (!atom_num) {
-            fprintf(stderr, "Error: %c%c is not a valid element code\n",dash_chars[0],dash_chars[1]); 
-            return ERR_ABORT; 
-          }
+          if (!atom_num) 
+            return error("Error: invalid element two character code"); 
 
           if (e) {
             p->valence_pack += (e->c == 0); 
@@ -1158,10 +1154,8 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '&':
         if (state & RING_READ) 
           ring_chars++; 
-        else if (!g->stack_ptr) {
-          fprintf(stderr,"Error: empty stack - too many &?\n");
-          return ERR_ABORT; 
-        }
+        else if (!g->stack_ptr) 
+          return error("Error: empty stack - too many &?"); 
         else { 
 
           if (g->stack[g->stack_ptr-1].ref < 0) {
@@ -1182,10 +1176,8 @@ static int parse_wln(const char *ptr, graph_t *g)
           }
 
           // reseting block
-          if (!g->stack_ptr) {
-            fprintf(stderr,"Error: empty stack - too many &?\n"); 
-            return ERR_ABORT; 
-          }
+          if (!g->stack_ptr) 
+            return error("Error: empty stack - too many &?"); 
           else 
             read_stack_frame(&p, &e, &r, g); 
         }
@@ -1198,18 +1190,15 @@ static int parse_wln(const char *ptr, graph_t *g)
           e->order += 1; 
           p->valence_pack++; 
         }
-        else {
-          fprintf(stderr,"Error: unsaturation called without previous bond\n");
-          return ERR_ABORT;
-        }
+        else
+          return error("Error: unsaturation called without previous bond"); 
         break; 
 
       case 0:
         return ERR_NONE; // allows the +1 look-ahead 
 
       default:
-        fprintf(stderr,"Error: invalid character - %c (%d) for WLN notation\n",ch,ch);
-        return ERR_ABORT; 
+        return error("Error: invalid character read for WLN notation"); 
     }
   }
   
@@ -1299,7 +1288,7 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     switch (RET_CODE) {
       
       case ERR_MEMORY: 
-        st_pool_size <<= 1; 
+        st_pool_size *= 2; 
         gt_free(g); 
         gt_alloc(g, st_pool_size); 
         break; 
@@ -1307,7 +1296,6 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
       case ERR_ABORT:
         gt_free(g); 
         return 0; 
-      
       
       default:
         ob_convert_wln_graph(mol,g); 
