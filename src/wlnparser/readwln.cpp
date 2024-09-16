@@ -44,6 +44,7 @@ GNU General Public License for more details.
 #define ERR_MEMORY 2 
 
 // Element "magic numbers"
+#define DUMMY   0
 #define CARBON  6
 #define NITRO   7
 #define OXYGEN  8
@@ -542,7 +543,7 @@ static __always_inline edge_t* next_virtual_edge(symbol_t *p)
  * for the child, packing for parent is modified on virtual spawn
  * but only needs checked when a real edge is made. 
  */
-static edge_t* set_edge(edge_t *e, symbol_t *p, symbol_t *c)
+static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
 {
   if (!p || !c)
     return (edge_t*)0; 
@@ -604,7 +605,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       if (p) {
         p->s->valence_pack++; 
         e = next_virtual_edge(p->s); 
-        e = set_edge(e, p->s, c->s); 
+        e = set_virtual_edge(e, p->s, c->s); 
       }
     }
     c->hloc = i+1; // pointing to the value in front 
@@ -639,7 +640,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       
       start->s->valence_pack++; 
       e = next_virtual_edge(start->s); 
-      e = set_edge(e, start->s, end->s);
+      e = set_virtual_edge(e, start->s, end->s);
 
       start->hloc = end - &r->path[0]; 
     }
@@ -756,27 +757,23 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   return path_solverIII(g, ring, SSSR, SSSR_ptr, 0);     
 }
 
-/* assumes the head node contains only virtual bonds */
-static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p, int size)
+/* assumes the head node contains only virtual bonds
+ * live virtual edge must be coming in */
+static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p,  edge_t *e, int size)
 {
-  if (!p)
-    return (symbol_t*)0; 
-
-  edge_t *e;
-  symbol_t *c = p;  
+  symbol_t *c = 0; 
   for (u16 i=0; i<size; i++) {
     p->valence_pack++; 
-    e = next_virtual_edge(c); 
     c = add_symbol(g, 0, CARBON, 4);
+    e = set_virtual_edge(e, p, c); 
     
-    if (!c)
+    if (!c || !e) 
       return (symbol_t*)0; 
-    else { 
-      e = set_edge(e, p, c); 
-      p = c;
-    }
+
+    p = c;
+    e = next_virtual_edge(p); 
   }
-  return c;
+  return p;
 }
 
 static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
@@ -787,7 +784,7 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
     c->valence_pack++; 
     m = add_symbol(g, 0, CARBON, 4); 
     e = next_virtual_edge(c); 
-    e = set_edge(e, c, m); 
+    e = set_virtual_edge(e, c, m); 
   }
   c->n_bonds = 0;  
 }
@@ -821,6 +818,13 @@ static int parse_wln(const char *ptr, graph_t *g)
   // avoids a branch on each symbol case
   symbol_t* (*sym_fnPtr[2])(graph_t*, symbol_t*, const u16, const u8) = {&overwrite_symbol, &add_symbol}; 
 
+  // init conditions, make one dummy atom, and one bond - work of the virtual bond
+  // idea entirely *--> grow...  
+  c = add_symbol(g, 0, DUMMY, 1); 
+  e = next_virtual_edge(c); 
+  e->order = DUMMY; 
+  p = c; 
+
   unsigned char ch = 1; 
   while(ch) {
     ch = *(ptr++);
@@ -831,23 +835,12 @@ static int parse_wln(const char *ptr, graph_t *g)
         else {
           alkyl_len *= 10; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
-
-            if (e) {
-              p->valence_pack += (e->c == 0); 
-              c = sym_fnPtr[e->c==0](g, e->c, CARBON, 4); 
-              e = set_edge(e, p, c); 
-            }
-            else 
-              c = add_symbol(g, 0, CARBON, 4); 
+                                          
+            c = add_alkyl_chain(g, p, e, alkyl_len);  
+            e = next_virtual_edge(c); 
             
-            c = add_alkyl_chain(g, c, alkyl_len-1);  
-            if (!c) 
-              return ERR_MEMORY; 
-            else { 
-              e = next_virtual_edge(c); 
-              alkyl_len = 0; 
-              p = c;
-            }
+            alkyl_len = 0; 
+            p = c;
           }
         }
         break;
@@ -868,22 +861,11 @@ static int parse_wln(const char *ptr, graph_t *g)
           alkyl_len += ch - '0'; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
 
-            if (e) {
-              p->valence_pack += (e->c == 0); 
-              c = sym_fnPtr[e->c==0](g, e->c, CARBON, 4); 
-              e = set_edge(e, p, c); 
-            }
-            else 
-              c = add_symbol(g, 0, CARBON, 4); 
-              
-            c = add_alkyl_chain(g, c, alkyl_len-1);  
-            if (!c) 
-              return ERR_MEMORY; 
-            else {
-              e = next_virtual_edge(c); 
-              alkyl_len = 0; 
-              p = c;
-            }
+            c = add_alkyl_chain(g, p, e, alkyl_len);  
+            e = next_virtual_edge(c); 
+            
+            alkyl_len = 0; 
+            p = c;
           }
           else
             state |= DIGIT_READ; 
@@ -962,7 +944,7 @@ static int parse_wln(const char *ptr, graph_t *g)
               c = r->path[locant_ch].s;
 
               p->valence_pack += (e->c==0); 
-              e = set_edge(e, p, c);  
+              e = set_virtual_edge(e, p, c);  
               state &= ~(BIND_READ); 
             }
           }
@@ -1009,7 +991,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (e) {
             p->valence_pack += (e->c == 0); 
             c = sym_fnPtr[e->c==0](g, e->c, NITRO, 3); 
-            e = set_edge(e, p, c); 
+            e = set_virtual_edge(e, p, c); 
           }
           else 
             c = add_symbol(g, 0, NITRO, 3); 
@@ -1037,7 +1019,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (e) {
             p->valence_pack += (e->c == 0); 
             c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4);
-            e = set_edge(e, p, c); 
+            e = set_virtual_edge(e, p, c); 
           }
           else 
             c = add_symbol(g, 0, CARBON, 4); 
@@ -1062,7 +1044,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             p->valence_pack += (e->c == 0); 
             c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4); 
             c = e->c; 
-            e = set_edge(e, p, c); 
+            e = set_virtual_edge(e, p, c); 
           }
           else 
             c = add_symbol(g, 0, CARBON, 4); 
@@ -1086,7 +1068,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (e) {
             p->valence_pack += (e->c == 0); 
             c = sym_fnPtr[(e->c==0)](g, e->c, NITRO, 1); 
-            e = set_edge(e, p, c); 
+            e = set_virtual_edge(e, p, c); 
           }
           else 
             c = add_symbol(g, 0, NITRO, 1); 
@@ -1121,7 +1103,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (e) {
             p->valence_pack += (e->c == 0); 
             c = sym_fnPtr[(e->c==0)](g, e->c, atom_num, 8); 
-            e = set_edge(e, p, c); 
+            e = set_virtual_edge(e, p, c); 
           }
           else 
             c = add_symbol(g, 0, atom_num, 8); 
@@ -1238,8 +1220,12 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
 }
 
 
+/*
+ * A dummy atom is created at position zero, siginificantly simplifies 
+ * and speeds up the parsing code - removes a lot of branch checks
+ */
 int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
-  for (u16 i=0; i<g->s_num; i++) {
+  for (u16 i=1; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i]; 
     
     // transition metals complicate this somewhat
@@ -1251,6 +1237,10 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
       case NITRO:
         ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F) ); 
         break; 
+      
+      case DUMMY: // used to simplify grow code
+        fprintf(stderr,"Warning: dummy atom seen in ob convert\n"); 
+        break; 
 
       default:
         ob_add_atom(mol, node->atomic_num, 0, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
@@ -1258,14 +1248,15 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
   }
   
   /* will have a 1-1 indexing */
-  for (u16 i=0; i<g->s_num; i++) {
+  for (u16 i=1; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i];
     for (u16 j=0; j<MAX_DEGREE; j++) {
       edge_t *e = &node->bonds[j];
       if (e->c) {
+        // dummy atom gives the OB +1 indexing 0=1, 1=2 ... so on
         u16 beg = node - g->symbols; 
         u16 end = e->c - g->symbols;
-        ob_add_bond(mol, mol->GetAtom(beg+1), mol->GetAtom(end+1), e->order); 
+        ob_add_bond(mol, mol->GetAtom(beg), mol->GetAtom(end), e->order); 
       }
     }
   }
