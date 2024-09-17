@@ -643,6 +643,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       start    = &r->path[subcycle->r_loc]; 
       end      = start; 
 
+
       for (u16 s=0; s<steps-1; s++)
         end = &r->path[end->hloc]; 
       
@@ -662,7 +663,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
   return r;   
 }
 
-static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g) 
+static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
 {
   // note: The WLN ring system will always be <= than the sum of 
   //       the ring assignment values, therefore alloc'ing the sum 
@@ -684,24 +685,23 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   u8 state = 0; // bit field:                      
                  // [][][][][dash][SSSR][digit][space]
 
+  unsigned char ch; 
   
   // note: WLN has a lot of ambiguty due to the limited char set, therefore
   //       you have to reduce possible states in order to correctly handle. 
   //       Reading arom assignments first allows determined state of '& symbols. 
-  while (*e_ptr == '&' || *e_ptr == 'T') {
-    arom_count++; 
-    e_ptr--; 
+
+#ifdef AROM
+  while (ptr[e] == '&' || ptr[e] == 'T') {
+    SSSR[arom_count++].arom = (ptr[e] == '&'); // will require reversal 
+    e--; 
   }
-  e_ptr++; 
+  e++; 
+#endif
 
-  // & symbols can now only be a position expansion
-  for (u16 i=0; i<arom_count; i++) 
-    SSSR[i].arom = (*(e_ptr+i) == '&'); 
-
-  unsigned char ch = 1; 
   state = SSSR_READ; 
-  while (s_ptr != e_ptr) {
-    ch = *(s_ptr++); 
+  for (u16 sp=s; sp<e; sp++){
+    ch     = ptr[sp]; 
     switch (ch) {
 
       case '0':
@@ -729,7 +729,6 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
       case 'C':
       case 'D':
       case 'J':
-      case 'L':
       case 'R':
         if (1) {
           locant_ch = ch; 
@@ -750,6 +749,9 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
 
       case ' ':
         break; 
+
+      default:
+        fprintf(stderr,"eh?\n"); 
     }
   }
   
@@ -760,6 +762,7 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   }
  
   // do a mem allocation check here
+
 
   ring->size = upper_r_size; 
   return path_solverIII(g, ring, SSSR, SSSR_ptr, 0);     
@@ -932,17 +935,16 @@ static int parse_wln(const char *ptr, graph_t *g)
      
       case 'J':
         if (state & RING_READ) {
-        
-          if (*ptr == '&' || *ptr == ' ' || *ptr == 0) {
+          if (ch_nxt == '&' || ch_nxt == ' ' || ch_nxt == 0) {
             // J can be used inside ring notation, requires lookahead 
             // condition 
             
-            // note (2 magic number): The ptr passed in does not include the 
-            //                        starting L/T or ending J
+            // note: The ptr passed in does not include the 
+            //       starting L/T or ending J (<sp) 
             
-            r = parse_cyclic(ptr-ring_chars, ptr-2, g);
+            r = parse_cyclic(ptr, sp-ring_chars+1, sp, g);
             if (!r) 
-              return 0; 
+              return ERR_ABORT; 
             else {
               g->stack[g->stack_ptr].addr = r; 
               g->stack[g->stack_ptr++].ref = -1; 
