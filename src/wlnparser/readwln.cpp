@@ -503,7 +503,7 @@ static void gt_free(graph_t *g)
 static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_valence)
 {
   if (g->s_num == g->s_max) {
-    fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
+    fprintf(stderr,"Warning: symbol limit reached (%d), reallocating...\n", g->s_max); 
     return (symbol_t*)0; 
   }
   
@@ -522,6 +522,25 @@ static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_v
   return s; 
 }
 
+// a really useful contract to ensure all pointers are live without
+// multiple branch checks
+static symbol_t* dummy_symbol(graph_t *g)
+{
+  if (g->s_num == g->s_max) {
+    fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
+    return (symbol_t*)0; 
+  }
+  
+  symbol_t *s = &g->symbols[g->s_num++];
+
+  s->atomic_num   = DUMMY; 
+  s->n_bonds      = 0;
+  s->valence_pack = 1; 
+  s->valence_pack <<= 4;
+  return s; 
+}
+
+
 static __always_inline edge_t* next_virtual_edge(symbol_t *p)
 {
   edge_t *e = &p->bonds[p->n_bonds++]; 
@@ -535,6 +554,7 @@ static __always_inline edge_t* next_virtual_edge(symbol_t *p)
  */
 static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
 {
+  p->valence_pack += (e->c == 0); // unsaturations modify this directly
   e->c = c; 
   c->valence_pack += e->order; 
 
@@ -549,6 +569,7 @@ static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
   }
   return e; 
 }
+
 
 static void read_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
 {
@@ -750,14 +771,12 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
   edge_t *e; 
   symbol_t *m; 
   for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
-    c->valence_pack++; 
-    m = next_symbol(g, 0, CARBON, 4); 
     e = next_virtual_edge(c); 
+    m = next_symbol(g, e, CARBON, 4); 
     e = set_virtual_edge(e, c, m); 
   }
   c->n_bonds = 0;  
 }
-
 
 /*
  * -- Parse WLN Notation --
@@ -785,8 +804,9 @@ static int parse_wln(const char *ptr, graph_t *g)
   unsigned char dash_chars[3]; // last byte is mainly for overflow 
  
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
-  // idea entirely *--> grow...  
-  c = next_symbol(g, 0, DUMMY, 1); 
+  // idea entirely *--> grow...
+  
+  c = dummy_symbol(g); 
   e = next_virtual_edge(c); 
   e->order = DUMMY; 
   p = c; 
@@ -803,8 +823,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
                        
             for (u16 i=0; i<alkyl_len; i++) {
-              p->valence_pack++; 
-              c = next_symbol(g, 0, CARBON, 4);
+              c = next_symbol(g, e, CARBON, 4);
               if (!c)
                 return ERR_MEMORY; 
               else
@@ -840,8 +859,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
             
             for (u16 i=0; i<alkyl_len; i++) {
-              p->valence_pack++; 
-              c = next_symbol(g, 0, CARBON, 4);
+              c = next_symbol(g, e, CARBON, 4);
               if (!c)
                 return ERR_MEMORY; 
               else
@@ -932,7 +950,6 @@ static int parse_wln(const char *ptr, graph_t *g)
               // this needs wrapping to avoid seg fault on a user error
               c = r->path[locant_ch].s;
 
-              p->valence_pack += (e->c==0); 
               e = set_virtual_edge(e, p, c);  
               state &= ~(BIND_READ); 
             }
@@ -977,20 +994,22 @@ static int parse_wln(const char *ptr, graph_t *g)
             dash_chars[dash_ptr++] = ch; 
         }
         else {
-          if (e) {
-            p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[e->c==0](g, e->c, NITRO, 3); 
+          c = next_symbol(g, e, NITRO, 4);
+          if (!c)
+            return ERR_MEMORY; 
+          else
             e = set_virtual_edge(e, p, c); 
-          }
-          else 
-            c = next_symbol(g, 0, NITRO, 3); 
-          
-          g->stack[g->stack_ptr].addr = c; 
-          g->stack[g->stack_ptr].ref  = 2;
-          g->stack_ptr++; 
 
-          e = next_virtual_edge(c); 
-          p = c; 
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 2;
+            g->stack_ptr++; 
+
+            p = c;
+            e = next_virtual_edge(c); 
+          }
         }
         break;
 
@@ -1004,23 +1023,24 @@ static int parse_wln(const char *ptr, graph_t *g)
             dash_chars[dash_ptr++] = ch; 
         }
         else {
-          
-          if (e) {
-            p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4);
+          c = next_symbol(g, e, CARBON, 4);
+          if (!c)
+            return ERR_MEMORY; 
+          else
             e = set_virtual_edge(e, p, c); 
-          }
-          else 
-            c = next_symbol(g, 0, CARBON, 4); 
-          
-          default_methyls(g, c, 4);  
 
-          g->stack[g->stack_ptr].addr = c; 
-          g->stack[g->stack_ptr].ref  = 4;
-          g->stack_ptr++; 
-          
-          e = next_virtual_edge(c); 
-          p = c; 
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            default_methyls(g, c, 4);  
+
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 3;
+            g->stack_ptr++; 
+
+            p = c; 
+            e = next_virtual_edge(c); 
+          }
         }
         break;
 
@@ -1028,24 +1048,24 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ) 
           ring_chars++; 
         else {
-          
-          if (e) {
-            p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[(e->c==0)](g, e->c, CARBON, 4); 
-            c = e->c; 
+          c = next_symbol(g, e, CARBON, 4);
+          if (!c)
+            return ERR_MEMORY; 
+          else
             e = set_virtual_edge(e, p, c); 
-          }
-          else 
-            c = next_symbol(g, 0, CARBON, 4); 
-          
-          default_methyls(g, c, 3);  
 
-          g->stack[g->stack_ptr].addr = c; 
-          g->stack[g->stack_ptr].ref  = 3;
-          g->stack_ptr++; 
-          
-          e = next_virtual_edge(c); 
-          p = c; 
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            default_methyls(g, c, 3);  
+
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 2;
+            g->stack_ptr++; 
+
+            p = c; 
+            e = next_virtual_edge(c); 
+          }
         }
         break;
       
@@ -1053,32 +1073,48 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ) 
           ring_chars++; 
         else {
-          
-          if (e) {
-            p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[(e->c==0)](g, e->c, NITRO, 1); 
+          c = next_symbol(g, e, NITRO, 1);
+          if (!c)
+            return ERR_MEMORY; 
+          else
             e = set_virtual_edge(e, p, c); 
-          }
-          else 
-            c = next_symbol(g, 0, NITRO, 1); 
-          
-          // terminating symbol
-          if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-            g->stack[g->stack_ptr-1].ref--; 
-            g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
-            // reseting block
-            if (!g->stack_ptr) 
-              return error("Error: empty stack - too many &?"); 
-            else 
-              read_stack_frame(&p, &e, &r, g); 
-          }
+          if (!e)
+            return ERR_ABORT; 
           else {
-            p = c; 
-            e = next_virtual_edge(p); 
+          
+            // terminating symbol
+            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+              g->stack[g->stack_ptr-1].ref--; 
+              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+
+              // reseting block
+              // note: terminators can empty the stack, '&' cannot
+              if (!g->stack_ptr) {
+                p = c; 
+                e = next_virtual_edge(p); 
+              }
+              else 
+                read_stack_frame(&p, &e, &r, g); 
+            }
+            else {
+              p = c; 
+              e = next_virtual_edge(p); 
+            }
           }
         }
         break;
+
+      case 'U':
+        if (state & RING_READ) 
+          ring_chars++;
+        else if (e) {
+          e->order += 1; 
+          p->valence_pack++; 
+        }
+        else
+          return error("Error: unsaturation called without previous bond"); 
+        break; 
       
       case '-':
         if (state & RING_READ)
@@ -1089,17 +1125,7 @@ static int parse_wln(const char *ptr, graph_t *g)
           if (!atom_num) 
             return error("Error: invalid element two character code"); 
 
-          if (e) {
-            p->valence_pack += (e->c == 0); 
-            c = sym_fnPtr[(e->c==0)](g, e->c, atom_num, 8); 
-            e = set_virtual_edge(e, p, c); 
-          }
-          else 
-            c = next_symbol(g, 0, atom_num, 8); 
           
-          p = c;
-          e = next_virtual_edge(p); 
-
           memset(dash_chars,0,3); 
           state &= ~DASH_READ; 
         }
@@ -1154,16 +1180,6 @@ static int parse_wln(const char *ptr, graph_t *g)
         }
         break;
 
-      case 'U':
-        if (state & RING_READ) 
-          ring_chars++;
-        else if (e) {
-          e->order += 1; 
-          p->valence_pack++; 
-        }
-        else
-          return error("Error: unsaturation called without previous bond"); 
-        break; 
 
       case 0:
         return ERR_NONE; // allows the +1 look-ahead 
@@ -1256,7 +1272,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
   int RET_CODE = 0; 
-  u16 st_pool_size = 256; 
+  u16 st_pool_size = 128; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
   gt_alloc(g, st_pool_size); 
@@ -1268,9 +1284,15 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     switch (RET_CODE) {
       
       case ERR_MEMORY: 
-        st_pool_size *= 2; 
-        gt_free(g); 
-        gt_alloc(g, st_pool_size); 
+        if (st_pool_size == 1024) {
+          fprintf(stderr,"Error: WLN string specifies > 1024 atoms\n"); 
+          return 0; 
+        }
+        else {
+          st_pool_size *= 2; 
+          gt_free(g); 
+          gt_alloc(g, st_pool_size); 
+        }
         break; 
 
       case ERR_ABORT:
