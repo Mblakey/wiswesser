@@ -1,7 +1,7 @@
 /*********************************************************************
  
 Author : Michael Blakey
-Description: WLN reader C file, labelled as cpp to link with cpp toolkits.  
+Description: WLN reader - write out SMILES etc from WLN
 
 This file is part of the Open Babel project.
 For more information, see <http://openbabel.org/>
@@ -422,16 +422,19 @@ u16 get_atomic_num(u8 high, u8 low){
 }
 
 
+// 9 bytes
 typedef struct {
   symbol_t* c; 
   u8 order; 
 } edge_t; 
 
+// 3 + (8*9) = 75 bytes per symbol
+// 80 = 16*5, multiple of 16 stack aligned
 struct symbol_t {
   u8 atomic_num;   
   u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
   u8 n_bonds; 
-  edge_t bonds[MAX_DEGREE]; // directional (most memory usage)
+  edge_t bonds[MAX_DEGREE]; // directional 
 };
 
 typedef struct {
@@ -522,9 +525,7 @@ static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_v
   return s; 
 }
 
-// a really useful contract to ensure all pointers are live without
-// multiple branch checks
-static symbol_t* dummy_symbol(graph_t *g)
+static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
 {
   if (g->s_num == g->s_max) {
     fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
@@ -533,10 +534,11 @@ static symbol_t* dummy_symbol(graph_t *g)
   
   symbol_t *s = &g->symbols[g->s_num++];
 
-  s->atomic_num   = DUMMY; 
+  s->atomic_num   = id; 
   s->n_bonds      = 0;
-  s->valence_pack = 1; 
+  s->valence_pack = lim_valence; 
   s->valence_pack <<= 4;
+  memset(s->bonds,0,sizeof(edge_t) * MAX_DEGREE); 
   return s; 
 }
 
@@ -603,15 +605,13 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
   locant *start, *end; 
   r_assignment *subcycle; 
 
-  // create the initial chain
   for (u16 i=0; i<r->size; i++) {
     c = &r->path[i]; 
     if (!c->s) { 
       c->r_pack = 0x1 + (!i | (i==r->size-1)); 
-      c->s = next_symbol(g, 0, CARBON, 4); 
+      c->s = new_symbol(g, CARBON, 4); 
 
       if (p) {
-        p->s->valence_pack++; 
         e = next_virtual_edge(p->s); 
         e = set_virtual_edge(e, p->s, c->s); 
       }
@@ -646,7 +646,6 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       for (u16 s=0; s<steps-1; s++)
         end = &r->path[end->hloc]; 
       
-      start->s->valence_pack++; 
       e = next_virtual_edge(start->s); 
       e = set_virtual_edge(e, start->s, end->s);
 
@@ -751,7 +750,6 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
 
       case ' ':
         break; 
-
     }
   }
   
@@ -760,7 +758,9 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
     ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(upper_r_size-1)); 
     memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(upper_r_size-1)); 
   }
-  
+ 
+  // do a mem allocation check here
+
   ring->size = upper_r_size; 
   return path_solverIII(g, ring, SSSR, SSSR_ptr, 0);     
 }
@@ -806,21 +806,27 @@ static int parse_wln(const char *ptr, graph_t *g)
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
   // idea entirely *--> grow...
   
-  c = dummy_symbol(g); 
+  c = new_symbol(g, DUMMY, 1); 
   e = next_virtual_edge(c); 
   e->order = DUMMY; 
   p = c; 
+  
+  // charges are assigned through string indexing - tf: need a strlen() 
+    
+  unsigned char ch; 
+  unsigned char ch_nxt; 
+  u16 len = strlen(ptr); 
 
-  unsigned char ch = 1; 
-  while(ch) {
-    ch = *(ptr++);
+  for (u16 sp=0; sp<len; sp++) {
+    ch     = ptr[sp]; 
+    ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
     switch (ch) {
       case '0':
         if (!(state & DIGIT_READ))
           return error("Error: zero numeral without prefix digits"); 
         else {
           alkyl_len *= 10; 
-          if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
+          if (ch_nxt < '0' || ch_nxt > '9') {  
                        
             for (u16 i=0; i<alkyl_len; i++) {
               c = next_symbol(g, e, CARBON, 4);
@@ -856,7 +862,7 @@ static int parse_wln(const char *ptr, graph_t *g)
         else {
           alkyl_len *= 10; 
           alkyl_len += ch - '0'; 
-          if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
+          if (ch_nxt < '0' || ch_nxt > '9') { 
             
             for (u16 i=0; i<alkyl_len; i++) {
               c = next_symbol(g, e, CARBON, 4);
@@ -1130,10 +1136,8 @@ static int parse_wln(const char *ptr, graph_t *g)
           state &= ~DASH_READ; 
         }
         else {
-          if (*ptr == ' ') {
-            // lookahead +1 on ptr state, inline ring MUST follow
+          if (ch_nxt == ' ') 
             state |= BIND_READ; 
-          }
           else {
             dash_ptr = 0; 
             state |= DASH_READ; 
@@ -1151,6 +1155,21 @@ static int parse_wln(const char *ptr, graph_t *g)
       case '&':
         if (state & RING_READ) 
           ring_chars++; 
+        else if (state & SPACE_READ) {
+          // either a new ion, or a charge assignment 
+          // - create a new dummy, handle charge with
+          // alkyl values
+
+          c = new_symbol(g, DUMMY, 1); 
+          e = next_virtual_edge(c); 
+          e->order = DUMMY; 
+          p = c; 
+
+          gt_stack_flush(g); 
+          g->stack_ptr = 0; 
+
+          state &= ~SPACE_READ; 
+        }
         else if (!g->stack_ptr) 
           return error("Error: empty stack - too many &?"); 
         else { 
@@ -1180,16 +1199,12 @@ static int parse_wln(const char *ptr, graph_t *g)
         }
         break;
 
-
-      case 0:
-        return ERR_NONE; // allows the +1 look-ahead 
-
       default:
         return error("Error: invalid character read for WLN notation"); 
     }
   }
   
-  return ERR_ABORT; // should never get here unless pointer is mangled 
+  return ERR_NONE; 
 }
 
 
@@ -1211,7 +1226,7 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
 {
   OpenBabel::OBBond* bptr = 0; 
   if (!s || !e) {
-    fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible\n");
+    fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible s: %p, e: %p\n",s,e);
     return bptr;
   }
 
@@ -1226,42 +1241,48 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
 
 
 /*
- * A dummy atom is created at position zero, siginificantly simplifies 
- * and speeds up the parsing code - removes a lot of branch checks
+ * A dummy atom is created at new instance positions, siginificantly simplifies 
+ * and speeds up the parsing code - removes a lot of branch checks, requires a mapping
+ * to build mol
  */
 int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
+  OpenBabel::OBAtom *atom; 
+  OpenBabel::OBAtom **amapping = (OpenBabel::OBAtom **)alloca(sizeof(OpenBabel::OBAtom*) * g->s_num); 
   for (u16 i=1; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i]; 
     
     // transition metals complicate this somewhat
+    
     switch (node->atomic_num) {
       case CARBON: 
-        ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F) ); 
+        atom = ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F) ); 
+        amapping[i] = atom; 
         break; 
 
       case NITRO:
-        ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F) ); 
+        atom = ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F) ); 
+        amapping[i] = atom; 
         break; 
       
       case DUMMY: // used to simplify grow code
-        fprintf(stderr,"Warning: dummy atom seen in ob convert\n"); 
         break; 
 
       default:
-        ob_add_atom(mol, node->atomic_num, 0, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
+        atom = ob_add_atom(mol, node->atomic_num, 0, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
+        amapping[i] = atom; 
     }
   }
   
-  /* will have a 1-1 indexing */
   for (u16 i=1; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i];
-    for (u16 j=0; j<MAX_DEGREE; j++) {
-      edge_t *e = &node->bonds[j];
-      if (e->c) {
-        // dummy atom gives the OB +1 indexing 0=1, 1=2 ... so on
-        u16 beg = node - g->symbols; 
-        u16 end = e->c - g->symbols;
-        ob_add_bond(mol, mol->GetAtom(beg), mol->GetAtom(end), e->order); 
+    if (node->atomic_num != DUMMY) {
+      for (u16 j=0; j<MAX_DEGREE; j++) {
+        edge_t *e = &node->bonds[j];
+        if (e->c) {
+          u16 beg = i; 
+          u16 end = e->c - g->symbols;
+          ob_add_bond(mol, amapping[beg], amapping[end], e->order); 
+        }
       }
     }
   }
