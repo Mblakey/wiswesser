@@ -500,36 +500,26 @@ static void gt_free(graph_t *g)
 }
 
 
-/* 
- * overwrite and add have to use the same func signiture to avoid branch 
- * prediction when using fn_ptr lookup
- *
- * to propogate the address offset, zero is a success, else the offset is 
- * returned which can be used to overwrite stack variables 
- * */
-static symbol_t* overwrite_symbol(graph_t *g, symbol_t *s, const u16 id, const u8 lim_valence)
-{
-  s->atomic_num   = id; 
-  s->n_bonds      = 0;
-  s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4;
-  memset(s->bonds,0,sizeof(edge_t) * MAX_DEGREE); 
-  return s; 
-}
-
-static symbol_t* add_symbol(graph_t *g, symbol_t *s, const u16 id, const u8 lim_valence)
+static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_valence)
 {
   if (g->s_num == g->s_max) {
     fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
     return (symbol_t*)0; 
   }
   
-  symbol_t *sym   = &g->symbols[g->s_num++];
-  sym->atomic_num   = id; 
-  sym->n_bonds      = 0;
-  sym->valence_pack = lim_valence; 
-  sym->valence_pack <<= 4;
-  return sym; 
+  symbol_t *s = 0; 
+  
+  if (!e->c)
+    s = &g->symbols[g->s_num++];
+  else 
+    s = e->c; 
+
+  s->atomic_num   = id; 
+  s->n_bonds      = 0;
+  s->valence_pack = lim_valence; 
+  s->valence_pack <<= 4;
+  memset(s->bonds,0,sizeof(edge_t) * MAX_DEGREE); 
+  return s; 
 }
 
 static __always_inline edge_t* next_virtual_edge(symbol_t *p)
@@ -545,9 +535,6 @@ static __always_inline edge_t* next_virtual_edge(symbol_t *p)
  */
 static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
 {
-  if (!p || !c)
-    return (edge_t*)0; 
-
   e->c = c; 
   c->valence_pack += e->order; 
 
@@ -600,7 +587,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
     c = &r->path[i]; 
     if (!c->s) { 
       c->r_pack = 0x1 + (!i | (i==r->size-1)); 
-      c->s = add_symbol(g, 0, CARBON, 4); 
+      c->s = next_symbol(g, 0, CARBON, 4); 
 
       if (p) {
         p->s->valence_pack++; 
@@ -757,24 +744,6 @@ static ring_t* parse_cyclic(const char *s_ptr, const char *e_ptr, graph_t *g)
   return path_solverIII(g, ring, SSSR, SSSR_ptr, 0);     
 }
 
-/* assumes the head node contains only virtual bonds
- * live virtual edge must be coming in */
-static symbol_t *add_alkyl_chain(graph_t *g, symbol_t *p,  edge_t *e, int size)
-{
-  symbol_t *c = 0; 
-  for (u16 i=0; i<size; i++) {
-    p->valence_pack++; 
-    c = add_symbol(g, 0, CARBON, 4);
-    e = set_virtual_edge(e, p, c); 
-    
-    if (!c || !e) 
-      return (symbol_t*)0; 
-
-    p = c;
-    e = next_virtual_edge(p); 
-  }
-  return p;
-}
 
 static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
 {
@@ -782,7 +751,7 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
   symbol_t *m; 
   for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
     c->valence_pack++; 
-    m = add_symbol(g, 0, CARBON, 4); 
+    m = next_symbol(g, 0, CARBON, 4); 
     e = next_virtual_edge(c); 
     e = set_virtual_edge(e, c, m); 
   }
@@ -815,12 +784,9 @@ static int parse_wln(const char *ptr, graph_t *g)
   u8 dash_ptr = 0; 
   unsigned char dash_chars[3]; // last byte is mainly for overflow 
  
-  // avoids a branch on each symbol case
-  symbol_t* (*sym_fnPtr[2])(graph_t*, symbol_t*, const u16, const u8) = {&overwrite_symbol, &add_symbol}; 
-
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
   // idea entirely *--> grow...  
-  c = add_symbol(g, 0, DUMMY, 1); 
+  c = next_symbol(g, 0, DUMMY, 1); 
   e = next_virtual_edge(c); 
   e->order = DUMMY; 
   p = c; 
@@ -835,12 +801,24 @@ static int parse_wln(const char *ptr, graph_t *g)
         else {
           alkyl_len *= 10; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
-                                          
-            c = add_alkyl_chain(g, p, e, alkyl_len);  
-            e = next_virtual_edge(c); 
-            
+                       
+            for (u16 i=0; i<alkyl_len; i++) {
+              p->valence_pack++; 
+              c = next_symbol(g, 0, CARBON, 4);
+              if (!c)
+                return ERR_MEMORY; 
+              else
+                e = set_virtual_edge(e, p, c); 
+
+              if (!e)
+                return ERR_ABORT; 
+              else {
+                p = c;
+                e = next_virtual_edge(p); 
+              }
+            }
+
             alkyl_len = 0; 
-            p = c;
           }
         }
         break;
@@ -860,12 +838,23 @@ static int parse_wln(const char *ptr, graph_t *g)
           alkyl_len *= 10; 
           alkyl_len += ch - '0'; 
           if (*ptr < '0' || *ptr > '9') {  // ptr is a +1 lookahead
-
-            c = add_alkyl_chain(g, p, e, alkyl_len);  
-            e = next_virtual_edge(c); 
             
+            for (u16 i=0; i<alkyl_len; i++) {
+              p->valence_pack++; 
+              c = next_symbol(g, 0, CARBON, 4);
+              if (!c)
+                return ERR_MEMORY; 
+              else
+                e = set_virtual_edge(e, p, c); 
+
+              if (!e)
+                return ERR_ABORT; 
+
+              p = c;
+              e = next_virtual_edge(p); 
+            }
+
             alkyl_len = 0; 
-            p = c;
           }
           else
             state |= DIGIT_READ; 
@@ -994,7 +983,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = set_virtual_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, 0, NITRO, 3); 
+            c = next_symbol(g, 0, NITRO, 3); 
           
           g->stack[g->stack_ptr].addr = c; 
           g->stack[g->stack_ptr].ref  = 2;
@@ -1022,7 +1011,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = set_virtual_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, 0, CARBON, 4); 
+            c = next_symbol(g, 0, CARBON, 4); 
           
           default_methyls(g, c, 4);  
 
@@ -1047,7 +1036,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = set_virtual_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, 0, CARBON, 4); 
+            c = next_symbol(g, 0, CARBON, 4); 
           
           default_methyls(g, c, 3);  
 
@@ -1071,7 +1060,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = set_virtual_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, 0, NITRO, 1); 
+            c = next_symbol(g, 0, NITRO, 1); 
           
           // terminating symbol
           if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
@@ -1106,7 +1095,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             e = set_virtual_edge(e, p, c); 
           }
           else 
-            c = add_symbol(g, 0, atom_num, 8); 
+            c = next_symbol(g, 0, atom_num, 8); 
           
           p = c;
           e = next_virtual_edge(p); 
