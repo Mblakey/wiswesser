@@ -35,6 +35,7 @@ GNU General Public License for more details.
 
 #define RING_READ   0x08
 #define BIND_READ   0x10
+#define CHARGE_READ 0x20
 
 #define SSSR_READ   0x04
 
@@ -428,10 +429,11 @@ typedef struct {
   u8 order; 
 } edge_t; 
 
-// 3 + (8*9) = 75 bytes per symbol
+// 4 + (8*9) = 76 bytes per symbol
 // 80 = 16*5, multiple of 16 stack aligned
 struct symbol_t {
   u8 atomic_num;   
+  u8 charge;   
   u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
   u8 n_bonds; 
   edge_t bonds[MAX_DEGREE]; // directional 
@@ -459,8 +461,9 @@ typedef struct {
     void *addr; 
     signed char ref; // -1 for (ring_t*) else (symbol_t*) 
   } stack[32];  
-
+  
   symbol_t  *symbols; 
+  symbol_t  **idx_symbols; 
 } graph_t; 
 
 
@@ -518,6 +521,7 @@ static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_v
     s = e->c; 
 
   s->atomic_num   = id; 
+  s->charge       = 0; 
   s->n_bonds      = 0;
   s->valence_pack = lim_valence; 
   s->valence_pack <<= 4;
@@ -535,6 +539,7 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
   symbol_t *s = &g->symbols[g->s_num++];
 
   s->atomic_num   = id; 
+  s->charge       = 0; 
   s->n_bonds      = 0;
   s->valence_pack = lim_valence; 
   s->valence_pack <<= 4;
@@ -785,7 +790,7 @@ static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
  * -- Parse WLN Notation --
  *
  */
-static int parse_wln(const char *ptr, graph_t *g)
+static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 {
   edge_t   *e=0; 
   symbol_t *c=0;
@@ -795,10 +800,10 @@ static int parse_wln(const char *ptr, graph_t *g)
   u8 locant_ch  = 0; 
   u8 ring_chars = 0; 
   u8 atom_num   = 0; 
-  u16 alkyl_len = 0; 
+  u16 digit_n = 0; 
   
   u8 state = 0; // bit field: 
-                // [0][0][0][inline state][ring skip][dash][digit][space]
+                // [0][0][charge][inline ring][ring skip][dash][digit][space]
                 //
                 // bind_prev indicates either a inline ring or spiro that
                 // must be bound to the previous chain
@@ -813,25 +818,52 @@ static int parse_wln(const char *ptr, graph_t *g)
   e = next_virtual_edge(c); 
   e->order = DUMMY; 
   p = c; 
+  g->idx_symbols[0] = p;  // overwrite dummy when 0 pos is requested
   
   // charges are assigned through string indexing - tf: need a strlen() 
     
   unsigned char ch; 
   unsigned char ch_nxt; 
-  u16 len = strlen(ptr); 
 
   for (u16 sp=0; sp<len; sp++) {
     ch     = ptr[sp]; 
     ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
     switch (ch) {
       case '0':
-        if (!(state & DIGIT_READ))
-          return error("Error: zero numeral without prefix digits"); 
-        else {
-          alkyl_len *= 10; 
-          if (ch_nxt < '0' || ch_nxt > '9') {  
-                       
-            for (u16 i=0; i<alkyl_len; i++) {
+        digit_n *= 10; 
+        if (ch_nxt == '/') {
+          // positive charge assignment
+          if (digit_n > len || !g->idx_symbols[digit_n]) {
+            fprintf(stderr,"Error: charge assignment out of bounds\n");
+            return ERR_ABORT; 
+          }
+          else {
+            g->idx_symbols[digit_n]->charge++; 
+            state |= CHARGE_READ; 
+            digit_n = 0; 
+            sp++; // skip the slash, only ever used again in R notation
+          }
+        } 
+        else if ( state & (CHARGE_READ | DIGIT_READ) 
+                  && (ch_nxt < '0' || ch_nxt > '9')) 
+        {  
+                     
+          if (state & CHARGE_READ) {
+            // negative charge assignment
+            if (digit_n > len || !g->idx_symbols[digit_n]) {
+              fprintf(stderr,"Error: charge assignment out of bounds\n");
+              return ERR_ABORT; 
+            }
+            else {
+              g->idx_symbols[digit_n]->charge--; 
+              state &= ~CHARGE_READ; 
+              digit_n = 0; 
+            }
+
+          }
+          else {
+            // create the alkyl chain
+            for (u16 i=0; i<digit_n; i++) {
               c = next_symbol(g, e, CARBON, 4);
               if (!c)
                 return ERR_MEMORY; 
@@ -840,15 +872,17 @@ static int parse_wln(const char *ptr, graph_t *g)
 
               if (!e)
                 return ERR_ABORT; 
-              else {
-                p = c;
-                e = next_virtual_edge(p); 
-              }
+
+              p = c;
+              e = next_virtual_edge(p); 
             }
 
-            alkyl_len = 0; 
+            g->idx_symbols[sp+1] = p; 
+            digit_n = 0; 
           }
         }
+        else 
+          return error("Error: zero numeral without prefix digits"); 
         break;
 
       case '1':
@@ -863,25 +897,56 @@ static int parse_wln(const char *ptr, graph_t *g)
         if (state & RING_READ)
           ring_chars++; 
         else {
-          alkyl_len *= 10; 
-          alkyl_len += ch - '0'; 
-          if (ch_nxt < '0' || ch_nxt > '9') { 
-            
-            for (u16 i=0; i<alkyl_len; i++) {
-              c = next_symbol(g, e, CARBON, 4);
-              if (!c)
-                return ERR_MEMORY; 
-              else
-                e = set_virtual_edge(e, p, c); 
-
-              if (!e)
-                return ERR_ABORT; 
-
-              p = c;
-              e = next_virtual_edge(p); 
+          digit_n *= 10; 
+          digit_n += ch - '0'; 
+          
+          if (ch_nxt == '/') {
+            // positive charge assignment
+            if (digit_n > len || !g->idx_symbols[digit_n]) {
+              fprintf(stderr,"Error: charge assignment out of bounds\n");
+              return ERR_ABORT; 
             }
+            else {
+              g->idx_symbols[digit_n]->charge++; 
+              state |= CHARGE_READ; 
+              digit_n = 0; 
+              sp++; // skip the slash, only ever used again in R notation
+            }
+          } 
+          else if (ch_nxt < '0' || ch_nxt > '9') { 
+            
+            if (state & CHARGE_READ) {
+              // negative charge assignment
+              if (digit_n > len || !g->idx_symbols[digit_n]) {
+                fprintf(stderr,"Error: charge assignment out of bounds\n");
+                return ERR_ABORT; 
+              }
+              else {
+                g->idx_symbols[digit_n]->charge--; 
+                state &= ~CHARGE_READ; 
+                digit_n = 0; 
+              }
 
-            alkyl_len = 0; 
+            }
+            else {
+              // create the alkyl chain
+              for (u16 i=0; i<digit_n; i++) {
+                c = next_symbol(g, e, CARBON, 4);
+                if (!c)
+                  return ERR_MEMORY; 
+                else
+                  e = set_virtual_edge(e, p, c); 
+
+                if (!e)
+                  return ERR_ABORT; 
+
+                p = c;
+                e = next_virtual_edge(p); 
+              }
+
+              g->idx_symbols[sp+1] = p; 
+              digit_n = 0; 
+            }
           }
           else
             state |= DIGIT_READ; 
@@ -1016,6 +1081,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             g->stack_ptr++; 
 
             p = c;
+            g->idx_symbols[sp+1] = p; 
             e = next_virtual_edge(c); 
           }
         }
@@ -1047,6 +1113,7 @@ static int parse_wln(const char *ptr, graph_t *g)
             g->stack_ptr++; 
 
             p = c; 
+            g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
           }
         }
@@ -1084,13 +1151,14 @@ static int parse_wln(const char *ptr, graph_t *g)
           c = next_symbol(g, e, NITRO, 1);
           if (!c)
             return ERR_MEMORY; 
-          else
+          else {
+            g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
+          }
 
           if (!e)
             return ERR_ABORT; 
           else {
-          
             // terminating symbol
             if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
@@ -1257,12 +1325,12 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
     
     switch (node->atomic_num) {
       case CARBON: 
-        atom = ob_add_atom(mol, node->atomic_num, 0, 4 - (node->valence_pack & 0x0F) ); 
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, 4 - (node->valence_pack & 0x0F) ); 
         amapping[i] = atom; 
         break; 
 
       case NITRO:
-        atom = ob_add_atom(mol, node->atomic_num, 0, 3 - (node->valence_pack & 0x0F) ); 
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, 3 - (node->valence_pack & 0x0F) ); 
         amapping[i] = atom; 
         break; 
       
@@ -1270,7 +1338,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
         break; 
 
       default:
-        atom = ob_add_atom(mol, node->atomic_num, 0, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
         amapping[i] = atom; 
     }
   }
@@ -1298,12 +1366,15 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   u16 st_pool_size = 128; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
+  const u16 len = strlen(ptr); 
+  
   gt_alloc(g, st_pool_size); 
+  g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
+  memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); // holds even under mem reset 
 
   // allows recovery and resetting for super large WLN strings
   for (;;) {
-
-    RET_CODE = parse_wln(ptr, g); 
+    RET_CODE = parse_wln(ptr, len, g); 
     switch (RET_CODE) {
       
       case ERR_MEMORY: 
@@ -1320,11 +1391,13 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 
       case ERR_ABORT:
         gt_free(g); 
+        free(g->idx_symbols); 
         return 0; 
       
       default:
-        ob_convert_wln_graph(mol,g); 
+        ob_convert_wln_graph(mol,g);
         gt_free(g); 
+        free(g->idx_symbols); 
         return 1; 
     }
   }
