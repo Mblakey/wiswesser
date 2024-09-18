@@ -168,6 +168,9 @@ int main(int argc, char *argv[])
   if(opt_old){
     if(!NMReadWLN(cli_inp,&mol))
       return 1;
+    conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
+    conv.SetOutFormat(format);
+    conv.Write(&mol,&std::cout);
   }
   else if(!strcmp(format, "WLN")){
     if(!CanonicaliseWLN(cli_inp,&mol))

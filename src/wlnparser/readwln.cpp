@@ -27,17 +27,22 @@ GNU General Public License for more details.
 
 #include "parser.h"
 
+#define DEBUG 0 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
+
 #define MAX_DEGREE 8
 
+// common bit fields
 #define SPACE_READ  0x01 
 #define DIGIT_READ  0x02 
 #define DASH_READ   0x04
 
+// standard parse fields
 #define RING_READ   0x08
 #define BIND_READ   0x10
 #define CHARGE_READ 0x20
 
-#define SSSR_READ   0x04
+// ring parse fields
+#define SSSR_READ   0x08
 
 // Error codes 
 #define ERR_NONE   0 // success
@@ -577,6 +582,13 @@ static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
   return e; 
 }
 
+static ring_t* new_ring(const size_t size) 
+{
+  ring_t *ring = 0; 
+  ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(size-1)); 
+  memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(size-1)); 
+  return ring; 
+}
 
 static void read_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
 {
@@ -615,12 +627,13 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
     if (!c->s) { 
       c->r_pack = 0x1 + (!i | (i==r->size-1)); 
       c->s = new_symbol(g, CARBON, 4); 
-
-      if (p) {
-        e = next_virtual_edge(p->s); 
-        e = set_virtual_edge(e, p->s, c->s); 
-      }
     }
+
+    if (p) {
+      e = next_virtual_edge(p->s); 
+      e = set_virtual_edge(e, p->s, c->s); 
+    }
+
     c->hloc = i+1; // pointing to the value in front 
     p = c; 
   }
@@ -648,10 +661,13 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
       start    = &r->path[subcycle->r_loc]; 
       end      = start; 
 
-
       for (u16 s=0; s<steps-1; s++)
         end = &r->path[end->hloc]; 
       
+#if DEBUG 
+      fprintf(stderr,"%d --> %d\n",start - &r->path[0],end - &r->path[0]); 
+#endif
+
       e = next_virtual_edge(start->s); 
       e = set_virtual_edge(e, start->s, end->s);
 
@@ -675,6 +691,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   //       wastes the least amount of space and avoids a hash map for 
   //       bridging/pseudo bridging flags. 
   
+  symbol_t *c; 
   ring_t *ring; 
 
   u8 locant_ch  = 0; 
@@ -688,7 +705,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   unsigned char dash_chars[3]; // last byte is mainly for overflow 
                                
   u8 state = 0; // bit field:                      
-                 // [][][][][dash][SSSR][digit][space]
+                 // [][][][][SSSR][dash][digit][space]
 
   unsigned char ch; 
   
@@ -721,7 +738,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
       case '7':
       case '8':
       case '9':
-        if (state == SSSR_READ){
+        if (state & SSSR_READ){
           upper_r_size += ch - '0'; 
           SSSR[SSSR_ptr].r_size = ch - '0'; 
           SSSR[SSSR_ptr++].r_loc = locant_ch;  
@@ -735,13 +752,46 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
       case 'D':
       case 'J':
       case 'R':
-        if (1) {
-          locant_ch = ch; 
+      case 'T':
+        if (state & SPACE_READ) {
+          locant_ch = ch - 'A';
+          state &= ~SPACE_READ; 
+        } 
+        break;
+
+      case 'N':
+        if (state & SPACE_READ) {
+          locant_ch = ch - 'A';
+          state &= ~SPACE_READ; 
+        } 
+        else if (state & SSSR_READ) {
+          // end the SSSR read, start element reading
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else {
+            ring = new_ring(upper_r_size); 
+            c = ring->path[locant_ch].s = new_symbol(g, NITRO, 3); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; // allows sequetial assignment 
+          }
+
+          state &= ~SSSR_READ; 
+        }
+        else {
+          // elemental assignment 
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access - %d\n",locant_ch); 
+            return (ring_t*)0; 
+          }
+          else {
+            c = ring->path[locant_ch].s = new_symbol(g, NITRO, 3); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; // allows sequetial assignment 
+          }
         }
         break; 
-
-      case 'T':
-        break;
 
       case '&':
         if (locant_ch)
@@ -753,6 +803,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         break; 
 
       case ' ':
+        state |= SPACE_READ; 
+        locant_ch = 0; 
         break; 
 
       default:
@@ -762,8 +814,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   
   // simplest rings
   if (state == SSSR_READ) {
-    ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(upper_r_size-1)); 
-    memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(upper_r_size-1)); 
+    ring = new_ring(upper_r_size); 
   }
  
   // do a mem allocation check here
