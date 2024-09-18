@@ -27,7 +27,7 @@ GNU General Public License for more details.
 
 #include "parser.h"
 
-#define DEBUG 0 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
+#define DEBUG 1 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
 
 #define MAX_DEGREE 8
 
@@ -43,6 +43,7 @@ GNU General Public License for more details.
 
 // ring parse fields
 #define SSSR_READ   0x08
+#define MULTI_READ  0x10
 
 // Error codes 
 #define ERR_NONE   0 // success
@@ -616,7 +617,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
                               r_assignment *SSSR, u8 SSSR_ptr, 
                               u8 state_pseudo) 
 {
-  u8 steps;
+  u8 steps, s_pos;
   edge_t *e; 
   locant *c, *p=0;
   locant *start, *end; 
@@ -624,22 +625,26 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
 
   for (u16 i=0; i<r->size; i++) {
     c = &r->path[i]; 
-    if (!c->s) { 
-      c->r_pack = 0x1 + (!i | (i==r->size-1)); 
+    if (!c->s) 
       c->s = new_symbol(g, CARBON, 4); 
-    }
 
     if (p) {
       e = next_virtual_edge(p->s); 
       e = set_virtual_edge(e, p->s, c->s); 
     }
 
-    c->hloc = i+1; // pointing to the value in front 
+    c->r_pack++; 
+    c->hloc = i+1; // point to the next locant 
     p = c; 
   }
+  
+  // end chain movement
+  r->path[0].r_pack++; 
+  r->path[r->size-1].r_pack++; 
+  r->path[r->size-1].hloc = r->size-1; 
  
   /*
-   * PathsolverIII Algorithm:
+   * PathsolverIII Algorithm (Michael Blakey):
    *
    * Named after the original attempts at WLN hamiltonian paths
    * from lynch et al. PathsolverIII iterates a given hamiltonian 
@@ -658,15 +663,22 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
     for (u16 i=0; i<SSSR_ptr; i++) {
       subcycle = &SSSR[i];   
       steps    = subcycle->r_size; 
-      start    = &r->path[subcycle->r_loc]; 
+      s_pos    = subcycle->r_loc; 
+      start    = &r->path[s_pos]; 
       end      = start; 
-
+    
       for (u16 s=0; s<steps-1; s++)
         end = &r->path[end->hloc]; 
-      
+      // if used max times in ring, shift along path
+      while ((start->r_pack & 0x0F) == 0 && s_pos < r->size)
+        start = &r->path[++s_pos];  
+
 #if DEBUG 
-      fprintf(stderr,"%d --> %d\n",start - &r->path[0],end - &r->path[0]); 
+      fprintf(stderr,"%d: %d --> %d\n",steps,start - &r->path[0],end - &r->path[0]); 
 #endif
+      
+      start->r_pack--; 
+      end->r_pack--; 
 
       e = next_virtual_edge(start->s); 
       e = set_virtual_edge(e, start->s, end->s);
@@ -738,11 +750,36 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
       case '7':
       case '8':
       case '9':
-        if (state & SSSR_READ){
+        if (state & SPACE_READ) {
+          // multicyclic block start
+          
+          // move forward space to skip redundant block - should appear on space, 
+          // if not, error.
+          sp += ch - '0' + 1; 
+          if (sp >= e || ptr[sp] != ' ') {
+            fprintf(stderr, "Error: invalid format for multicyclic ring\n"); 
+            return (ring_t*)0; 
+          }
+          else {
+            state |= MULTI_READ; 
+            state &= ~SSSR_READ; // turn off SSSR if present
+            state &= ~SPACE_READ; 
+          }
+        }
+        else if (state & SSSR_READ){
           upper_r_size += ch - '0'; 
           SSSR[SSSR_ptr].r_size = ch - '0'; 
           SSSR[SSSR_ptr++].r_loc = locant_ch;  
           locant_ch = 0; 
+        }
+        break; 
+      
+
+      case 'L':
+      case 'M':
+        if (state & MULTI_READ) {
+          // must be the incoming ring size
+          upper_r_size = ch - 'A'; 
         }
         break; 
 
@@ -764,6 +801,10 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           locant_ch = ch - 'A';
           state &= ~SPACE_READ; 
         } 
+        else if (state & MULTI_READ) {
+          // must be the incoming ring size
+          upper_r_size = ch - 'A'; 
+        }
         else if (state & SSSR_READ) {
           // end the SSSR read, start element reading
           if (locant_ch > upper_r_size) {
@@ -806,14 +847,11 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         state |= SPACE_READ; 
         locant_ch = 0; 
         break; 
-
-      default:
-        fprintf(stderr,"eh?\n"); 
     }
   }
   
   // simplest rings
-  if (state == SSSR_READ) {
+  if ((state & SSSR_READ) | (state & MULTI_READ)) {
     ring = new_ring(upper_r_size); 
   }
  
@@ -1118,7 +1156,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             dash_chars[dash_ptr++] = ch; 
         }
         else {
-          c = next_symbol(g, e, NITRO, 4);
+          c = next_symbol(g, e, NITRO, 3);
           if (!c)
             return ERR_MEMORY; 
           else
@@ -1131,6 +1169,32 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             g->stack[g->stack_ptr].ref  = 2;
             g->stack_ptr++; 
 
+            p = c;
+            g->idx_symbols[sp+1] = p; 
+            e = next_virtual_edge(c); 
+          }
+        }
+        break;
+      
+      case 'M':
+        if (state & RING_READ) 
+          ring_chars++; 
+        else if (state & DASH_READ) {
+          if (dash_ptr == 3) 
+            return error("Error: elemental code can only have 2 character symbols"); 
+          else
+            dash_chars[dash_ptr++] = ch; 
+        }
+        else {
+          c = next_symbol(g, e, NITRO, 3);
+          if (!c)
+            return ERR_MEMORY; 
+          else
+            e = set_virtual_edge(e, p, c); 
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
             p = c;
             g->idx_symbols[sp+1] = p; 
             e = next_virtual_edge(c); 
@@ -1407,6 +1471,14 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
       }
     }
   }
+
+
+    // WLN has no inherent stereochemistry, this can be a flag but should be off by default
+  mol->SetChiralityPerceived(true);
+  mol->SetAromaticPerceived(false);
+
+  mol->DeleteHydrogens();
+
   return 1; 
 }
 
@@ -1423,14 +1495,14 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
   memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); // holds even under mem reset 
 
-  // allows recovery and resetting for super large WLN strings
+  // allows recovery and resetting for large molecules (ideally never invoked)  
   for (;;) {
     RET_CODE = parse_wln(ptr, len, g); 
     switch (RET_CODE) {
       
       case ERR_MEMORY: 
         if (st_pool_size == 1024) {
-          fprintf(stderr,"Error: WLN string specifies > 1024 atoms\n"); 
+          fprintf(stderr,"Error: WLN string specifies > 1024 atoms, reasonable?\n"); 
           return 0; 
         }
         else {
