@@ -41,11 +41,7 @@ else
     make install 
 fi
 
-mkdir -p "$SCRIPT_DIR/build"
-cd "$SCRIPT_DIR/build"
-cmake ..
-make 
-
 echo ""
-echo "Build successful"
+echo "Configure successful - build project with cmake in [build]"
+echo "See docs for cmake instructions for bindings"
 exit 0
