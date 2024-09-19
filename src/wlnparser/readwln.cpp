@@ -18,9 +18,6 @@ GNU General Public License for more details.
 
 /* TODO: 
  * 
- * - Lots of repeated code in parsing loops, reorganise and tidy
- * - Remove if else nesting in favour of state switches
- *
 */
 
 #include <stdlib.h>
@@ -945,8 +942,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     ch     = ptr[sp]; 
     ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
     
-    // common state block tidies code significantly
-    // helps compiler with instruction layout? 
     if (state & RING_READ) {
       if (ch == 'J' && (ch_nxt == '&' || ch_nxt == ' ' || ch_nxt == 0)) {
         // J can be used inside ring notation, requires lookahead 
@@ -966,10 +961,13 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         }
 
         if (state == BIND_READ){
-          // virutal edge should be dangling at this frame. 
-
-          // this needs wrapping to avoid seg fault on a user error
-          c = r->path[locant_ch].s;
+          // virtual edge should be dangling at this frame. 
+          if (locant_ch > r->size) {
+            fprintf(stderr,"Error: out of bounds locant access"); 
+            return ERR_ABORT; 
+          }
+          else 
+            c = r->path[locant_ch].s;
 
           e = set_virtual_edge(e, p, c);  
           state &= ~(BIND_READ); 
@@ -978,13 +976,13 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
       else
         ring_chars++; 
     }
-    else if (state & DASH_READ) {
+    else if (state & DASH_READ && ch != '-') {
       if (dash_ptr == 3) 
         return error("Error: elemental code can only have 2 character symbols"); 
       else
         dash_chars[dash_ptr++] = ch; 
     }
-    else if (state & SPACE_READ)  {
+    else if (state & SPACE_READ) {
       // switch on packing - state popcnt() >= hit bits. 
       locant_ch = ch - 'A'; 
       state &= ~(SPACE_READ); 
@@ -1000,8 +998,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         return error("Error: out of bounds locant access"); 
     }
     else {
-
       switch (ch) {
+
         case '0':
           digit_n *= 10; 
           if (ch_nxt == '/') {
@@ -1123,8 +1121,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break;
         
         case 'A':
+        case 'J':
           return error("Error: non-atomic symbol used in chain"); 
-          break; 
         
         case 'B':
           c = next_symbol(g, e, BOR, 3);
@@ -1291,10 +1289,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           }
           break;
        
-        case 'J':
-          return error("Error: non-atomic symbol used in chain"); 
-          break; 
-      
         case 'K':
           c = next_symbol(g, e, NIT, 4);
           c->charge++; 
@@ -1493,10 +1487,13 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             atom_num = get_atomic_num(dash_chars[0],dash_chars[1]); 
             if (!atom_num) 
               return error("Error: invalid element two character code"); 
+            else {
 
+            }
             
             memset(dash_chars,0,3); 
             state &= ~DASH_READ; 
+            dash_ptr = 0; 
           }
           else {
             if (ch_nxt == ' ') 
@@ -1544,7 +1541,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
         case '/':
           return error("Error: slash seen outside of ring - multipliers currently unsupported");
-          break; 
 
         default:
           return error("Error: invalid character read for WLN notation"); 
@@ -1656,7 +1652,7 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   
   gt_alloc(g, st_pool_size); 
   g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
-  memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); // holds even under mem reset 
+  memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
 
   // allows recovery and resetting for large molecules (ideally never invoked)  
   for (;;) {
@@ -1688,4 +1684,3 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
     }
   }
 }
-
