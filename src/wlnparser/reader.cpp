@@ -23,8 +23,8 @@ GNU General Public License for more details.
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
-#include <openbabel/obconversion.h>
 #include <openbabel/babelconfig.h>
+#include <openbabel/obconversion.h>
 
 const char *cli_inp;
 const char *format; 
@@ -35,9 +35,7 @@ static void DisplayUsage()
   fprintf(stderr, "readwln <options> -o<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
-  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan, -owln *)\n");
-  fprintf(stderr, "                      * selecting -owln will return the shortest possible wln string\n");
-  fprintf(stderr, " --old                use the old wln parser (nextmove software)\n");
+  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan)\n");
   exit(1);
 }
 
@@ -160,27 +158,31 @@ static void ProcessCommandLine(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+  FILE *fp = 0; 
   OpenBabel::OBMol mol;
   OpenBabel::OBConversion conv;
   
   ProcessCommandLine(argc, argv);
   
-  if(opt_old){
-    if(!NMReadWLN(cli_inp,&mol))
+  conv.SetOutFormat(format);
+  conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
+  
+  if (strchr(cli_inp, '.')) {
+    // treat as file 
+    fp = fopen(cli_inp, "r"); 
+    if (!fp) {
+      fprintf(stderr,"Error: file could not be opened\n"); 
       return 1;
-    conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
-    conv.SetOutFormat(format);
-    conv.Write(&mol,&std::cout);
-  }
-  else if(!strcmp(format, "WLN")){
-    if(!CanonicaliseWLN(cli_inp,&mol))
-      return 1;
+    }
+    else {
+      if (!C_ReadWLNFile(fp, &mol, &conv))
+        return 1; 
+      fclose(fp); 
+    }
   }
   else{
-    if(!C_ReadWLN(cli_inp,&mol))
+    if (!C_ReadWLN(cli_inp,&mol))
       return 1;
-    conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
-    conv.SetOutFormat(format);
     conv.Write(&mol,&std::cout);
   }
   return 0;

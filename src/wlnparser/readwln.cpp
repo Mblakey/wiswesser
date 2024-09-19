@@ -24,10 +24,14 @@ GNU General Public License for more details.
 #include <stdio.h>
 #include <string.h>
 
+#include <iostream> 
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+
+// remove if submitting to OB
 #include <openbabel/babelconfig.h>
+#include <openbabel/obconversion.h>
 
 #include "parser.h"
 
@@ -943,7 +947,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
     
     if (state & RING_READ) {
-      if (ch == 'J' && (ch_nxt == '&' || ch_nxt == ' ' || ch_nxt == 0)) {
+      if (ch == 'J' && ch_nxt < '0') {
         // J can be used inside ring notation, requires lookahead 
         // condition 
         
@@ -1541,6 +1545,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
         case '/':
           return error("Error: slash seen outside of ring - multipliers currently unsupported");
+        
+        case '\n':
+          break; 
 
         default:
           return error("Error: invalid character read for WLN notation"); 
@@ -1642,6 +1649,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 }
 
 
+// openbabel format reader function
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
   int RET_CODE = 0; 
@@ -1683,4 +1691,47 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
         return 1; 
     }
   }
+}
+
+int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
+{   
+  int ret = 0; 
+  u16 st_pool_size = 128; 
+  graph_t wln_graph; 
+  graph_t *g = &wln_graph; 
+  gt_alloc(g, st_pool_size); 
+  
+  u16 len; 
+  char buffer[1024];
+  memset(buffer,0,1024); // safety for len read  
+  while (fgets(buffer, 1024, fp) != NULL) {
+    // TODO: optimisation here, reuse the buffer
+    len = strlen(buffer); // ignore nl
+    g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
+    memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
+    
+    ret = parse_wln(buffer, len, g); 
+    while (ret == ERR_MEMORY && st_pool_size < 1024) {
+      st_pool_size *= 2; 
+      gt_free(g); 
+      gt_alloc(g, st_pool_size); 
+      ret = parse_wln(buffer, len, g); 
+    }
+    
+    if (ret == ERR_NONE) {
+      ob_convert_wln_graph(mol, g);
+      conv->Write(mol, &std::cout); 
+
+      gt_clear(g); 
+      mol->Clear(); 
+    }
+    else 
+      fprintf(stdout, "null\n");  
+
+    free(g->idx_symbols); 
+    memset(buffer,0,1024); // safety for len read  
+  }
+  
+  gt_free(g);
+  return 1; 
 }

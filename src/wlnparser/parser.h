@@ -2,6 +2,7 @@
 #define PARSER_H
 
 #include <openbabel/mol.h>
+#include <openbabel/obconversion.h>
 
 typedef unsigned char       u8; 
 typedef unsigned short      u16; 
@@ -14,6 +15,6 @@ bool CanonicaliseWLN(const char *ptr, OpenBabel::OBMol* mol);
 
 
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol); 
-bool NMReadWLN(const char *ptr, OpenBabel::OBMol* mol);
+int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv); 
 
 #endif 

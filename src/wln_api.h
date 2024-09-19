@@ -1,7 +1,10 @@
 #ifndef WLN_API
 #define WLN_API
 
+// hate the cpp, but easy to work with python
 #include <stdio.h>
+#include <string>
+#include <vector>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -18,34 +21,24 @@ class WLNParser {
 
   }
 
-  int ReadWLNString(const char *ptr)
+  std::string ReadWLNString(std::string &inp)
   {
 
 
   }
 
 
-  int ReadWLNFile(FILE *fp)
-  {
-
-  }
-  
-  int WriteWLNString(FILE *fp)
+  std::vector<std::string> ReadWLNFile(FILE *fp)
   {
 
   }
   
-  int WriteWLNFile(FILE *fp)
+  std::string WriteWLNString(std::string *inp)
   {
 
   }
-
-  int WLNGrepBuffer(const char *ptr)
-  {
-
-  }
-
-  int WLNGrepFile(FILE *fp)
+  
+  std::vector<std::string> WriteWLNFile(FILE *fp)
   {
 
   }

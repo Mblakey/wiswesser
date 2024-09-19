@@ -15,7 +15,6 @@ add_executable(readwln
   ${PROJECT_SOURCE_DIR}/src/wlnparser/reader.cpp 
   ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln.cpp
   ${PROJECT_SOURCE_DIR}/src/wlnparser/readwln2.cpp 
-  ${PROJECT_SOURCE_DIR}/src/wlnparser/wln-nextmove.cpp
 )
 
 add_executable(writewln 
