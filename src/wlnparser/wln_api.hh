@@ -11,38 +11,24 @@
 #include <openbabel/obconversion.h>
 #include <openbabel/babelconfig.h>
 
+
 class WLNParser {
   OpenBabel::OBMol mol;
   OpenBabel::OBConversion conv;
   int conv_type; 
 
-  int SetConvMethod(const char *type)
-  {
-
+  WLNParser() {
+    conv_type = 1; 
+    conv.SetOutFormat("smi");
   }
 
-  std::string ReadWLNString(std::string &inp)
-  {
+  void SetConvMethod(const char *type); 
 
-
-  }
-
-
-  std::vector<std::string> ReadWLNFile(FILE *fp)
-  {
-
-  }
+  std::string ReadWLNString(std::string &inp); 
+  std::vector<std::string> ReadWLNFile(FILE *fp); 
   
-  std::string WriteWLNString(std::string *inp)
-  {
-
-  }
-  
-  std::vector<std::string> WriteWLNFile(FILE *fp)
-  {
-
-  }
-
+  std::string WriteWLNString(std::string &inp); 
+  std::vector<std::string> WriteWLNFile(FILE *fp); 
 };
 
 #endif 

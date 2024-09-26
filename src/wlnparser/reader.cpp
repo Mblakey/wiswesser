@@ -183,7 +183,8 @@ int main(int argc, char *argv[])
   else{
     if (!C_ReadWLN(cli_inp,&mol))
       return 1;
-    conv.Write(&mol,&std::cout);
+    else
+      conv.Write(&mol,&std::cout);
   }
   return 0;
 }

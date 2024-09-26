@@ -20,18 +20,20 @@ GNU General Public License for more details.
  * 
 */
 
+#define OPENBABEL 1
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <iostream> 
+#if OPENBABEL
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 
-// remove if submitting to OB
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
+#endif 
 
 #include "parser.h"
 
@@ -52,6 +54,7 @@ GNU General Public License for more details.
 // ring parse fields
 #define SSSR_READ   0x08
 #define MULTI_READ  0x10
+#define PSEUDO_READ 0x20
 
 // Error codes 
 #define ERR_NONE   0 // success
@@ -628,9 +631,8 @@ typedef struct  {
 } r_assignment; 
 
 
-static ring_t* path_solverIII(graph_t *g, ring_t *r, 
-                              r_assignment *SSSR, u8 SSSR_ptr, 
-                              u8 state_pseudo) 
+static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r, 
+                                   r_assignment *SSSR, u8 SSSR_ptr) 
 {
   u8 steps, s_pos;
   edge_t *e; 
@@ -659,7 +661,7 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
   r->path[r->size-1].hloc = r->size-1; 
 
   /*
-   * PathsolverIII Algorithm (Michael Blakey):
+   * PathsolverIII FAST Algorithm (Michael Blakey):
    *
    * Named after the original attempts at WLN hamiltonian paths
    * from lynch et al. PathsolverIII iterates a given hamiltonian 
@@ -672,51 +674,92 @@ static ring_t* path_solverIII(graph_t *g, ring_t *r,
    * The path is maximised at each step which mirrors the minimisation
    * of the fusion sum as mentioned in the manuals. 
    *
+  */
+  
+  for (u16 i=0; i<SSSR_ptr; i++) {
+    subcycle = &SSSR[i];   
+    steps    = subcycle->r_size; 
+    s_pos    = subcycle->r_loc; 
+    start    = &r->path[s_pos]; 
+    end      = start; 
+  
+    for (u16 s=0; s<steps-1; s++)
+      end = &r->path[end->hloc]; 
+
+    // if used max times in ring, shift along path
+    while ((start->r_pack & 0x0F) == 0 && s_pos < r->size)
+      start = &r->path[++s_pos];  
+
+#if DEBUG 
+    fprintf(stderr,"%d: %c --> %c\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A'); 
+#endif
+    
+    start->r_pack--; 
+    end->r_pack--; 
+
+    e = next_virtual_edge(start->s); 
+    e = set_virtual_edge(e, start->s, end->s);
+
+    start->hloc = end - &r->path[0]; 
+  }
+
+  return r;   
+}
+
+static ring_t* pathsolverIII(graph_t *g, ring_t *r, 
+                             r_assignment *SSSR, u8 SSSR_ptr, 
+                             u8 *connection_table)
+{
+  u8 steps, s_pos;
+  edge_t *e; 
+  locant *c, *p=0;
+  locant *start, *end; 
+  r_assignment *subcycle; 
+
+  for (u16 i=0; i<r->size; i++) {
+    c = &r->path[i]; 
+    if (!c->s) 
+      c->s = new_symbol(g, CAR, 4); 
+
+    if (p) {
+      e = next_virtual_edge(p->s); 
+      e = set_virtual_edge(e, p->s, c->s); 
+      connection_table[i * r->size +(i-1)] = 1; 
+      connection_table[(i-1) * r->size + i] = 1; 
+    }
+
+    connection_table[i*r->size+i] = 1; // bond to itself?
+
+    c->r_pack++; 
+    c->hloc = i+1; // point to the next locant 
+    p = c; 
+  }
+
+  // end chain movement
+  r->path[0].r_pack++; 
+  r->path[r->size-1].r_pack++; 
+  r->path[r->size-1].hloc = r->size-1; 
+
+  /*
+   * PathsolverIII Algorithm (Michael Blakey):
+   *
+   * Named after the original attempts at WLN hamiltonian paths
+   * from lynch et al. PathsolverIII iterates a given hamiltonian 
+   * path by using the "allowed connections" property. Please
+   * refer to my thesis for more details. 
    *
    * Pseudo locants break the iterative walk, and a flood fill is required to 
    * find the maximal path through the ring system, this can be optimised somewhat
    * by using a priority queue on the walks, and bonding the pseudo positions
    * during the notation parse
+   *
+   * connection table allows the floodfill to be done without another data structure, plus a 
+   * easy pass through for pseudo locants defined in the ring parse 
   */
   
-  if (!state_pseudo) {
-    for (u16 i=0; i<SSSR_ptr; i++) {
-      subcycle = &SSSR[i];   
-      steps    = subcycle->r_size; 
-      s_pos    = subcycle->r_loc; 
-      start    = &r->path[s_pos]; 
-      end      = start; 
-    
-      for (u16 s=0; s<steps-1; s++)
-        end = &r->path[end->hloc]; 
-
-      // if used max times in ring, shift along path
-      while ((start->r_pack & 0x0F) == 0 && s_pos < r->size)
-        start = &r->path[++s_pos];  
-
-#if DEBUG 
-      fprintf(stderr,"%d: %c --> %c\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A'); 
-#endif
-      
-      start->r_pack--; 
-      end->r_pack--; 
-
-      e = next_virtual_edge(start->s); 
-      e = set_virtual_edge(e, start->s, end->s);
-
-      start->hloc = end - &r->path[0]; 
-    }
-  }
-  else {
-    // create a connection table, flood fill to find the maximal position. 
-    // DFS favours lower positions first, treat as priority queue. 
-    // if done correctly, the last ring found should always be redundant, but walked
-    // for aromaticity assignments
 
 
-  }
-
-  return r;   
+  return r;  
 }
 
 static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
@@ -729,18 +772,20 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   symbol_t *c; 
   ring_t *ring; 
 
-  u8 locant_ch  = 0; 
-  u8 arom_count = 0; 
-  u8 upper_r_size = 0; 
+  u8 locant_ch     = 0; 
+  u8 arom_count    = 0; 
+  u8 upper_r_size  = 0; 
 
   u8 SSSR_ptr  = 0; 
   r_assignment SSSR[32]; // this really is sensible for WLN
 
-  u8 dash_ptr = 0; 
-  unsigned char dash_chars[3]; // last byte is mainly for overflow 
-                               
+  u8 buff_ptr = 0; 
+  unsigned char buffer[3]; // last byte is mainly for overflow 
+    
+  u8 *connection_table = 0; // stack allocate on pseudo read
+
   u8 state = 0; // bit field:                      
-                 // [][][][][SSSR][dash][digit][space]
+                 // [][][][pseudo][SSSR][dash][digit][space]
 
   unsigned char ch; 
   
@@ -822,7 +867,15 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
     
       case 'G':
       case 'N':
-        if (state & SPACE_READ) {
+        if (state & PSEUDO_READ) {
+          if (buff_ptr == 2) {
+            fprintf(stderr,"Error: more than two pseudo bonds specified\n"); 
+            return (ring_t*)0;
+          }
+          else 
+            buffer[buff_ptr++] = ch; 
+        }
+        else if (state & SPACE_READ) {
           locant_ch = ch - 'A';
           state &= ~SPACE_READ; 
         } 
@@ -860,7 +913,11 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         break; 
 
       case '&':
-        if (locant_ch)
+        if (state & MULTI_READ)
+          upper_r_size += 23; 
+        else if (state & PSEUDO_READ)
+          buffer[buff_ptr-1] += 23; 
+        else if (locant_ch)
           locant_ch += 23; 
         else {
           fprintf(stderr, "Error: & expansion used without previous locant\n"); 
@@ -868,7 +925,33 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         }
         break; 
 
+      case '/':
+        // automatically builds the ring system here
+        
+        // use the dash_ptr buffer in order to track the symbols used for the pseudo bond
+        // also tracks overflow. 
+        buff_ptr = 0; 
+        state |= PSEUDO_READ; 
+        break; 
+
       case ' ':
+        if (state & PSEUDO_READ) {
+          // make the pseudo bond immediately avaliable, 
+          if (buff_ptr != 2) {
+            fprintf(stderr,"Error: pseudo locants must come in pairs"); 
+            return (ring_t*)0; 
+          }
+          else {
+            
+            fprintf(stderr,"%c --> %c\n", buffer[0], buffer[1]); 
+            abort(); 
+            
+            buff_ptr = 0; 
+            memset(buffer,0,2); 
+            state &= ~PSEUDO_READ; 
+          }
+        }
+
         state |= SPACE_READ; 
         locant_ch = 0; 
         break;
@@ -883,11 +966,14 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
     ring = new_ring(upper_r_size); 
   }
  
-  // do a mem allocation check here
-
+  // TODO: a mem allocation check here
 
   ring->size = upper_r_size; 
-  return path_solverIII(g, ring, SSSR, SSSR_ptr, 0);     
+  
+  if (connection_table)
+    return pathsolverIII(g, ring, SSSR, SSSR_ptr, connection_table);
+  else 
+    return pathsolverIII_fast(g, ring, SSSR, SSSR_ptr);     
 }
 
 
@@ -1056,8 +1142,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
               digit_n = 0; 
             }
           }
-          else 
-            return error("Error: zero numeral without prefix digits"); 
           break;
 
         case '1':
@@ -1652,7 +1736,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 // openbabel format reader function
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
-  int RET_CODE = 0; 
+  int ret = 0; 
   u16 st_pool_size = 128; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
@@ -1663,35 +1747,24 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
 
   // allows recovery and resetting for large molecules (ideally never invoked)  
-  for (;;) {
-    RET_CODE = parse_wln(ptr, len, g); 
-    switch (RET_CODE) {
-      
-      case ERR_MEMORY: 
-        if (st_pool_size == 1024) {
-          fprintf(stderr,"Error: WLN string specifies > 1024 atoms, reasonable?\n"); 
-          return 0; 
-        }
-        else {
-          st_pool_size *= 2; 
-          gt_free(g); 
-          gt_alloc(g, st_pool_size); 
-        }
-        break; 
-
-      case ERR_ABORT:
-        gt_free(g); 
-        free(g->idx_symbols); 
-        return 0; 
-      
-      default:
-        ob_convert_wln_graph(mol,g);
-        gt_free(g); 
-        free(g->idx_symbols); 
-        return 1; 
-    }
+  ret = parse_wln(ptr, len, g); 
+  while (ret == ERR_MEMORY && st_pool_size < 1024) {
+    st_pool_size *= 2; 
+    gt_free(g); 
+    gt_alloc(g, st_pool_size); 
+    ret = parse_wln(ptr, len, g); 
   }
+  
+  if (ret == ERR_NONE)
+    ob_convert_wln_graph(mol, g);
+  else 
+    fprintf(stdout, "null\n");  
+
+  gt_free(g); 
+  free(g->idx_symbols); 
+  return 1; 
 }
+
 
 int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
 {   
@@ -1735,3 +1808,4 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
   gt_free(g);
   return 1; 
 }
+
