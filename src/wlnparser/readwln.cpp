@@ -762,27 +762,31 @@ static ring_t* pathsolverIII(graph_t *g, ring_t *r,
   return r;  
 }
 
+
+
+
 static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
 {
-  // note: The WLN ring system will always be <= than the sum of 
-  //       the ring assignment values, therefore alloc'ing the sum 
-  //       wastes the least amount of space and avoids a hash map for 
-  //       bridging/pseudo bridging flags. 
   
   symbol_t *c; 
   ring_t *ring; 
 
   u8 locant_ch     = 0; 
-  u8 arom_count    = 0; 
-  u8 upper_r_size  = 0; 
+  u8 arom_count    = 0;
+  u8 upper_r_size  = 0;  
+  // note: The WLN ring system will always be <= than the sum of 
+  //       the ring assignment values, therefore alloc'ing the sum 
+  //       wastes the least amount of space and avoids a hash map for 
+  //       bridging/pseudo bridging flags. 
+  
 
   u8 SSSR_ptr  = 0; 
   r_assignment SSSR[32]; // this really is sensible for WLN
 
   u8 buff_ptr = 0; 
-  unsigned char buffer[3]; // last byte is mainly for overflow 
+  unsigned char buffer[3]; 
     
-  u8 *connection_table = 0; // stack allocate on pseudo read
+  u8 *connection_table = 0; // stack allocates on pseudo read
 
   u8 state = 0; // bit field:                      
                  // [][][][pseudo][SSSR][dash][digit][space]
@@ -791,7 +795,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   
   // note: WLN has a lot of ambiguty due to the limited char set, therefore
   //       you have to reduce possible states in order to correctly handle. 
-  //       Reading arom assignments first allows determined state of '& symbols. 
+  //       Reading arom assignments first allows determined state of '&' symbols. 
 
 #ifdef AROM
   while (ptr[e] == '&' || ptr[e] == 'T') {
@@ -822,7 +826,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           // multicyclic block start
           // move forward space to skip redundant block - should appear on space, 
           // if not, error.
-
+          //
+          
           sp += ch - '0' + 1; 
           if (sp >= e || ptr[sp] != ' ') {
             fprintf(stderr, "Error: invalid format for multicyclic ring\n"); 
@@ -846,20 +851,22 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
       case 'L':
       case 'M':
       case 'S':
-        if (state & MULTI_READ) {
-          // must be the incoming ring size
-          upper_r_size = ch - 'A' + 1; 
-        }
-        break; 
-
-      // locant only symbols within ring
       case 'A':
       case 'C':
       case 'D':
+      case 'F':
       case 'J':
       case 'R':
       case 'T':
-        if (state & SPACE_READ) {
+        if (state & PSEUDO_READ) {
+          if (buff_ptr == 2) {
+            fprintf(stderr,"Error: more than two pseudo bonds specified\n"); 
+            return (ring_t*)0;
+          }
+          else 
+            buffer[buff_ptr++] = ch; 
+        }
+        else if (state & SPACE_READ) {
           locant_ch = ch - 'A';
           state &= ~SPACE_READ; 
         } 
@@ -881,7 +888,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         } 
         else if (state & MULTI_READ) {
           // must be the incoming ring size
-          upper_r_size = ch - 'A' + 1; 
+          ring->size = ch - 'A' + 1; 
         }
         else if (state & SSSR_READ) {
           // end the SSSR read, start element reading
@@ -914,7 +921,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 
       case '&':
         if (state & MULTI_READ)
-          upper_r_size += 23; 
+          ring->size += 23; 
         else if (state & PSEUDO_READ)
           buffer[buff_ptr-1] += 23; 
         else if (locant_ch)
@@ -926,29 +933,41 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         break; 
 
       case '/':
-        // automatically builds the ring system here
-        
-        // use the dash_ptr buffer in order to track the symbols used for the pseudo bond
-        // also tracks overflow. 
-        buff_ptr = 0; 
-        state |= PSEUDO_READ; 
+        if (state & SSSR_READ) {
+          ring = new_ring(upper_r_size); 
+          state &= ~(SSSR_READ); 
+          buff_ptr = 0; 
+          state |= PSEUDO_READ; 
+        }
+        else if (state & PSEUDO_READ) {
+          if (buff_ptr != 2) {
+            fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
+            return (ring_t*)0; 
+          }
+
+        }
+        else {
+          buff_ptr = 0; 
+          state |= PSEUDO_READ; 
+        }
         break; 
 
       case ' ':
         if (state & PSEUDO_READ) {
           // make the pseudo bond immediately avaliable, 
           if (buff_ptr != 2) {
-            fprintf(stderr,"Error: pseudo locants must come in pairs"); 
+            fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
             return (ring_t*)0; 
           }
           else {
-            
-            fprintf(stderr,"%c --> %c\n", buffer[0], buffer[1]); 
-            abort(); 
+#if DEBUG 
+            fprintf(stderr,"pseudo: %c --> %c\n", buffer[0], buffer[1]); 
+#endif 
             
             buff_ptr = 0; 
             memset(buffer,0,2); 
-            state &= ~PSEUDO_READ; 
+
+            state &= ~(PSEUDO_READ & SSSR_READ);  // no further rings can come from pseudo bonds
           }
         }
 
@@ -964,11 +983,9 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   // simplest rings
   if ((state & SSSR_READ) | (state & MULTI_READ)) {
     ring = new_ring(upper_r_size); 
+    ring->size = upper_r_size; 
   }
  
-  // TODO: a mem allocation check here
-
-  ring->size = upper_r_size; 
   
   if (connection_table)
     return pathsolverIII(g, ring, SSSR, SSSR_ptr, connection_table);
