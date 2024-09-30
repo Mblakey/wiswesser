@@ -3515,7 +3515,7 @@ struct BabelGraph{
                          API FUNCTION
 **********************************************************************/
 
-bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
+bool WriteWLN(std::string &buffer, OBMol* mol)
 {   
   
   OBMol *mol_copy = new OBMol(*mol); // performs manipulations on the mol object, copy for safety
@@ -3627,4 +3627,24 @@ bool WriteWLN(std::string &buffer, OBMol* mol, bool modern)
 }
 
 
+int WriteWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
+{   
+  std::string out; 
+  char buffer[1024];
+  memset(buffer,0,1024); // safety for len read  
+  while (fgets(buffer, 1024, fp) != NULL) {
 
+    if(!conv->ReadString(mol,buffer))
+      fprintf(stdout, "null\n");
+    else if(WriteWLN(out, mol))
+      std::cout << out << std::endl; 
+    else 
+      fprintf(stdout, "null\n");
+
+    out.clear();  
+    mol->Clear(); 
+    memset(buffer,0,1024); 
+  }
+  
+  return 1; 
+}

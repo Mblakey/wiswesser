@@ -22,8 +22,6 @@ using namespace OpenBabel;
 const char *cli_inp;
 const char *format; 
 
-bool opt_modern = false;
-
 static void DisplayUsage()
 {
   fprintf(stderr, "writewln <options> -i<format> <input (escaped)>\n");
@@ -99,10 +97,6 @@ static void ProcessCommandLine(int argc, char *argv[])
             DisplayUsage();
           }
 
-        case 'm':
-          opt_modern = true;
-          break;
-
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           DisplayUsage();
@@ -133,10 +127,6 @@ static void ProcessCommandLine(int argc, char *argv[])
     DisplayUsage();
   }
 
-
-  if(opt_modern)
-    fprintf(stderr,"Warning: modern wln functions not fully functional\n");
-
   return;
 }
 
@@ -144,26 +134,31 @@ int main(int argc, char *argv[])
 {
   ProcessCommandLine(argc, argv);
   
-  bool res;
   OBMol mol;
   OBConversion conv;
+  FILE *fp = 0; 
   
   conv.SetInFormat(format);
-  if(!strcmp(format,"mol"))
-    res = conv.ReadFile(&mol, cli_inp);
-  else
-    res = conv.ReadString(&mol,cli_inp);
-
-  if(!res){
-    fprintf(stderr,"Error: failed to read incoming notation\n");
-    return 1; 
+  if (strchr(cli_inp, '.')) {
+    // treat as file 
+    fp = fopen(cli_inp, "r"); 
+    if (!fp) {
+      fprintf(stderr,"Error: file could not be opened\n"); 
+      return 1;
+    }
+    else {
+      if (!WriteWLNFile(fp, &mol, &conv))
+        return 1; 
+      fclose(fp); 
+    }
   }
-
-  std::string buffer;
-  buffer.reserve(1000);
-  if(!WriteWLN(buffer,&mol,opt_modern))
-    return 1;
-  
-  std::cout << buffer << std::endl;
+  else{
+    std::string buffer;
+    buffer.reserve(1000);
+    if(!WriteWLN(buffer,&mol))
+      return 1;
+    
+    std::cout << buffer << std::endl;
+  }
   return 0;
 }
