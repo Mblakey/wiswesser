@@ -914,6 +914,7 @@ static void DisplayUsage()
   fprintf(stderr, "readwln <options> -o<format> <input (escaped)>\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
+  fprintf(stderr, " -b                   run the WLN read benchmark (smith data)\n");
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan)\n");
   exit(1);
 }
