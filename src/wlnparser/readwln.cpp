@@ -945,6 +945,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
 
+
         }
         else {
           buff_ptr = 0; 
@@ -994,16 +995,35 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 }
 
 
-static void default_methyls(graph_t *g, symbol_t *c, const u8 n)
+static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
 {
   edge_t *e; 
   symbol_t *m; 
   for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
     e = next_virtual_edge(c); 
     m = next_symbol(g, e, CAR, 4); 
-    e = set_virtual_edge(e, c, m); 
+    if (!m)
+      return ERR_MEMORY; 
+    else 
+      e = set_virtual_edge(e, c, m); 
   }
+
   c->n_bonds = 0;  
+  return ERR_NONE; 
+}
+
+static u8 add_oxy(graph_t *g, symbol_t *p)
+{
+  edge_t *e = next_virtual_edge(p); 
+  symbol_t *c = next_symbol(g, e, OXY, 2); 
+
+  if (!c)
+    return ERR_MEMORY; 
+  else {
+    e->order++; 
+    set_virtual_edge(e, p, c); 
+  }
+  return ERR_NONE; 
 }
 
 /*
@@ -1495,17 +1515,14 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            
-            fprintf(stderr,"ADD V CODE\n"); 
-            abort(); 
 
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3;
-            g->stack_ptr++; 
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
+            if (add_oxy(g, c) == ERR_ABORT)
+              return ERR_ABORT; 
+            else {
+              p = c; 
+              g->idx_symbols[sp+1] = c; 
+              e = next_virtual_edge(c); 
+            }
           }
           break;
 
