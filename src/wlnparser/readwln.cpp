@@ -1021,10 +1021,13 @@ static u8 add_oxy(graph_t *g, symbol_t *p)
     return ERR_MEMORY; 
   else {
     e->order++; 
+    p->valence_pack++; 
     set_virtual_edge(e, p, c); 
   }
   return ERR_NONE; 
 }
+
+static u8 add_dioxy(graph_t *g, symbol_t *p); 
 
 /*
  * -- Parse WLN Notation --
@@ -1498,7 +1501,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         
         case 'U':
           if (e) {
-            e->order += 1; 
+            e->order++; 
             p->valence_pack++; 
           }
           else
@@ -1515,9 +1518,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-
-            if (add_oxy(g, c) == ERR_ABORT)
-              return ERR_ABORT; 
+            if (add_oxy(g, c) == ERR_MEMORY)
+              return ERR_MEMORY; 
             else {
               p = c; 
               g->idx_symbols[sp+1] = c; 
