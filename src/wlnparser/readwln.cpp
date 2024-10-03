@@ -1027,7 +1027,16 @@ static u8 add_oxy(graph_t *g, symbol_t *p)
   return ERR_NONE; 
 }
 
-static u8 add_dioxy(graph_t *g, symbol_t *p); 
+/* placeholder for charged alterations */ 
+static u8 add_dioxy(graph_t *g, symbol_t *p)
+{
+  u8 ret = 0; 
+  ret = add_oxy(g, p); 
+  if (ret != ERR_NONE)
+    return ret; 
+  else 
+    return add_oxy(g, p); 
+}; 
 
 /*
  * -- Parse WLN Notation --
@@ -1498,6 +1507,40 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             e = next_virtual_edge(c); 
           }
           break;
+
+
+        case 'Q':
+          c = next_symbol(g, e, OXY, 1);
+          if (!c)
+            return ERR_MEMORY; 
+          else {
+            g->idx_symbols[sp+1] = c; 
+            e = set_virtual_edge(e, p, c); 
+          }
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            // terminating symbol
+            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+              g->stack[g->stack_ptr-1].ref--; 
+              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+
+              // reseting block
+              // note: terminators can empty the stack, '&' cannot
+              if (!g->stack_ptr) {
+                p = c; 
+                e = next_virtual_edge(p); 
+              }
+              else 
+                read_stack_frame(&p, &e, &r, g); 
+            }
+            else {
+              p = c; 
+              e = next_virtual_edge(p); 
+            }
+          }
+          break;
         
         case 'U':
           if (e) {
@@ -1527,6 +1570,28 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             }
           }
           break;
+        
+        // if not previous, create dummy carbon
+        case 'W':
+          c = next_symbol(g, e, CAR, 4);
+          if (!c)
+            return ERR_MEMORY; 
+          else
+            e = set_virtual_edge(e, p, c); 
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            
+            if (add_dioxy(g, c) == ERR_MEMORY)
+              return ERR_MEMORY; 
+            else {
+              ; 
+            }
+          }
+          break;
+
+          break; 
 
         case 'X':
           c = next_symbol(g, e, CAR, 4);
@@ -1734,6 +1799,20 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
         atom = ob_add_atom(mol, node->atomic_num, node->charge, 3 - (node->valence_pack & 0x0F) ); 
         amapping[i] = atom; 
         break; 
+      
+      case OXY:
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, 2 - (node->valence_pack & 0x0F) ); 
+        amapping[i] = atom; 
+        break; 
+
+      case FLU:
+      case CHL:
+      case BRO:
+      case IOD:
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, 1 - (node->valence_pack & 0x0F) ); 
+        amapping[i] = atom; 
+        break; 
+
       
       case DUM: // used to simplify grow code
         break; 
