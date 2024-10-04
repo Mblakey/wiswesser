@@ -57,6 +57,10 @@ GNU General Public License for more details.
 #define MULTI_READ  0x10
 #define PSEUDO_READ 0x20
 
+// Ring type "magic numbers"
+#define LOCANT_BRIDGE 0x10  
+#define LOCANT_AROM   0x20  
+
 // Error codes 
 #define ERR_NONE   0 // success
 #define ERR_ABORT  1 
@@ -74,6 +78,7 @@ GNU General Public License for more details.
 #define CHL   17
 #define BRO   35
 #define IOD   53
+
 
 typedef struct symbol_t symbol_t; 
 
@@ -422,9 +427,105 @@ static ring_t* pathsolverIII(graph_t *g, ring_t *r,
    * easy pass through for pseudo locants defined in the ring parse 
   */
   
-
-
   return r;  
+}
+
+
+static u8 check_bipartite(char *adj_matrix, u8 size)
+{
+  u8 idx_ptr = 0; 
+  u8 *idx_queue = (u8*)alloca(sizeof(u8)*size); 
+  
+  u8 *color_arr = (u8*)alloca(sizeof(u8)*size); 
+  memset(color_arr,0,sizeof(u8)*size); 
+  
+  u8 top = 0; 
+  char *row; 
+
+  idx_queue[idx_ptr++] = 0; 
+  while (idx_ptr > 0) {
+    top = idx_queue[--idx_ptr]; 
+    
+    row = &adj_matrix[top*size]; 
+    for (u8 i=0;i<size;i++) {
+      if (row[i] != -1) {
+        if (!color_arr[i]) {
+          color_arr[i] = 1 + (color_arr[top] == 1); 
+          memmove(&idx_queue[1], &idx_queue[0], size-1); // shift array
+          idx_queue[0] = i; 
+        }
+        else if(color_arr[i] == color_arr[top])
+          return 0; 
+        else 
+          continue; 
+      }
+    }
+  }
+  return 1; 
+}
+
+/* recursive biparitite matcher - TODO: non-recursive version */
+u8 bpmatching(u8 u, char *adj_matrix, u8 size, char *visited, char *match_set) 
+{
+  char *row = &adj_matrix[u]; 
+  for (u8 v=0; v<size; v++) {
+    if (row[v] != -1 && !visited[v]) {
+      visited[v] = 1; 
+
+      if (match_set[v] == -1 || 
+          bpmatching(match_set[v], adj_matrix, size, visited, match_set)) 
+      {
+        match_set[v] = u; 
+        return 1; 
+      } 
+    }
+  }
+  return 0; 
+}
+
+
+static u8 kekulize_ring(ring_t *r) 
+{
+  symbol_t *p; 
+  symbol_t *c; 
+
+  char *match_set = (char*)alloca(sizeof(u8)*r->size); 
+  char *visited   = (char*)alloca(sizeof(u8)*r->size); 
+  memset(match_set,-1,sizeof(char)*r->size); 
+  memset(visited,0,sizeof(char)*r->size); 
+  
+  char *adj_matrix = (char*)alloca(sizeof(u8)*r->size*2);
+  memset(adj_matrix,-1,sizeof(u8)*r->size*2); 
+  
+  // create an adj matrix, 
+  // TODO: n3 but with small n, better data structures
+  // can bring this down, not worth the hash table
+  for (unsigned int i=0; i<r->size; i++) {
+    p = r->path[i].s; 
+    for (u8 j=0; j<p->n_bonds; j++) {
+      c = p->bonds[j].c;  
+      for (unsigned int k=i+1;k<r->size;k++) {
+        if (r->path[k].s == c) {
+          adj_matrix[i *r->size+k] = 1; 
+          adj_matrix[k *r->size+i] = 1; 
+          break; 
+        }
+      }
+    } 
+  }
+  
+  if (check_bipartite(adj_matrix, r->size)) {
+    // ford-fulkerson alternating match pairs kekule "fast"
+    fprintf(stderr,"indeed\n"); 
+    for (u8 u=0;u<r->size;u++)
+      bpmatching(u, adj_matrix, r->size, visited, match_set); 
+
+    for (u8 u=0;u<r->size;u++)
+      fprintf(stderr,"%d: %d\n",u,match_set[u]); 
+  }
+
+
+  return ERR_NONE; 
 }
 
 
@@ -1942,6 +2043,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
               return ERR_MEMORY; 
             else {
               r->path[i].s = c; // set the locants 
+              r->path[i].r_pack |= LOCANT_AROM; // set all aromatic
               e = set_virtual_edge(e, p, c); 
             }
             if (!e)
@@ -2201,7 +2303,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
             if (g->stack[g->stack_ptr-1].ref < 0) {
               // ring closures  
-              free(g->stack[--g->stack_ptr].addr);
+              kekulize_ring((ring_t*)g->stack[--g->stack_ptr].addr); 
+              free(g->stack[g->stack_ptr].addr);
               g->stack[g->stack_ptr].addr = 0; 
               g->stack[g->stack_ptr].ref = 0;
             }
