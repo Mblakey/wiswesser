@@ -431,7 +431,7 @@ static ring_t* pathsolverIII(graph_t *g, ring_t *r,
 }
 
 
-static u8 check_bipartite(char *adj_matrix, u8 size)
+static u8 check_bipartite(edge_t **adj_matrix, u8 size)
 {
   u8 idx_ptr = 0; 
   u8 *idx_queue = (u8*)alloca(sizeof(u8)*size); 
@@ -440,7 +440,7 @@ static u8 check_bipartite(char *adj_matrix, u8 size)
   memset(color_arr,0,sizeof(u8)*size); 
   
   u8 top = 0; 
-  char *row; 
+  edge_t **row; 
 
   idx_queue[idx_ptr++] = 0; 
   while (idx_ptr > 0) {
@@ -448,7 +448,7 @@ static u8 check_bipartite(char *adj_matrix, u8 size)
     
     row = &adj_matrix[top*size]; 
     for (u8 i=0;i<size;i++) {
-      if (row[i] != -1) {
+      if (row[i]) {
         if (!color_arr[i]) {
           color_arr[i] = 1 + (color_arr[top] == 1); 
           memmove(&idx_queue[1], &idx_queue[0], size-1); // shift array
@@ -465,14 +465,14 @@ static u8 check_bipartite(char *adj_matrix, u8 size)
 }
 
 /* recursive biparitite matcher - TODO: non-recursive version */
-u8 bpmatching(u8 u, char *adj_matrix, u8 size, char *visited, char *match_set) 
+u8 bpmatching(u8 u, edge_t **adj_matrix, u8 size, char *visited, char *match_set) 
 {
-  char *row = &adj_matrix[u]; 
+  edge_t **row = &adj_matrix[u*size]; 
   for (u8 v=0; v<size; v++) {
-    if (row[v] != -1 && !visited[v]) {
+    if (row[v] && !visited[v]) {
       visited[v] = 1; 
 
-      if (match_set[v] == -1 || 
+      if (match_set[v] < 0 || 
           bpmatching(match_set[v], adj_matrix, size, visited, match_set)) 
       {
         match_set[v] = u; 
@@ -488,43 +488,61 @@ static u8 kekulize_ring(ring_t *r)
 {
   symbol_t *p; 
   symbol_t *c; 
+  u8 size = r->size; 
 
-  char *match_set = (char*)alloca(sizeof(u8)*r->size); 
-  char *visited   = (char*)alloca(sizeof(u8)*r->size); 
-  memset(match_set,-1,sizeof(char)*r->size); 
-  memset(visited,0,sizeof(char)*r->size); 
+  char *match_set = (char*)alloca(sizeof(char)*size); 
+  char *visited   = (char*)alloca(sizeof(char)*size); 
+  memset(match_set,-1,sizeof(char)*size); 
+  memset(visited,0,sizeof(char)*size); 
   
-  char *adj_matrix = (char*)alloca(sizeof(u8)*r->size*2);
-  memset(adj_matrix,-1,sizeof(u8)*r->size*2); 
+  // allow the adj_matrix to also be an edge lookup
+  // - memory for speed trade off
+  edge_t **adj_matrix = (edge_t**)alloca(sizeof(edge_t*)*size*size);
+  memset(adj_matrix,0,sizeof(edge_t*)*size*size); 
   
   // create an adj matrix, 
   // TODO: n3 but with small n, better data structures
   // can bring this down, not worth the hash table
-  for (unsigned int i=0; i<r->size; i++) {
+  for (unsigned int i=0; i<size; i++) {
     p = r->path[i].s; 
     for (u8 j=0; j<p->n_bonds; j++) {
       c = p->bonds[j].c;  
-      for (unsigned int k=i+1;k<r->size;k++) {
+      for (unsigned int k=i+1;k<size;k++) {
         if (r->path[k].s == c) {
-          adj_matrix[i *r->size+k] = 1; 
-          adj_matrix[k *r->size+i] = 1; 
+          adj_matrix[i *size+k] = &p->bonds[j]; 
+          adj_matrix[k *size+i] = &p->bonds[j]; 
           break; 
         }
       }
     } 
   }
-  
-  if (check_bipartite(adj_matrix, r->size)) {
-    // ford-fulkerson alternating match pairs kekule "fast"
-    fprintf(stderr,"indeed\n"); 
-    for (u8 u=0;u<r->size;u++)
-      bpmatching(u, adj_matrix, r->size, visited, match_set); 
 
-    for (u8 u=0;u<r->size;u++)
-      fprintf(stderr,"%d: %d\n",u,match_set[u]); 
+  if (check_bipartite(adj_matrix, size)) {
+    // ford-fulkerson alternating match pairs kekule "fast"
+    for (u8 u=0;u<size;u++)
+      bpmatching(u, adj_matrix, size, visited, match_set); 
+
+  }
+  else {
+    // need a blossum 
   }
 
+  // adj-matrix is used to get the edges, balance both 
+  // sides of the valence and remove from match set 
+  edge_t *e; 
+  for (u8 u=0;u<size;u++) {
+    if (match_set[u] != -1) {
+      p = r->path[u].s; 
+      c = r->path[match_set[u]].s; 
+      e = adj_matrix[u*size+match_set[u]]; 
 
+      e->order++; 
+      p->valence_pack++; 
+      c->valence_pack++; 
+      match_set[match_set[u]] = -1; 
+      match_set[u] = -1; 
+    }
+  }
   return ERR_NONE; 
 }
 
