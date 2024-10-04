@@ -83,369 +83,6 @@ static u8 error(const char *message)
   return ERR_ABORT;  
 }
 
-/* returns atomic number of element packing */
-u16 get_atomic_num(u8 high, u8 low){
-  switch (high){
-    case 'A':
-      switch (low) {
-        case 'C':
-          return 89;
-        case 'G':
-          return 47;
-        case 'L':
-          return 13;
-        case 'M':
-          return 95;
-        case 'R':
-          return 18;
-        case 'S':
-          return 33;
-        case 'T':
-          return 85;
-        case 'U':
-          return 79;
-      }
-      break; 
-
-    case 'B':
-      switch (low) {
-        case 0: 
-          return 5;
-        case 'A':
-          return 56;
-        case 'E':
-          return 4;
-        case 'H':
-          return 107;
-        case 'I':
-          return 83;
-        case 'K':
-          return 97;
-        case 'R':
-          return 35;
-      }
-      break; 
-
-    case 'C':
-      switch (low) {
-        case 0:
-          return 6; 
-        case 'A':
-          return 20;
-        case 'D':
-          return 48;
-        case 'E':
-          return 58;
-        case 'F':
-          return 98;
-        case 'M':
-          return 96;
-        case 'N':
-          return 112;
-        case 'O':
-          return 27;
-        case 'R':
-          return 24;
-        case 'S':
-          return 55;
-        case 'U':
-          return 29;
-      }
-      break; 
-
-    case 'D':
-      switch (low) {
-        case 'B':
-          return 105;
-        case 'S':
-          return 110; 
-        case 'Y':
-          return 66; 
-      }
-      break;
-
-    case 'E':
-      switch (low) {
-        case 0:
-          return 35; 
-        case 'R':
-          return 68; 
-        case 'S':
-          return 99; 
-        case 'U':
-          return 63; 
-      }
-
-    case 'F':
-      switch (low) {
-        case 0:
-          return 9; 
-        case 'E':
-          return 26;
-        case 'L':
-          return 114;
-        case 'M':
-          return 100;
-        case 'R':
-          return 87;
-      }
-      break;
-
-    case 'G':
-      switch (low) {
-        case 0: 
-          return 17;
-        case 'A':
-          return 31;
-        case 'D':
-          return 64;
-        case 'E':
-          return 32;
-      }
-      break;
-
-    case 'H':
-      switch (low) {
-        case 'E':
-          return 2;
-        case 'F':
-          return 72;
-        case 'G':
-          return 80;
-        case 'O':
-          return 67;
-        case 'S':
-          return 108;
-      }
-      break;
-
-    case 'I':
-      switch (low) {
-        case 0: 
-          return 53;
-        case 'N':
-          return 49;
-        case 'R':
-          return 77;
-      }
-      break;
-
-    case 'K':
-      switch (low) {
-        case 0:  
-          return 7;
-        case 'R':
-          return 36;
-        case 'A':
-          return 19;
-      }
-      break;
-
-    case 'L':
-      switch (low) {
-        case 'A':
-          return 57;
-        case 'I':
-          return 3;
-        case 'R':
-          return 103;
-        case 'U':
-          return 71;
-        case 'V':
-          return 116;
-      }
-      break;
-
-    case 'M':
-      switch (low) {
-        case 0:
-          return 7; 
-        case 'C':
-          return 115;
-        case 'D':
-          return 101;
-        case 'G':
-          return 12;
-        case 'N':
-          return 25;
-        case 'O':
-          return 42;
-        case 'T':
-          return 109;
-      }
-      break;
-
-    case 'N':
-      switch (low) {
-        case 0:
-          return 7; 
-        case 'A':
-          return 11;
-        case 'B':
-          return 41;
-        case 'D':
-          return 60;
-        case 'E':
-          return 10;
-        case 'H':
-          return 113;
-        case 'I':
-          return 28;
-        case 'O':
-          return 102;
-        case 'P':
-          return 93;
-      }
-      break; 
-
-
-    case 'O':
-      switch (low) {
-        case 0:
-          return 8; 
-        case 'G':
-          return 118;
-        case 'S':
-          return 76;
-      }
-      break;
-
-    case 'P':
-      switch (low) {
-        case 0:
-          return 15; 
-        case 'A':
-          return 91;
-        case 'B':
-          return 82;
-        case 'D':
-          return 46;
-        case 'M':
-          return 61;
-        case 'O':
-          return 84;
-        case 'R':
-          return 59;
-        case 'T':
-          return 78;
-        case 'U':
-          return 94;
-      }
-      break;
-    
-    case 'Q':
-      return 8; 
-
-    case 'R':
-      switch (low) {
-        case 'A':
-          return 88;
-        case 'B':
-          return 37;
-        case 'E':
-          return 75;
-        case 'F':
-          return 104;
-        case 'G':
-          return 111;
-        case 'H':
-          return 45;
-        case 'N':
-          return 86;
-        case 'U':
-          return 44;
-      }
-      break;
-
-    case 'S':
-      switch (low) {
-        case 0: 
-          return 16; 
-        case 'B':
-          return 51;
-        case 'C':
-          return 21;
-        case 'E':
-          return 34;
-        case 'G':
-          return 106;
-        case 'I':
-          return 14;
-        case 'M':
-          return 62;
-        case 'N':
-          return 50;
-        case 'R':
-          return 38;
-      }
-      break;
-
-    case 'T':
-      switch (low) {
-        case 'A':
-          return 73;
-        case 'B':
-          return 65;
-        case 'C':
-          return 43;
-        case 'E':
-          return 52;
-        case 'H':
-          return 90;
-        case 'I':
-          return 22;
-        case 'L':
-          return 81;
-        case 'M':
-          return 69;
-        case 'S':
-          return 117;
-      }
-      break;
-
-    case 'U':
-      if(low == 'R')
-        return 92;
-      break;
-
-    case 'V':
-      if(low == 'A')
-        return 23;
-      break;
-  
-    case 'W':
-      if(low == 'T')
-        return 74;
-      break; 
-
-    case 'X':
-      if (!low)
-        return 6; 
-      else if (low == 'E')
-        return 54;
-      break;
-
-    case 'Y':
-      if (!low)
-        return 6; 
-      else if (low == 'T')
-        return 39;
-      else if (low == 'B')
-        return 70;
-      break;
-
-    case 'Z':
-      if (!low)
-        return 7; 
-      else if (low == 'N')
-        return 30;
-      else if (low == 'R')
-        return 40;
-      break;
-  }
-
-  return 0;
-}
 
 
 // 9 bytes
@@ -570,6 +207,14 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
   return s; 
 }
 
+
+/* read off dash buffer, nearly all dash symbols 
+ * are stack compatible atoms, 
+ * transition metals are given a 6 valence limit - not allowed to expand
+ * the octet. WLN does not have any rules for this, so this heuristic is
+ * subject to interpretation - Not a Chemist, please
+ * correct me! 
+*/
 
 static __always_inline edge_t* next_virtual_edge(symbol_t *p)
 {
@@ -1014,6 +659,537 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
     return pathsolverIII_fast(g, ring, SSSR, SSSR_ptr);     
 }
 
+static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
+  switch (high){
+    case 'A':
+      switch (low) {
+        case 'C':
+          c->atomic_num = 89; 
+          break; 
+        case 'G':
+          c->atomic_num = 47; 
+          break; 
+        case 'L':
+          c->atomic_num = 13; 
+          break; 
+        case 'M':
+          c->atomic_num = 95; 
+          break; 
+        case 'R':
+          c->atomic_num = 18; 
+          break; 
+        case 'S':
+          c->atomic_num = 33; 
+          break; 
+        case 'T':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 85; 
+          break; 
+        case 'U':
+          c->atomic_num = 79; 
+          break; 
+      }
+      break; 
+
+    case 'B':
+      switch (low) {
+        case 0:
+          c->valence_pack = (4 << 4);
+          c->atomic_num = BOR; 
+          break; 
+        case 'A':
+          c->valence_pack = (2 << 4);
+          c->atomic_num = 56; 
+          break; 
+        case 'E':
+          c->valence_pack = (2 << 4);
+          c->atomic_num = 4; 
+          break; 
+        case 'H':
+          c->atomic_num = 107; 
+          break; 
+        case 'I':
+          c->atomic_num = 83; 
+          break; 
+        case 'K':
+          c->atomic_num = 97; 
+          break; 
+        case 'R':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = BRO; 
+          break; 
+      }
+      break; 
+
+    case 'C':
+      switch (low) {
+        case 0:
+          c->valence_pack = (5 << 4); 
+          c->atomic_num = CAR; // allow the texas carbon "easter egg"
+          break; 
+        case 'A':
+          c->valence_pack = (2 << 4); 
+          c->atomic_num = 20;
+          break; 
+        case 'D':
+          c->atomic_num = 48;
+          break; 
+        case 'E':
+          c->atomic_num = 58;
+          break; 
+        case 'F':
+          c->atomic_num = 98;
+          break; 
+        case 'M':
+          c->atomic_num = 96;
+          break; 
+        case 'N':
+          c->atomic_num = 112;
+          break; 
+        case 'O':
+          c->atomic_num = 27;
+          break; 
+        case 'R':
+          c->atomic_num = 24;
+          break; 
+        case 'S':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 55;
+          break; 
+        case 'U':
+          c->atomic_num = 29;
+          break; 
+      }
+      break; 
+
+    case 'D':
+      switch (low) {
+        case 'B':
+          c->atomic_num = 105;
+          break; 
+        case 'S':
+          c->atomic_num = 110;
+          break; 
+        case 'Y':
+          c->atomic_num = 66;
+          break; 
+      }
+      break;
+
+    case 'E':
+      switch (low) {
+        case 0:
+          c->valence_pack = (3 << 4); // hypervalent bromine
+          c->atomic_num = 35; 
+          break; 
+        case 'R':
+          c->atomic_num = 68; 
+          break; 
+        case 'S':
+          c->atomic_num = 99; 
+          break; 
+        case 'U':
+          c->atomic_num = 63; 
+          break; 
+      }
+
+    case 'F':
+      switch (low) {
+        case 0:
+          c->valence_pack = (3 << 4); // hypervalent flourine
+          c->atomic_num = FLU; 
+          break; 
+        case 'E':
+          c->atomic_num = 26; 
+          break; 
+        case 'L':
+          c->atomic_num = 114; 
+          break; 
+        case 'M':
+          c->atomic_num = 100; 
+          break; 
+        case 'R':
+          c->atomic_num = 87; 
+          break; 
+      }
+      break;
+
+    case 'G':
+      switch (low) {
+        case 0: 
+          c->valence_pack = (3 << 4); // hypervalent chlorine
+          c->atomic_num = CHL; 
+          break; 
+        case 'A':
+          c->valence_pack = (3 << 4); 
+          c->atomic_num = 31; 
+          break; 
+        case 'D':
+          c->atomic_num = 64; 
+          break; 
+        case 'E':
+          c->valence_pack = (4 << 4); 
+          c->atomic_num = 32; 
+          break; 
+      }
+      break;
+
+    case 'H':
+      switch (low) {
+        case 'E':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 2; 
+          break; 
+        case 'F':
+          c->atomic_num = 72; 
+          break; 
+        case 'G':
+          c->atomic_num = 80; 
+          break; 
+        case 'O':
+          c->atomic_num = 67; 
+          break; 
+        case 'S':
+          c->atomic_num = 108; 
+          break; 
+      }
+      break;
+
+    case 'I':
+      switch (low) {
+        case 0: 
+          c->valence_pack = (2 << 4); // hypervalent iodine
+          c->atomic_num = IOD;
+          break; 
+        case 'N':
+          c->valence_pack = (3 << 4); 
+          c->atomic_num = 49; 
+          break; 
+        case 'R':
+          c->atomic_num = 77; 
+          break; 
+      }
+      break;
+
+    case 'K':
+      switch (low) {
+        case 0:  
+          c->valence_pack = (4 << 4); // already hyper nitrogen 
+          c->atomic_num = NIT;
+          c->charge++; 
+          break; 
+        case 'R':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 36; 
+          break; 
+        case 'A':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 19; 
+          break; 
+      }
+      break;
+
+    case 'L':
+      switch (low) {
+        case 'A':
+          c->atomic_num = 57; 
+          break; 
+        case 'I':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 3; 
+          break; 
+        case 'R':
+          c->atomic_num = 103; 
+          break; 
+        case 'U':
+          c->atomic_num = 71; 
+          break; 
+        case 'V':
+          c->atomic_num = 116; 
+          break; 
+      }
+      break;
+
+    case 'M':
+      switch (low) {
+        case 0:
+          c->valence_pack = (2 << 4); // regular nitrogen
+          c->atomic_num = NIT; 
+          break; 
+        case 'C':
+          c->atomic_num = 115; 
+          break; 
+        case 'D':
+          c->atomic_num = 101; 
+          break; 
+        case 'G':
+          c->valence_pack = (2 << 4); 
+          c->atomic_num = 12; 
+          break; 
+        case 'N':
+          c->atomic_num = 25; 
+          break; 
+        case 'O':
+          c->atomic_num = 42; 
+          break; 
+        case 'T':
+          c->atomic_num = 109; 
+          break; 
+      }
+      break;
+
+    case 'N':
+      switch (low) {
+        case 0:
+          c->valence_pack = (2 << 4); // regular nitrogen
+          c->atomic_num = NIT; 
+          break; 
+        case 'A':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 11; 
+          break; 
+        case 'B':
+          c->atomic_num = 41; 
+          break; 
+        case 'D':
+          c->atomic_num = 60; 
+          break; 
+        case 'E':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 10; 
+          break; 
+        case 'H':
+          c->atomic_num = 113; 
+          break; 
+        case 'I':
+          c->atomic_num = 28; 
+          break; 
+        case 'O':
+          c->atomic_num = 102; 
+          break; 
+        case 'P':
+          c->atomic_num = 93; 
+          break; 
+      }
+      break; 
+
+    case 'O':
+      switch (low) {
+        case 0:
+          c->valence_pack = (3 << 4); // hypervalent oxygen
+          c->atomic_num = OXY; 
+          break; 
+        case 'G':
+          c->atomic_num = 118; 
+          break; 
+        case 'S':
+          c->atomic_num = 76; 
+          break; 
+      }
+      break;
+
+    case 'P':
+      switch (low) {
+        case 0:
+          c->valence_pack = (5 << 4); // phos
+          c->atomic_num = PHO; 
+          break; 
+        case 'A':
+          c->atomic_num = 91; 
+          break; 
+        case 'B':
+          c->atomic_num = 82; 
+          break; 
+        case 'D':
+          c->atomic_num = 46; 
+          break; 
+        case 'M':
+          c->atomic_num = 61; 
+          break; 
+        case 'O':
+          c->atomic_num = 84; 
+          break; 
+        case 'R':
+          c->atomic_num = 59; 
+          break; 
+        case 'T':
+          c->atomic_num = 78; 
+          break; 
+        case 'U':
+          c->atomic_num = 94; 
+          break; 
+      }
+      break;
+    
+    case 'Q':
+      c->valence_pack = (3 << 4); // hypervalent oxygen
+      c->atomic_num = OXY; 
+      break; 
+
+    case 'R':
+      switch (low) {
+        case 'A':
+          c->atomic_num = 88; 
+          break; 
+        case 'B':
+          c->valence_pack = (1 << 4); 
+          c->atomic_num = 37; 
+          break; 
+        case 'E':
+          c->atomic_num = 75; 
+          break; 
+        case 'F':
+          c->atomic_num = 104; 
+          break; 
+        case 'G':
+          c->atomic_num = 111; 
+          break; 
+        case 'H':
+          c->atomic_num = 45; 
+          break; 
+        case 'N':
+          c->atomic_num = 86; 
+          break; 
+        case 'U':
+          c->atomic_num = 44; 
+          break; 
+      }
+      break;
+
+    case 'S':
+      switch (low) {
+        case 0: 
+          c->valence_pack = (6 << 4); // regular sulphur
+          c->atomic_num = SUL; 
+          break; 
+        case 'B':
+          c->valence_pack = (3 << 4); 
+          c->atomic_num = 51; 
+          break; 
+        case 'C':
+          c->valence_pack = (3 << 4); 
+          c->atomic_num = 21; 
+          break; 
+        case 'E':
+          c->valence_pack = (2 << 4); 
+          c->atomic_num = 34; 
+          break; 
+        case 'G':
+          c->atomic_num = 106; 
+          break; 
+        case 'I':
+          c->valence_pack = (4 << 4); 
+          c->atomic_num = 14; 
+          break; 
+        case 'M':
+          c->atomic_num = 62; 
+          break; 
+        case 'N':
+          c->valence_pack = (4 << 4); 
+          c->atomic_num = 50; 
+          break; 
+        case 'R':
+          c->valence_pack = (2 << 4); 
+          c->atomic_num = 38; 
+          break; 
+      }
+      break;
+
+    case 'T':
+      switch (low) {
+        case 'A':
+          c->atomic_num = 73; 
+          break; 
+        case 'B':
+          c->atomic_num = 65; 
+          break; 
+        case 'C':
+          c->atomic_num = 43; 
+          break; 
+        case 'E':
+          c->valence_pack = (2 << 4); 
+          c->atomic_num = 52; 
+          break; 
+        case 'H':
+          c->atomic_num = 90; 
+          break; 
+        case 'I':
+          c->atomic_num = 22; 
+          break; 
+        case 'L':
+          c->valence_pack = (3 << 4); 
+          c->atomic_num = 81; 
+          break; 
+        case 'M':
+          c->atomic_num = 69; 
+          break; 
+        case 'S':
+          c->atomic_num = 117; 
+          break; 
+      }
+      break;
+
+    case 'U':
+      if(low == 'R') {
+        c->atomic_num = 92; 
+        break; 
+      }
+      break;
+
+    case 'V':
+      if(low == 'A') {
+        c->atomic_num = 23; 
+        break; 
+      }
+      break;
+  
+    case 'W':
+      if(low == 'T') {
+        c->atomic_num = 74; 
+        break; 
+      }
+      break; 
+
+    case 'X':
+      if (low == 'E') {
+        c->valence_pack = (1 << 4); 
+        c->atomic_num = 54; 
+        break; 
+      }
+      break;
+
+    case 'Y':
+      if (low == 'T') {
+        c->valence_pack = (3 << 4); 
+        c->atomic_num = 39; 
+        break; 
+      }
+      else if (low == 'B') {
+        c->atomic_num = 70; 
+        break; 
+      }
+      break;
+
+    case 'Z':
+      if (low == 'N') {
+        c->atomic_num = 30; 
+        break; 
+      }
+      else if (low == 'R') {
+        c->atomic_num = 30; 
+        break; 
+      }
+      break;
+  }
+  
+  if (c->atomic_num == DUM) {
+    fprintf(stderr,"Error: invalid elemental code -%c%c-\n",high,low); 
+    return ERR_ABORT; 
+  }
+  else 
+    return ERR_NONE; 
+}
+
 
 static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
 {
@@ -1152,8 +1328,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
   u8 locant_ch  = 0; 
   u8 ring_chars = 0; 
-  u8 atom_num   = 0; 
-  u8 c_ulevel   = 0; 
   u16 digit_n   = 0; 
   
   u8 state = 0; // bit field: 
@@ -1163,7 +1337,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
                 // must be bound to the previous chain
   
   u8 dash_ptr = 0; 
-  unsigned char dash_chars[3]; // last byte is mainly for overflow 
+  unsigned char dash_chars[3] = {0}; // last byte is mainly for overflow 
  
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
   // idea entirely *--> grow...
@@ -1809,7 +1983,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             }
             // since these can expand valence, allow branch
             g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 2; 
+            g->stack[g->stack_ptr].ref  = 3; // ?  
             g->stack_ptr++; 
 
             p = c; 
@@ -1961,17 +2135,32 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         
         case '-':
           if (state & DASH_READ) {
-            
-            atom_num = get_atomic_num(dash_chars[0],dash_chars[1]); 
-            if (!atom_num) 
-              return error("Error: invalid element two character code"); 
+            c = next_symbol(g, e, DUM, 6); // create a blank symbol
+            if (!c)
+              return ERR_MEMORY; 
             else {
 
+              if (write_dash_symbol(c, dash_chars[0], dash_chars[1]) == ERR_ABORT)
+                return ERR_ABORT; 
+              else {
+                e = set_virtual_edge(e, p, c); 
+                
+                memset(dash_chars,0,3); 
+                state &= ~DASH_READ; 
+                dash_ptr = 0; 
+
+                // add to branch stack
+                if ((c->valence_pack >> 4) >= 2) {
+                  g->stack[g->stack_ptr].addr = c; 
+                  g->stack[g->stack_ptr].ref  = c->valence_pack >> 4;
+                  g->stack_ptr++; 
+                }
+
+                p = c; 
+                g->idx_symbols[sp+1] = c; 
+                e = next_virtual_edge(c); 
+              }
             }
-            
-            memset(dash_chars,0,3); 
-            state &= ~DASH_READ; 
-            dash_ptr = 0; 
           }
           else {
             if (ch_nxt == ' ') 
@@ -2129,8 +2318,8 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
       case DUM: // used to simplify grow code
         break; 
 
-      default:
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, ((node->valence_pack & 0xF0) >> 4) - (node->valence_pack & 0x0F) ); 
+      default: // dont add hydrogens
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, 0); 
         amapping[i] = atom; 
     }
   }
