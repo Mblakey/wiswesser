@@ -578,6 +578,21 @@ static __always_inline edge_t* next_virtual_edge(symbol_t *p)
   return e; 
 }
 
+static edge_t* check_bonding(edge_t *e, symbol_t *p, symbol_t *c)
+{
+  // TODO - nibble bit trick is definitely possible
+  if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
+      (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
+  {
+    fprintf(stderr,"Error: symbol reached WLN allowed valence - %d/%d & %d/%d\n",
+            p->valence_pack & 0x0F, p->valence_pack >> 4,
+            c->valence_pack & 0x0F, c->valence_pack >> 4); 
+    return 0; 
+  }
+  else 
+    return e; 
+}
+
 /* if the edge is vitual, spawn it in by modifying the packing
  * for the child, packing for parent is modified on virtual spawn
  * but only needs checked when a real edge is made. 
@@ -587,17 +602,7 @@ static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
   p->valence_pack += (e->c == 0); // unsaturations modify this directly
   e->c = c; 
   c->valence_pack += e->order; 
-
-  // TODO - nibble bit trick is definitely possible
-  if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
-      (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
-  {
-    fprintf(stderr,"Error: symbol reached WLN allowed valence - %d/%d & %d/%d\n",
-            p->valence_pack & 0x0F, p->valence_pack >> 4,
-            c->valence_pack & 0x0F, c->valence_pack >> 4); 
-    return (edge_t*)0; 
-  }
-  return e; 
+  return check_bonding(e, p, c); 
 }
 
 static ring_t* new_ring(const size_t size) 
@@ -1065,6 +1070,70 @@ static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
     return add_oxy(g, p, 1); 
 }; 
 
+
+/* returns the pending unsaturate level for the next symbol */
+static edge_t* resolve_unsaturated_carbon(graph_t *g, edge_t *e, symbol_t *p, symbol_t *c, unsigned char ch_nxt)
+{
+  
+  edge_t *ne = next_virtual_edge(c); // forward edge from 'C' 
+
+  // first check can you double bond to the previous
+  if ((p->valence_pack>>4) - (p->valence_pack & 0x0F) >= 2) {
+    
+    // next predict what bonding is possible to whats coming next
+    switch (ch_nxt) {
+      // alkyl chains have a weird relationship where they can but shouldn't unsaturate here - murky waters with implied chemical information
+      case '1':  
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+      case 'Z':
+      case 'Q':
+      case 'E':
+      case 'F':
+      case 'G':
+      case 'H':
+      case 'I':
+        // force a triple bond to previous 
+        e->order += 2; 
+        p->valence_pack += 2;
+        c->valence_pack += 2; 
+        return check_bonding(ne, p, c); 
+
+      // if a triple can be made, force a triple forward
+      case 'N':
+      case 'K':
+      case 'X':
+      case 'Y':
+      case 'B':
+      case 'C': // very murky 
+      case 'P':
+      case 'S':
+        ne->order += 2; 
+        c->valence_pack += 2; 
+        return ne; 
+      
+      // split the a double bond between the two
+      default:
+        break; 
+    } 
+  }
+  else {
+    // must be a triple to the next bond
+    ne->order += 2; 
+    c->valence_pack += 2; 
+    return ne; 
+  }
+  
+  fprintf(stderr,"Error: C symbol requires a mandatory double/triple bond - impossible bonding env\n"); 
+  return (edge_t*)0; 
+}
+
 /*
  * -- Parse WLN Notation --
  *
@@ -1079,7 +1148,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
   u8 locant_ch  = 0; 
   u8 ring_chars = 0; 
   u8 atom_num   = 0; 
-  u16 digit_n = 0; 
+  u8 c_ulevel   = 0; 
+  u16 digit_n   = 0; 
   
   u8 state = 0; // bit field: 
                 // [0][dioxo][charge][inline ring][ring skip][dash][digit][space]
@@ -1320,7 +1390,19 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break; 
         
         case 'C':
-          fprintf(stderr,"Full unsaturate needs handling\n"); 
+          c = next_symbol(g, e, CAR, 4);
+          if (!c)
+            return ERR_MEMORY; 
+          else
+            e = set_virtual_edge(e, p, c); 
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            g->idx_symbols[sp+1] = p; 
+            e = resolve_unsaturated_carbon(g, e, p, c, ch_nxt); 
+            p = c;
+          }
           break; 
 
         // extrememly rare open chelate notation
