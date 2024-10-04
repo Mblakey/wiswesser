@@ -1756,6 +1756,38 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             }
           }
           break;
+
+        // shorthand benzene 
+        case 'R': 
+          r = new_ring(6); 
+          r->size = 6; // this is explicit
+          for (u16 i=0; i<6; i++) {
+            c = next_symbol(g, e, CAR, 4);
+            if (!c)
+              return ERR_MEMORY; 
+            else {
+              r->path[i].s = c; // set the locants 
+              e = set_virtual_edge(e, p, c); 
+            }
+            if (!e)
+              return ERR_ABORT; 
+            else {
+              p = c;
+              e = next_virtual_edge(p); 
+            }
+          }
+          
+          // set the ring. R objects are kekulised on stack pop
+          p = r->path[0].s; 
+          c = r->path[5].s; 
+          e = next_virtual_edge(p); 
+          e = set_virtual_edge(e, p, c);
+
+          g->idx_symbols[sp+1] = p; 
+          e = next_virtual_edge(p); 
+          break; 
+
+
         
         case 'S':
           c = next_symbol(g, e, SUL, 6);
