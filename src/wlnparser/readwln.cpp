@@ -458,7 +458,7 @@ typedef struct {
 // 80 = 16*5, multiple of 16 stack aligned
 struct symbol_t {
   u8 atomic_num;   
-  u8 charge;   
+  signed char charge;   
   u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
   u8 n_bonds; 
   edge_t bonds[MAX_DEGREE]; // directional 
@@ -1026,7 +1026,7 @@ static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
       p->valence_pack++; 
     }
     else{
-      c->charge++; 
+      c->charge--; 
       c->valence_pack++; 
     }
     set_virtual_edge(e, p, c); 
@@ -1152,7 +1152,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
         case '0':
           digit_n *= 10; 
-          if (ch_nxt == '/') {
+
+          if(state & DIOXO_READ) 
+            return error("Error: dioxo attachment needs higher valence atom"); 
+          else if (ch_nxt == '/') {
             // positive charge assignment
             if (digit_n > len || !g->idx_symbols[digit_n]) {
               fprintf(stderr,"Error: charge assignment out of bounds\n");
@@ -1215,8 +1218,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case '9':
           digit_n *= 10; 
           digit_n += ch - '0'; 
-          
-          if (ch_nxt == '/') {
+
+          if(state & DIOXO_READ) 
+            return error("Error: dioxo attachment needs higher valence atom"); 
+          else if (ch_nxt == '/') {
             // positive charge assignment
             if (digit_n > len || !g->idx_symbols[digit_n]) {
               fprintf(stderr,"Error: charge assignment out of bounds\n");
@@ -1282,10 +1287,16 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 2;
-            g->stack_ptr++; 
 
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 2;
+              g->stack_ptr++; 
+            }
             p = c;
             g->idx_symbols[sp+1] = p; 
             e = next_virtual_edge(c); 
@@ -1314,7 +1325,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return ERR_ABORT; 
           else {
             // terminating symbol
-            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
               g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
@@ -1347,7 +1360,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return ERR_ABORT; 
           else {
             // terminating symbol
-            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
               g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
@@ -1380,7 +1395,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return ERR_ABORT; 
           else {
             // terminating symbol
-            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
               g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
@@ -1416,8 +1433,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            // terminating symbol
-            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
               g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
@@ -1448,12 +1467,18 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            default_methyls(g, c, 4);  
 
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3;
-            g->stack_ptr++; 
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              default_methyls(g, c, 4);  
 
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 3;
+              g->stack_ptr++; 
+            }
             p = c; 
             g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
@@ -1476,9 +1501,15 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
+            
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else {
+              p = c;
+              g->idx_symbols[sp+1] = p; 
+              e = next_virtual_edge(c); 
+            }
+
           }
           break;
        
@@ -1536,10 +1567,16 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3;
-            g->stack_ptr++; 
 
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 3;
+              g->stack_ptr++; 
+            }
             p = c; 
             g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
@@ -1560,7 +1597,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return ERR_ABORT; 
           else {
             // terminating symbol
-            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
               g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
@@ -1590,10 +1629,15 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 2;
-            g->stack_ptr++; 
-
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 2;
+              g->stack_ptr++; 
+            }
             p = c; 
             g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
@@ -1619,7 +1663,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            if (add_oxy(g, c, 0) == ERR_MEMORY)
+
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (add_oxy(g, c, 0) == ERR_MEMORY)
               return ERR_MEMORY; 
             else {
               p = c; 
@@ -1632,7 +1679,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         // if not previous, create dummy carbon
         // really trying to avoid a bit state on this
         case 'W':
-          if (p->atomic_num != DUM) {
+          if(state & DIOXO_READ) 
+            return error("Error: double dioxo attachment needs is undefined"); 
+          else if (p->atomic_num != DUM) {
             if (add_tauto_dioxy(g, p) == ERR_MEMORY)
               return ERR_MEMORY; 
             else 
@@ -1713,7 +1762,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return ERR_ABORT; 
           else {
             // terminating symbol
-            if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
               g->stack[g->stack_ptr-1].ref--; 
               g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
 
@@ -1763,7 +1814,9 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break; 
 
         case '&':
-          if (!g->stack_ptr) 
+          if(state & DIOXO_READ) 
+            return error("Error: dioxo attachment requires an atomic symbol"); 
+          else if (!g->stack_ptr) 
             return error("Error: empty stack - too many &?"); 
           else { 
 
