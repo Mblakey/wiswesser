@@ -82,14 +82,11 @@ GNU General Public License for more details.
 
 typedef struct symbol_t symbol_t; 
 
-
 static u8 error(const char *message) 
 {
   fprintf(stderr,"%s\n", message); 
   return ERR_ABORT;  
 }
-
-
 
 // 9 bytes
 typedef struct {
@@ -336,9 +333,11 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
     s_pos    = subcycle->r_loc; 
     start    = &r->path[s_pos]; 
     end      = start; 
-  
-    for (u16 s=0; s<steps-1; s++)
+
+    for (u16 s=0; s<steps-1; s++) {
+      end->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
       end = &r->path[end->hloc]; 
+    }
 
     // if used max times in ring, shift along path
     while ((start->r_pack & 0x0F) == 0 && s_pos < r->size)
@@ -551,6 +550,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 
   u8 locant_ch     = 0; 
   u8 arom_count    = 0;
+  u8 default_arom  = 0;
   u8 upper_r_size  = 0;  
   // note: The WLN ring system will always be <= than the sum of 
   //       the ring assignment values, therefore alloc'ing the sum 
@@ -574,20 +574,21 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   // note: WLN has a lot of ambiguty due to the limited char set, therefore
   //       you have to reduce possible states in order to correctly handle. 
   //       Reading arom assignments first allows determined state of '&' symbols. 
-
-#ifdef AROM
+  
+  e--; 
   while (ptr[e] == '&' || ptr[e] == 'T') {
     SSSR[arom_count++].arom = (ptr[e] == '&'); // will require reversal 
     e--; 
   }
-  e++; 
-#endif
+  e++;
+  
+  // if we havent seen anything, all rings must be aromatic
+  default_arom = (arom_count == 0); 
 
   state = SSSR_READ; 
   for (u16 sp=s; sp<e; sp++){
     ch     = ptr[sp]; 
     switch (ch) {
-
       case '0':
         break;
 
@@ -620,7 +621,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         else if (state & SSSR_READ){
           upper_r_size += ch - '0'; 
           SSSR[SSSR_ptr].r_size = ch - '0'; 
-          SSSR[SSSR_ptr++].r_loc = locant_ch;  
+          SSSR[SSSR_ptr].arom += default_arom; 
+          SSSR[SSSR_ptr++].r_loc = locant_ch; 
           locant_ch = 0; 
         }
         break; 
