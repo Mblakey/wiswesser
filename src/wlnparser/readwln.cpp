@@ -2110,7 +2110,9 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
       case CHL:
       case BRO:
       case IOD:
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, 1 - (node->valence_pack & 0x0F) ); 
+        // take a default -1 instead of H resolve
+        node->charge += -(!node->charge)*((node->valence_pack & 0x0F) == 0); 
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, 0); 
         amapping[i] = atom; 
         break; 
 
