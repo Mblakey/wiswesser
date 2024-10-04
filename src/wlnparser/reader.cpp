@@ -571,7 +571,7 @@ void RunBenchmark() {
     "NCC(c1ccc(cc1)OC)O",
     "CN(c1ccc(cc1)N=Nc1ccccc1C(=O)O)C",
     "COc1ccc(cc1)NC(=O)Oc1cccc(c1)N(CC)CC",
-    "[O-][N+](=O)c1ccc(cc1)NN=Cc1cccc(c1)[N+](=O)[O-"	,
+    "[O-][N+](=O)c1ccc(cc1)NN=Cc1cccc(c1)[N+](=O)[O-]"	,
     "[O-][N+](=O)c1cccc(c1)C=NNc1ccccc1[N+](=O)[O-]",
     "[O-][N+](=O)c1cccc(c1)NN=Cc1ccccc1[N+](=O)[O-]",
     "[O-][N+](=O)c1ccc(cc1)NN=Cc1ccc(cc1)[N+](=O)[O-]",
