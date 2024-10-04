@@ -547,11 +547,9 @@ static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_v
 
   s->atomic_num   = id; 
   s->charge       = 0; 
-  s->valence_pack &= 0x0F; 
-  s->valence_pack += (lim_valence << 4); 
-  //s->n_bonds      = 0;
-  //s->valence_pack = lim_valence; 
-  //s->valence_pack <<= 4;
+  s->n_bonds      = 0;
+  s->valence_pack = lim_valence; 
+  s->valence_pack <<= 4;
   return s; 
 }
 
@@ -622,6 +620,22 @@ static void read_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
     *e = 0; 
     *r = (ring_t*)g->stack[stack_top].addr; 
   }
+}
+
+static void clear_stack(graph_t *g)
+{
+  for (u16 i=0; i<g->stack_ptr; i++) {
+    if (g->stack[i].ref > 0) {
+      g->stack[i].addr  = 0; 
+      g->stack[i].ref   = 0; 
+    }
+    else {
+      free(g->stack[i].addr); 
+      g->stack[i].addr  = 0; 
+      g->stack[i].ref   = 0; 
+    }
+  }
+  g->stack_ptr = 0; 
 }
 
 
@@ -1026,6 +1040,8 @@ static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
       p->valence_pack++; 
     }
     else{
+      p->valence_pack--; // let this be a free addition
+      p->charge++; // WLN defines an immediate balance
       c->charge--; 
       c->valence_pack++; 
     }
@@ -1810,7 +1826,17 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break; 
 
         case ' ':
-          state |= SPACE_READ; 
+          if (ch_nxt == '&') {
+            // all other states should make this the only place ions can be used. 
+            clear_stack(g); 
+            sp++; 
+            c = new_symbol(g, DUM, 1); 
+            e = next_virtual_edge(c); 
+            e->order = DUM; 
+            p = c; 
+          }
+          else 
+            state |= SPACE_READ; 
           break; 
 
         case '&':
