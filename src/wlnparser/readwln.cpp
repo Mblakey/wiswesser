@@ -1291,6 +1291,7 @@ static edge_t* resolve_unsaturated_carbon(graph_t *g, edge_t *e, symbol_t *p, sy
       case 'C': // very murky 
       case 'P':
       case 'S':
+      case '-':
         ne->order += 2; 
         c->valence_pack += 2; 
         return ne; 
@@ -2144,6 +2145,11 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
                 return ERR_ABORT; 
               else {
                 e = set_virtual_edge(e, p, c); 
+
+                if(state & DIOXO_READ) {
+                  add_tauto_dioxy(g, c); 
+                  state &= ~DIOXO_READ; 
+                }
                 
                 memset(dash_chars,0,3); 
                 state &= ~DASH_READ; 
@@ -2311,7 +2317,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
         break;
 
       case PHO: 
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, (5 - (node->valence_pack & 0x0F)) % 3 ); // sneaky H trick  
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, (5 - (node->valence_pack & 0x0F)) % 2 ); // sneaky H trick  
         amapping[i] = atom; 
 
 
