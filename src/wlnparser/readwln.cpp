@@ -2297,6 +2297,8 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
         break; 
       
       case OXY:
+        node->charge += -(!node->charge)*((node->valence_pack >> 4) - (node->valence_pack & 0x0F));
+        node->valence_pack += abs(node->charge); 
         atom = ob_add_atom(mol, node->atomic_num, node->charge, 2 - (node->valence_pack & 0x0F) ); 
         amapping[i] = atom; 
         break; 
