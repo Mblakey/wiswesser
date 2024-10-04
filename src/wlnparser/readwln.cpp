@@ -1,8 +1,15 @@
 /*********************************************************************
  
-Author : Michael Blakey
-Description: WLN reader - write out SMILES etc from WLN
+file: readwln.c 
+author : Michael Blakey 2022, updated 2024 
+description: WLN reader - write out SMILES etc from WLN
 
+*********************************************************************/
+
+#define OPENBABEL 1
+
+#if OPENBABEL
+/*********************************************************************
 This file is part of the Open Babel project.
 For more information, see <http://openbabel.org/>
 
@@ -15,12 +22,14 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
+#endif
 
 /* TODO: 
+ *
+ * - build into RDKit
+ * - configure script for RDKit C++ build 
  * 
 */
-
-#define OPENBABEL 1
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -2474,6 +2483,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
   return 1; 
 }
 
+#if OPENBABEL
 
 // openbabel format reader function
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
@@ -2515,16 +2525,20 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
   gt_alloc(g, st_pool_size); 
+  g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * 128); 
   
-  u16 len; 
+  u16 len;
+  u16 len_high = 128; 
   char buffer[1024];
   memset(buffer,0,1024); // safety for len read  
   while (fgets(buffer, 1024, fp) != NULL) {
-    // TODO: optimisation here, reuse the buffer
     len = strlen(buffer); // ignore nl
-    g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
-    memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
-    
+    if (len > len_high) {
+      g->idx_symbols = (symbol_t**)realloc(g->idx_symbols,sizeof(symbol_t*) * len_high); 
+      len_high = len; 
+    }
+    memset(g->idx_symbols,0,sizeof(symbol_t*)*len_high); 
+
     ret = parse_wln(buffer, len, g); 
     while (ret == ERR_MEMORY && st_pool_size < 1024) {
       st_pool_size *= 2; 
@@ -2542,12 +2556,13 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
     }
     else 
       fprintf(stdout, "null\n");  
-
-    free(g->idx_symbols); 
+     
     memset(buffer,0,1024); // safety for len read  
   }
-  
+
   gt_free(g);
+  free(g->idx_symbols); 
   return 1; 
 }
 
+#endif 
