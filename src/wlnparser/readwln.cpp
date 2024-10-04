@@ -1783,6 +1783,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           e = next_virtual_edge(p); 
           e = set_virtual_edge(e, p, c);
 
+          // add to ring stack
+          g->stack[g->stack_ptr].addr = r; 
+          g->stack[g->stack_ptr++].ref = -1; 
+
           g->idx_symbols[sp+1] = p; 
           e = next_virtual_edge(p); 
           break; 
