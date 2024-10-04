@@ -1696,7 +1696,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break;
         
         case 'P':
-          c = next_symbol(g, e, PHO, 3);
+          c = next_symbol(g, e, PHO, 5);
           if (!c)
             return ERR_MEMORY; 
           else
@@ -1705,16 +1705,16 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-
+            // since these can expand valence, allow branch
             if(state & DIOXO_READ) {
               add_tauto_dioxy(g, c); 
               state &= ~DIOXO_READ; 
             }
-            else {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 3;
-              g->stack_ptr++; 
-            }
+
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 3;
+            g->stack_ptr++; 
+
             p = c; 
             g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
@@ -1758,7 +1758,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break;
         
         case 'S':
-          c = next_symbol(g, e, SUL, 2);
+          c = next_symbol(g, e, SUL, 6);
           if (!c)
             return ERR_MEMORY; 
           else
@@ -1771,11 +1771,11 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
               add_tauto_dioxy(g, c); 
               state &= ~DIOXO_READ; 
             }
-            else {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
+            // since these can expand valence, allow branch
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 2; 
+            g->stack_ptr++; 
+
             p = c; 
             g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
@@ -2078,7 +2078,16 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
         amapping[i] = atom; 
         break; 
 
-      
+      case SUL:
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, (6 - (node->valence_pack & 0x0F)) % 2 ); // sneaky H trick  
+        amapping[i] = atom; 
+        break;
+
+      case PHO: 
+        atom = ob_add_atom(mol, node->atomic_num, node->charge, (5 - (node->valence_pack & 0x0F)) % 3 ); // sneaky H trick  
+        amapping[i] = atom; 
+
+
       case DUM: // used to simplify grow code
         break; 
 

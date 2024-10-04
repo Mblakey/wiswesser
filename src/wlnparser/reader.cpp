@@ -116,7 +116,7 @@ void RunBenchmark() {
     "OK2&2&2",
     "WSQO1",
     "2B2&2",
-    "ZXZUS",
+    "ZYZUS",
     "ZSW2",
     "QVYZY2&2",
     "QY",
