@@ -1077,8 +1077,9 @@ static edge_t* resolve_unsaturated_carbon(graph_t *g, edge_t *e, symbol_t *p, sy
   
   edge_t *ne = next_virtual_edge(c); // forward edge from 'C' 
 
-  // first check can you double bond to the previous
-  if ((p->valence_pack>>4) - (p->valence_pack & 0x0F) >= 2) {
+  // first check can you double bond to the previous - 
+  // the bond will be set to 1 so its >= 1
+  if ((p->valence_pack>>4) - (p->valence_pack & 0x0F) >= 1) {
     
     // next predict what bonding is possible to whats coming next
     switch (ch_nxt) {
@@ -1120,7 +1121,11 @@ static edge_t* resolve_unsaturated_carbon(graph_t *g, edge_t *e, symbol_t *p, sy
       
       // split the a double bond between the two
       default:
-        break; 
+        e->order++; 
+        ne->order++; 
+        p->valence_pack++;
+        c->valence_pack += 2;
+        return check_bonding(ne, p, c); 
     } 
   }
   else {
@@ -1401,7 +1406,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           else {
             g->idx_symbols[sp+1] = p; 
             e = resolve_unsaturated_carbon(g, e, p, c, ch_nxt); 
-            p = c;
+            if (!e)
+              return ERR_ABORT; 
+            else 
+              p = c;
           }
           break; 
 
