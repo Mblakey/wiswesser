@@ -1434,8 +1434,40 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break;
 
         case 'H':
-          fprintf(stderr,"Explicit hydrogen needs implementation\n"); 
-          break; 
+          // treat hydrogen as a terminator
+          c = next_symbol(g, e, 1, 1);
+          if (!c)
+            return ERR_MEMORY; 
+          else {
+            g->idx_symbols[sp+1] = c; 
+            e = set_virtual_edge(e, p, c); 
+          }
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
+
+            if(state & DIOXO_READ) 
+              return error("Error: dioxo attachment needs higher valence atom"); 
+            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
+              g->stack[g->stack_ptr-1].ref--; 
+              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+
+              // reseting block
+              // note: terminators can empty the stack, '&' cannot
+              if (!g->stack_ptr) {
+                p = c; 
+                e = next_virtual_edge(p); 
+              }
+              else 
+                read_stack_frame(&p, &e, &r, g); 
+            }
+            else {
+              // do not allow hydrogen to write back
+              e = next_virtual_edge(p); 
+            }
+          }
+          break;
 
         case 'I':
           c = next_symbol(g, e, IOD, 1);
