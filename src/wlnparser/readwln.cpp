@@ -82,6 +82,7 @@ GNU General Public License for more details.
 
 typedef struct symbol_t symbol_t; 
 
+
 static u8 error(const char *message) 
 {
   fprintf(stderr,"%s\n", message); 
@@ -276,23 +277,6 @@ static void read_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
     *r = (ring_t*)g->stack[stack_top].addr; 
   }
 }
-
-static void clear_stack(graph_t *g)
-{
-  for (u16 i=0; i<g->stack_ptr; i++) {
-    if (g->stack[i].ref > 0) {
-      g->stack[i].addr  = 0; 
-      g->stack[i].ref   = 0; 
-    }
-    else {
-      free(g->stack[i].addr); 
-      g->stack[i].addr  = 0; 
-      g->stack[i].ref   = 0; 
-    }
-  }
-  g->stack_ptr = 0; 
-}
-
 
 typedef struct  {
   u8 r_loc; // use to calculate size + add in off-branch positions
@@ -505,23 +489,25 @@ static u8 kekulize_ring(ring_t *r)
   // can bring this down, not worth the hash table
   for (unsigned int i=0; i<size; i++) {
     p = r->path[i].s; 
-    for (u8 j=0; j<p->n_bonds; j++) {
-      c = p->bonds[j].c;  
-      for (unsigned int k=i+1;k<size;k++) {
-        if (r->path[k].s == c) {
-          adj_matrix[i *size+k] = &p->bonds[j]; 
-          adj_matrix[k *size+i] = &p->bonds[j]; 
-          break; 
+    
+    if (r->path[i].r_pack & LOCANT_AROM) {
+      for (u8 j=0; j<p->n_bonds; j++) {
+        c = p->bonds[j].c;  
+        for (unsigned int k=i+1;k<size;k++) {
+          if (r->path[k].s == c) {
+            adj_matrix[i *size+k] = &p->bonds[j]; 
+            adj_matrix[k *size+i] = &p->bonds[j]; 
+            break; 
+          }
         }
       }
-    } 
+    }
   }
 
   if (check_bipartite(adj_matrix, size)) {
     // ford-fulkerson alternating match pairs kekule "fast"
     for (u8 u=0;u<size;u++)
       bpmatching(u, adj_matrix, size, visited, match_set); 
-
   }
   else {
     // need a blossum 
@@ -547,6 +533,14 @@ static u8 kekulize_ring(ring_t *r)
 }
 
 
+static void gt_stack_kekulize(graph_t *g) 
+{
+  u16 stack_ptr = g->stack_ptr; 
+  for (u16 i=0;i<stack_ptr;i++) {
+    if (g->stack[i].ref < 0) 
+      kekulize_ring((ring_t*)g->stack[i].addr);
+  }
+}
 
 
 static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
@@ -2301,7 +2295,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case ' ':
           if (ch_nxt == '&') {
             // all other states should make this the only place ions can be used. 
-            clear_stack(g); 
+            gt_stack_flush(g); 
             sp++; 
             c = new_symbol(g, DUM, 1); 
             e = next_virtual_edge(c); 
@@ -2357,6 +2351,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     }
   }
   
+  gt_stack_kekulize(g); 
   return ERR_NONE; 
 }
 
