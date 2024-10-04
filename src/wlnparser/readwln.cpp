@@ -50,6 +50,7 @@ GNU General Public License for more details.
 #define RING_READ   0x08
 #define BIND_READ   0x10
 #define CHARGE_READ 0x20
+#define DIOXO_READ  0x40 // this is an annoying one
 
 // ring parse fields
 #define SSSR_READ   0x08
@@ -546,10 +547,11 @@ static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_v
 
   s->atomic_num   = id; 
   s->charge       = 0; 
-  s->n_bonds      = 0;
-  s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4;
-  memset(s->bonds,0,sizeof(edge_t) * MAX_DEGREE); 
+  s->valence_pack &= 0x0F; 
+  s->valence_pack += (lim_valence << 4); 
+  //s->n_bonds      = 0;
+  //s->valence_pack = lim_valence; 
+  //s->valence_pack <<= 4;
   return s; 
 }
 
@@ -567,7 +569,6 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
   s->n_bonds      = 0;
   s->valence_pack = lim_valence; 
   s->valence_pack <<= 4;
-  memset(s->bonds,0,sizeof(edge_t) * MAX_DEGREE); 
   return s; 
 }
 
@@ -998,7 +999,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
 {
   edge_t *e; 
-  symbol_t *m; 
+  symbol_t *m;
   for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
     e = next_virtual_edge(c); 
     m = next_symbol(g, e, CAR, 4); 
@@ -1012,7 +1013,7 @@ static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
   return ERR_NONE; 
 }
 
-static u8 add_oxy(graph_t *g, symbol_t *p)
+static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
 {
   edge_t *e = next_virtual_edge(p); 
   symbol_t *c = next_symbol(g, e, OXY, 2); 
@@ -1020,22 +1021,32 @@ static u8 add_oxy(graph_t *g, symbol_t *p)
   if (!c)
     return ERR_MEMORY; 
   else {
-    e->order++; 
-    p->valence_pack++; 
+    if (!ion) {
+      e->order++; 
+      p->valence_pack++; 
+    }
+    else{
+      c->charge++; 
+      c->valence_pack++; 
+    }
     set_virtual_edge(e, p, c); 
   }
   return ERR_NONE; 
 }
 
+
 /* placeholder for charged alterations */ 
-static u8 add_dioxy(graph_t *g, symbol_t *p)
+static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
 {
   u8 ret = 0; 
-  ret = add_oxy(g, p); 
+  ret = add_oxy(g, p, 0); 
   if (ret != ERR_NONE)
     return ret; 
+  else if (((p->valence_pack >> 4) - (p->valence_pack & 0x0F)) >= 2) {
+    return add_oxy(g, p, 0); 
+  }
   else 
-    return add_oxy(g, p); 
+    return add_oxy(g, p, 1); 
 }; 
 
 /*
@@ -1055,7 +1066,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
   u16 digit_n = 0; 
   
   u8 state = 0; // bit field: 
-                // [0][0][charge][inline ring][ring skip][dash][digit][space]
+                // [0][dioxo][charge][inline ring][ring skip][dash][digit][space]
                 //
                 // bind_prev indicates either a inline ring or spiro that
                 // must be bound to the previous chain
@@ -1482,9 +1493,16 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 2;
-            g->stack_ptr++; 
+  
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 2;
+              g->stack_ptr++; 
+            }
 
             p = c;
             g->idx_symbols[sp+1] = p; 
@@ -1504,6 +1522,26 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           else {
             p = c;
             g->idx_symbols[sp+1] = p; 
+            e = next_virtual_edge(c); 
+          }
+          break;
+        
+        case 'P':
+          c = next_symbol(g, e, PHO, 3);
+          if (!c)
+            return ERR_MEMORY; 
+          else
+            e = set_virtual_edge(e, p, c); 
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 3;
+            g->stack_ptr++; 
+
+            p = c; 
+            g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
           }
           break;
@@ -1542,6 +1580,26 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           }
           break;
         
+        case 'S':
+          c = next_symbol(g, e, SUL, 2);
+          if (!c)
+            return ERR_MEMORY; 
+          else
+            e = set_virtual_edge(e, p, c); 
+
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            g->stack[g->stack_ptr].addr = c; 
+            g->stack[g->stack_ptr].ref  = 2;
+            g->stack_ptr++; 
+
+            p = c; 
+            g->idx_symbols[sp+1] = c; 
+            e = next_virtual_edge(c); 
+          }
+          break;
+        
         case 'U':
           if (e) {
             e->order++; 
@@ -1561,7 +1619,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            if (add_oxy(g, c) == ERR_MEMORY)
+            if (add_oxy(g, c, 0) == ERR_MEMORY)
               return ERR_MEMORY; 
             else {
               p = c; 
@@ -1572,25 +1630,16 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break;
         
         // if not previous, create dummy carbon
+        // really trying to avoid a bit state on this
         case 'W':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return ERR_MEMORY; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            
-            if (add_dioxy(g, c) == ERR_MEMORY)
+          if (p->atomic_num != DUM) {
+            if (add_tauto_dioxy(g, p) == ERR_MEMORY)
               return ERR_MEMORY; 
-            else {
-              ; 
-            }
+            else 
+              e = next_virtual_edge(p);  
           }
-          break;
-
+          else 
+            state |= DIOXO_READ; 
           break; 
 
         case 'X':
@@ -1603,11 +1652,18 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            default_methyls(g, c, 4);  
+            
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              default_methyls(g, c, 4);  
 
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3;
-            g->stack_ptr++; 
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 3;
+              g->stack_ptr++; 
+            }
 
             p = c; 
             g->idx_symbols[sp+1] = c; 
@@ -1625,13 +1681,21 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!e)
             return ERR_ABORT; 
           else {
-            default_methyls(g, c, 3);  
+            
+            if(state & DIOXO_READ) {
+              add_tauto_dioxy(g, c); 
+              state &= ~DIOXO_READ; 
+            }
+            else {
+              default_methyls(g, c, 3);  
 
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 2;
-            g->stack_ptr++; 
+              g->stack[g->stack_ptr].addr = c; 
+              g->stack[g->stack_ptr].ref  = 2;
+              g->stack_ptr++; 
+            }
 
             p = c; 
+            g->idx_symbols[sp+1] = c; 
             e = next_virtual_edge(c); 
           }
           break;
