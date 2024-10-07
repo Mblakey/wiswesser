@@ -296,22 +296,24 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
 {
   u8 steps, s_pos;
   edge_t *e; 
-  locant *c, *p=0;
+  symbol_t *c, *p=0;
   locant *start, *end; 
   r_assignment *subcycle; 
 
   for (u16 i=0; i<r->size; i++) {
-    c = &r->path[i]; 
-    if (!c->s) 
-      c->s = new_symbol(g, CAR, 4); 
-
+    c = r->path[i].s; 
+    if (!c){
+      c = new_symbol(g, CAR, 4); 
+      r->path[i].s = c; 
+    }
+    
     if (p) {
-      e = next_virtual_edge(p->s); 
-      e = set_virtual_edge(e, p->s, c->s); 
+      e = next_virtual_edge(p); 
+      e = set_virtual_edge(e, p, c); 
     }
 
-    c->r_pack++; 
-    c->hloc = i+1; // point to the next locant 
+    r->path[i].r_pack++; 
+    r->path[i].hloc = i+1; // point to the next locant 
     p = c; 
   }
 
@@ -553,7 +555,6 @@ static void gt_stack_kekulize(graph_t *g)
 
 static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
 {
-  
   symbol_t *c; 
   ring_t *ring; 
 
@@ -596,185 +597,200 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 
   state = SSSR_READ; 
   for (u16 sp=s; sp<e; sp++){
-    ch     = ptr[sp]; 
-    switch (ch) {
-      case '0':
-        break;
+    ch = ptr[sp]; 
 
-      case '1':
-      case '2':
-      case '3':
-      case '4':
-      case '5':
-      case '6':
-      case '7':
-      case '8':
-      case '9':
-        if (state & SPACE_READ) {
-          // multicyclic block start
-          // move forward space to skip redundant block - should appear on space, 
-          // if not, error.
-          //
-          
-          sp += ch - '0' + 1; 
-          if (sp >= e || ptr[sp] != ' ') {
-            fprintf(stderr, "Error: invalid format for multicyclic ring\n"); 
-            return (ring_t*)0; 
-          }
-          else {
-            state |= MULTI_READ; 
-            state &= ~SSSR_READ; // turn off SSSR if present
-            state &= ~SPACE_READ; 
-          }
-        }
-        else if (state & SSSR_READ){
-          upper_r_size += ch - '0'; 
-          SSSR[SSSR_ptr].r_size = ch - '0'; 
-          SSSR[SSSR_ptr].arom += default_arom; 
-          SSSR[SSSR_ptr++].r_loc = locant_ch; 
-          locant_ch = 0; 
-        }
-        break; 
-      
-      
-      case 'L':
-      case 'M':
-      case 'S':
-      case 'A':
-      case 'C':
-      case 'D':
-      case 'F':
-      case 'J':
-      case 'R':
-      case 'T':
-        if (state & PSEUDO_READ) {
-          if (buff_ptr == 2) {
-            fprintf(stderr,"Error: more than two pseudo bonds specified\n"); 
-            return (ring_t*)0;
-          }
-          else 
-            buffer[buff_ptr++] = ch; 
-        }
-        else if (state & SPACE_READ) {
-          locant_ch = ch - 'A';
-          state &= ~SPACE_READ; 
-        } 
-        break;
-    
-      case 'G':
-      case 'N':
-        if (state & PSEUDO_READ) {
-          if (buff_ptr == 2) {
-            fprintf(stderr,"Error: more than two pseudo bonds specified\n"); 
-            return (ring_t*)0;
-          }
-          else 
-            buffer[buff_ptr++] = ch; 
-        }
-        else if (state & SPACE_READ) {
-          locant_ch = ch - 'A';
-          state &= ~SPACE_READ; 
-        } 
-        else if (state & MULTI_READ) {
-          // must be the incoming ring size
-          ring->size = ch - 'A' + 1; 
-        }
-        else if (state & SSSR_READ) {
-          // end the SSSR read, start element reading
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return (ring_t*)0; 
-          }
-          else {
-            ring = new_ring(upper_r_size); 
-            c = ring->path[locant_ch].s = new_symbol(g, NIT, 3); 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; // allows sequetial assignment 
-          }
-
-          state &= ~SSSR_READ; 
-        }
-        else {
-          // elemental assignment 
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access - %d\n",locant_ch); 
-            return (ring_t*)0; 
-          }
-          else {
-            c = ring->path[locant_ch].s = new_symbol(g, NIT, 3); 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; // allows sequetial assignment 
-          }
-        }
-        break; 
-
-      case '&':
-        if (state & MULTI_READ)
-          ring->size += 23; 
-        else if (state & PSEUDO_READ)
-          buffer[buff_ptr-1] += 23; 
-        else if (locant_ch)
-          locant_ch += 23; 
-        else {
-          fprintf(stderr, "Error: & expansion used without previous locant\n"); 
+    if (state & PSEUDO_READ && (ch >= 'A' && ch <= 'Z')) {
+      if (buff_ptr == 2) {
+        fprintf(stderr,"Error: more than two pseudo bonds specified\n"); 
+        return (ring_t*)0;
+      }
+      else 
+        buffer[buff_ptr++] = ch; 
+    }
+    else if (state & SPACE_READ && (ch >= 'A' && ch <= 'Z')){
+      locant_ch = ch - 'A';
+      state &= ~SPACE_READ; 
+    }
+    else if (state & MULTI_READ) {
+      // must be the incoming ring size
+      ring->size = ch - 'A' + 1; 
+    }
+    else {
+      // create the ring as necessary
+      if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
+        // end the SSSR read, start element reading
+        if (locant_ch > upper_r_size) {
+          fprintf(stderr,"Error: out of bounds locant access\n"); 
           return (ring_t*)0; 
         }
-        break; 
-
-      case '/':
-        if (state & SSSR_READ) {
+        else {
           ring = new_ring(upper_r_size); 
-          state &= ~(SSSR_READ); 
-          buff_ptr = 0; 
-          state |= PSEUDO_READ; 
         }
-        else if (state & PSEUDO_READ) {
-          if (buff_ptr != 2) {
-            fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
+
+        state &= ~SSSR_READ; 
+      } 
+      
+      switch (ch) {
+        // special pi bonding
+        case '0':
+          break; 
+
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          if (state & SPACE_READ) {
+            // multicyclic block start
+            // move forward space to skip redundant block - should appear on space, 
+            // if not, error.
+            sp += ch - '0' + 1; 
+            if (sp >= e || ptr[sp] != ' ') {
+              fprintf(stderr, "Error: invalid format for multicyclic ring\n"); 
+              return (ring_t*)0; 
+            }
+            else {
+              state |= MULTI_READ; 
+              state &= ~SSSR_READ; // turn off SSSR if present
+              state &= ~SPACE_READ; 
+            }
+          }
+          else if (state & SSSR_READ){
+            upper_r_size += ch - '0'; 
+            SSSR[SSSR_ptr].r_size = ch - '0'; 
+            SSSR[SSSR_ptr].arom += default_arom; 
+            SSSR[SSSR_ptr++].r_loc = locant_ch; 
+            locant_ch = 0; 
+          }
+          break; 
+        
+        case 'A':
+        case 'C':
+        case 'D':
+        case 'J':
+        case 'L':
+        case 'R':
+        case 'T':
+          fprintf(stderr,"Error: non-elemental symbols outside valid read states\n"); 
+          return (ring_t*)0; 
+          break; 
+      
+        case 'B':
+          c = ring->path[locant_ch].s = new_symbol(g, BOR, 3); 
+          g->idx_symbols[sp+1] = c; 
+          locant_ch++; 
+          break; 
+
+        case 'M':
+          c = ring->path[locant_ch].s = new_symbol(g, NIT, 2); 
+          g->idx_symbols[sp+1] = c; 
+          locant_ch++; 
+          break; 
+
+        case 'N':
+          c = ring->path[locant_ch].s = new_symbol(g, NIT, 3); 
+          g->idx_symbols[sp+1] = c; 
+          locant_ch++; 
+          break; 
+
+        case 'O':
+          c = ring->path[locant_ch].s = new_symbol(g, OXY, 2); 
+          g->idx_symbols[sp+1] = c; 
+          locant_ch++; 
+          break; 
+
+        case 'P':
+        case 'S':
+        case 'V':
+        case 'W':
+          break; 
+        
+        // undefined terminator ring sequences
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'I':
+        case 'Q':
+        case 'Z':
+          fprintf(stderr,"Error: terminators as ring atoms are undefined symbols\n"); 
+          return (ring_t*)0; 
+          break; 
+
+        case '&':
+          if (state & MULTI_READ)
+            ring->size += 23; 
+          else if (state & PSEUDO_READ)
+            buffer[buff_ptr-1] += 23; 
+          else if (locant_ch)
+            locant_ch += 23; 
+          else {
+            fprintf(stderr, "Error: & expansion used without previous locant\n"); 
             return (ring_t*)0; 
           }
+          break; 
+
+        case '/':
+          if (state & SSSR_READ) {
+            ring = new_ring(upper_r_size); 
+            state &= ~(SSSR_READ); 
+            buff_ptr = 0; 
+            state |= PSEUDO_READ; 
+          }
+          else if (state & PSEUDO_READ) {
+            if (buff_ptr != 2) {
+              fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
+              return (ring_t*)0; 
+            }
 
 
-        }
-        else {
-          buff_ptr = 0; 
-          state |= PSEUDO_READ; 
-        }
-        break; 
-
-      case ' ':
-        if (state & PSEUDO_READ) {
-          // make the pseudo bond immediately avaliable, 
-          if (buff_ptr != 2) {
-            fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
-            return (ring_t*)0; 
           }
           else {
-#if DEBUG 
-            fprintf(stderr,"pseudo: %c --> %c\n", buffer[0], buffer[1]); 
-#endif 
-            
             buff_ptr = 0; 
-            memset(buffer,0,2); 
-
-            state &= ~(PSEUDO_READ & SSSR_READ);  // no further rings can come from pseudo bonds
+            state |= PSEUDO_READ; 
           }
-        }
+          break; 
 
-        state |= SPACE_READ; 
-        locant_ch = 0; 
-        break;
+        case ' ':
+          if (state & PSEUDO_READ) {
+            // make the pseudo bond immediately avaliable, 
+            if (buff_ptr != 2) {
+              fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
+              return (ring_t*)0; 
+            }
+            else {
+#if DEBUG 
+              fprintf(stderr,"pseudo: %c --> %c\n", buffer[0], buffer[1]); 
+#endif 
+              
+              buff_ptr = 0; 
+              memset(buffer,0,2); 
 
-      default:
-        break; 
+              state &= ~(PSEUDO_READ & SSSR_READ);  // no further rings can come from pseudo bonds
+            }
+          }
+
+          state |= SPACE_READ; 
+          locant_ch = 0; 
+          break;
+
+        default:
+          break; 
+      }
     }
   }
   
-  // simplest rings
-  if ((state & SSSR_READ) | (state & MULTI_READ)) {
-    ring = new_ring(upper_r_size); 
-    ring->size = upper_r_size; 
+  // not assigned through multicyclic sizes
+  if (ring->size == 0) {
+    // simplest rings, SSSR[0] + SSSR[1] - 2
+    ring->size = SSSR[0].r_size; 
+    for (u16 i=1; i<SSSR_ptr; i++)
+      ring->size += SSSR[i].r_size - 2; 
   }
+
  
   
   if (connection_table)
