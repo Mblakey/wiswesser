@@ -65,6 +65,7 @@ GNU General Public License for more details.
 #define SSSR_READ   0x08
 #define MULTI_READ  0x10
 #define PSEUDO_READ 0x20
+#define AROM_READ   0x40
 
 // Ring type "magic numbers"
 #define LOCANT_BRIDGE 0x10  
@@ -605,7 +606,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 
   u8 locant_ch     = 0; 
   u8 arom_count    = 0;
-  u8 default_arom  = 0;
   u8 upper_r_size  = 0;  
   // note: The WLN ring system will always be <= than the sum of 
   //       the ring assignment values, therefore alloc'ing the sum 
@@ -624,20 +624,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
                  // [][][][pseudo][SSSR][dash][digit][space]
 
   unsigned char ch; 
-  
-  // note: WLN has a lot of ambiguty due to the limited char set, therefore
-  //       you have to reduce possible states in order to correctly handle. 
-  //       Reading arom assignments first allows determined state of '&' symbols. 
-  
-  e--; 
-  while (ptr[e] == '&' || ptr[e] == 'T') {
-    SSSR[arom_count++].arom = (ptr[e] == '&'); // will require reversal 
-    e--; 
-  }
-  e++;
-  
-  // if we havent seen anything, all rings must be aromatic
-  default_arom = (arom_count == 0); 
 
   state = SSSR_READ; 
   for (u16 sp=s; sp<e; sp++){
@@ -701,7 +687,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           else if (state & SSSR_READ){
             upper_r_size += ch - '0'; 
             SSSR[SSSR_ptr].r_size   = ch - '0'; 
-            SSSR[SSSR_ptr].arom     = default_arom; 
+            SSSR[SSSR_ptr].arom     = 1; // default is aromatic 
             SSSR[SSSR_ptr++].r_loc  = locant_ch; 
             locant_ch = 0; 
           }
@@ -717,7 +703,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         case 'J':
         case 'L':
         case 'R':
-        case 'T':
+
           fprintf(stderr,"Error: non-elemental symbols outside valid read states\n"); 
           return (ring_t*)0; 
           break; 
@@ -794,6 +780,11 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           break; 
 
+        case 'T':
+          state |= AROM_READ; 
+          SSSR[arom_count++].arom = 0; 
+          break; 
+          
         case 'V':
           if (locant_ch > upper_r_size) {
             fprintf(stderr,"Error: out of bounds locant access\n"); 
@@ -827,11 +818,13 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             ring->size += 23; 
           else if (state & PSEUDO_READ)
             buffer[buff_ptr-1] += 23; 
+          else if (state & AROM_READ) 
+            SSSR[arom_count++].arom = 1; 
           else if (locant_ch)
             locant_ch += 23; 
           else {
-            fprintf(stderr, "Error: & expansion used without previous locant\n"); 
-            return (ring_t*)0; 
+            SSSR[arom_count++].arom = 1; 
+            state |= AROM_READ; 
           }
           break; 
 
@@ -847,7 +840,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
               fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
               return (ring_t*)0; 
             }
-
+            else 
+              fprintf(stderr,"need impl\n"); 
 
           }
           else {
