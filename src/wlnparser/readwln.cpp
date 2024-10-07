@@ -155,12 +155,12 @@ static void gt_stack_flush(graph_t *g)
 {
   u16 stack_ptr = g->stack_ptr; 
   for (u16 i=0;i<stack_ptr;i++) {
-    if (g->stack[i].ref < 0) {
+    if (g->stack[i].ref < 0)  
       free(g->stack[i].addr);
-      g->stack[i].addr = 0; 
-      g->stack[i].ref = 0;
-    }
+    g->stack[i].addr = 0; 
+    g->stack[i].ref = 0;
   }
+  g->stack_ptr = 0; 
 }
 
 static void gt_clear(graph_t *g)
@@ -338,24 +338,29 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
    *
   */
   
+  u8 *visit = (u8*)alloca(sizeof(u8) * r->size); 
+  memset(visit,0,r->size); 
+
   for (u16 i=0; i<SSSR_ptr; i++) {
     subcycle = &SSSR[i];   
     steps    = subcycle->r_size; 
     s_pos    = subcycle->r_loc; 
     start    = &r->path[s_pos]; 
-    end      = start; 
-
+    end = start; 
+    
+    // if used max times in ring, shift along path
+    while ((start->r_pack & 0x0F) == 0 && s_pos < r->size) {
+      start = &r->path[++s_pos];  
+      steps--; 
+    }
+    
     for (u16 s=0; s<steps-1; s++) {
       end->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
       end = &r->path[end->hloc]; 
     }
 
-    // if used max times in ring, shift along path
-    while ((start->r_pack & 0x0F) == 0 && s_pos < r->size)
-      start = &r->path[++s_pos];  
-
 #if DEBUG 
-    fprintf(stderr,"%d: %c --> %c\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A'); 
+    fprintf(stderr,"%d: %c --> %c (%d)\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A', subcycle->arom); 
 #endif
     
     start->r_pack--; 
@@ -500,7 +505,10 @@ static u8 kekulize_ring(ring_t *r)
   for (unsigned int i=0; i<size; i++) {
     p = r->path[i].s; 
     
-    if (r->path[i].r_pack & LOCANT_AROM) {
+    if (r->path[i].r_pack & LOCANT_AROM && 
+        ((p->valence_pack >> 4) - (p->valence_pack & 0x0F) > 0)
+        ) 
+    {
       for (u8 j=0; j<p->n_bonds; j++) {
         c = p->bonds[j].c;  
         for (unsigned int k=i+1;k<size;k++) {
@@ -552,6 +560,43 @@ static void gt_stack_kekulize(graph_t *g)
   }
 }
 
+static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
+{
+  edge_t *e = next_virtual_edge(p); 
+  symbol_t *c = next_symbol(g, e, OXY, 2); 
+
+  if (!c)
+    return ERR_MEMORY; 
+  else {
+    if (!ion) {
+      e->order++; 
+      p->valence_pack++; 
+    }
+    else{
+      p->valence_pack--; // let this be a free addition
+      p->charge++; // WLN defines an immediate balance
+      c->charge--; 
+      c->valence_pack++; 
+    }
+    set_virtual_edge(e, p, c); 
+  }
+  return ERR_NONE; 
+}
+
+/* placeholder for charged alterations */ 
+static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
+{
+  u8 ret = 0; 
+  ret = add_oxy(g, p, 0); 
+  if (ret != ERR_NONE)
+    return ret; 
+  else if (((p->valence_pack >> 4) - (p->valence_pack & 0x0F)) >= 2) {
+    return add_oxy(g, p, 0); 
+  }
+  else 
+    return add_oxy(g, p, 1); 
+}; 
+
 
 static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
 {
@@ -567,7 +612,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   //       wastes the least amount of space and avoids a hash map for 
   //       bridging/pseudo bridging flags. 
   
-
   u8 SSSR_ptr  = 0; 
   r_assignment SSSR[32]; // this really is sensible for WLN
 
@@ -614,19 +658,13 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
     else if (state & MULTI_READ) {
       // must be the incoming ring size
       ring->size = ch - 'A' + 1; 
+      state &= ~MULTI_READ; 
     }
     else {
       // create the ring as necessary
       if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
         // end the SSSR read, start element reading
-        if (locant_ch > upper_r_size) {
-          fprintf(stderr,"Error: out of bounds locant access\n"); 
-          return (ring_t*)0; 
-        }
-        else {
-          ring = new_ring(upper_r_size); 
-        }
-
+        ring = new_ring(upper_r_size); 
         state &= ~SSSR_READ; 
       } 
       
@@ -644,7 +682,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         case '7':
         case '8':
         case '9':
-          if (state & SPACE_READ) {
+          if (state & SPACE_READ && state & SSSR_READ) {
             // multicyclic block start
             // move forward space to skip redundant block - should appear on space, 
             // if not, error.
@@ -654,17 +692,22 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
               return (ring_t*)0; 
             }
             else {
+              ring = new_ring(upper_r_size); 
               state |= MULTI_READ; 
-              state &= ~SSSR_READ; // turn off SSSR if present
+              state &= ~SSSR_READ; 
               state &= ~SPACE_READ; 
             }
           }
           else if (state & SSSR_READ){
             upper_r_size += ch - '0'; 
-            SSSR[SSSR_ptr].r_size = ch - '0'; 
-            SSSR[SSSR_ptr].arom += default_arom; 
-            SSSR[SSSR_ptr++].r_loc = locant_ch; 
+            SSSR[SSSR_ptr].r_size   = ch - '0'; 
+            SSSR[SSSR_ptr].arom     = default_arom; 
+            SSSR[SSSR_ptr++].r_loc  = locant_ch; 
             locant_ch = 0; 
+          }
+          else {
+            fprintf(stderr,"Error: digit used outside of known state\n"); 
+            return (ring_t*)0; 
           }
           break; 
         
@@ -680,32 +723,91 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           break; 
       
         case 'B':
-          c = ring->path[locant_ch].s = new_symbol(g, BOR, 3); 
-          g->idx_symbols[sp+1] = c; 
-          locant_ch++; 
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else {
+            c = ring->path[locant_ch].s = new_symbol(g, BOR, 3); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
           break; 
 
         case 'M':
-          c = ring->path[locant_ch].s = new_symbol(g, NIT, 2); 
-          g->idx_symbols[sp+1] = c; 
-          locant_ch++; 
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else { 
+            c = ring->path[locant_ch].s = new_symbol(g, NIT, 2); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
           break; 
 
         case 'N':
-          c = ring->path[locant_ch].s = new_symbol(g, NIT, 3); 
-          g->idx_symbols[sp+1] = c; 
-          locant_ch++; 
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else {
+            c = ring->path[locant_ch].s = new_symbol(g, NIT, 3); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
           break; 
 
         case 'O':
-          c = ring->path[locant_ch].s = new_symbol(g, OXY, 2); 
-          g->idx_symbols[sp+1] = c; 
-          locant_ch++; 
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else {
+            c = ring->path[locant_ch].s = new_symbol(g, OXY, 2); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
           break; 
 
         case 'P':
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else { 
+            c = ring->path[locant_ch].s = new_symbol(g, PHO, 5); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
         case 'S':
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else { 
+            c = ring->path[locant_ch].s = new_symbol(g, SUL, 6); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
         case 'V':
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else {
+            c = ring->path[locant_ch].s = new_symbol(g, CAR, 4);
+            add_oxy(g, c, 0); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
+
         case 'W':
           break; 
         
@@ -778,11 +880,15 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           break;
 
         default:
-          break; 
+          fprintf(stderr,"Error: unknown symbol %c in ring parse\n",ch); 
+          return (ring_t*)0; 
       }
     }
   }
   
+  if (state & SSSR_READ)
+    ring = new_ring(upper_r_size); 
+
   // not assigned through multicyclic sizes
   if (ring->size == 0) {
     // simplest rings, SSSR[0] + SSSR[1] - 2
@@ -1347,44 +1453,6 @@ static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
   c->n_bonds = 0;  
   return ERR_NONE; 
 }
-
-static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
-{
-  edge_t *e = next_virtual_edge(p); 
-  symbol_t *c = next_symbol(g, e, OXY, 2); 
-
-  if (!c)
-    return ERR_MEMORY; 
-  else {
-    if (!ion) {
-      e->order++; 
-      p->valence_pack++; 
-    }
-    else{
-      p->valence_pack--; // let this be a free addition
-      p->charge++; // WLN defines an immediate balance
-      c->charge--; 
-      c->valence_pack++; 
-    }
-    set_virtual_edge(e, p, c); 
-  }
-  return ERR_NONE; 
-}
-
-
-/* placeholder for charged alterations */ 
-static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
-{
-  u8 ret = 0; 
-  ret = add_oxy(g, p, 0); 
-  if (ret != ERR_NONE)
-    return ret; 
-  else if (((p->valence_pack >> 4) - (p->valence_pack & 0x0F)) >= 2) {
-    return add_oxy(g, p, 0); 
-  }
-  else 
-    return add_oxy(g, p, 1); 
-}; 
 
 
 /* returns the pending unsaturate level for the next symbol */
@@ -2106,8 +2174,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           g->idx_symbols[sp+1] = p; 
           e = next_virtual_edge(p); 
           break; 
-
-
         
         case 'S':
           c = next_symbol(g, e, SUL, 6);
@@ -2273,7 +2339,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             }
           }
           break;
-
         
         case '-':
           if (state & DASH_READ) {
@@ -2322,6 +2387,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case ' ':
           if (ch_nxt == '&') {
             // all other states should make this the only place ions can be used. 
+            gt_stack_kekulize(g); 
             gt_stack_flush(g); 
             sp++; 
             c = new_symbol(g, DUM, 1); 

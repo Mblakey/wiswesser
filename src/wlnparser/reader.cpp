@@ -659,7 +659,7 @@ void RunBenchmark() {
     "CC1N=NC(=O)C1=Nc1ccccc1",
     "NC(=O)NC1C(=O)NC(=O)N(C1=O)C",
     "O=C1OC(=O)C(OC1c1ccccc1)c1ccccc1",
-    "C1CO[P]OC1",
+    "C1COPOC1",
     "[Si]1C[Si]C[Si]C1",
     "COC1CC1",
     "Brc1ccc(cc1)n1c(=O)cc(n1C)C",
@@ -891,13 +891,10 @@ void RunBenchmark() {
       fprintf(stderr, "%s null read\n", smiles_bench[i]); 
     else {
       buffer = conv.WriteString(&mol,true);
-      
-      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) {
-        fprintf(stderr,"%s != %s\t%s\n",wln_bench[i], smiles_bench[i], buffer.c_str()); 
-      }
+      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) 
+        fprintf(stderr,"%s != %s\t%s\n", wln_bench[i] ,smiles_bench[i], buffer.c_str()); 
       else 
         n_correct++; 
-      
       buffer.clear(); 
       mol.Clear(); 
     }
