@@ -351,6 +351,7 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
     
     // if used max times in ring, shift along path
     while ((start->r_pack & 0x0F) == 0 && s_pos < r->size) {
+      start->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
       start = &r->path[++s_pos];  
       steps--; 
     }
@@ -359,6 +360,7 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
       end->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
       end = &r->path[end->hloc]; 
     }
+    end->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
 
 #if DEBUG 
     fprintf(stderr,"%d: %c --> %c (%d)\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A', subcycle->arom); 
@@ -510,12 +512,13 @@ static u8 kekulize_ring(ring_t *r)
         ((p->valence_pack >> 4) - (p->valence_pack & 0x0F) > 0)
         ) 
     {
+      // very slow, TODO: lookup table
       for (u8 j=0; j<p->n_bonds; j++) {
         c = p->bonds[j].c;  
         for (unsigned int k=i+1;k<size;k++) {
-          if (r->path[k].s == c) {
+          if (r->path[k].s == c && r->path[k].r_pack & LOCANT_AROM) {
             adj_matrix[i *size+k] = &p->bonds[j]; 
-            adj_matrix[k *size+i] = &p->bonds[j]; 
+            adj_matrix[k *size+i] = &p->bonds[j];
             break; 
           }
         }
@@ -529,6 +532,7 @@ static u8 kekulize_ring(ring_t *r)
       bpmatching(u, adj_matrix, size, visited, match_set); 
   }
   else {
+    fprintf(stderr,"Blossom required\n"); 
     // need a blossum 
   }
 
