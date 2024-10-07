@@ -516,7 +516,11 @@ static u8 kekulize_ring(ring_t *r)
       for (u8 j=0; j<p->n_bonds; j++) {
         c = p->bonds[j].c;  
         for (unsigned int k=i+1;k<size;k++) {
-          if (r->path[k].s == c && r->path[k].r_pack & LOCANT_AROM) {
+          if (r->path[k].s == c && 
+              r->path[k].r_pack & LOCANT_AROM && 
+              (c->valence_pack >> 4) - (c->valence_pack & 0x0F) > 0
+              ) 
+          {
             adj_matrix[i *size+k] = &p->bonds[j]; 
             adj_matrix[k *size+i] = &p->bonds[j];
             break; 
@@ -795,7 +799,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             locant_ch++; 
           }
           break; 
-
+  
         case 'T':
           state |= AROM_READ; 
           SSSR[arom_count++].arom = 0; 
@@ -836,7 +840,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             buffer[buff_ptr-1] += 23; 
           else if (state & AROM_READ) 
             SSSR[arom_count++].arom = 1; 
-          else if (locant_ch)
+          else if (locant_ch && locant_ch + 23 < upper_r_size)
             locant_ch += 23; 
           else {
             SSSR[arom_count++].arom = 1; 
