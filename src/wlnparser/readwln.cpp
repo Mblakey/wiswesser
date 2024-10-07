@@ -703,7 +703,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
         case 'J':
         case 'L':
         case 'R':
-
           fprintf(stderr,"Error: non-elemental symbols outside valid read states\n"); 
           return (ring_t*)0; 
           break; 
@@ -715,6 +714,19 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else {
             c = ring->path[locant_ch].s = new_symbol(g, BOR, 3); 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
+        case 'K': 
+          if (locant_ch > upper_r_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            return (ring_t*)0; 
+          }
+          else { 
+            c = ring->path[locant_ch].s = new_symbol(g, NIT, 4); 
+            c->charge++; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -883,6 +895,10 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   if (state & SSSR_READ)
     ring = new_ring(upper_r_size); 
 
+  // forward any single arom assignments
+  for (u16 i=arom_count;i<SSSR_ptr;i++)
+    SSSR[i].arom = SSSR[0].arom; 
+
   // not assigned through multicyclic sizes
   if (ring->size == 0) {
     // simplest rings, SSSR[0] + SSSR[1] - 2
@@ -892,7 +908,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   }
 
  
-  
   if (connection_table)
     return pathsolverIII(g, ring, SSSR, SSSR_ptr, connection_table);
   else 
