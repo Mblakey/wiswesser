@@ -220,15 +220,13 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
   return s; 
 }
 
-/* used in the ring parse */
+/* used in the ring parse, leaves bonds alone */
 static symbol_t* overwrite_symbol(symbol_t *s, const u16 id, const u8 lim_valence)
 {
   s->atomic_num   = id; 
   s->charge       = 0; 
-  s->n_bonds      = 0;
-  s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4;
-  memset(s->bonds, 0, sizeof(edge_t) * MAX_DEGREE); 
+  s->valence_pack &= 0x0F; 
+  s->valence_pack += lim_valence << 4; 
   return s; 
 }
 
@@ -736,7 +734,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else {
-            c = ring->path[locant_ch].s = new_symbol(g, BOR, 3); 
+            c = overwrite_symbol(ring->path[locant_ch].s, BOR, 3); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -748,7 +746,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else { 
-            c = ring->path[locant_ch].s = new_symbol(g, NIT, 4); 
+            c = overwrite_symbol(ring->path[locant_ch].s, NIT, 4); 
             c->charge++; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -761,7 +759,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else { 
-            c = ring->path[locant_ch].s = new_symbol(g, NIT, 2); 
+            c = overwrite_symbol(ring->path[locant_ch].s, NIT, 2); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -773,7 +771,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else {
-            c = ring->path[locant_ch].s = new_symbol(g, NIT, 3); 
+            c = overwrite_symbol(ring->path[locant_ch].s, NIT, 3); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -785,7 +783,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else {
-            c = ring->path[locant_ch].s = new_symbol(g, OXY, 2); 
+            c = overwrite_symbol(ring->path[locant_ch].s, OXY, 2); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -797,7 +795,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else { 
-            c = ring->path[locant_ch].s = new_symbol(g, PHO, 5); 
+            c = overwrite_symbol(ring->path[locant_ch].s, PHO, 6); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -808,8 +806,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             fprintf(stderr,"Error: out of bounds locant access\n"); 
             return (ring_t*)0; 
           }
-          else { 
-            c = ring->path[locant_ch].s = new_symbol(g, SUL, 6); 
+          else {     
+            c = overwrite_symbol(ring->path[locant_ch].s, SUL, 6); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -834,6 +832,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             c->bonds[0].order++; 
             c->valence_pack++; 
             ring->path[locant_ch+1].s->valence_pack++; 
+            locant_ch++; 
           }
           break; 
           
@@ -843,7 +842,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             return (ring_t*)0; 
           }
           else {
-            c = ring->path[locant_ch].s = new_symbol(g, CAR, 4);
+            c = overwrite_symbol(ring->path[locant_ch].s, CAR, 4);
             add_oxy(g, c, 0); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
