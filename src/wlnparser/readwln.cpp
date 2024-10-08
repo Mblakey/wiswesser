@@ -618,10 +618,11 @@ static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
 }; 
 
 
-static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g) 
+static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, graph_t *g) 
 {
-  symbol_t *c; 
-  ring_t *ring; 
+  symbol_t  *c    = 0; 
+  edge_t    *e    = 0; 
+  ring_t    *ring = 0; 
 
   u8 locant_ch     = 0; 
   u8 arom_count    = 0;
@@ -646,7 +647,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   unsigned char ch_nxt; 
 
   state = SSSR_READ; 
-  for (u16 sp=s; sp<e; sp++){
+  for (u16 sp=start; sp<end; sp++){
     ch = ptr[sp]; 
     ch_nxt = ptr[sp+1]; 
 
@@ -694,7 +695,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             // move forward space to skip redundant block - should appear on space, 
             // if not, error.
             sp += ch - '0' + 1; 
-            if (sp >= e || ptr[sp] != ' ') {
+            if (sp >= end || ptr[sp] != ' ') {
               fprintf(stderr, "Error: invalid format for multicyclic ring\n"); 
               return (ring_t*)0; 
             }
@@ -735,6 +736,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else {
             c = overwrite_symbol(ring->path[locant_ch].s, BOR, 3); 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -748,6 +750,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           else { 
             c = overwrite_symbol(ring->path[locant_ch].s, NIT, 4); 
             c->charge++; 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -760,6 +763,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else { 
             c = overwrite_symbol(ring->path[locant_ch].s, NIT, 2); 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -772,6 +776,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else {
             c = overwrite_symbol(ring->path[locant_ch].s, NIT, 3); 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -784,6 +789,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else {
             c = overwrite_symbol(ring->path[locant_ch].s, OXY, 2); 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -796,6 +802,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else { 
             c = overwrite_symbol(ring->path[locant_ch].s, PHO, 6); 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -808,6 +815,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else {     
             c = overwrite_symbol(ring->path[locant_ch].s, SUL, 6); 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -827,6 +835,12 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 
 
           }
+          else if (e) {
+            // means c must be live
+            c->valence_pack++; 
+            e->order++; 
+            e->c->valence_pack++; 
+          }
           else if (locant_ch < upper_r_size){
             c = ring->path[locant_ch].s;  
             c->bonds[0].order++; 
@@ -843,6 +857,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           }
           else {
             c = overwrite_symbol(ring->path[locant_ch].s, CAR, 4);
+            e = &c->bonds[0]; 
             add_oxy(g, c, 0); 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -917,9 +932,10 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
               state &= ~(PSEUDO_READ & SSSR_READ);  // no further rings can come from pseudo bonds
             }
           }
-
+          
           state |= SPACE_READ; 
           locant_ch = 0; 
+          e = 0; 
           break;
 
         default:
