@@ -220,6 +220,17 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
   return s; 
 }
 
+/* used in the ring parse */
+static symbol_t* overwrite_symbol(symbol_t *s, const u16 id, const u8 lim_valence)
+{
+  s->atomic_num   = id; 
+  s->charge       = 0; 
+  s->n_bonds      = 0;
+  s->valence_pack = lim_valence; 
+  s->valence_pack <<= 4;
+  memset(s->bonds, 0, sizeof(edge_t) * MAX_DEGREE); 
+  return s; 
+}
 
 /* read off dash buffer, nearly all dash symbols 
  * are stack compatible atoms, 
@@ -263,11 +274,34 @@ static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
   return check_bonding(e, p, c); 
 }
 
-static ring_t* new_ring(const size_t size) 
+
+/* assigns the maximal possible carbon chain, truncate down once size is known */
+static ring_t* rt_alloc(graph_t *g, const size_t size) 
 {
   ring_t *ring = 0; 
   ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(size-1)); 
   memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(size-1)); 
+
+  symbol_t *c = 0;  
+  symbol_t *p = 0;
+  edge_t *e   = 0; 
+
+  for (u16 i=0; i<size; i++) {
+    c = new_symbol(g, CAR, 4); 
+    ring->path[i].s = c; 
+
+    if(!c)
+      return (ring_t*)0; 
+    else if (p) {
+      e = next_virtual_edge(p); 
+      e = set_virtual_edge(e, p, c); 
+    }
+
+    ring->path[i].r_pack++; 
+    ring->path[i].hloc = i+1; // point to the next locant 
+    p = c; 
+  }
+
   return ring; 
 }
 
@@ -295,34 +329,6 @@ typedef struct  {
 static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r, 
                                    r_assignment *SSSR, u8 SSSR_ptr) 
 {
-  u8 steps, s_pos;
-  edge_t *e; 
-  symbol_t *c, *p=0;
-  locant *start, *end; 
-  r_assignment *subcycle; 
-
-  for (u16 i=0; i<r->size; i++) {
-    c = r->path[i].s; 
-    if (!c){
-      c = new_symbol(g, CAR, 4); 
-      r->path[i].s = c; 
-    }
-    
-    if (p) {
-      e = next_virtual_edge(p); 
-      e = set_virtual_edge(e, p, c); 
-    }
-
-    r->path[i].r_pack++; 
-    r->path[i].hloc = i+1; // point to the next locant 
-    p = c; 
-  }
-
-  // end chain movement
-  r->path[0].r_pack++; 
-  r->path[r->size-1].r_pack++; 
-  r->path[r->size-1].hloc = r->size-1; 
-
   /*
    * PathsolverIII FAST Algorithm (Michael Blakey):
    *
@@ -338,10 +344,17 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
    * of the fusion sum as mentioned in the manuals. 
    *
   */
-  
-  u8 *visit = (u8*)alloca(sizeof(u8) * r->size); 
-  memset(visit,0,r->size); 
 
+  u8 steps, s_pos;
+  edge_t *e; 
+  locant *start, *end; 
+  r_assignment *subcycle; 
+  
+  // end chain movement for pathfinderIII
+  r->path[0].r_pack++; 
+  r->path[r->size-1].r_pack++; 
+  r->path[r->size-1].hloc = r->size-1; 
+  
   for (u16 i=0; i<SSSR_ptr; i++) {
     subcycle = &SSSR[i];   
     steps    = subcycle->r_size; 
@@ -632,10 +645,12 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
                  // [][][][pseudo][SSSR][dash][digit][space]
 
   unsigned char ch; 
+  unsigned char ch_nxt; 
 
   state = SSSR_READ; 
   for (u16 sp=s; sp<e; sp++){
     ch = ptr[sp]; 
+    ch_nxt = ptr[sp+1]; 
 
     if (state & PSEUDO_READ && (ch >= 'A' && ch <= 'Z')) {
       if (buff_ptr == 2) {
@@ -658,7 +673,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
       // create the ring as necessary
       if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
         // end the SSSR read, start element reading
-        ring = new_ring(upper_r_size); 
+        ring = rt_alloc(g, upper_r_size); 
         state &= ~SSSR_READ; 
       } 
       
@@ -686,7 +701,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
               return (ring_t*)0; 
             }
             else {
-              ring = new_ring(upper_r_size); 
+              ring = rt_alloc(g, upper_r_size); 
               state |= MULTI_READ; 
               state &= ~SSSR_READ; 
               state &= ~SPACE_READ; 
@@ -804,6 +819,23 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
           state |= AROM_READ; 
           SSSR[arom_count++].arom = 0; 
           break; 
+
+        // some nice ghost logic here. On a successful chain creation, the first bond will always to 
+        // to the next symbol in the locant path. e.g A->B->C. therefore unsaturate bond[0]. 
+        // when mixed with dash, this will be the next avaliable bond which is not in the chain, and MUST
+        // be handled in the pathsolver algorithm, there place at bonds[1...n]. 
+        case 'U':
+          if (ch_nxt == '-') {
+
+
+          }
+          else if (locant_ch < upper_r_size){
+            c = ring->path[locant_ch].s;  
+            c->bonds[0].order++; 
+            c->valence_pack++; 
+            ring->path[locant_ch+1].s->valence_pack++; 
+          }
+          break; 
           
         case 'V':
           if (locant_ch > upper_r_size) {
@@ -817,7 +849,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             locant_ch++; 
           }
           break; 
-
 
         case 'W':
           break; 
@@ -850,7 +881,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
 
         case '/':
           if (state & SSSR_READ) {
-            ring = new_ring(upper_r_size); 
+            ring = rt_alloc(g, upper_r_size); 
             state &= ~(SSSR_READ); 
             buff_ptr = 0; 
             state |= PSEUDO_READ; 
@@ -862,7 +893,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
             }
             else 
               fprintf(stderr,"need impl\n"); 
-
           }
           else {
             buff_ptr = 0; 
@@ -901,7 +931,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
   }
   
   if (state & SSSR_READ)
-    ring = new_ring(upper_r_size); 
+    ring = rt_alloc(g, upper_r_size); 
 
   // forward any single arom assignments
   for (u16 i=arom_count;i<SSSR_ptr;i++)
@@ -914,8 +944,18 @@ static ring_t* parse_cyclic(const char *ptr, const u16 s, u16 e, graph_t *g)
     for (u16 i=1; i<SSSR_ptr; i++)
       ring->size += SSSR[i].r_size - 2; 
   }
+  
+  // truncate the size down from upper_r_size to r->size 
+  // fairly cheap
+  if (upper_r_size != ring->size){ 
+    g->s_num -= upper_r_size - ring->size; 
+    c = &g->symbols[g->s_num-1]; 
+    c->n_bonds--; 
+    c->valence_pack--; 
+    memset(&c->bonds[c->n_bonds],0,sizeof(edge_t)); 
+    memset(g->symbols + g->s_num, 0, sizeof(symbol_t) * (g->s_max - g->s_num)); 
+  }
 
- 
   if (connection_table)
     return pathsolverIII(g, ring, SSSR, SSSR_ptr, connection_table);
   else 
@@ -2159,7 +2199,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
         // shorthand benzene 
         case 'R': 
-          r = new_ring(6); 
+          r = rt_alloc(g, 6); 
           r->size = 6; // this is explicit
           for (u16 i=0; i<6; i++) {
             c = next_symbol(g, e, CAR, 4);
