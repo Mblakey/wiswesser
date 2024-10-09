@@ -886,13 +886,17 @@ void RunBenchmark() {
   conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
   
   unsigned int n_correct = 0; 
+  unsigned int n_wrong   = 0; 
   for (unsigned int i=0; i<BENCH_N;i++) {
+    fprintf(stderr,"%s\n",wln_bench[i]); 
     if (!C_ReadWLN(wln_bench[i], &mol))
       fprintf(stderr, "%s null read\n", smiles_bench[i]); 
     else {
       buffer = conv.WriteString(&mol,true);
-      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) 
+      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) {
         fprintf(stderr,"%s != %s\t%s\n", wln_bench[i] ,smiles_bench[i], buffer.c_str()); 
+        n_wrong++; 
+      }
       else 
         n_correct++; 
       buffer.clear(); 

@@ -492,15 +492,17 @@ static u8 check_bipartite(edge_t **adj_matrix, u8 size)
 }
 
 /* recursive biparitite matcher - TODO: non-recursive version */
-u8 bpmatching(u8 u, edge_t **adj_matrix, u8 size, char *visited, char *match_set) 
+u8 bpmatching(u8 u, edge_t **adj_matrix, u8 size, char *visited, 
+              char *match_set) 
 {
   edge_t **row = &adj_matrix[u*size]; 
   for (u8 v=0; v<size; v++) {
     if (row[v] && !visited[v]) {
       visited[v] = 1; 
 
-      if (match_set[v] < 0 || 
-          bpmatching(match_set[v], adj_matrix, size, visited, match_set)) 
+      if (match_set[v] == -1 || 
+          bpmatching(match_set[v], adj_matrix, size, visited, match_set)
+          ) 
       {
         match_set[v] = u; 
         return 1; 
@@ -524,7 +526,8 @@ static u8 kekulize_ring(ring_t *r)
   
   // allow the adj_matrix to also be an edge lookup
   // - memory for speed trade off
-  edge_t **adj_matrix = (edge_t**)alloca(sizeof(edge_t*)*size*size);
+  // this may not be appropriate for stack, can get large
+  edge_t **adj_matrix = (edge_t**)malloc(sizeof(edge_t*)*size*size);
   memset(adj_matrix,0,sizeof(edge_t*)*size*size); 
   
   // create an adj matrix, 
@@ -532,7 +535,6 @@ static u8 kekulize_ring(ring_t *r)
   // can bring this down, not worth the hash table
   for (unsigned int i=0; i<size; i++) {
     p = r->path[i].s; 
-    
     if (r->path[i].r_pack & LOCANT_AROM && 
         ((p->valence_pack >> 4) - (p->valence_pack & 0x0F) > 0)
         ) 
@@ -540,15 +542,16 @@ static u8 kekulize_ring(ring_t *r)
       // very slow, TODO: lookup table
       for (u8 j=0; j<p->n_bonds; j++) {
         c = p->bonds[j].c;  
-        for (unsigned int k=i+1;k<size;k++) {
-          if (r->path[k].s == c && 
-              r->path[k].r_pack & LOCANT_AROM && 
-              (c->valence_pack >> 4) - (c->valence_pack & 0x0F) > 0
-              ) 
-          {
-            adj_matrix[i *size+k] = &p->bonds[j]; 
-            adj_matrix[k *size+i] = &p->bonds[j];
-            break; 
+        if ((c->valence_pack >> 4) - (c->valence_pack & 0x0F) > 0) {
+          for (unsigned int k=i+1;k<size;k++) {
+            if (r->path[k].s == c && 
+                r->path[k].r_pack & LOCANT_AROM
+                ) 
+            {
+              adj_matrix[i *size+k] = &p->bonds[j]; 
+              adj_matrix[k *size+i] = &p->bonds[j];
+              break; 
+            }
           }
         }
       }
@@ -581,6 +584,8 @@ static u8 kekulize_ring(ring_t *r)
       match_set[u] = -1; 
     }
   }
+
+  free(adj_matrix); 
   return ERR_NONE; 
 }
 
@@ -857,7 +862,13 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             e->order++; 
             e->c->valence_pack++; 
           }
-          else if (locant_ch < upper_r_size){
+          else if (locant_ch == upper_r_size - 1) {
+            // will wrap back onto the start, again, determined position likely at bonds[1], when logic shifts last bond, unsaturation on last position is technically undefined. 
+            c = ring->path[0].s;  
+            c->bonds[1].order += 2; // the edge is not yet live ~ 2
+            c->valence_pack++; 
+          }
+          else if (locant_ch < upper_r_size) {
             c = ring->path[locant_ch].s;  
             c->bonds[0].order++; 
             c->valence_pack++; 
