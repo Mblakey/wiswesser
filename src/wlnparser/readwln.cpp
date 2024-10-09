@@ -468,18 +468,21 @@ static u8 check_bipartite(edge_t **adj_matrix, u8 size)
   
   u8 top = 0; 
   edge_t **row; 
-
-  idx_queue[idx_ptr++] = 0; 
+  
+  color_arr[top] = 1; 
+  
+  idx_queue[idx_ptr++] = top; 
   while (idx_ptr > 0) {
     top = idx_queue[--idx_ptr]; 
     
     row = &adj_matrix[top*size]; 
-    for (u8 i=0;i<size;i++) {
+    for (u8 i=0; i<size; i++) {
       if (row[i]) {
         if (!color_arr[i]) {
           color_arr[i] = 1 + (color_arr[top] == 1); 
           memmove(&idx_queue[1], &idx_queue[0], size-1); // shift array
           idx_queue[0] = i; 
+          idx_ptr++; 
         }
         else if(color_arr[i] == color_arr[top])
           return 0; 
@@ -488,6 +491,8 @@ static u8 check_bipartite(edge_t **adj_matrix, u8 size)
       }
     }
   }
+
+  fprintf(stderr,"yes\n"); 
   return 1; 
 }
 
@@ -542,7 +547,7 @@ static u8 kekulize_ring(ring_t *r)
       // very slow, TODO: lookup table
       for (u8 j=0; j<p->n_bonds; j++) {
         c = p->bonds[j].c;  
-        if ((c->valence_pack >> 4) - (c->valence_pack & 0x0F) > 0) {
+        if (c && (c->valence_pack >> 4) - (c->valence_pack & 0x0F) > 0) {
           for (unsigned int k=i+1;k<size;k++) {
             if (r->path[k].s == c && 
                 r->path[k].r_pack & LOCANT_AROM
