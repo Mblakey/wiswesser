@@ -274,17 +274,28 @@ static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
 
 
 /* assigns the maximal possible carbon chain, truncate down once size is known */
-static ring_t* rt_alloc(graph_t *g, const size_t size) 
+static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *head) 
 {
   ring_t *ring = 0; 
   ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(size-1)); 
   memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(size-1)); 
-
+  
+  u16 i = 0; 
   symbol_t *c = 0;  
   symbol_t *p = 0;
   edge_t *e   = 0; 
 
-  for (u16 i=0; i<size; i++) {
+  // YR | Y- AL6TJ bindings
+  if (head) {
+    c = head; 
+    ring->path[0].s = head; 
+    ring->path[0].r_pack++; 
+    ring->path[0].hloc = i+1; // point to the next locant 
+    p = c; 
+    i++; 
+  }
+
+  for (; i<size; i++) {
     c = new_symbol(g, CAR, 4); 
     ring->path[i].s = c; 
 
@@ -302,6 +313,8 @@ static ring_t* rt_alloc(graph_t *g, const size_t size)
 
   return ring; 
 }
+
+
 
 static void read_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
 {
@@ -618,7 +631,7 @@ static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
 }; 
 
 
-static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, graph_t *g) 
+static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *inc_e, graph_t *g) 
 {
   symbol_t  *c    = 0; 
   edge_t    *e    = 0; 
@@ -672,7 +685,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, graph_t *
       // create the ring as necessary
       if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
         // end the SSSR read, start element reading
-        ring = rt_alloc(g, upper_r_size); 
+        ring = rt_alloc(g, upper_r_size, inc_e->c); 
         state &= ~SSSR_READ; 
       } 
       
@@ -700,7 +713,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, graph_t *
               return (ring_t*)0; 
             }
             else {
-              ring = rt_alloc(g, upper_r_size); 
+              ring = rt_alloc(g, upper_r_size, inc_e->c); 
               state |= MULTI_READ; 
               state &= ~SSSR_READ; 
               state &= ~SPACE_READ; 
@@ -895,7 +908,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, graph_t *
 
         case '/':
           if (state & SSSR_READ) {
-            ring = rt_alloc(g, upper_r_size); 
+            ring = rt_alloc(g, upper_r_size, inc_e->c); 
             state &= ~(SSSR_READ); 
             buff_ptr = 0; 
             state |= PSEUDO_READ; 
@@ -946,7 +959,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, graph_t *
   }
   
   if (state & SSSR_READ)
-    ring = rt_alloc(g, upper_r_size); 
+    ring = rt_alloc(g, upper_r_size, inc_e->c); 
 
   // forward any single arom assignments
   for (u16 i=arom_count;i<SSSR_ptr;i++)
@@ -1646,7 +1659,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         // note: The ptr passed in does not include the 
         //       starting L/T or ending J (<sp) 
         
-        r = parse_cyclic(ptr, sp-ring_chars+1, sp, g);
+        r = parse_cyclic(ptr, sp-ring_chars+1, sp, e, g);
         if (!r) 
           return ERR_ABORT; 
         else {
@@ -2214,19 +2227,21 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
         // shorthand benzene 
         case 'R': 
-          r = rt_alloc(g, 6); 
-          r->size = 6; // this is explicit
-          
-          c = r->path[0].s; 
-
+          // head symbol can come from virtual X|Y|K
+          c = next_symbol(g, e, CAR, 4);
           if (!c)
             return ERR_MEMORY; 
-          else 
+          else {
+            g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
-        
-          if (!e)
+          }
+
+          r = rt_alloc(g, 6, c); 
+          
+          if (!r)
             return ERR_ABORT; 
           else {
+            r->size = 6; // this is explicit
             for (u8 i=0; i<6; i++)
               r->path[i].r_pack |= LOCANT_AROM;  
             // set the ring. R objects are kekulised on stack pop
