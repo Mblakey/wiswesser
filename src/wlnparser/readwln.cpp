@@ -57,7 +57,7 @@ GNU General Public License for more details.
 
 // standard parse fields
 #define RING_READ   0x08
-#define BIND_READ   0x10
+#define BIND_READ   0x10 // locant ring access
 #define CHARGE_READ 0x20
 #define DIOXO_READ  0x40 // this is an annoying one
 
@@ -96,6 +96,14 @@ static u8 error(const char *message)
 {
   fprintf(stderr,"%s\n", message); 
   return ERR_ABORT;  
+}
+
+static void print_byte(u8 byte)
+{
+  for (char i=7; i>=0; i--) {
+    fprintf(stderr,"%d", byte & (1 << i) ? 1:0); 
+  }
+  fprintf(stderr,"\n"); 
 }
 
 // 9 bytes
@@ -273,32 +281,24 @@ static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
 }
 
 
-/* assigns the maximal possible carbon chain, truncate down once size is known */
-static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *head) 
+/* assigns the maximal possible carbon chain, truncate down once size is known 
+ * - can attach to incoming head node at any given locant position */
+static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const u16 inc_pos) 
 {
   ring_t *ring = 0; 
   ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(size-1)); 
   memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(size-1)); 
   
-  u16 i = 0; 
   symbol_t *c = 0;  
   symbol_t *p = 0;
   edge_t *e   = 0; 
 
-  // YR | Y- AL6TJ bindings
-  if (head) {
-    c = head; 
-    ring->path[0].s = head; 
-    ring->path[0].r_pack++; 
-    ring->path[0].hloc = i+1; // point to the next locant 
-    p = c; 
-    i++; 
-  }
-
-  for (; i<size; i++) {
-    c = new_symbol(g, CAR, 4); 
-    ring->path[i].s = c; 
-
+  for (u16 i=0; i<size; i++) {
+    if (inc && i==inc_pos)
+      c = inc; 
+    else 
+      c = new_symbol(g, CAR, 4); 
+    
     if(!c)
       return (ring_t*)0; 
     else if (p) {
@@ -306,6 +306,7 @@ static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *head)
       e = set_virtual_edge(e, p, c); 
     }
 
+    ring->path[i].s = c; 
     ring->path[i].r_pack++; 
     ring->path[i].hloc = i+1; // point to the next locant 
     p = c; 
@@ -631,7 +632,9 @@ static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
 }; 
 
 
-static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *inc_e, graph_t *g) 
+static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, 
+                            symbol_t *head, u16 head_loc, 
+                            graph_t *g) 
 {
   symbol_t  *c    = 0; 
   edge_t    *e    = 0; 
@@ -685,7 +688,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *i
       // create the ring as necessary
       if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
         // end the SSSR read, start element reading
-        ring = rt_alloc(g, upper_r_size, inc_e->c); 
+        ring = rt_alloc(g, upper_r_size, head, head_loc); 
         state &= ~SSSR_READ; 
       } 
       
@@ -713,7 +716,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *i
               return (ring_t*)0; 
             }
             else {
-              ring = rt_alloc(g, upper_r_size, inc_e->c); 
+              ring = rt_alloc(g, upper_r_size, head, head_loc); 
               state |= MULTI_READ; 
               state &= ~SSSR_READ; 
               state &= ~SPACE_READ; 
@@ -908,7 +911,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *i
 
         case '/':
           if (state & SSSR_READ) {
-            ring = rt_alloc(g, upper_r_size, inc_e->c); 
+            ring = rt_alloc(g, upper_r_size, head, head_loc); 
             state &= ~(SSSR_READ); 
             buff_ptr = 0; 
             state |= PSEUDO_READ; 
@@ -959,7 +962,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *i
   }
   
   if (state & SSSR_READ)
-    ring = rt_alloc(g, upper_r_size, inc_e->c); 
+    ring = rt_alloc(g, upper_r_size, head, head_loc); 
 
   // forward any single arom assignments
   for (u16 i=arom_count;i<SSSR_ptr;i++)
@@ -974,8 +977,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, edge_t *i
   }
   
   // truncate the size down from upper_r_size to r->size 
-  // fairly cheap
-  if (upper_r_size != ring->size){ 
+  // fairly cheap, compared to alternatives
+  if (upper_r_size != ring->size) { 
     g->s_num -= upper_r_size - ring->size; 
     c = &g->symbols[g->s_num-1]; 
     c->n_bonds--; 
@@ -1620,15 +1623,12 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
   symbol_t *p=0;
   ring_t   *r=0;
 
-  u8 locant_ch  = 0; 
   u8 ring_chars = 0; 
+  u16 locant_ch = 0; 
   u16 digit_n   = 0; 
   
   u8 state = 0; // bit field: 
-                // [0][dioxo][charge][inline ring][ring skip][dash][digit][space]
-                //
-                // bind_prev indicates either a inline ring or spiro that
-                // must be bound to the previous chain
+                // [][dioxo][charge][ring locant][ring skip][dash][digit][space]
   
   u8 dash_ptr = 0; 
   unsigned char dash_chars[3] = {0}; // last byte is mainly for overflow 
@@ -1646,7 +1646,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     
   unsigned char ch; 
   unsigned char ch_nxt; 
-
+  
   for (u16 sp=0; sp<len; sp++) {
     ch     = ptr[sp]; 
     ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
@@ -1659,8 +1659,16 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         // note: The ptr passed in does not include the 
         //       starting L/T or ending J (<sp) 
         
-        r = parse_cyclic(ptr, sp-ring_chars+1, sp, e, g);
-        if (!r) 
+        // ring must have at least one atom. 
+
+        c = next_symbol(g, e, CAR, 4);
+        if (!c)
+          return ERR_MEMORY; 
+        else
+          e = set_virtual_edge(e, p, c); 
+
+        r = parse_cyclic(ptr, sp-ring_chars+1, sp, c, locant_ch, g);
+        if (!r)
           return ERR_ABORT; 
         else {
           g->stack[g->stack_ptr].addr = r; 
@@ -1669,18 +1677,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           ring_chars = 0; 
         }
 
-        if (state == BIND_READ){
-          // virtual edge should be dangling at this frame. 
-          if (locant_ch > r->size) {
-            fprintf(stderr,"Error: out of bounds locant access"); 
-            return ERR_ABORT; 
-          }
-          else 
-            c = r->path[locant_ch].s;
-
-          e = set_virtual_edge(e, p, c);  
-          state &= ~(BIND_READ); 
-        }
+        state &= ~(BIND_READ); 
       }
       else
         ring_chars++; 
@@ -1694,17 +1691,17 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     else if (state & SPACE_READ) {
       // switch on packing - state popcnt() >= hit bits. 
       locant_ch = ch - 'A'; 
-      state &= ~(SPACE_READ); 
-      
-      if (state & BIND_READ)
-        break; 
-      else if (r && locant_ch < r->size) {
-        c = r->path[locant_ch].s; 
-        e = next_virtual_edge(c); 
-        p = c; 
-      } 
-      else 
-        return error("Error: out of bounds locant access"); 
+      state &= ~(SPACE_READ);
+
+      if (!(state & BIND_READ)) {
+        if (r && locant_ch < r->size) {
+          c = r->path[locant_ch].s; 
+          e = next_virtual_edge(c); 
+          p = c; 
+        } 
+        else 
+          return error("Error: out of bounds locant access"); 
+      }
     }
     else {
       switch (ch) {
@@ -1755,9 +1752,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
                 if (!e)
                   return ERR_ABORT; 
-
-                p = c;
-                e = next_virtual_edge(p); 
+                else {
+                  p = c;
+                  e = next_virtual_edge(p); 
+                }
               }
 
               g->idx_symbols[sp+1] = p; 
@@ -1819,11 +1817,11 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
                 if (!e)
                   return ERR_ABORT; 
-
-                p = c;
-                e = next_virtual_edge(p); 
+                else {
+                  p = c;
+                  e = next_virtual_edge(p); 
+                }
               }
-
               g->idx_symbols[sp+1] = p; 
               digit_n = 0; 
             }
@@ -2236,10 +2234,10 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             e = set_virtual_edge(e, p, c); 
           }
 
-          r = rt_alloc(g, 6, c); 
+          r = rt_alloc(g, 6, c, 0); 
           
           if (!r)
-            return ERR_ABORT; 
+            return ERR_MEMORY; // only way this can fail 
           else {
             r->size = 6; // this is explicit
             for (u8 i=0; i<6; i++)
@@ -2459,8 +2457,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             }
           }
           else {
-            if (ch_nxt == ' ') 
-              state |= BIND_READ; 
+            if (ch_nxt == ' ')
+              state |= BIND_READ;
             else {
               dash_ptr = 0; 
               state |= DASH_READ; 
@@ -2676,7 +2674,7 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   if (ret == ERR_NONE)
     ob_convert_wln_graph(mol, g);
   else 
-    fprintf(stdout, "null\n");  
+    fprintf(stdout, "null (ERR %d)\n", ret);  
 
   gt_free(g); 
   free(g->idx_symbols); 
@@ -2704,7 +2702,7 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
       len_high = len; 
     }
     memset(g->idx_symbols,0,sizeof(symbol_t*)*len_high); 
-
+    
     ret = parse_wln(buffer, len, g); 
     while (ret == ERR_MEMORY && st_pool_size < 1024) {
       st_pool_size *= 2; 
