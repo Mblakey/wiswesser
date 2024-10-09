@@ -39,6 +39,7 @@ GNU General Public License for more details.
 #include <openbabel/mol.h>
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
+#include <openbabel/kekulize.h>
 
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
@@ -69,7 +70,6 @@ GNU General Public License for more details.
 
 // Ring type "magic numbers"
 #define LOCANT_BRIDGE 0x10  
-#define LOCANT_AROM   0x20  
 
 // Error codes 
 #define ERR_NONE   0 // success
@@ -115,8 +115,9 @@ typedef struct {
 // 4 + (8*9) = 76 bytes per symbol
 // 80 = 16*5, multiple of 16 stack aligned
 struct symbol_t {
-  u8 atomic_num;   
-  signed char charge;   
+  u8 atom_num;   
+  u8 arom; 
+  char charge;   
   u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
   u8 n_bonds; 
   edge_t bonds[MAX_DEGREE]; // directional 
@@ -203,7 +204,8 @@ static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_v
   else 
     s = e->c; 
 
-  s->atomic_num   = id; 
+  s->atom_num     = id; 
+  s->arom         = 0; 
   s->charge       = 0; 
   s->n_bonds      = 0;
   s->valence_pack = lim_valence; 
@@ -220,7 +222,8 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
   
   symbol_t *s = &g->symbols[g->s_num++];
 
-  s->atomic_num   = id; 
+  s->atom_num     = id; 
+  s->arom         = 0; 
   s->charge       = 0; 
   s->n_bonds      = 0;
   s->valence_pack = lim_valence; 
@@ -229,9 +232,9 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
 }
 
 /* used in the ring parse, leaves bonds alone */
-static symbol_t* overwrite_symbol(symbol_t *s, const u16 id, const u8 lim_valence)
+static symbol_t* transmute_symbol(symbol_t *s, const u16 id, const u8 lim_valence)
 {
-  s->atomic_num   = id; 
+  s->atom_num     = id; 
   s->charge       = 0; 
   s->valence_pack &= 0x0F; 
   s->valence_pack += lim_valence << 4; 
@@ -376,16 +379,15 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
     
     // if used max times in ring, shift along path
     while ((start->r_pack & 0x0F) == 0 && s_pos < r->size) {
-      start->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
       start = &r->path[++s_pos];  
       steps--; 
     }
     
     for (u16 s=0; s<steps-1; s++) {
-      end->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
+      end->s->arom |= subcycle->arom; 
       end = &r->path[end->hloc]; 
     }
-    end->r_pack |= (LOCANT_AROM & subcycle->arom << 5); 
+    end->s->arom |= subcycle->arom; 
 
 #if DEBUG 
     fprintf(stderr,"%d: %c --> %c (%d)\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A', subcycle->arom); 
@@ -455,153 +457,6 @@ static ring_t* pathsolverIII(graph_t *g, ring_t *r,
   */
   
   return r;  
-}
-
-
-static u8 check_bipartite(edge_t **adj_matrix, u8 size)
-{
-  u8 idx_ptr = 0; 
-  u8 *idx_queue = (u8*)alloca(sizeof(u8)*size); 
-  
-  u8 *color_arr = (u8*)alloca(sizeof(u8)*size); 
-  memset(color_arr,0,sizeof(u8)*size); 
-  
-  u8 top = 0; 
-  edge_t **row; 
-  
-  color_arr[top] = 1; 
-  
-  idx_queue[idx_ptr++] = top; 
-  while (idx_ptr > 0) {
-    top = idx_queue[--idx_ptr]; 
-    
-    row = &adj_matrix[top*size]; 
-    for (u8 i=0; i<size; i++) {
-      if (row[i]) {
-        if (!color_arr[i]) {
-          color_arr[i] = 1 + (color_arr[top] == 1); 
-          memmove(&idx_queue[1], &idx_queue[0], size-1); // shift array
-          idx_queue[0] = i; 
-          idx_ptr++; 
-        }
-        else if(color_arr[i] == color_arr[top])
-          return 0; 
-        else 
-          continue; 
-      }
-    }
-  }
-
-  fprintf(stderr,"yes\n"); 
-  return 1; 
-}
-
-/* recursive biparitite matcher - TODO: non-recursive version */
-u8 bpmatching(u8 u, edge_t **adj_matrix, u8 size, char *visited, 
-              char *match_set) 
-{
-  edge_t **row = &adj_matrix[u*size]; 
-  for (u8 v=0; v<size; v++) {
-    if (row[v] && !visited[v]) {
-      visited[v] = 1; 
-
-      if (match_set[v] == -1 || 
-          bpmatching(match_set[v], adj_matrix, size, visited, match_set)
-          ) 
-      {
-        match_set[v] = u; 
-        return 1; 
-      } 
-    }
-  }
-  return 0; 
-}
-
-
-static u8 kekulize_ring(ring_t *r) 
-{
-  symbol_t *p; 
-  symbol_t *c; 
-  u8 size = r->size; 
-
-  char *match_set = (char*)alloca(sizeof(char)*size); 
-  char *visited   = (char*)alloca(sizeof(char)*size); 
-  memset(match_set,-1,sizeof(char)*size); 
-  memset(visited,0,sizeof(char)*size); 
-  
-  // allow the adj_matrix to also be an edge lookup
-  // - memory for speed trade off
-  // this may not be appropriate for stack, can get large
-  edge_t **adj_matrix = (edge_t**)malloc(sizeof(edge_t*)*size*size);
-  memset(adj_matrix,0,sizeof(edge_t*)*size*size); 
-  
-  // create an adj matrix, 
-  // TODO: n3 but with small n, better data structures
-  // can bring this down, not worth the hash table
-  for (unsigned int i=0; i<size; i++) {
-    p = r->path[i].s; 
-    if (r->path[i].r_pack & LOCANT_AROM && 
-        ((p->valence_pack >> 4) - (p->valence_pack & 0x0F) > 0)
-        ) 
-    {
-      // very slow, TODO: lookup table
-      for (u8 j=0; j<p->n_bonds; j++) {
-        c = p->bonds[j].c;  
-        if (c && (c->valence_pack >> 4) - (c->valence_pack & 0x0F) > 0) {
-          for (unsigned int k=i+1;k<size;k++) {
-            if (r->path[k].s == c && 
-                r->path[k].r_pack & LOCANT_AROM
-                ) 
-            {
-              adj_matrix[i *size+k] = &p->bonds[j]; 
-              adj_matrix[k *size+i] = &p->bonds[j];
-              break; 
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (check_bipartite(adj_matrix, size)) {
-    // ford-fulkerson alternating match pairs kekule "fast"
-    for (u8 u=0;u<size;u++)
-      bpmatching(u, adj_matrix, size, visited, match_set); 
-  }
-  else {
-    fprintf(stderr,"Blossom required\n"); 
-    // need a blossum 
-  }
-
-  // adj-matrix is used to get the edges, balance both 
-  // sides of the valence and remove from match set 
-  edge_t *e; 
-  for (u8 u=0;u<size;u++) {
-    if (match_set[u] != -1) {
-      p = r->path[u].s; 
-      c = r->path[match_set[u]].s; 
-      e = adj_matrix[u*size+match_set[u]]; 
-
-      e->order++; 
-      p->valence_pack++; 
-      c->valence_pack++; 
-      match_set[match_set[u]] = -1; 
-      match_set[u] = -1; 
-    }
-  }
-
-  free(adj_matrix); 
-  return ERR_NONE; 
-}
-
-
-static void gt_stack_kekulize(graph_t *g) 
-{
-  u16 stack_ptr = g->stack_ptr; 
-  for (u16 i=0;i<stack_ptr;i++) {
-    if (g->stack[i].ref < 0) 
-      kekulize_ring((ring_t*)g->stack[i].addr);
-  }
 }
 
 static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
@@ -761,7 +616,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else {
-            c = overwrite_symbol(ring->path[locant_ch].s, BOR, 3); 
+            c = transmute_symbol(ring->path[locant_ch].s, BOR, 3); 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -774,7 +629,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else { 
-            c = overwrite_symbol(ring->path[locant_ch].s, NIT, 4); 
+            c = transmute_symbol(ring->path[locant_ch].s, NIT, 4); 
             c->charge++; 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
@@ -788,7 +643,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else { 
-            c = overwrite_symbol(ring->path[locant_ch].s, NIT, 2); 
+            c = transmute_symbol(ring->path[locant_ch].s, NIT, 2); 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -801,7 +656,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else {
-            c = overwrite_symbol(ring->path[locant_ch].s, NIT, 3); 
+            c = transmute_symbol(ring->path[locant_ch].s, NIT, 3); 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -814,7 +669,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else {
-            c = overwrite_symbol(ring->path[locant_ch].s, OXY, 2); 
+            c = transmute_symbol(ring->path[locant_ch].s, OXY, 2); 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -827,7 +682,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else { 
-            c = overwrite_symbol(ring->path[locant_ch].s, PHO, 6); 
+            c = transmute_symbol(ring->path[locant_ch].s, PHO, 6); 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -840,7 +695,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else {     
-            c = overwrite_symbol(ring->path[locant_ch].s, SUL, 6); 
+            c = transmute_symbol(ring->path[locant_ch].s, SUL, 6); 
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -888,7 +743,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)0; 
           }
           else {
-            c = overwrite_symbol(ring->path[locant_ch].s, CAR, 4);
+            c = transmute_symbol(ring->path[locant_ch].s, CAR, 4);
             e = &c->bonds[0]; 
             add_oxy(g, c, 0); 
             g->idx_symbols[sp+1] = c; 
@@ -1014,29 +869,29 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
     case 'A':
       switch (low) {
         case 'C':
-          c->atomic_num = 89; 
+          c->atom_num = 89; 
           break; 
         case 'G':
-          c->atomic_num = 47; 
+          c->atom_num = 47; 
           break; 
         case 'L':
-          c->atomic_num = 13; 
+          c->atom_num = 13; 
           break; 
         case 'M':
-          c->atomic_num = 95; 
+          c->atom_num = 95; 
           break; 
         case 'R':
-          c->atomic_num = 18; 
+          c->atom_num = 18; 
           break; 
         case 'S':
-          c->atomic_num = 33; 
+          c->atom_num = 33; 
           break; 
         case 'T':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 85; 
+          c->atom_num = 85; 
           break; 
         case 'U':
-          c->atomic_num = 79; 
+          c->atom_num = 79; 
           break; 
       }
       break; 
@@ -1045,28 +900,28 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (4 << 4);
-          c->atomic_num = BOR; 
+          c->atom_num = BOR; 
           break; 
         case 'A':
           c->valence_pack = (2 << 4);
-          c->atomic_num = 56; 
+          c->atom_num = 56; 
           break; 
         case 'E':
           c->valence_pack = (2 << 4);
-          c->atomic_num = 4; 
+          c->atom_num = 4; 
           break; 
         case 'H':
-          c->atomic_num = 107; 
+          c->atom_num = 107; 
           break; 
         case 'I':
-          c->atomic_num = 83; 
+          c->atom_num = 83; 
           break; 
         case 'K':
-          c->atomic_num = 97; 
+          c->atom_num = 97; 
           break; 
         case 'R':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = BRO; 
+          c->atom_num = BRO; 
           break; 
       }
       break; 
@@ -1075,39 +930,39 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (5 << 4); 
-          c->atomic_num = CAR; // allow the texas carbon "easter egg"
+          c->atom_num = CAR; // allow the texas carbon "easter egg"
           break; 
         case 'A':
           c->valence_pack = (2 << 4); 
-          c->atomic_num = 20;
+          c->atom_num = 20;
           break; 
         case 'D':
-          c->atomic_num = 48;
+          c->atom_num = 48;
           break; 
         case 'E':
-          c->atomic_num = 58;
+          c->atom_num = 58;
           break; 
         case 'F':
-          c->atomic_num = 98;
+          c->atom_num = 98;
           break; 
         case 'M':
-          c->atomic_num = 96;
+          c->atom_num = 96;
           break; 
         case 'N':
-          c->atomic_num = 112;
+          c->atom_num = 112;
           break; 
         case 'O':
-          c->atomic_num = 27;
+          c->atom_num = 27;
           break; 
         case 'R':
-          c->atomic_num = 24;
+          c->atom_num = 24;
           break; 
         case 'S':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 55;
+          c->atom_num = 55;
           break; 
         case 'U':
-          c->atomic_num = 29;
+          c->atom_num = 29;
           break; 
       }
       break; 
@@ -1115,13 +970,13 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
     case 'D':
       switch (low) {
         case 'B':
-          c->atomic_num = 105;
+          c->atom_num = 105;
           break; 
         case 'S':
-          c->atomic_num = 110;
+          c->atom_num = 110;
           break; 
         case 'Y':
-          c->atomic_num = 66;
+          c->atom_num = 66;
           break; 
       }
       break;
@@ -1130,16 +985,16 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (3 << 4); // hypervalent bromine
-          c->atomic_num = 35; 
+          c->atom_num = 35; 
           break; 
         case 'R':
-          c->atomic_num = 68; 
+          c->atom_num = 68; 
           break; 
         case 'S':
-          c->atomic_num = 99; 
+          c->atom_num = 99; 
           break; 
         case 'U':
-          c->atomic_num = 63; 
+          c->atom_num = 63; 
           break; 
       }
 
@@ -1147,19 +1002,19 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (3 << 4); // hypervalent flourine
-          c->atomic_num = FLU; 
+          c->atom_num = FLU; 
           break; 
         case 'E':
-          c->atomic_num = 26; 
+          c->atom_num = 26; 
           break; 
         case 'L':
-          c->atomic_num = 114; 
+          c->atom_num = 114; 
           break; 
         case 'M':
-          c->atomic_num = 100; 
+          c->atom_num = 100; 
           break; 
         case 'R':
-          c->atomic_num = 87; 
+          c->atom_num = 87; 
           break; 
       }
       break;
@@ -1168,18 +1023,18 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0: 
           c->valence_pack = (3 << 4); // hypervalent chlorine
-          c->atomic_num = CHL; 
+          c->atom_num = CHL; 
           break; 
         case 'A':
           c->valence_pack = (3 << 4); 
-          c->atomic_num = 31; 
+          c->atom_num = 31; 
           break; 
         case 'D':
-          c->atomic_num = 64; 
+          c->atom_num = 64; 
           break; 
         case 'E':
           c->valence_pack = (4 << 4); 
-          c->atomic_num = 32; 
+          c->atom_num = 32; 
           break; 
       }
       break;
@@ -1188,19 +1043,19 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 'E':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 2; 
+          c->atom_num = 2; 
           break; 
         case 'F':
-          c->atomic_num = 72; 
+          c->atom_num = 72; 
           break; 
         case 'G':
-          c->atomic_num = 80; 
+          c->atom_num = 80; 
           break; 
         case 'O':
-          c->atomic_num = 67; 
+          c->atom_num = 67; 
           break; 
         case 'S':
-          c->atomic_num = 108; 
+          c->atom_num = 108; 
           break; 
       }
       break;
@@ -1209,14 +1064,14 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0: 
           c->valence_pack = (2 << 4); // hypervalent iodine
-          c->atomic_num = IOD;
+          c->atom_num = IOD;
           break; 
         case 'N':
           c->valence_pack = (3 << 4); 
-          c->atomic_num = 49; 
+          c->atom_num = 49; 
           break; 
         case 'R':
-          c->atomic_num = 77; 
+          c->atom_num = 77; 
           break; 
       }
       break;
@@ -1225,16 +1080,16 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:  
           c->valence_pack = (4 << 4); // already hyper nitrogen 
-          c->atomic_num = NIT;
+          c->atom_num = NIT;
           c->charge++; 
           break; 
         case 'R':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 36; 
+          c->atom_num = 36; 
           break; 
         case 'A':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 19; 
+          c->atom_num = 19; 
           break; 
       }
       break;
@@ -1242,20 +1097,20 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
     case 'L':
       switch (low) {
         case 'A':
-          c->atomic_num = 57; 
+          c->atom_num = 57; 
           break; 
         case 'I':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 3; 
+          c->atom_num = 3; 
           break; 
         case 'R':
-          c->atomic_num = 103; 
+          c->atom_num = 103; 
           break; 
         case 'U':
-          c->atomic_num = 71; 
+          c->atom_num = 71; 
           break; 
         case 'V':
-          c->atomic_num = 116; 
+          c->atom_num = 116; 
           break; 
       }
       break;
@@ -1264,26 +1119,26 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (2 << 4); // regular nitrogen
-          c->atomic_num = NIT; 
+          c->atom_num = NIT; 
           break; 
         case 'C':
-          c->atomic_num = 115; 
+          c->atom_num = 115; 
           break; 
         case 'D':
-          c->atomic_num = 101; 
+          c->atom_num = 101; 
           break; 
         case 'G':
           c->valence_pack = (2 << 4); 
-          c->atomic_num = 12; 
+          c->atom_num = 12; 
           break; 
         case 'N':
-          c->atomic_num = 25; 
+          c->atom_num = 25; 
           break; 
         case 'O':
-          c->atomic_num = 42; 
+          c->atom_num = 42; 
           break; 
         case 'T':
-          c->atomic_num = 109; 
+          c->atom_num = 109; 
           break; 
       }
       break;
@@ -1292,33 +1147,33 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (2 << 4); // regular nitrogen
-          c->atomic_num = NIT; 
+          c->atom_num = NIT; 
           break; 
         case 'A':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 11; 
+          c->atom_num = 11; 
           break; 
         case 'B':
-          c->atomic_num = 41; 
+          c->atom_num = 41; 
           break; 
         case 'D':
-          c->atomic_num = 60; 
+          c->atom_num = 60; 
           break; 
         case 'E':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 10; 
+          c->atom_num = 10; 
           break; 
         case 'H':
-          c->atomic_num = 113; 
+          c->atom_num = 113; 
           break; 
         case 'I':
-          c->atomic_num = 28; 
+          c->atom_num = 28; 
           break; 
         case 'O':
-          c->atomic_num = 102; 
+          c->atom_num = 102; 
           break; 
         case 'P':
-          c->atomic_num = 93; 
+          c->atom_num = 93; 
           break; 
       }
       break; 
@@ -1327,13 +1182,13 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (3 << 4); // hypervalent oxygen
-          c->atomic_num = OXY; 
+          c->atom_num = OXY; 
           break; 
         case 'G':
-          c->atomic_num = 118; 
+          c->atom_num = 118; 
           break; 
         case 'S':
-          c->atomic_num = 76; 
+          c->atom_num = 76; 
           break; 
       }
       break;
@@ -1342,66 +1197,66 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0:
           c->valence_pack = (5 << 4); // phos
-          c->atomic_num = PHO; 
+          c->atom_num = PHO; 
           break; 
         case 'A':
-          c->atomic_num = 91; 
+          c->atom_num = 91; 
           break; 
         case 'B':
-          c->atomic_num = 82; 
+          c->atom_num = 82; 
           break; 
         case 'D':
-          c->atomic_num = 46; 
+          c->atom_num = 46; 
           break; 
         case 'M':
-          c->atomic_num = 61; 
+          c->atom_num = 61; 
           break; 
         case 'O':
-          c->atomic_num = 84; 
+          c->atom_num = 84; 
           break; 
         case 'R':
-          c->atomic_num = 59; 
+          c->atom_num = 59; 
           break; 
         case 'T':
-          c->atomic_num = 78; 
+          c->atom_num = 78; 
           break; 
         case 'U':
-          c->atomic_num = 94; 
+          c->atom_num = 94; 
           break; 
       }
       break;
     
     case 'Q':
       c->valence_pack = (3 << 4); // hypervalent oxygen
-      c->atomic_num = OXY; 
+      c->atom_num = OXY; 
       break; 
 
     case 'R':
       switch (low) {
         case 'A':
-          c->atomic_num = 88; 
+          c->atom_num = 88; 
           break; 
         case 'B':
           c->valence_pack = (1 << 4); 
-          c->atomic_num = 37; 
+          c->atom_num = 37; 
           break; 
         case 'E':
-          c->atomic_num = 75; 
+          c->atom_num = 75; 
           break; 
         case 'F':
-          c->atomic_num = 104; 
+          c->atom_num = 104; 
           break; 
         case 'G':
-          c->atomic_num = 111; 
+          c->atom_num = 111; 
           break; 
         case 'H':
-          c->atomic_num = 45; 
+          c->atom_num = 45; 
           break; 
         case 'N':
-          c->atomic_num = 86; 
+          c->atom_num = 86; 
           break; 
         case 'U':
-          c->atomic_num = 44; 
+          c->atom_num = 44; 
           break; 
       }
       break;
@@ -1410,37 +1265,37 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
       switch (low) {
         case 0: 
           c->valence_pack = (6 << 4); // regular sulphur
-          c->atomic_num = SUL; 
+          c->atom_num = SUL; 
           break; 
         case 'B':
           c->valence_pack = (3 << 4); 
-          c->atomic_num = 51; 
+          c->atom_num = 51; 
           break; 
         case 'C':
           c->valence_pack = (3 << 4); 
-          c->atomic_num = 21; 
+          c->atom_num = 21; 
           break; 
         case 'E':
           c->valence_pack = (2 << 4); 
-          c->atomic_num = 34; 
+          c->atom_num = 34; 
           break; 
         case 'G':
-          c->atomic_num = 106; 
+          c->atom_num = 106; 
           break; 
         case 'I':
           c->valence_pack = (4 << 4); 
-          c->atomic_num = 14; 
+          c->atom_num = 14; 
           break; 
         case 'M':
-          c->atomic_num = 62; 
+          c->atom_num = 62; 
           break; 
         case 'N':
           c->valence_pack = (4 << 4); 
-          c->atomic_num = 50; 
+          c->atom_num = 50; 
           break; 
         case 'R':
           c->valence_pack = (2 << 4); 
-          c->atomic_num = 38; 
+          c->atom_num = 38; 
           break; 
       }
       break;
@@ -1448,54 +1303,54 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
     case 'T':
       switch (low) {
         case 'A':
-          c->atomic_num = 73; 
+          c->atom_num = 73; 
           break; 
         case 'B':
-          c->atomic_num = 65; 
+          c->atom_num = 65; 
           break; 
         case 'C':
-          c->atomic_num = 43; 
+          c->atom_num = 43; 
           break; 
         case 'E':
           c->valence_pack = (2 << 4); 
-          c->atomic_num = 52; 
+          c->atom_num = 52; 
           break; 
         case 'H':
-          c->atomic_num = 90; 
+          c->atom_num = 90; 
           break; 
         case 'I':
-          c->atomic_num = 22; 
+          c->atom_num = 22; 
           break; 
         case 'L':
           c->valence_pack = (3 << 4); 
-          c->atomic_num = 81; 
+          c->atom_num = 81; 
           break; 
         case 'M':
-          c->atomic_num = 69; 
+          c->atom_num = 69; 
           break; 
         case 'S':
-          c->atomic_num = 117; 
+          c->atom_num = 117; 
           break; 
       }
       break;
 
     case 'U':
       if(low == 'R') {
-        c->atomic_num = 92; 
+        c->atom_num = 92; 
         break; 
       }
       break;
 
     case 'V':
       if(low == 'A') {
-        c->atomic_num = 23; 
+        c->atom_num = 23; 
         break; 
       }
       break;
   
     case 'W':
       if(low == 'T') {
-        c->atomic_num = 74; 
+        c->atom_num = 74; 
         break; 
       }
       break; 
@@ -1503,7 +1358,7 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
     case 'X':
       if (low == 'E') {
         c->valence_pack = (1 << 4); 
-        c->atomic_num = 54; 
+        c->atom_num = 54; 
         break; 
       }
       break;
@@ -1511,28 +1366,28 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
     case 'Y':
       if (low == 'T') {
         c->valence_pack = (3 << 4); 
-        c->atomic_num = 39; 
+        c->atom_num = 39; 
         break; 
       }
       else if (low == 'B') {
-        c->atomic_num = 70; 
+        c->atom_num = 70; 
         break; 
       }
       break;
 
     case 'Z':
       if (low == 'N') {
-        c->atomic_num = 30; 
+        c->atom_num = 30; 
         break; 
       }
       else if (low == 'R') {
-        c->atomic_num = 30; 
+        c->atom_num = 30; 
         break; 
       }
       break;
   }
   
-  if (c->atomic_num == DUM) {
+  if (c->atom_num == DUM) {
     fprintf(stderr,"Error: invalid elemental code -%c%c-\n",high,low); 
     return ERR_ABORT; 
   }
@@ -2257,7 +2112,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           else {
             r->size = 6; // this is explicit
             for (u8 i=0; i<6; i++)
-              r->path[i].r_pack |= LOCANT_AROM;  
+              r->path[i].s->arom = 1; 
             // set the ring. R objects are kekulised on stack pop
             p = r->path[0].s; 
             c = r->path[5].s; 
@@ -2335,7 +2190,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'W':
           if(state & DIOXO_READ) 
             return error("Error: double dioxo attachment needs is undefined"); 
-          else if (p->atomic_num != DUM) {
+          else if (p->atom_num != DUM) {
             if (add_tauto_dioxy(g, p) == ERR_MEMORY)
               return ERR_MEMORY; 
             else 
@@ -2485,7 +2340,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case ' ':
           if (ch_nxt == '&') {
             // all other states should make this the only place ions can be used. 
-            gt_stack_kekulize(g); 
             gt_stack_flush(g); 
             sp++; 
             c = new_symbol(g, DUM, 1); 
@@ -2506,7 +2360,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
             if (g->stack[g->stack_ptr-1].ref < 0) {
               // ring closures  
-              kekulize_ring((ring_t*)g->stack[--g->stack_ptr].addr); 
+              g->stack_ptr--; 
               free(g->stack[g->stack_ptr].addr);
               g->stack[g->stack_ptr].addr = 0; 
               g->stack[g->stack_ptr].ref = 0;
@@ -2542,7 +2396,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     }
   }
   
-  gt_stack_kekulize(g); 
   return ERR_NONE; 
 }
 
@@ -2557,6 +2410,7 @@ OpenBabel::OBAtom* ob_add_atom(OpenBabel::OBMol* mol, u16 elem, char charge, cha
   result->SetFormalCharge(charge);
   if(hcount >= 0)
     result->SetImplicitHCount(hcount);
+  
   return result;
 }
 
@@ -2573,8 +2427,9 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
     fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
     return bptr;
   }
-      
-  bptr = mol->GetBond(mol->NumBonds() - 1);
+  else     
+    bptr = mol->GetBond(mol->NumBonds() - 1);
+  
   return bptr;
 }
 
@@ -2586,79 +2441,78 @@ OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, Open
  */
 int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
   OpenBabel::OBAtom *atom; 
+  OpenBabel::OBBond *bond;   
   OpenBabel::OBAtom **amapping = (OpenBabel::OBAtom **)alloca(sizeof(OpenBabel::OBAtom*) * g->s_num); 
   for (u16 i=1; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i]; 
-    
-    // transition metals complicate this somewhat
-    
-    switch (node->atomic_num) {
-      case CAR: 
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, 4 - (node->valence_pack & 0x0F) ); 
-        amapping[i] = atom; 
-        break; 
-
-      case NIT:
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, 3 - (node->valence_pack & 0x0F) ); 
-        amapping[i] = atom; 
-        break; 
+    if (node->atom_num != DUM) {
+      u8 limit_val = node->valence_pack >> 4; 
+      u8 actual_val = node->valence_pack & 0x0F; 
       
-      case OXY:
-        node->charge += -(!node->charge)*((node->valence_pack >> 4) - (node->valence_pack & 0x0F));
-        node->valence_pack += abs(node->charge); 
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, 2 - (node->valence_pack & 0x0F) ); 
-        amapping[i] = atom; 
-        break; 
+      actual_val += node->arom * (limit_val != actual_val); 
 
-      case FLU:
-      case CHL:
-      case BRO:
-      case IOD:
-        // take a default -1 instead of H resolve
-        node->charge += -(!node->charge)*((node->valence_pack & 0x0F) == 0); 
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, 0); 
-        amapping[i] = atom; 
-        break; 
+      switch (node->atom_num) {
+        case CAR: 
+          atom = ob_add_atom(mol, node->atom_num, node->charge, 4 - actual_val); 
+          break; 
 
-      case SUL:
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, (6 - (node->valence_pack & 0x0F)) % 2 ); // sneaky H trick  
-        amapping[i] = atom; 
-        break;
+        case NIT:
+          atom = ob_add_atom(mol, node->atom_num, node->charge, 3 - actual_val); 
+          break; 
+        
+        case OXY:
+          node->charge += -(!node->charge)*(limit_val - actual_val);
+          node->valence_pack += abs(node->charge); 
+          atom = ob_add_atom(mol, node->atom_num, node->charge, 2 - actual_val); 
+          break; 
 
-      case PHO: 
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, (5 - (node->valence_pack & 0x0F)) % 2 ); // sneaky H trick  
-        amapping[i] = atom; 
+        case FLU:
+        case CHL:
+        case BRO:
+        case IOD:
+          // take a default -1 instead of H resolve
+          node->charge += -(!node->charge)*(actual_val == 0); 
+          atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
+          break; 
 
+        case SUL:
+          atom = ob_add_atom(mol, node->atom_num, node->charge, (6 - actual_val) % 2); // sneaky H trick  
+          break;
 
-      case DUM: // used to simplify grow code
-        break; 
+        case PHO: 
+          atom = ob_add_atom(mol, node->atom_num, node->charge, (5 - actual_val) % 2); // sneaky H trick  
 
-      default: // dont add hydrogens
-        atom = ob_add_atom(mol, node->atomic_num, node->charge, 0); 
-        amapping[i] = atom; 
+        default: // dont add hydrogens
+          atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
+      }
+      
+      amapping[i] = atom; 
+      atom->SetAromatic(node->arom); 
     }
   }
   
   for (u16 i=1; i<g->s_num; i++) {
     symbol_t *node = &g->symbols[i];
-    if (node->atomic_num != DUM) {
+    if (node->atom_num != DUM) {
       for (u16 j=0; j<MAX_DEGREE; j++) {
         edge_t *e = &node->bonds[j];
         if (e->c) {
           u16 beg = i; 
           u16 end = e->c - g->symbols;
-          ob_add_bond(mol, amapping[beg], amapping[end], e->order); 
+          
+          bond = ob_add_bond(mol, amapping[beg], amapping[end], e->order);
+          bond->SetAromatic(node->arom & e->c->arom); 
         }
       }
     }
   }
 
-
     // WLN has no inherent stereochemistry, this can be a flag but should be off by default
   mol->SetChiralityPerceived(true);
-  mol->SetAromaticPerceived(false);
-
+  mol->SetAromaticPerceived(true); // let the toolkit do maximal matching
   mol->DeleteHydrogens();
+
+  OpenBabel::OBKekulize(mol); 
 
   return 1; 
 }
