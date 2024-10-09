@@ -2216,28 +2216,25 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'R': 
           r = rt_alloc(g, 6); 
           r->size = 6; // this is explicit
-          for (u16 i=0; i<6; i++) {
-            c = next_symbol(g, e, CAR, 4);
-            if (!c)
-              return ERR_MEMORY; 
-            else {
-              r->path[i].s = c; // set the locants 
-              r->path[i].r_pack |= LOCANT_AROM; // set all aromatic
-              e = set_virtual_edge(e, p, c); 
-            }
-            if (!e)
-              return ERR_ABORT; 
-            else {
-              p = c;
-              e = next_virtual_edge(p); 
-            }
-          }
           
-          // set the ring. R objects are kekulised on stack pop
-          p = r->path[0].s; 
-          c = r->path[5].s; 
-          e = next_virtual_edge(p); 
-          e = set_virtual_edge(e, p, c);
+          c = r->path[0].s; 
+
+          if (!c)
+            return ERR_MEMORY; 
+          else 
+            e = set_virtual_edge(e, p, c); 
+        
+          if (!e)
+            return ERR_ABORT; 
+          else {
+            for (u8 i=0; i<6; i++)
+              r->path[i].r_pack |= LOCANT_AROM;  
+            // set the ring. R objects are kekulised on stack pop
+            p = r->path[0].s; 
+            c = r->path[5].s; 
+            e = next_virtual_edge(p); 
+            e = set_virtual_edge(e, p, c);
+          }
 
           // add to ring stack
           g->stack[g->stack_ptr].addr = r; 
