@@ -50,6 +50,7 @@ GNU General Public License for more details.
 #define DEBUG 1 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
 
 #define MAX_DEGREE 8
+#define SYMBOL_MAX 256
 
 // common bit fields
 #define SPACE_READ  0x01 
@@ -72,9 +73,8 @@ GNU General Public License for more details.
 #define LOCANT_BRIDGE 0x10  
 
 // Error codes 
-#define ERR_NONE   0 // success
-#define ERR_ABORT  1 
-#define ERR_MEMORY 2 
+#define ERR_ABORT  0
+#define ERR_NONE   1 // success
 
 // Element "magic numbers"
 #define DUM   0
@@ -193,24 +193,25 @@ static void gt_free(graph_t *g)
 static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_valence)
 {
   if (g->s_num == g->s_max) {
-    fprintf(stderr,"Warning: symbol limit reached (%d), reallocating...\n", g->s_max); 
+    fprintf(stderr,"Warning: symbol limit reached (%d), this can be overidden in settings\n", g->s_max); 
     return (symbol_t*)0; 
   }
-  
-  symbol_t *s = 0; 
-  
-  if (!e->c)
-    s = &g->symbols[g->s_num++];
-  else 
-    s = e->c; 
+  else {
+    symbol_t *s = 0; 
+    
+    if (!e->c)
+      s = &g->symbols[g->s_num++];
+    else 
+      s = e->c; 
 
-  s->atom_num     = id; 
-  s->arom         = 0; 
-  s->charge       = 0; 
-  s->n_bonds      = 0;
-  s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4;
-  return s; 
+    s->atom_num     = id; 
+    s->arom         = 0; 
+    s->charge       = 0; 
+    s->n_bonds      = 0;
+    s->valence_pack = lim_valence; 
+    s->valence_pack <<= 4;
+    return s; 
+  }
 }
 
 static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
@@ -219,16 +220,18 @@ static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
     fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
     return (symbol_t*)0; 
   }
-  
-  symbol_t *s = &g->symbols[g->s_num++];
+  else {
+    
+    symbol_t *s = &g->symbols[g->s_num++];
 
-  s->atom_num     = id; 
-  s->arom         = 0; 
-  s->charge       = 0; 
-  s->n_bonds      = 0;
-  s->valence_pack = lim_valence; 
-  s->valence_pack <<= 4;
-  return s; 
+    s->atom_num     = id; 
+    s->arom         = 0; 
+    s->charge       = 0; 
+    s->n_bonds      = 0;
+    s->valence_pack = lim_valence; 
+    s->valence_pack <<= 4;
+    return s; 
+  }
 }
 
 /* used in the ring parse, leaves bonds alone */
@@ -465,7 +468,7 @@ static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
   symbol_t *c = next_symbol(g, e, OXY, 2); 
 
   if (!c)
-    return ERR_MEMORY; 
+    return ERR_ABORT; 
   else {
     if (!ion) {
       e->order++; 
@@ -576,10 +579,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             // move forward space to skip redundant block - should appear on space, 
             // if not, error.
             sp += ch - '0' + 1; 
-            if (sp >= end || ptr[sp] != ' ') {
-              fprintf(stderr, "Error: invalid format for multicyclic ring\n"); 
-              return (ring_t*)0; 
-            }
+            if (sp >= end || ptr[sp] != ' ') 
+              return (ring_t*)error("Error: invalid format for multicyclic ring");
             else {
               ring = rt_alloc(g, upper_r_size, head, head_loc); 
               state |= MULTI_READ; 
@@ -594,10 +595,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             SSSR[SSSR_ptr++].r_loc  = locant_ch; 
             locant_ch = 0; 
           }
-          else {
-            fprintf(stderr,"Error: digit used outside of known state\n"); 
-            return (ring_t*)0; 
-          }
+          else 
+            return (ring_t*)error("Error: digit used outside of known state"); 
           break; 
         
         case 'A':
@@ -606,8 +605,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
         case 'J':
         case 'L':
         case 'R':
-          fprintf(stderr,"Error: non-elemental symbols outside valid read states\n"); 
-          return (ring_t*)0; 
+          return (ring_t*)error("Error: non-elemental symbols outside valid read states\n"); 
           break; 
       
         case 'B':
@@ -624,10 +622,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'K': 
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return (ring_t*)0; 
-          }
+          if (locant_ch > upper_r_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
           else { 
             c = transmute_symbol(ring->path[locant_ch].s, NIT, 4); 
             c->charge++; 
@@ -651,10 +647,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'N':
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return (ring_t*)0; 
-          }
+          if (locant_ch > upper_r_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
           else {
             c = transmute_symbol(ring->path[locant_ch].s, NIT, 3); 
             e = &c->bonds[0]; 
@@ -665,7 +659,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'O':
           if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant access"); 
             return (ring_t*)0; 
           }
           else {
@@ -677,10 +671,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'P':
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return (ring_t*)0; 
-          }
+          if (locant_ch > upper_r_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
           else { 
             c = transmute_symbol(ring->path[locant_ch].s, PHO, 6); 
             e = &c->bonds[0]; 
@@ -761,8 +753,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
         case 'I':
         case 'Q':
         case 'Z':
-          fprintf(stderr,"Error: terminators as ring atoms are undefined symbols\n"); 
-          return (ring_t*)0; 
+          return (ring_t*)error("Error: terminators as ring atoms are undefined symbols"); 
           break; 
 
         case '&':
@@ -788,10 +779,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             state |= PSEUDO_READ; 
           }
           else if (state & PSEUDO_READ) {
-            if (buff_ptr != 2) {
-              fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
-              return (ring_t*)0; 
-            }
+            if (buff_ptr != 2) 
+              return (ring_t*)error("Error: pseudo locants must come in pairs"); 
             else 
               fprintf(stderr,"need impl\n"); 
           }
@@ -804,10 +793,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
         case ' ':
           if (state & PSEUDO_READ) {
             // make the pseudo bond immediately avaliable, 
-            if (buff_ptr != 2) {
-              fprintf(stderr,"Error: pseudo locants must come in pairs\n"); 
-              return (ring_t*)0; 
-            }
+            if (buff_ptr != 2) 
+              return (ring_t*)error("Error: pseudo locants must come in pairs"); 
             else {
 #if DEBUG 
               fprintf(stderr,"pseudo: %c --> %c\n", buffer[0], buffer[1]); 
@@ -1404,7 +1391,7 @@ static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
     e = next_virtual_edge(c); 
     m = next_symbol(g, e, CAR, 4); 
     if (!m)
-      return ERR_MEMORY; 
+      return ERR_ABORT; 
     else 
       e = set_virtual_edge(e, c, m); 
   }
@@ -1534,7 +1521,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
         c = next_symbol(g, e, CAR, 4);
         if (!c)
-          return ERR_MEMORY; 
+          return ERR_ABORT; 
         else
           e = set_virtual_edge(e, p, c); 
 
@@ -1584,10 +1571,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return error("Error: dioxo attachment needs higher valence atom"); 
           else if (ch_nxt == '/') {
             // positive charge assignment
-            if (digit_n > len || !g->idx_symbols[digit_n]) {
-              fprintf(stderr,"Error: charge assignment out of bounds\n");
-              return ERR_ABORT; 
-            }
+            if (digit_n > len || !g->idx_symbols[digit_n]) 
+              return error("Error: charge assignment out of bounds"); 
             else {
               g->idx_symbols[digit_n]->charge++; 
               state |= CHARGE_READ; 
@@ -1601,23 +1586,20 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
                        
             if (state & CHARGE_READ) {
               // negative charge assignment
-              if (digit_n > len || !g->idx_symbols[digit_n]) {
-                fprintf(stderr,"Error: charge assignment out of bounds\n");
-                return ERR_ABORT; 
-              }
+              if (digit_n > len || !g->idx_symbols[digit_n]) 
+                return error("Error: charge assignment out of bounds"); 
               else {
                 g->idx_symbols[digit_n]->charge--; 
                 state &= ~CHARGE_READ; 
                 digit_n = 0; 
               }
-
             }
             else {
               // create the alkyl chain
               for (u16 i=0; i<digit_n; i++) {
                 c = next_symbol(g, e, CAR, 4);
                 if (!c)
-                  return ERR_MEMORY; 
+                  return ERR_ABORT; 
                 else
                   e = set_virtual_edge(e, p, c); 
 
@@ -1651,10 +1633,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return error("Error: dioxo attachment needs higher valence atom"); 
           else if (ch_nxt == '/') {
             // positive charge assignment
-            if (digit_n > len || !g->idx_symbols[digit_n]) {
-              fprintf(stderr,"Error: charge assignment out of bounds\n");
-              return ERR_ABORT; 
-            }
+            if (digit_n > len || !g->idx_symbols[digit_n]) 
+              return error("Error: charge assignment out of bounds"); 
             else {
               g->idx_symbols[digit_n]->charge++; 
               state |= CHARGE_READ; 
@@ -1666,10 +1646,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             
             if (state & CHARGE_READ) {
               // negative charge assignment
-              if (digit_n > len || !g->idx_symbols[digit_n]) {
-                fprintf(stderr,"Error: charge assignment out of bounds\n");
-                return ERR_ABORT; 
-              }
+              if (digit_n > len || !g->idx_symbols[digit_n])
+                return error("Error: charge assignment out of bounds"); 
               else {
                 g->idx_symbols[digit_n]->charge--; 
                 state &= ~CHARGE_READ; 
@@ -1682,7 +1660,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
               for (u16 i=0; i<digit_n; i++) {
                 c = next_symbol(g, e, CAR, 4);
                 if (!c)
-                  return ERR_MEMORY; 
+                  return ERR_ABORT; 
                 else
                   e = set_virtual_edge(e, p, c); 
 
@@ -1708,7 +1686,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'B':
           c = next_symbol(g, e, BOR, 3);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -1734,7 +1712,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'C':
           c = next_symbol(g, e, CAR, 4);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -1758,7 +1736,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'E':
           c = next_symbol(g, e, BRO, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -1793,7 +1771,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'F':
           c = next_symbol(g, e, FLU, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -1828,7 +1806,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'G':
           c = next_symbol(g, e, CHL, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -1864,7 +1842,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           // treat hydrogen as a terminator
           c = next_symbol(g, e, 1, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -1899,7 +1877,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'I':
           c = next_symbol(g, e, IOD, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -1935,7 +1913,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           c = next_symbol(g, e, NIT, 4);
           c->charge++; 
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -1969,7 +1947,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'M':
           c = next_symbol(g, e, NIT, 3);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -1992,7 +1970,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'N':
           c = next_symbol(g, e, NIT, 3);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2019,7 +1997,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'O':
           c = next_symbol(g, e, OXY, 2);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2035,7 +2013,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'P':
           c = next_symbol(g, e, PHO, 5);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2062,7 +2040,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'Q':
           c = next_symbol(g, e, OXY, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -2099,7 +2077,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           // head symbol can come from virtual X|Y|K
           c = next_symbol(g, e, CAR, 4);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -2108,7 +2086,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           r = rt_alloc(g, 6, c, 0); 
           
           if (!r)
-            return ERR_MEMORY; // only way this can fail 
+            return ERR_ABORT; // only way this can fail 
           else {
             r->size = 6; // this is explicit
             for (u8 i=0; i<6; i++)
@@ -2131,7 +2109,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'S':
           c = next_symbol(g, e, SUL, 6);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2165,7 +2143,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'V':
           c = next_symbol(g, e, CAR, 4);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2175,8 +2153,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
 
             if(state & DIOXO_READ) 
               return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (add_oxy(g, c, 0) == ERR_MEMORY)
-              return ERR_MEMORY; 
+            else if (add_oxy(g, c, 0) == ERR_ABORT)
+              return ERR_ABORT; 
             else {
               p = c; 
               g->idx_symbols[sp+1] = c; 
@@ -2191,8 +2169,8 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if(state & DIOXO_READ) 
             return error("Error: double dioxo attachment needs is undefined"); 
           else if (p->atom_num != DUM) {
-            if (add_tauto_dioxy(g, p) == ERR_MEMORY)
-              return ERR_MEMORY; 
+            if (add_tauto_dioxy(g, p) == ERR_ABORT)
+              return ERR_ABORT; 
             else 
               e = next_virtual_edge(p);  
           }
@@ -2203,7 +2181,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'X':
           c = next_symbol(g, e, CAR, 4);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2232,7 +2210,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'Y':
           c = next_symbol(g, e, CAR, 4);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else
             e = set_virtual_edge(e, p, c); 
 
@@ -2261,7 +2239,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
         case 'Z':
           c = next_symbol(g, e, NIT, 1);
           if (!c)
-            return ERR_MEMORY; 
+            return ERR_ABORT; 
           else {
             g->idx_symbols[sp+1] = c; 
             e = set_virtual_edge(e, p, c); 
@@ -2297,7 +2275,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (state & DASH_READ) {
             c = next_symbol(g, e, DUM, 6); // create a blank symbol
             if (!c)
-              return ERR_MEMORY; 
+              return ERR_ABORT; 
             else {
 
               if (write_dash_symbol(c, dash_chars[0], dash_chars[1]) == ERR_ABORT)
@@ -2523,7 +2501,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
   int ret = 0; 
-  u16 st_pool_size = 128; 
+  u16 st_pool_size = SYMBOL_MAX; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
   const u16 len = strlen(ptr); 
@@ -2532,15 +2510,7 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
   memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
 
-  // allows recovery and resetting for large molecules (ideally never invoked)  
   ret = parse_wln(ptr, len, g); 
-  while (ret == ERR_MEMORY && st_pool_size < 1024) {
-    st_pool_size *= 2; 
-    gt_free(g); 
-    gt_alloc(g, st_pool_size); 
-    ret = parse_wln(ptr, len, g); 
-  }
-  
   if (ret == ERR_NONE)
     ob_convert_wln_graph(mol, g);
   else 
@@ -2574,17 +2544,9 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
     memset(g->idx_symbols,0,sizeof(symbol_t*)*len_high); 
     
     ret = parse_wln(buffer, len, g); 
-    while (ret == ERR_MEMORY && st_pool_size < 1024) {
-      st_pool_size *= 2; 
-      gt_free(g); 
-      gt_alloc(g, st_pool_size); 
-      ret = parse_wln(buffer, len, g); 
-    }
-    
     if (ret == ERR_NONE) {
       ob_convert_wln_graph(mol, g);
       conv->Write(mol, &std::cout); 
-
       gt_clear(g); 
       mol->Clear(); 
     }
