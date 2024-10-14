@@ -189,7 +189,6 @@ static void gt_free(graph_t *g)
   free(g->symbols); 
 }
 
-
 static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_valence)
 {
   if (g->s_num == g->s_max) {
@@ -317,7 +316,8 @@ static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const u16 
     ring->path[i].hloc = i+1; // point to the next locant 
     p = c; 
   }
-
+  
+  ring->size = size; 
   return ring; 
 }
 
@@ -362,6 +362,7 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
    * of the fusion sum as mentioned in the manuals. 
    *
   */
+
 
   u8 steps, s_pos;
   edge_t *e; 
@@ -466,7 +467,7 @@ static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
 {
   edge_t *e = next_virtual_edge(p); 
   symbol_t *c = next_symbol(g, e, OXY, 2); 
-
+  
   if (!c)
     return ERR_ABORT; 
   else {
@@ -497,7 +498,33 @@ static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
   }
   else 
     return add_oxy(g, p, 1); 
-}; 
+};
+
+
+/* locants can be expanded or read as branches with '&' and '-'
+ * chars. In order to move the state as the string is being read, 
+ * these have to be handled per locant read. The logic this saves
+ * outweighs the branches in the loop */
+static u8 read_locant(const char *ptr, u16 *idx, u16 limit_idx)
+{
+  u8 locant = ptr[*idx] - 'A'; 
+  for (u16 i=*idx+1; i<limit_idx; i++) {
+    switch (ptr[i]) {
+      case '&':
+        locant += 23; 
+        break; 
+
+      case '-':
+        fprintf(stderr,"off-branch reads need handling\n"); 
+      
+      default:
+        return locant; 
+    }
+    (*idx)++; 
+  }
+  
+  return locant; 
+}
 
 
 static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, 
@@ -510,11 +537,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
   u8 locant_ch     = 0; 
   u8 arom_count    = 0;
-  u8 upper_r_size  = 0;  
-  // note: The WLN ring system will always be <= than the sum of 
-  //       the ring assignment values, therefore alloc'ing the sum 
-  //       wastes the least amount of space and avoids a hash map for 
-  //       bridging/pseudo bridging flags. 
+  u8 ring_size  = 0;  
   
   u8 SSSR_ptr  = 0; 
   r_assignment SSSR[32]; // this really is sensible for WLN
@@ -543,20 +566,20 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
       else 
         buffer[buff_ptr++] = ch; 
     }
-    else if (state & SPACE_READ && (ch >= 'A' && ch <= 'Z')){
-      locant_ch = ch - 'A';
+    else if (state & SPACE_READ && (ch >= 'A' && ch <= 'Z')) {
+      locant_ch = read_locant(ptr, &sp, end); 
       state &= ~SPACE_READ; 
     }
     else if (state & MULTI_READ) {
       // must be the incoming ring size
-      ring->size = ch - 'A' + 1; 
+      ring_size = read_locant(ptr, &sp, end) + 1; 
       state &= ~MULTI_READ; 
     }
     else {
       // create the ring as necessary
       if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
         // end the SSSR read, start element reading
-        ring = rt_alloc(g, upper_r_size, head, head_loc); 
+        ring = rt_alloc(g, ring_size, head, head_loc); 
         state &= ~SSSR_READ; 
       } 
       
@@ -577,22 +600,20 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           if (state & SPACE_READ && state & SSSR_READ) {
             // multicyclic block start
             // move forward space to skip redundant block - should appear on space, 
-            // if not, error.
+            // if not, error. This is currently wrong
             sp += ch - '0' + 1; 
             if (sp >= end || ptr[sp] != ' ') 
               return (ring_t*)error("Error: invalid format for multicyclic ring");
             else {
-              ring = rt_alloc(g, upper_r_size, head, head_loc); 
               state |= MULTI_READ; 
-              state &= ~SSSR_READ; 
               state &= ~SPACE_READ; 
             }
           }
           else if (state & SSSR_READ){
-            upper_r_size += ch - '0'; 
+            ring_size += ch - '0' - (2*(ring_size>0)); 
             SSSR[SSSR_ptr].r_size   = ch - '0'; 
             SSSR[SSSR_ptr].arom     = 1; // default is aromatic 
-            SSSR[SSSR_ptr++].r_loc  = locant_ch; 
+            SSSR[SSSR_ptr++].r_loc  =  locant_ch; //read_locant(ptr, &sp, end); 
             locant_ch = 0; 
           }
           else 
@@ -609,10 +630,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
       
         case 'B':
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return (ring_t*)0; 
-          }
+          if (locant_ch > ring_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
           else {
             c = transmute_symbol(ring->path[locant_ch].s, BOR, 3); 
             e = &c->bonds[0]; 
@@ -622,7 +641,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'K': 
-          if (locant_ch > upper_r_size) 
+          if (locant_ch > ring_size) 
             return (ring_t*)error("Error: out of bounds locant access"); 
           else { 
             c = transmute_symbol(ring->path[locant_ch].s, NIT, 4); 
@@ -634,10 +653,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'M':
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
-            return (ring_t*)0; 
-          }
+          if (locant_ch > ring_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
           else { 
             c = transmute_symbol(ring->path[locant_ch].s, NIT, 2); 
             e = &c->bonds[0]; 
@@ -647,7 +664,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'N':
-          if (locant_ch > upper_r_size) 
+          if (locant_ch > ring_size) 
             return (ring_t*)error("Error: out of bounds locant access"); 
           else {
             c = transmute_symbol(ring->path[locant_ch].s, NIT, 3); 
@@ -658,10 +675,8 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'O':
-          if (locant_ch > upper_r_size) {
-            fprintf(stderr,"Error: out of bounds locant access"); 
-            return (ring_t*)0; 
-          }
+          if (locant_ch > ring_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
           else {
             c = transmute_symbol(ring->path[locant_ch].s, OXY, 2); 
             e = &c->bonds[0]; 
@@ -671,7 +686,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'P':
-          if (locant_ch > upper_r_size) 
+          if (locant_ch > ring_size) 
             return (ring_t*)error("Error: out of bounds locant access"); 
           else { 
             c = transmute_symbol(ring->path[locant_ch].s, PHO, 6); 
@@ -682,7 +697,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         case 'S':
-          if (locant_ch > upper_r_size) {
+          if (locant_ch > ring_size) {
             fprintf(stderr,"Error: out of bounds locant access\n"); 
             return (ring_t*)0; 
           }
@@ -705,7 +720,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
         // be handled in the pathsolver algorithm, there place at bonds[1...n]. 
         case 'U':
           if (ch_nxt == '-') {
-
+            
 
           }
           else if (e) {
@@ -714,13 +729,13 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             e->order++; 
             e->c->valence_pack++; 
           }
-          else if (locant_ch == upper_r_size - 1) {
+          else if (locant_ch == ring_size - 1) {
             // will wrap back onto the start, again, determined position likely at bonds[1], when logic shifts last bond, unsaturation on last position is technically undefined. 
             c = ring->path[0].s;  
             c->bonds[1].order += 2; // the edge is not yet live ~ 2
             c->valence_pack++; 
           }
-          else if (locant_ch < upper_r_size) {
+          else if (locant_ch < ring_size) {
             c = ring->path[locant_ch].s;  
             c->bonds[0].order++; 
             c->valence_pack++; 
@@ -730,7 +745,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
           
         case 'V':
-          if (locant_ch > upper_r_size) {
+          if (locant_ch > ring_size) {
             fprintf(stderr,"Error: out of bounds locant access\n"); 
             return (ring_t*)0; 
           }
@@ -763,7 +778,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             buffer[buff_ptr-1] += 23; 
           else if (state & AROM_READ) 
             SSSR[arom_count++].arom = 1; 
-          else if (locant_ch && locant_ch + 23 < upper_r_size)
+          else if (locant_ch && locant_ch + 23 < ring_size)
             locant_ch += 23; 
           else {
             SSSR[arom_count++].arom = 1; 
@@ -773,7 +788,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case '/':
           if (state & SSSR_READ) {
-            ring = rt_alloc(g, upper_r_size, head, head_loc); 
+            ring = rt_alloc(g, ring_size, head, head_loc); 
             state &= ~(SSSR_READ); 
             buff_ptr = 0; 
             state |= PSEUDO_READ; 
@@ -819,36 +834,18 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
     }
   }
   
-  if (state & SSSR_READ)
-    ring = rt_alloc(g, upper_r_size, head, head_loc); 
+
+  if (state & SSSR_READ) {
+    ring = rt_alloc(g, ring_size, head, head_loc); 
+  }
+
 
   // forward any single arom assignments
   for (u16 i=arom_count;i<SSSR_ptr;i++)
     SSSR[i].arom = SSSR[0].arom; 
-
-  // not assigned through multicyclic sizes
-  if (ring->size == 0) {
-    // simplest rings, SSSR[0] + SSSR[1] - 2
-    ring->size = SSSR[0].r_size; 
-    for (u16 i=1; i<SSSR_ptr; i++)
-      ring->size += SSSR[i].r_size - 2; 
-  }
   
-  // truncate the size down from upper_r_size to r->size 
-  // fairly cheap, compared to alternatives
-  if (upper_r_size != ring->size) { 
-    g->s_num -= upper_r_size - ring->size; 
-    c = &g->symbols[g->s_num-1]; 
-    c->n_bonds--; 
-    c->valence_pack--; 
-    memset(&c->bonds[c->n_bonds],0,sizeof(edge_t)); 
-    memset(g->symbols + g->s_num, 0, sizeof(symbol_t) * (g->s_max - g->s_num)); 
-  }
 
-  if (connection_table)
-    return pathsolverIII(g, ring, SSSR, SSSR_ptr, connection_table);
-  else 
-    return pathsolverIII_fast(g, ring, SSSR, SSSR_ptr);     
+  return pathsolverIII_fast(g, ring, SSSR, SSSR_ptr);     
 }
 
 static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
@@ -2088,7 +2085,6 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           if (!r)
             return ERR_ABORT; // only way this can fail 
           else {
-            r->size = 6; // this is explicit
             for (u8 i=0; i<6; i++)
               r->path[i].s->arom = 1; 
             // set the ring. R objects are kekulised on stack pop
@@ -2501,12 +2497,11 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
   int ret = 0; 
-  u16 st_pool_size = SYMBOL_MAX; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
   const u16 len = strlen(ptr); 
   
-  gt_alloc(g, st_pool_size); 
+  gt_alloc(g, SYMBOL_MAX); 
   g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
   memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
 
