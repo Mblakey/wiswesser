@@ -17,6 +17,7 @@ GNU General Public License for more details.
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/time.h>
 #include <iostream>
 
 #include "parser.h"
@@ -887,6 +888,10 @@ void RunBenchmark() {
   
   unsigned int n_correct = 0; 
   unsigned int n_wrong   = 0; 
+
+  struct timeval stop, start;
+  gettimeofday(&start, NULL);
+
   for (unsigned int i=0; i<BENCH_N;i++) {
     fprintf(stderr,"%s\n",wln_bench[i]); 
     if (!C_ReadWLN(wln_bench[i], &mol))
@@ -903,9 +908,10 @@ void RunBenchmark() {
       mol.Clear(); 
     }
   }
-  
+
+  gettimeofday(&stop, NULL);
   fprintf(stderr, "%d/%d compounds correct\n", n_correct, BENCH_N); 
-  fprintf(stderr, "slow benchmark completed in %d seconds\n\n", BENCH_N); 
+  fprintf(stderr, "slow benchmark took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
   exit(0); 
 }
 
