@@ -116,7 +116,7 @@ typedef struct {
 // 80 = 16*5, multiple of 16 stack aligned
 struct symbol_t {
   u8 atom_num;   
-  u8 arom; 
+  char arom; // -1 indicates ignore 
   char charge;   
   u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
   u8 n_bonds; 
@@ -126,7 +126,7 @@ struct symbol_t {
 typedef struct locant {
   symbol_t *s; 
   u8 hloc; // used for pathsolver 
-  u8 r_pack; // [ (of) 2b ][ arom 1b ][ bridging 1b ][ dangling u4 ] 
+  u8 r_pack; // [of 1b][ offL 1b ][ offR 1b ][ bridging 1b ][ dangling u4 ] 
   locant *off_path[2]; // 0 = -. 1 = '&' 
 } locant; 
 
@@ -634,6 +634,18 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             return (ring_t*)error("Error: out of bounds locant access"); 
           else {
             c = transmute_symbol(ring->path[locant_ch].s, BOR, 3); 
+            e = &c->bonds[0]; 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
+        case 'H':
+          if (locant_ch > ring_size) 
+            return (ring_t*)error("Error: out of bounds locant access"); 
+          else {
+            c = ring->path[locant_ch].s; 
+            c->arom = -1; // will get ignored, bits overlap
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -2086,7 +2098,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
             return ERR_ABORT; // only way this can fail 
           else {
             for (u8 i=0; i<6; i++)
-              r->path[i].s->arom = 1; 
+              r->path[i].s->arom |= 1; 
             // set the ring. R objects are kekulised on stack pop
             p = r->path[0].s; 
             c = r->path[5].s; 
@@ -2423,7 +2435,8 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
       u8 limit_val = node->valence_pack >> 4; 
       u8 actual_val = node->valence_pack & 0x0F; 
       
-      actual_val += node->arom * (limit_val != actual_val); 
+      if (node->arom == 1)
+        actual_val += (limit_val != actual_val); 
 
       switch (node->atom_num) {
         case CAR: 
@@ -2461,7 +2474,8 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
       }
       
       amapping[i] = atom; 
-      atom->SetAromatic(node->arom); 
+      if (node->arom == 1)
+        atom->SetAromatic(node->arom); 
     }
   }
   
@@ -2475,7 +2489,8 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
           u16 end = e->c - g->symbols;
           
           bond = ob_add_bond(mol, amapping[beg], amapping[end], e->order);
-          bond->SetAromatic(node->arom & e->c->arom); 
+          if (node->arom == 1 && e->c->arom == 1)
+            bond->SetAromatic(1); 
         }
       }
     }
