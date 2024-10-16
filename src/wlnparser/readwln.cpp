@@ -47,7 +47,7 @@ GNU General Public License for more details.
 
 #include "parser.h"
 
-#define DEBUG 1 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
+//#define DEBUG 1 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
 
 #define MAX_DEGREE 8
 #define SYMBOL_MAX 256
@@ -71,6 +71,9 @@ GNU General Public License for more details.
 
 // Ring type "magic numbers"
 #define LOCANT_BRIDGE 0x10  
+
+// edge order as data packing 
+#define HANGING_BOND 0x80 
 
 // Error codes 
 #define ERR_ABORT  0
@@ -98,14 +101,6 @@ static u8 error(const char *message)
   return ERR_ABORT;  
 }
 
-static void print_byte(u8 byte)
-{
-  for (char i=7; i>=0; i--) {
-    fprintf(stderr,"%d", byte & (1 << i) ? 1:0); 
-  }
-  fprintf(stderr,"\n"); 
-}
-
 // 9 bytes
 typedef struct {
   symbol_t* c; 
@@ -116,19 +111,19 @@ typedef struct {
 // 4 + (8*9) = 76 bytes per symbol
 // 80 = 16*5, multiple of 16 stack aligned
 struct symbol_t {
-  u8 atom_num;   
-  char arom; // -1 indicates ignore 
-  char charge;   
-  u8 valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
-  u8 n_bonds; 
+  u8    atom_num;   
+  char  arom; // -1 indicates ignore 
+  char  charge;   
+  u8    valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
+  u8    n_bonds; 
   edge_t bonds[MAX_DEGREE]; // directional 
 };
 
 typedef struct locant {
-  symbol_t *s; 
   u8 hloc; // used for pathsolver 
   u8 r_pack; // [of 1b][ offL 1b ][ offR 1b ][ bridging 1b ][ dangling u4 ] 
-  locant *off_path[2]; // 0 = -. 1 = '&' 
+  symbol_t *s; 
+  locant   *off_path[2]; // 0 = -. 1 = '&' 
 } locant; 
 
 typedef struct {
@@ -144,7 +139,7 @@ typedef struct {
   u8 stack_ptr;  // WLN DFS style branch and ring stack
   struct {
     void *addr; 
-    signed char ref; // -1 for (ring_t*) else (symbol_t*) 
+    char ref; // -1 for (ring_t*) else (symbol_t*) 
   } stack[32];  
   
   symbol_t  *symbols; 
@@ -248,14 +243,13 @@ static symbol_t* transmute_symbol(symbol_t *s, const u16 id, const u8 lim_valenc
  * are stack compatible atoms, 
  * transition metals are given a 6 valence limit - not allowed to expand
  * the octet. WLN does not have any rules for this, so this heuristic is
- * subject to interpretation - Not a Chemist, please
- * correct me! 
+ * subject to interpretation 
 */
 
 static __always_inline edge_t* next_virtual_edge(symbol_t *p)
 {
   edge_t *e = &p->bonds[p->n_bonds++]; 
-  e->order += (e->order==0); 
+  e->order = (e->order | 0x01) & 0x03;  
   return e; 
 }
 
@@ -399,8 +393,10 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
 
     e = next_virtual_edge(start->s); 
     e = set_virtual_edge(e, start->s, end->s);
-    e->ring = 1; 
-
+    if (!e)
+      return 0; 
+    else 
+      e->ring = 1; 
     start->hloc = end - &r->path[0]; 
   }
 
@@ -501,6 +497,23 @@ static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
     return add_oxy(g, p, 1); 
 };
 
+static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
+{
+  edge_t *e; 
+  symbol_t *m;
+  u8 b_store = c->n_bonds; 
+  for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
+    e = next_virtual_edge(c); 
+    m = next_symbol(g, e, CAR, 4); 
+    if (!m)
+      return ERR_ABORT; 
+    else 
+      e = set_virtual_edge(e, c, m); 
+  }
+
+  c->n_bonds = b_store;  
+  return ERR_NONE; 
+}
 
 /* locants can be expanded or read as branches with '&' and '-'
  * chars. In order to move the state as the string is being read, 
@@ -542,6 +555,9 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
   
   u8 SSSR_ptr  = 0; 
   r_assignment SSSR[32]; // this really is sensible for WLN
+  
+  u8 bridge_ptr  = 0; 
+  u16 bridge_locants[16]; 
 
   u8 buff_ptr = 0; 
   unsigned char buffer[3]; 
@@ -573,53 +589,37 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
       
       // handle single letter bridges, requires check for ring build
       // bridges must come after multicyclic definition for correct syntax
-#define BRIDGE_LOGIC 
-#ifdef BRIDGE_LOGIC
       if (ch_nxt == 'J' || ch_nxt == 'T' || ch_nxt == ' ') {
-        if (state & SSSR_READ) {
-          ring = rt_alloc(g, ring_size, head, head_loc); 
-          state &= ~SSSR_READ; 
-        }
-        
-        // pathfinderIII ignores double bridge specificitions, even though it is valid WLN
         if (locant_ch > ring_size) {
           fprintf(stderr, "Error: out of bounds locant access"); 
           goto ring_fail; 
         }
-        else if (!(ring->path[locant_ch].r_pack & LOCANT_BRIDGE)) {
-          ring->path[locant_ch].r_pack--; // remove 1 due to bridging
-          ring->path[locant_ch].r_pack |= LOCANT_BRIDGE;  
-        }
         else 
-          ring->path[locant_ch].r_pack |= LOCANT_BRIDGE;  
-        
+          bridge_locants[bridge_ptr++] = locant_ch; 
+
         locant_ch = 0; 
       }
-#endif
       state &= ~SPACE_READ; 
     }
     else if (state & MULTI_READ) {
       // must be the incoming ring size
       ring_size = read_locant(ptr, &sp, end) + 1; 
+      ring = rt_alloc(g, ring_size, head, head_loc); 
       state &= ~MULTI_READ; 
     }
     else {
       // create the ring as necessary
       if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
         // end the SSSR read, start element reading
-        
-        if (ring) {
-          fprintf(stderr, "Error: ring has already been created - syntax ordering issue\n"); 
+        if (ring || !SSSR_ptr) {
+          fprintf(stderr, "Error: ring backbone failure - syntax ordering issue\n"); 
           goto ring_fail; 
         }
         else
-          ring = rt_alloc(g, ring_size, head, head_loc); 
+          ring = rt_alloc(g, ring_size-bridge_ptr, head, head_loc); 
 
         state &= ~SSSR_READ; 
       } 
-
-      // some state resetting can go on here 
-      state &= ~SPACE_READ; 
 
       switch (ch) {
         // special pi bonding
@@ -639,14 +639,18 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
             // multicyclic block start
             // move forward space to skip redundant block - should appear on space, 
             // if not, error. This is currently wrong
-            sp += ch - '0' + 1; 
+
+            for (u8 i=0; i < ch-'0'+1; i++) 
+              read_locant(ptr, &++sp, end); 
+
             if (sp >= end || ptr[sp] != ' ') {
-              fprintf(stderr, "Error: invalid format for multicyclic ring\n");
+              fprintf(stderr, "Error: invalid format for multicyclic ring - %c\n", ptr[sp]);
               goto ring_fail; 
             }
             else {
               state |= MULTI_READ; 
               state &= ~SPACE_READ; 
+              state &= ~SSSR_READ; 
             }
           }
           else if (state & SSSR_READ){
@@ -706,7 +710,13 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           }
           else { 
             c = transmute_symbol(ring->path[locant_ch].s, NIT, 4); 
+            ring->path[locant_ch].r_pack++; 
             c->charge++; 
+            
+            c->bonds[0].order = HANGING_BOND; 
+            c->bonds[1].order = HANGING_BOND;  
+            c->bonds[2].order = HANGING_BOND; 
+
             e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
@@ -832,6 +842,43 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'W':
           break; 
+
+        case 'X':
+          if (locant_ch > ring_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            goto ring_fail; 
+          }
+          else {
+            c = ring->path[locant_ch].s; 
+
+            // purely virtual bonds that may or may not get tidyed up
+            c->bonds[1].order = HANGING_BOND; 
+            c->bonds[2].order = HANGING_BOND; 
+            c->bonds[3].order = HANGING_BOND; 
+
+            e = &c->bonds[0]; 
+            ring->path[locant_ch].r_pack++; // the me
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
+      
+        case 'Y':
+          if (locant_ch > ring_size) {
+            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            goto ring_fail; 
+          }
+          else {
+            c = ring->path[locant_ch].s; 
+            c->valence_pack++; 
+            e = &c->bonds[1]; // not involed in ring, if used more than once in ring graph, undefined behaviour
+            e->order = 2; 
+            g->idx_symbols[sp+1] = c; 
+            locant_ch++; 
+          }
+          break; 
+
         
         // undefined terminator ring sequences
         case 'E':
@@ -861,7 +908,6 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case '/':
           if (state & SSSR_READ) {
-            ring = rt_alloc(g, ring_size, head, head_loc); 
             state &= ~(SSSR_READ); 
             buff_ptr = 0; 
             state |= PSEUDO_READ; 
@@ -911,9 +957,20 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
     }
   }
   
+  if (state & SSSR_READ) {
+    // this must be a poly cyclic ring, 
+    ring = rt_alloc(g, ring_size - bridge_ptr, head, head_loc); 
+  }
 
-  if (state & SSSR_READ) 
-    ring = rt_alloc(g, ring_size, head, head_loc); 
+  // resolve any bridges 
+  for (u16 i=0; i<bridge_ptr; i++) {
+    if (bridge_locants[i] >= ring->size) {
+      fprintf(stderr,"Error: out of bounds locant access\n"); 
+      goto ring_fail; 
+    } 
+    else 
+      ring->path[bridge_locants[i]].r_pack--; 
+  }
 
 
   // forward any single arom assignments
@@ -1463,22 +1520,6 @@ static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
 }
 
 
-static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
-{
-  edge_t *e; 
-  symbol_t *m;
-  for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
-    e = next_virtual_edge(c); 
-    m = next_symbol(g, e, CAR, 4); 
-    if (!m)
-      return ERR_ABORT; 
-    else 
-      e = set_virtual_edge(e, c, m); 
-  }
-
-  c->n_bonds = 0;  
-  return ERR_NONE; 
-}
 
 
 /* returns the pending unsaturate level for the next symbol */
@@ -1590,7 +1631,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
     ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
     
     if (state & RING_READ) {
-      if (ch == 'J' && ch_nxt < '0') {
+      if (ptr[sp-1] >= 'A' && ch == 'J' && ch_nxt < '0') {
         // J can be used inside ring notation, requires lookahead 
         // condition 
         
@@ -2545,6 +2586,7 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 
         case PHO: 
           atom = ob_add_atom(mol, node->atom_num, node->charge, (5 - actual_val) % 2); // sneaky H trick  
+          break;
 
         default: // dont add hydrogens
           atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
@@ -2560,16 +2602,23 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
     symbol_t *node = &g->symbols[i];
     if (node->atom_num != DUM) {
       for (u16 j=0; j<MAX_DEGREE; j++) {
+        u16 end; 
+        u16 beg = i; 
         edge_t *e = &node->bonds[j];
         if (e->c) {
-          u16 beg = i; 
-          u16 end = e->c - g->symbols;
-          
+          end = e->c - g->symbols;
           bond = ob_add_bond(mol, amapping[beg], amapping[end], e->order);
           if (e->ring && node->arom == 1 && e->c->arom == 1)
             bond->SetAromatic(1); 
           else
             bond->SetAromatic(0);
+        }
+        // purely virtual additions which need tidying up
+        else if (e->order == HANGING_BOND && (node->valence_pack & 0x0F) < (node->valence_pack>>4)) {
+          atom = ob_add_atom(mol, CAR, 0, 3); 
+          bond = ob_add_bond(mol, amapping[beg], atom, 1);
+          amapping[beg]->SetImplicitHCount(amapping[beg]->GetImplicitHCount()-1); 
+          node->valence_pack++;
         }
       }
     }
