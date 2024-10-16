@@ -59,7 +59,7 @@ GNU General Public License for more details.
 
 // standard parse fields
 #define RING_READ   0x08
-#define BIND_READ   0x10 // locant ring access
+#define BIND_READ   0x10 // locant_t ring access
 #define CHARGE_READ 0x20
 #define DIOXO_READ  0x40 // this is an annoying one
 
@@ -119,16 +119,25 @@ struct symbol_t {
   edge_t bonds[MAX_DEGREE]; // directional 
 };
 
-typedef struct locant {
+typedef struct locant_t {
   u8 hloc; // used for pathsolver 
   u8 r_pack; // [of 1b][ offL 1b ][ offR 1b ][ bridging 1b ][ dangling u4 ] 
   symbol_t *s; 
-  locant   *off_path[2]; // 0 = -. 1 = '&' 
-} locant; 
+  locant_t *off_path[2]; // 0 = -. 1 = '&' 
+} locant_t; 
+
+/* can be called inline with other state tracks */
+static locant_t* next_in_locant_tree(locant_t *locant, char nxt)
+{
+  if (!locant)
+    return 0; 
+  else
+   return locant->off_path[(nxt=='-')]; 
+}
 
 typedef struct {
   u8  size; 
-  locant path[1]; // malloc sizeof(locant) * (size-1) + (1 byte for size)
+  locant_t path[1]; // malloc sizeof(locant_t) * (size-1) + (1 byte for size)
 } ring_t;  
 
 
@@ -178,10 +187,8 @@ static void gt_clear(graph_t *g)
 
 static void gt_free(graph_t *g)
 {
-  gt_stack_flush(g); 
-  g->stack_ptr = 0; 
+  gt_clear(g); 
   g->s_max     = 0; 
-  g->s_num     = 0; 
   free(g->symbols); 
 }
 
@@ -298,8 +305,8 @@ static void gt_load_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g
 static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const u16 inc_pos) 
 {
   ring_t *ring = 0; 
-  ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant)*(size-1)); 
-  memset(ring, 0, sizeof(ring_t) + sizeof(locant)*(size-1)); 
+  ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant_t)*(size-1)); 
+  memset(ring, 0, sizeof(ring_t) + sizeof(locant_t)*(size-1)); 
   
   symbol_t *c = 0;  
   symbol_t *p = 0;
@@ -321,7 +328,7 @@ static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const u16 
 
     ring->path[i].s = c; 
     ring->path[i].r_pack++; 
-    ring->path[i].hloc = i+1; // point to the next locant 
+    ring->path[i].hloc = i+1; // point to the next locant_t 
     p = c; 
   }
   
@@ -362,7 +369,7 @@ static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r,
 
   u8 steps, s_pos;
   edge_t *e; 
-  locant *start, *end; 
+  locant_t *start, *end; 
   r_assignment *subcycle; 
   
   for (u16 i=0; i<SSSR_ptr; i++) {
@@ -409,8 +416,8 @@ static ring_t* pathsolverIII(graph_t *g, ring_t *r,
 {
   u8 steps, s_pos;
   edge_t *e; 
-  locant *c, *p=0;
-  locant *start, *end; 
+  locant_t *c, *p=0;
+  locant_t *start, *end; 
   r_assignment *subcycle; 
 
   for (u16 i=0; i<r->size; i++) {
@@ -428,7 +435,7 @@ static ring_t* pathsolverIII(graph_t *g, ring_t *r,
     connection_table[i*r->size+i] = 1; // bond to itself?
 
     c->r_pack++; 
-    c->hloc = i+1; // point to the next locant 
+    c->hloc = i+1; // point to the next locant_t 
     p = c; 
   }
 
@@ -517,27 +524,27 @@ static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
 
 /* locants can be expanded or read as branches with '&' and '-'
  * chars. In order to move the state as the string is being read, 
- * these have to be handled per locant read. The logic this saves
+ * these have to be handled per locant_t read. The logic this saves
  * outweighs the branches in the loop */
 static u8 read_locant(const char *ptr, u16 *idx, u16 limit_idx)
 {
-  u8 locant = ptr[*idx] - 'A'; 
+  u8 locant_t = ptr[*idx] - 'A'; 
   for (u16 i=*idx+1; i<limit_idx; i++) {
     switch (ptr[i]) {
       case '&':
-        locant += 23; 
+        locant_t += 23; 
         break; 
 
       case '-':
         fprintf(stderr,"off-branch reads need handling\n"); 
       
       default:
-        return locant; 
+        return locant_t; 
     }
     (*idx)++; 
   }
   
-  return locant; 
+  return locant_t; 
 }
 
 
@@ -591,7 +598,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
       // bridges must come after multicyclic definition for correct syntax
       if (ch_nxt == 'J' || ch_nxt == 'T' || ch_nxt == ' ') {
         if (locant_ch > ring_size) {
-          fprintf(stderr, "Error: out of bounds locant access"); 
+          fprintf(stderr, "Error: out of bounds locant_t access"); 
           goto ring_fail; 
         }
         else 
@@ -678,7 +685,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
       
         case 'B':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
@@ -691,7 +698,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'H':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
@@ -705,7 +712,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'K': 
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else { 
@@ -725,7 +732,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'M':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else { 
@@ -738,7 +745,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'N':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
@@ -751,7 +758,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'O':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
@@ -764,7 +771,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'P':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else { 
@@ -777,7 +784,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'S':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {     
@@ -794,7 +801,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           break; 
 
         // some nice ghost logic here. On a successful chain creation, the first bond will always to 
-        // to the next symbol in the locant path. e.g A->B->C. therefore unsaturate bond[0]. 
+        // to the next symbol in the locant_t path. e.g A->B->C. therefore unsaturate bond[0]. 
         // when mixed with dash, this will be the next avaliable bond which is not in the chain, and MUST
         // be handled in the pathsolver algorithm, there place at bonds[1...n]. 
         case 'U':
@@ -816,8 +823,9 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           }
           else if (locant_ch < ring_size) {
             c = ring->path[locant_ch].s;  
-            c->bonds[0].order++; 
-            c->valence_pack++; 
+            e = &c->bonds[0]; 
+            e->order++; 
+            c->valence_pack++;
             ring->path[locant_ch+1].s->valence_pack++; 
             locant_ch++; 
           }
@@ -825,7 +833,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
           
         case 'V':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
@@ -845,7 +853,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
 
         case 'X':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
@@ -866,14 +874,14 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
       
         case 'Y':
           if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant access\n"); 
+            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
             goto ring_fail; 
           }
           else {
+            // treat as a carbon, WLN expects the U characters, this cannot be aromatic 
             c = ring->path[locant_ch].s; 
-            c->valence_pack++; 
-            e = &c->bonds[1]; // not involed in ring, if used more than once in ring graph, undefined behaviour
-            e->order = 2; 
+            c->arom = -1; 
+            e = &c->bonds[0]; 
             g->idx_symbols[sp+1] = c; 
             locant_ch++; 
           }
@@ -965,7 +973,7 @@ static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end,
   // resolve any bridges 
   for (u16 i=0; i<bridge_ptr; i++) {
     if (bridge_locants[i] >= ring->size) {
-      fprintf(stderr,"Error: out of bounds locant access\n"); 
+      fprintf(stderr,"Error: out of bounds locant_t access\n"); 
       goto ring_fail; 
     } 
     else 
@@ -1607,7 +1615,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
   u16 digit_n   = 0; 
   
   u8 state = 0; // bit field: 
-                // [][dioxo][charge][ring locant][ring skip][dash][digit][space]
+                // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
   
   u8 dash_ptr = 0; 
   unsigned char dash_chars[3] = {0}; // last byte is mainly for overflow 
@@ -1661,7 +1669,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
       else
         ring_chars++; 
     }
-    else if (state & DASH_READ && ch != '-') {
+    else if (state & DASH_READ && ch >= 'A' && ch <= 'Z') {
       if (dash_ptr == 3) 
         return error("Error: elemental code can only have 2 character symbols"); 
       else
@@ -1679,7 +1687,7 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           p = c; 
         } 
         else 
-          return error("Error: out of bounds locant access"); 
+          return error("Error: out of bounds locant_t access"); 
       }
     }
     else {
@@ -2393,6 +2401,13 @@ static int parse_wln(const char *ptr, const u16 len, graph_t *g)
           break;
         
         case '-':
+          // dashes open up several possible states which needs a lot of information to reason 
+          // 1. -XX- | -X- == symbol
+          // 2. <locant> -& <space> <locant_t> <ring> == spiro ring defintion  
+          // 3. <locant> (-|&)+ == high level access
+          // ?  <locant> (-&) space <no ring> == methyl shorthand on the level access (solved with VIRTUAL edge packing)
+          // seperating out 1 is trivial with a +1 lookahead. 
+          // 2 vs 3: 
           if (state & DASH_READ) {
             c = next_symbol(g, e, DUM, 6); // create a blank symbol
             if (!c)
