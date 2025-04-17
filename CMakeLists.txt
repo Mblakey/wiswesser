@@ -42,15 +42,16 @@ include_directories(
 )
 
 add_executable(readwln 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/reader.cpp 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/readwln.cpp
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/readwln2.cpp 
+  ${CMAKE_SOURCE_DIR}/src/wlnparser/readwln.cpp 
+  ${CMAKE_SOURCE_DIR}/src/wlnparser/wlnreader.cpp
 )
+target_link_libraries(readwln  ${OPENBABEL3_LIBRARIES})
 
-add_executable(writewln 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/writer.cpp 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/writewln2.cpp 
-)
+# add_executable(writewln 
+#   ${CMAKE_SOURCE_DIR}/src/wlnparser/writer.cpp 
+#   ${CMAKE_SOURCE_DIR}/src/wlnparser/writewln2.cpp 
+# )
+# target_link_libraries(writewln ${OPENBABEL3_LIBRARIES})
 
 add_executable(wlngrep ${CMAKE_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
 
@@ -72,18 +73,16 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set_target_properties(wlnpaq6 PROPERTIES COMPILE_OPTIONS "-m32" LINK_FLAGS "-m32") 
 endif() 
 
-target_link_libraries(readwln  ${OPENBABEL3_LIBRARIES})
-target_link_libraries(writewln ${OPENBABEL3_LIBRARIES})
 
-# if (Catch2_FOUND)
-#   add_executable(test_read ${CMAKE_SOURCE_DIR}/test/wln_catch2.cpp
-#                             ${CMAKE_SOURCE_DIR}/src/.cpp)
-#   target_link_libraries(test_read PRIVATE Catch2::Catch2WithMain)
-#   catch_discover_tests(test_nmidx)
-#   target_compile_options(test_nmidx PUBLIC "-std=gnu++17") 
-#   target_compile_definitions(test_nmidx PUBLIC TEST_DIR="${CMAKE_SOURCE_DIR}/tests" BIN_DIR="${CMAKE_CURRENT_BINARY_DIR}")
-#   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND}
-#                     DEPENDS test_nmidx)
-# endif()
-#
+if (Catch2_FOUND)
+add_executable(test_wlnread ${CMAKE_SOURCE_DIR}/test/readwln_catch2.cpp
+                            ${CMAKE_SOURCE_DIR}/src/wlnparser/wlnreader.cpp)
+                          target_link_libraries(test_wlnread PRIVATE Catch2::Catch2WithMain ${OPENBABEL3_LIBRARIES})
+target_compile_options(test_wlnread PUBLIC "-std=gnu++17") 
+catch_discover_tests(test_wlnread)
+target_compile_definitions(test_wlnread PUBLIC TEST_DIR="${CMAKE_SOURCE_DIR}/tests" BIN_DIR="${CMAKE_CURRENT_BINARY_DIR}")
+add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND}
+                  DEPENDS test_wlnread)
+endif()
+
 

@@ -1,11 +1,4 @@
-dep
-bin
-src/grammars/.antlr
-.vscode
-external
-scripts
-data/proprietary/*
-test/incorrect.txt
-test/correct.txt.cache
+openbabel
+data
 .cache
 build

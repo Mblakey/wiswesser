@@ -2584,9 +2584,10 @@ int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {
 
 
 // openbabel format reader function
-int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
+bool 
+ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
 {   
-  int ret = 0; 
+  bool ret = false; 
   graph_t wln_graph; 
   graph_t *g = &wln_graph; 
   const uint16_t len = strlen(ptr); 
@@ -2594,19 +2595,19 @@ int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
   gt_alloc(g, SYMBOL_MAX); 
   g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
   memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
-
-  if (parse_wln(ptr, len, g))
+  
+  if (parse_wln(ptr, len, g)) {
     ob_convert_wln_graph(mol, g);
-  else 
-    fprintf(stdout, "null (ERR %d)\n", ret);  
-
+    ret = true; 
+  }
   gt_free(g); 
   free(g->idx_symbols); 
-  return 1; 
+  return ret; 
 }
 
 
-int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
+bool 
+ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
 {   
   uint16_t st_pool_size = 128; 
   graph_t wln_graph; 
@@ -2625,7 +2626,6 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
       len_high = len; 
     }
     memset(g->idx_symbols,0,sizeof(symbol_t*)*len_high); 
-    
     if (parse_wln(buffer, len, g)) {
       ob_convert_wln_graph(mol, g);
       conv->Write(mol, &std::cout); 
@@ -2640,5 +2640,5 @@ int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv
 
   gt_free(g);
   free(g->idx_symbols); 
-  return 1; 
+  return true; 
 }

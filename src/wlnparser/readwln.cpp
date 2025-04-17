@@ -1027,7 +1027,7 @@ int main(int argc, char *argv[])
   conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
   
   if (opt_string) {
-    if (!C_ReadWLN(cli_inp, &mol))
+    if (!ReadWLN(cli_inp, &mol))
       return 1;
     else
       conv.Write(&mol ,&std::cout);
@@ -1039,7 +1039,7 @@ int main(int argc, char *argv[])
       return 1;
     }
     else {
-      if (!C_ReadWLNFile(fp, &mol, &conv)) {
+      if (!ReadWLNFile(fp, &mol, &conv)) {
         fclose(fp); 
         return 1; 
       }
