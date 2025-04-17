@@ -72,8 +72,8 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set_target_properties(wlnpaq6 PROPERTIES COMPILE_OPTIONS "-m32" LINK_FLAGS "-m32") 
 endif() 
 
-target_link_libraries(readwln  OpenBabel3)
-target_link_libraries(writewln OpenBabel3)
+target_link_libraries(readwln  ${OPENBABEL3_LIBRARIES})
+target_link_libraries(writewln ${OPENBABEL3_LIBRARIES})
 
 # if (Catch2_FOUND)
 #   add_executable(test_read ${CMAKE_SOURCE_DIR}/test/wln_catch2.cpp
