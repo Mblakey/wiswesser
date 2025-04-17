@@ -1,15 +1,6 @@
 /*********************************************************************
- 
-file: readwln.c 
-author : Michael Blakey 2022, updated 2024 
-description: WLN reader - write out SMILES etc from WLN
+Author : Michael Blakey
 
-*********************************************************************/
-
-#define OPENBABEL 1
-
-#if OPENBABEL
-/*********************************************************************
 This file is part of the Open Babel project.
 For more information, see <http://openbabel.org/>
 
@@ -22,2696 +13,1038 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
-#endif
 
-/* TODO: 
- *
- * - build into RDKit
- * - configure script for RDKit C++ build 
- * 
-*/
-
-#include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
+#include <stdlib.h>
+#include <sys/time.h>
+#include <stdbool.h>
 
-#if OPENBABEL
+#include <iostream>
+
+#include "wlnparser.h"
+
 #include <openbabel/mol.h>
-#include <openbabel/atom.h>
-#include <openbabel/bond.h>
-#include <openbabel/kekulize.h>
-
+#include <openbabel/plugin.h>
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
-#endif 
 
-#include "parser.h"
+const char *cli_inp;
+const char *format; 
+bool opt_string; 
 
-//#define DEBUG 1 // debug log - lvls: 0 - none, 1 - minimal, 2 - all
+#define BENCH_N 417
 
-#define MAX_DEGREE 8
-#define SYMBOL_MAX 256
-
-// common bit fields
-#define SPACE_READ  0x01 
-#define DIGIT_READ  0x02 
-#define DASH_READ   0x04
-
-// standard parse fields
-#define RING_READ   0x08
-#define BIND_READ   0x10 // locant_t ring access
-#define CHARGE_READ 0x20
-#define DIOXO_READ  0x40 // this is an annoying one
-
-// ring parse fields
-#define SSSR_READ   0x08
-#define MULTI_READ  0x10
-#define PSEUDO_READ 0x20
-#define AROM_READ   0x40
-
-// Ring type "magic numbers"
-#define LOCANT_BRIDGE 0x10  
-
-// edge order as data packing 
-#define HANGING_BOND 0x80 
-
-// Error codes 
-#define ERR_ABORT  0
-#define ERR_NONE   1 // success
-
-// Element "magic numbers"
-#define DUM   0
-#define BOR   5
-#define CAR   6
-#define NIT   7
-#define OXY   8
-#define FLU   9
-#define PHO   15
-#define SUL   16
-#define CHL   17
-#define BRO   35
-#define IOD   53
-
-
-typedef struct symbol_t symbol_t; 
-
-static u8 error(const char *message) 
-{
-  fprintf(stderr,"%s\n", message); 
-  return ERR_ABORT;  
-}
-
-// 9 bytes
-typedef struct {
-  symbol_t* c; 
-  u8 order; 
-  u8 ring; 
-} edge_t; 
-
-// 4 + (8*9) = 76 bytes per symbol
-// 80 = 16*5, multiple of 16 stack aligned
-struct symbol_t {
-  u8    atom_num;   
-  char  arom; // -1 indicates ignore 
-  char  charge;   
-  u8    valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
-  u8    n_bonds; 
-  edge_t bonds[MAX_DEGREE]; // directional 
-};
-
-typedef struct locant_t {
-  u8 hloc; // used for pathsolver 
-  u8 r_pack; // [of 1b][ offL 1b ][ offR 1b ][ bridging 1b ][ dangling u4 ] 
-  symbol_t *s; 
-  locant_t *off_path[2]; // 0 = -. 1 = '&' 
-} locant_t; 
-
-/* can be called inline with other state tracks */
-static locant_t* next_in_locant_tree(locant_t *locant, char nxt)
-{
-  if (!locant)
-    return 0; 
-  else
-   return locant->off_path[(nxt=='-')]; 
-}
-
-typedef struct {
-  u8  size; 
-  locant_t path[1]; // malloc sizeof(locant_t) * (size-1) + (1 byte for size)
-} ring_t;  
-
-
-typedef struct {
-  u16 s_num; 
-  u16 s_max; 
-
-  u8 stack_ptr;  // WLN DFS style branch and ring stack
-  struct {
-    void *addr; 
-    char ref; // -1 for (ring_t*) else (symbol_t*) 
-  } stack[32];  
+#if 0
+/* not fast, but will do the job */ 
+void RunBenchmark() {
   
-  symbol_t  *symbols; 
-  symbol_t  **idx_symbols; 
-} graph_t; 
-
-
-static void gt_alloc(graph_t *g, const size_t size)
-{
-  g->s_num      = 0; 
-  g->s_max      = size; 
-  g->stack_ptr  = 0; 
-  g->symbols    = (symbol_t*)malloc(sizeof(symbol_t) * size);  
-  memset(g->symbols, 0, sizeof(symbol_t) * size); 
-}
-
-// seperated in order to reuse the symbols memory on file read
-static void gt_stack_flush(graph_t *g) 
-{
-  u16 stack_ptr = g->stack_ptr; 
-  for (u16 i=0;i<stack_ptr;i++) {
-    if (g->stack[i].ref < 0)  
-      free(g->stack[i].addr);
-    g->stack[i].addr = 0; 
-    g->stack[i].ref = 0;
-  }
-  g->stack_ptr = 0; 
-}
-
-static void gt_clear(graph_t *g)
-{
-  gt_stack_flush(g); 
-  g->stack_ptr = 0; 
-  g->s_num     = 0; 
-}
-
-static void gt_free(graph_t *g)
-{
-  gt_clear(g); 
-  g->s_max     = 0; 
-  free(g->symbols); 
-}
-
-static symbol_t* next_symbol(graph_t *g, edge_t *e, const u16 id, const u8 lim_valence)
-{
-  if (g->s_num == g->s_max) {
-    fprintf(stderr,"Warning: symbol limit reached (%d), this can be overidden in settings\n", g->s_max); 
-    return (symbol_t*)0; 
-  }
-  else {
-    symbol_t *s = 0; 
-    
-    if (!e->c)
-      s = &g->symbols[g->s_num++];
-    else 
-      s = e->c; 
-
-    s->atom_num     = id; 
-    s->arom         = 0; 
-    s->charge       = 0; 
-    s->n_bonds      = 0;
-    s->valence_pack = lim_valence; 
-    s->valence_pack <<= 4;
-    return s; 
-  }
-}
-
-static symbol_t* new_symbol(graph_t *g, const u16 id, const u8 lim_valence)
-{
-  if (g->s_num == g->s_max) {
-    fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
-    return (symbol_t*)0; 
-  }
-  else {
-    
-    symbol_t *s = &g->symbols[g->s_num++];
-
-    s->atom_num     = id; 
-    s->arom         = 0; 
-    s->charge       = 0; 
-    s->n_bonds      = 0;
-    s->valence_pack = lim_valence; 
-    s->valence_pack <<= 4;
-    return s; 
-  }
-}
-
-/* used in the ring parse, leaves bonds alone */
-static symbol_t* transmute_symbol(symbol_t *s, const u16 id, const u8 lim_valence)
-{
-  s->atom_num     = id; 
-  s->charge       = 0; 
-  s->valence_pack &= 0x0F; 
-  s->valence_pack += lim_valence << 4; 
-  return s; 
-}
-
-/* read off dash buffer, nearly all dash symbols 
- * are stack compatible atoms, 
- * transition metals are given a 6 valence limit - not allowed to expand
- * the octet. WLN does not have any rules for this, so this heuristic is
- * subject to interpretation 
-*/
-
-static __always_inline edge_t* next_virtual_edge(symbol_t *p)
-{
-  edge_t *e = &p->bonds[p->n_bonds++]; 
-  e->order = (e->order | 0x01) & 0x03;  
-  return e; 
-}
-
-static edge_t* check_bonding(edge_t *e, symbol_t *p, symbol_t *c)
-{
-  // TODO - nibble bit trick is definitely possible
-  if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
-      (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
+  const char *wln_bench[BENCH_N]  = 
   {
-    fprintf(stderr,"Error: symbol reached WLN allowed valence - %d/%d & %d/%d\n",
-            p->valence_pack & 0x0F, p->valence_pack >> 4,
-            c->valence_pack & 0x0F, c->valence_pack >> 4); 
-    return 0; 
-  }
-  else 
-    return e; 
-}
+    "1V1",
+    "2O2",
+    "Q2Q",
+    "WN1O1NW",
+    "Z3Z",
+    "QV3VQ",
+    "ZV2VZ",
+    "ZVM1MVZ",
+    "3O2",
+    "QV1",
+    "2M1",
+    "Z2VQ",
+    "2VO2",
+    "1SVM1",
+    "1VOV1",
+    "Q2G",
+    "3M2",
+    "Z2E",
+    "QV4",
+    "E2E",
+    "ZQ",
+    "ZH",
+    "QH",
+    "IH",
+    "QV1G",
+    "ZV2M1VQ",
+    "2OVM1VO2",
+    "12VM1",
+    "G1OS2S2",
+    "QNU3",
+    "2U2U1",
+    "MU2O1",
+    "ZVMNU2",
+    "SU3",
+    "1UU1",
+    "3UU2",
+    "G1UU2",
+    "G1UU1G",
+    "1NU1UN1",
+    "1U1U1",
+    "OCO",
+    "NCH",
+    "QNO",
+    "WNQ",
+    "ONONO",
+    "ZNU1",
+    "2CN",
+    "2OCN",
+    "2NCO",
+    "SCN3",
+    "NCS3",
+    "OC2",
+    "GH",
+    "EH",
+    "2H",
+    "10H",
+    "VHVH",
+    "VH3",
+    "SH2Q",
+    "SH2G",
+    "SH1M2",
+    "2Y2",
+    "GXGGG",
+    "G2N2&3",
+    "2OPO&2&O2",
+    "Q1XGG2Y1Q1Z",
+    "1S2YZVMYVQS1",
+    "W-G-Q",
+    "F-G-FF",
+    "12SW12",
+    "WS2&12",
+    "QVY9&19",
+    "12M1",
+    "12N3&2",
+    "19YQM1",
+    "QVY19&2Q",
+    "G1XGGYP3&3&&P2&2",
+    "OK2&2&2",
+    "WSQO1",
+    "2B2&2",
+    "ZYZUS",
+    "ZSW2",
+    "QVYZY2&2",
+    "QY",
+    "1Y&N1&1",
+    "2OVX",
+    "QY&1X&&1Y",
+    "Z2X2&&2Y2",
+    "GXGG2NY&&Y",
+    "2Y2&3YX&&&1VOY",
+    "1Y&N1VM1O1O1&Y",
+    "OV1 &-NA-",
+    "SUXS&O4 &-KA-",
+    "ZVSH &ZV1Z",
+    "Z6Z &Q2 &Q2",
+    "Z3Z &QH &QH",
+    "QV2 &ZH",
+    "WSQ2G &ZH",
+    "3M3 &WSQQ",
+    "4N4&4 &GH",
+    "Z3Z &GH &GH &QH &QH",
+    "QVVQ &ZH &ZH",
+    "1K &G",
+    "G2SH2G2G &G",
+    "G2KO&2&2G &GH",
+    "OV1 &OV1 &-CA-",
+    "1R",
+    "GV1N2&R",
+    "QY2&XQR&R",
+    "RM1R",
+    "WNR CVM1VQ",
+    "Z1YQR DO1",
+    "QVR BNUNR DN1&1",
+    "2N2&R COVMR DO1",
+    "WNR DMNU1R CNW",
+    "WNR BMNU1R CNW",
+    "WNR CMNU1R BNW",
+    "WNR DMNU1R DNW",
+    "ZSWR DSZW",
+    "ZMR CG",
+    "QMR BE",
+    "VHR CSH",
+    "SHR DVQ",
+    "QV1N1VQR BVQ",
+    "ZSWR CN1O2&1O2",
+    "2O1N1O2&R B2O1",
+    "ZSWR D-AS-U-AS-R DSWQ",
+    "ZR BG DE",
+    "ZR CG BE",
+    "ZR BQ ENW",
+    "ZR BG EVQ",
+    "WNR CG FE DOV1",
+    "3OR BF E2 CM1",
+    "1VOR CG EF BO1 DVO1",
+    "WNR BQ CNW ENW",
+    "QVR BG FVQ",
+    "WNR CNW DMNU2",
+    "ZR C1U1R DZ",
+    "WNR CF DI E2U1",
+    "QMR DQ CO1 EO1",
+    "Q-AS-QO&R BF CF EF",
+    "ZR BG EG CE FE",
+    "SHR DE CV1",
+    "VHR DG CVG E1G",
+    "WSQR BO2 ESWQ",
+    "1N1&R CYR&R DN1&1",
+    "GR DG BOR BO1 EO1",
+    "WNR DNW BR BG CNW",
+    "G1O1VR CO1O1G E1R CG DG",
+    "GXGGR B1O1O1Q DXGGG",
+    "WNR BR& ENW",
+    "1VOR BVR& EOV1",
+    "G1OVR BR CQ& DVO1",
+    "WNR DNW BR CQ",
+    "RR BR BR DR&& ER CR",
+    "ZR BYR DZ&1NV1&V1",
+    "WNR BG EYR DZ CG&1N2Q2Q",
+    "G1Y&M1VR CV1MR DG& DN1&1",
+    "T6NJ",
+    "L6V DVJ",
+    "L6VVJ",
+    "T5M CNJ",
+    "T6ON DMJ",
+    "T6NSO ENJ",
+    "T6NSN EMJ",
+    "T5NO DNJ",
+    "T7M CN ENJ",
+    "T5NS DS CHJ",
+    "T6M CM DMTJ",
+    "T5N CO EUTJ",
+    "L6U CUTJ",
+    "L5 AHJ",
+    "T5VOVTJ",
+    "T5NN CHJ",
+    "T6OV EUTJ",
+    "T6NJ CVQ DG",
+    "T5OJ BVH DVQ",
+    "L5TJ AVQ AVQ B1 B1 CVQ",
+    "T6NJ BVQ FG",
+    "T5MVMVTJ EVM1 EQ",
+    "T6VMVMVJ F2 F2",
+    "T5UTJ A1 B1 C1 C1",
+    "L5UTJ A2 DVQ E1 E1",
+    "T5NTJ A1 C1 DR",
+    "L6Y DYJ AUNQ DUNQ",
+    "L6Y BUTJ AUNMR& EG FG",
+    "T5SWTJ",
+    "T5-AS-J",
+    "T6 DUJ",
+    "T6P DUJ",
+    "T6P-KA- DUJ",
+    "T6S-SB-HS DHJ",
+    "T-10-M FOTJ",
+    "L6V BUTJ",
+    "L6V BUTJ EG FG",
+    "L5UTJ A1 DV1Q E1 E1",
+    "L5TJ AVQ A1 B1 B1 CVQ",
+    "T5NYMVJ A1 BUM E1R",
+    "T5NYVOJ BU1Q E1R",
+    "T5NNVYJ DUNR& E1",
+    "T6VMVNVJ D1 FMVZ",
+    "T6VOV EOTJ DR& FR",
+    "T6OPOTJ",
+    "T6-SI- C-SI- E-SI-TJ",
+    "L3TJ AO1",
+    "T5NNV AHJ A1 BR DE& E1",
+    "T5M CN BUTJ B1NR&1R",
+    "L7UUTJ",
+    "L6V BUTJ B1 EYU1",
+    "L6UTJ C1 C1 DVQ D1",
+    "L6V DYJ BVQ DUNZ",
+    "T5OSOTJ BO",
+    "T5NNV EHJ BNO D1 E1",
+    "T5NYMV EHJ A1 BUM",
+    "T6OYOYOYTJ BUM DUM FUM",
+    "T6N CNJ BZ DZ ER DG& F2",
+    "T6VMVMV FHJ F2 FR",
+    "T6NJ C2Q E1Q &GH",
+    "T6KJ A1R& COVN1&1 &E",
+    "T6N DNTJ AYR&R DG& D1 &GH &GH",
+    "T5K CSJ A1R BZ& E1 &GH &G",
+    "T6KJ AO",
+    "L66TJ",
+    "L66J",
+    "T56 CMJ",
+    "T56 BOJ",
+    "T55 AN DM FST&J &G",
+    "L56 BHJ",
+    "L66J CVQ",
+    "T56 BMJ HO1",
+    "L66J CVQ DG",
+    "L56 CHJ B1 C1 C1",
+    "T66 BN GNJ EVQ",
+    "T66 BN&TJ",
+    "T66 BN BU DUTJ",
+    "T56 BN CH&TJ",
+    "T66 CM AU- FTJ",
+    "T66 BN ES DHJ",
+    "T66 BS DN BHJ",
+    "T55 AK DM FST&J &G",
+    "T55 AN CM GNT&J",
+    "T66 BSN EM&TJ",
+    "T6-10- IM&TJ",
+    "T55 CN GNJ BE",
+    "L66&TJ",
+    "L66J BQ EQ",
+    "L66&TJ GQ JG",
+    "T56 BO AU- E GUTJ",
+    "L B666J",
+    "L C666J",
+    "L D6 C6 B566 MNJ",
+    "T B566 DMJ",
+    "T E6 C666 ANV&&TTJ",
+    "T C566 DMJ",
+    "L B656 HVJ ENW KG",
+    "T I5 F6 D6 C665 JO VOJ",
+    "T C666 BK ISJ B2N1&1",
+    "T C666 BNJ B2N1&1",
+    "T C666 BKJ B1 EZ MZ &GH &G",
+    "L B5 G566J",
+    "T D6 B666 KN&TT&J",
+    "L E5 B666 OV MUTJ A1 E1",
+    "L C666 BV IVJ D1Q GQ KQ",
+    "L F6 E6 B666 BUTJ F1 IQ J1 J1 N1 O1 R1 U1 U1",
+    "T C6 B566 LO&TT&J EQ FQ JQ OQ",
+    "L566 1A LJ",
+    "L666 B6 2AB PJ",
+    "L C6665 1A PJ",
+    "T666 B6 C6 3ABC S KMJ",
+    "L C6566 O6 U6 N5 2AO C&J",
+    "L C6666 P6 W6 O6 2AP E&-&&&TTTTJ",
+    "L666 N6 B6 R6 Q6 4ABRS C&J",
+    "L F6 D6 B6 P6666 2AB E&J",
+    "T G6 E6 B6666 C6 3ABC D& FN MN WHJ",
+    "L D66 K666 1A U EHJ",
+    "T D6 C6666 B6 T6 5ABCDU B& MOJ",
+    "L E6 C6666 T6 S6 2AT E&J",
+    "T F6 C6 B5 O6666 D6 4ABCD F& MSJ",
+    "L E6 E-6 D5 C4566 2AE- WTJ",
+    "L666 B-6 B6 C6 4ABB-C U GH MHJ",
+    "L666 B-6 B6 B-&6 B6 C6 6ABBB-B-&C D& BXTJ",
+    "L665 K6 J6 J-6 I6 H6 6AIJJJ-K D& JXTJ",
+    "T E6 E-6 C6666 2AE- W CN ON CHJ",
+    "T E6 E-6 D5 C5566 2AE- A& OSJ",
+    "T656 M6 B6 Q6 P5 4ABQR A& HN WNJ",
+    "L H6 H--6 H-6 H--&6 G6 E6 C6666 B-6 B6 7ABB-CH-H--H--& P&-TJ",
+    "T66 BNJ EQ HO1 IQ D- CT6NJ EVQ",
+    "T6N DNJ B- CT6NTJ A1 EQ",
+    "T6NTJ A1 B- BT6NJ",
+    "L66J C- DL66J B- AL6TJ",
+    "T66 CNJ H- HT66 CNJ G- AL6TJ C- AL6TJ",
+    "T5SJ B- CT5SJ",
+    "T6NJ BN2N1&1&1- BT5SJ EE",
+    "T6NJ BO2N2&2 FXQR DR&&- BT5OJ",
+    "L66J C- DL6OJ& D- DT6NJ",
+    "L66J C- DT6OTJ& D- DT6NJ",
+    "L66J BG EE C- DT6NJ& D- DT6OTJ",
+    "T6-GE- DOTJ A-& AT6-GE-TJ",
+    "T66 COJ EVQ H-& DT6OJ",
+    "T6SXS EXTJ B-& AL5XTJ& E-& AL5XTJ",
+    "T56 BO-AS-OJ C-& CT56 BO-AS-OJ",
+    "T E6 D6 B666 CO NXJ N-& BT56 BXO DHJ",
+    "T5VOXJ C-& AL4XXTJ",
+    "T666 1A N AX DMTJ",
+    "L55 ATJ",
+    "T55 COTJ",
+    "T55 A COTJ",
+    "L66 A BTJ",
+    "T66 A B AMTJ",
+    "T56 A ANTJ A1 GQ",
+    "T67 A B AO HOTJ",
+    "T66 A DM HOTJ",
+    "T66 A B ASTJ",
+    "T56 A DOTJ",
+    "T56 A FOTJ",
+    "T67 A DMTJ",
+    "L666/GL 2AF LTJ",
+    "L556/EK 2AE K EXTJ",
+    "L5 G66 N66/FS 2AE STJ",
+    "L646/B-F/BI A A 2BF I BX FXTJ",
+    "L D55 D6 2DH L DX HXTJ",
+    "L566 F6/FK/FO 3AEF O FXTJ",
+    "L535 B5/CG 3ABC ITJ",
+    "T C655 A ASJ",
+    "T C655 A AM EO GO FHJ",
+    "L D6 C555 A AH JHJ",
+    "T C555 B6 A 1B N AOX EOJ",
+    "T57 B5 A 1B L BXOTJ",
+    "T C6566 N6 O 1A S IN QN AU PUTJ",
+    "T D3556 J5 K 2AF N EOX HO NO GH KHJ",
+    "T666 B 1A L DOTJ",
+    "T76 B6 A C 1B L EO FHTJ",
+    "L666/GL 2AF LTJ",
+    "L C66 L666/KT 2AJ TTJ",
+    "T C66 L56 R66/KW 2AJ W NOTJ",
+    "T D666 C6 A B 1C P CX JU NH&TT&J",
+    "T6 G5 F66 C6 A B 2CF S AOOX FX IOTJ",
+    "T566 F5/FK/FN 3AEF N CO FXTJ",
+    "T5536/FK 3AAE K AX COTJ",
+    "L6 H665/FP 2AF P FXTJ",
+    "T54 H5 B6 B6/GO A 3BBF O BX GN AH&&&&TJ",
+    "T B666/GL A 2BG L GXOO JHTJ",
+    "L F5 E5 C655 A F-TJ",
+    "L E5 D5 C555 A E-TJ",
+    "L F5 E5 D5 C555 A D- F-TJ",
+    "L55 F6 F6/BG/HM A 2FG MTJ",
+    "L C656 M6 J5 A KTJ",
+    "L E6 D58 N65 A D-TJ",
+    "L C657 N6 K5 A LTJ",
+    "L66 B6 A B- C 1B ITJ",
+    "T66 B6 A B- C 1B I BN DN FN HNTJ",
+    "T66 B6 A B- C 1B ITJ BE",
+    "L555/BG 2AB ITJ",
+    "T566/BH 2AB K AN JMTJ",
+    "L545/BF 2AB HTJ",
+    "T555/BG 2AB I DOTJ",
+    "T C3666/FM 2AG M DO LOTJ",
+    "T B5565/GM 2AH M IO KOTJ",
+    "T666 B C 1A K EOTJ",
+    "L666 B C 1A K EHTJ",
+    "T756/EK F 2AG K HOTJ",
+    "T B4656/FL 3ABE L IOTJ",
+    "T B66 L667/HT 3ABG T KM RKHOSTJ",
+    "T C6 B666/JO A 2BK O AOTJ",
+    "T76 B6 A C 1B L EOTJ",
+    "T D5 B665 A 1B N EO GO MNOTJ",
+    "T E6 D566 B5 A C 2BD Q AM DX HMTJ",
+    "T B6 B6566 E5/FR 5ABBFG T BX EN LOTJ",
+    "T-11-56/IO J 2AK O ANOSO HO MHTJ",
+    "L435 B3 2AB GTJ",
+    "T655 C6 B D 2AC L BOTJ",
+    "T C55 F555 B5 D I 5ABCGH M LOTJ",
+    "L B4 F6 D7 C4 L676 M P 4CDNO VTJ",
+    "L55 F56 B5 C G I 3ABH LTJ",
+    "T665 C5/EK D 3AEF L DO GO JNTJ",
+    "T C5 B5535/HL 3ABI L EOTJ",
+    "L455 B5 C5 E5 F 6ABCDEG LTJ",
+    "L B5 E3555 C 3ABF KTJ",
+    "L545 B4 C5 D 4ABCE JTJ",
+    "L454 B5 C5 E 4ABCD JTJ",
+    "T B555 C5 A D 2BC J HNTJ",
+    "T C555 B5 D5 A E 3BCD LTJ",
+    "T C5 B5535/HL 3ABI L CN EM GNTJ",
+    "T555 B6/CI 3ABC L FO KOTJ",
+    "T B666 B6/CL/HM A 4BBCG M AOTJ",
+    "L B5555 D5/GL E 4AFGH LTJ",
+    "T656 C5/DJ B 3ACD L GO LOTJ",
+    "L E3 D5 D5 C555/FJ/BN A 3DEI NTJ",
+    "T5 F6 E56 B6 B6/CR/NS A 5BBCEO S EX LM ONTJ",
+    "T-T C666 DM ISJ IH IOSR D1UN- F-12-J",
+    "T-T E6 C66 P56 V66/OD& 2AN D& ROTJ K- CT5OTJ D- D-6-TJ",
+    "T-L C666 DY GYJ GUN- DL C666J GNU- D-10-J",
+    "T-T56 CMJ D1- BT56 CMJ D1- BT56 CMJ D1- BT56 CMJ D1- B-16-J",
+    "L G6 C-10-66&T&&J",
+    "L H6 F6-11-6 ATJ",
+    "T6 I6 M6-12-6/BU 4ABMN A& GSS SSSJ",
+    "T-T56 BYN DHJ CR DR DNU- B-11-TJ",
+    "T-L G6 E6 C666&&T&&J OOR DO- D-10-J",
+    "T-T66 CNJ IO- JT66 CNJ B1R COR D1- B-18-J",
+    "T-T55 BM HUTJ H- ET5NY EUTJ BU1- BT5MJ E1U- AT5YMYJ CU1- C-16-J",
+    "L56 F0J 0-FE-- 0L56 B0TJ",
+    "L56 F0J 0-FE-- 0L5 B0J A1",
+    "T-L6 B0J A- AL5 B0J 0-FE-- 0L5 B0J A- AL6 B0J 0-FE-- 0-6-J",
+    "T-L5 B0J A- AL5 B0J CG 0-FE-- 0L5 B0J A- AL5 B0J C1 0-FE-- 0-6-J",
+    "D5ZD-CU-DZTJ &Q &Q",
+    "D6O-AU-DVJ B1 B1 D1 F1",
+    "D5ZD-CU-DZTJ &Q &Q",
+    "D566 1A L BND-ZN-OJ C-& CD566 1A L BND-ZN-OJ",
+    "D C65 J656 1A S AN HND-PT-DN IJ IG &G",
+    "D B656 GND-FE-DNJ &WSW",
+    "OV1 &-NA- &7/1",
+    "T6KTJ A1 A1 &3/11",
+    "T6KTJ A1 A1 &G &3/14",
+    "T56 BS DSJ &G &6/13",
+    "T56 CKT&J C-& AT6KTJ &E &6/23",
+    "OVVO &-ZN- &8/1 &8/4",
+    "T65 BNKJ C-& CT6TJ"
+  }; 
 
-/* if the edge is vitual, spawn it in by modifying the packing
- * for the child, packing for parent is modified on virtual spawn
- * but only needs checked when a real edge is made. 
- */
-static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
-{
-  p->valence_pack += (e->c == 0); // unsaturations modify this directly
-  e->c = c; 
-  c->valence_pack += e->order; 
-  return check_bonding(e, p, c); 
-}
-
-
-static void gt_load_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
-{
-  u16 stack_top = g->stack_ptr - 1; 
-  if (g->stack[stack_top].ref > 0) {
-    *p = (symbol_t*)g->stack[stack_top].addr; 
-    *e = next_virtual_edge(*p); 
-  }
-  else {
-    *p = 0;
-    *e = 0; 
-    *r = (ring_t*)g->stack[stack_top].addr; 
-  }
-}
-
-static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const u16 inc_pos) 
-{
-  ring_t *ring = 0; 
-  ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant_t)*(size-1)); 
-  memset(ring, 0, sizeof(ring_t) + sizeof(locant_t)*(size-1)); 
+  const char *smiles_bench[BENCH_N] = 
+  {
+    "CC(=O)C",
+    "CCOCC",
+    "OCCO",
+    "[O-][N+](=O)COC[N+](=O)[O-]",
+    "NCCCN",
+    "OC(=O)CCCC(=O)O",
+    "NC(=O)CCC(=O)N",
+    "NC(=O)NCNC(=O)N",
+    "CCOCCC",
+    "CC(=O)O",
+    "CNCC",
+    "NCCC(=O)O",
+    "CCOC(=O)CC",
+    "CNC(=O)SC",
+    "CC(=O)OC(=O)C",
+    "OCCCl",
+    "CCNCCC",
+    "NCCBr",
+    "CCCCC(=O)O",
+    "BrCCBr",
+    "NO",
+    "N",
+    "O",
+    "I",
+    "OC(=O)CCl",
+    "NC(=O)CCNCC(=O)O",
+    "CCOC(=O)NCC(=O)OCC",
+    "CCCCCCCCCCCCC(=O)NC",
+    "ClCOSCCSCC",
+    "CCC=NO",
+    "CC=CC=C",
+    "COCC=N",
+    "CC=NNC(=O)N",
+    "CCC=S",
+    "C#C",
+    "CCC#CC",
+    "CC#CCl",
+    "ClC#CCl",
+    "CN=C=NC",
+    "C=C=C",
+    "O=C=O",
+    "C#N",
+    "ON=O",
+    "[O-][N+](=O)O",
+    "O=NON=O",
+    "NN=C",
+    "CCC#N",
+    "CCOC#N",
+    "CCN=C=O",
+    "CCCN=C=S",
+    "CCCSC#N",
+    "CC=C=O",
+    "Cl",
+    "Br",
+    "CC",
+    "CCCCCCCCCC",
+    "O=CC=O",
+    "CCCC=O",
+    "OCCS",
+    "SCCCl",
+    "CCNCS",
+    "CCC(CC)C",
+    "ClC(Cl)(Cl)Cl",
+    "CCCN(CCCl)CC",
+    "CCP(=O)(OCC)OCC",
+    "NCC(CCC(CO)(Cl)Cl)CO",
+    "CSCCC(C(=O)NC(C(=O)O)SC)N",
+    "[O-][Cl+](=O)O", 
+    "F[Cl](F)F",
+    "CCCCCCCCCCCCS(=O)(=O)CCCCCCCCCCCC",
+    "CCCCCCCCCCCCS(=O)(=O)CC",
+    "CCCCCCCCCCCCCCCCCCCC(C(=O)O)CCCCCCCCC",
+    "CCCCCCCCCCCCNC",
+    "CCCCCCCCCCCCN(CCC)CC",
+    "CCCCCCCCCCCCCCCCCCCC(NC)O",
+    "CCCCCCCCCCCCCCCCCCCC(C(=O)O)CCO",
+    "CCCP(C(C(CCl)(Cl)Cl)P(CC)CC)CCC",
+    "CC[N+](CC)(CC)[O-]",
+    "COS(=O)(=O)O",
+    "CCB(CC)CC",
+    "NC(=S)N",
+    "CCS(=O)(=O)N",
+    "CCC(C(C(=O)O)N)CC",
+    "CC(O)C",
+    "CN(C(C)C)C",
+    "CCOC(=O)C(C)(C)C",
+    "CC(CC(CC(O)C)(C)C)C",
+    "NCCC(CCC(CC)C)(CC)C",
+    "CC(N(C(C)C)CCC(Cl)(Cl)Cl)C",
+    "CCC(CCCC(C(C)(C)C)CC(=O)OC(C)C)CC",
+    "COCOCNC(=O)CN(C(C)C)C(C)C",
+    "[O-]C(=O)C.[Na]",
+    "CCCCOC(=S)S.[K]",
+    "NC(=O)S.NCC(=O)N",
+    "NCCCCCCN.CCO.CCO",
+    "NCCCN.O.O",
+    "CCC(=O)O.N",
+    "ClCCS(=O)(=O)O.N",
+    "OS(=O)(=O)O.CCCNCCC",
+    "CCCCN(CCCC)CCCC.Cl",
+    "NCCCN.Cl.Cl.O.O",
+    "OC(=O)C(=O)O.N.N",
+    "C[N+](C)(C)C.[Cl-]",
+    "ClCCS(CCCl)CCCl.[Cl-]",
+    "ClCC[N+](CCCl)(CC)[O-].Cl",
+    "[O-]C(=O)C.[O-]C(=O)C.[Ca]",
+    "Cc1ccccc1",
+    "CCN(c1ccccc1)CC(=O)Cl",
+    "CCC(C(c1ccccc1)(c1ccccc1)O)O",
+    "c1ccc(cc1)NCc1ccccc1",
+    "OC(=O)CNC(=O)c1cccc(c1)[N+](=O)[O-]",
+    "NCC(c1ccc(cc1)OC)O",
+    "CN(c1ccc(cc1)N=Nc1ccccc1C(=O)O)C",
+    "COc1ccc(cc1)NC(=O)Oc1cccc(c1)N(CC)CC",
+    "[O-][N+](=O)c1ccc(cc1)NN=Cc1cccc(c1)[N+](=O)[O-]"	,
+    "[O-][N+](=O)c1cccc(c1)C=NNc1ccccc1[N+](=O)[O-]",
+    "[O-][N+](=O)c1cccc(c1)NN=Cc1ccccc1[N+](=O)[O-]",
+    "[O-][N+](=O)c1ccc(cc1)NN=Cc1ccc(cc1)[N+](=O)[O-]",
+    "NS(=O)(=O)c1ccc(cc1)S(=O)(=O)N",
+    "NNc1cccc(c1)Cl",
+    "ONc1ccccc1Br",
+    "O=Cc1cccc(c1)S",
+    "OC(=O)c1ccc(cc1)S",
+    "OC(=O)CN(c1ccccc1C(=O)O)CC(=O)O",
+    "CCOCN(c1cccc(c1)S(=O)(=O)N)COCC",
+    "COCCc1ccccc1N(COCC)COCC",
+    "NS(=O)(=O)c1ccc(cc1)[As]=[As]c1ccc(cc1)S(=O)(=O)O",
+    "Brc1ccc(c(c1)Cl)N",
+    "Brc1c(N)cccc1Cl",
+    "[O-][N+](=O)c1ccc(c(c1)N)O",
+    "OC(=O)c1ccc(c(c1)N)Cl",
+    "CC(=O)Oc1cc(Br)c(cc1Cl)[N+](=O)[O-]",
+    "CCCOc1cc(CC)cc(c1F)NC",
+    "COC(=O)c1c(F)cc(c(c1Cl)OC)OC(=O)C",
+    "[O-][N+](=O)c1cc([N+](=O)[O-])c(c(c1)[N+](=O)[O-])O",
+    "OC(=O)c1c(Cl)cccc1C(=O)O",
+    "CC=NNc1ccc(cc1[N+](=O)[O-])[N+](=O)[O-]",
+    "Nc1ccc(cc1)C=Cc1cccc(c1)N",
+    "C=CCc1cc(cc(c1I)F)[N+](=O)[O-]",
+    "COc1cc(NO)cc(c1O)OC",
+    "Fc1cc(F)c(c(c1)[As](=O)(O)O)F",
+    "Brc1cc(Cl)c(c(c1Cl)N)Br",
+    "Sc1ccc(c(c1)C(=O)C)Br",
+    "O=Cc1cc(CCl)c(c(c1)C(=O)Cl)Cl",
+    "CCOc1ccc(cc1S(=O)(=O)O)S(=O)(=O)O",
+    "CN(c1ccc(cc1)C(c1cccc(c1)N(C)C)c1ccccc1)C",
+    "COc1ccc(cc1Oc1cc(Cl)ccc1Cl)OC",
+    "[O-][N+](=O)c1ccc(cc1c1cccc(c1Cl)[N+](=O)[O-])[N+](=O)[O-]",
+    "ClCOCOc1cc(Cc2ccc(c(c2)Cl)Cl)cc(c1)C(=O)COCCl",
+    "OCOCOCc1cc(ccc1C(Cl)(Cl)Cl)C(Cl)(Cl)Cl",
+    "[O-][N+](=O)c1cc(ccc1c1ccccc1)[N+](=O)[O-]",
+    "CC(=O)Oc1cc(ccc1C(=O)c1ccccc1)OC(=O)C",
+    "ClCOC(=O)c1ccc(cc1c1cccc(c1)O)C(=O)OC",
+    "Oc1cccc(c1)c1cc(ccc1[N+](=O)[O-])[N+](=O)[O-]",
+    "c1ccc(cc1)c1ccccc1c1cc(ccc1c1ccc(cc1)c1ccccc1)c1cccc(c1)c1ccccc1",
+    "Nc1ccc(cc1)C(c1ccccc1N)CN(C(=O)C)C(=O)C",
+    "OCCN(CC(c1ccc(c(c1)[N+](=O)[O-])Cl)c1ccc(c(c1)Cl)N)CCO",
+    "ClCC(NCC(=O)c1ccc(c(c1)C(=O)CNc1ccc(cc1)Cl)N(C)C)C",
+    "c1cccnc1",
+    "O=C1C=CC(=O)C=C1",
+    "O=C1C=CC=CC1=O",
+    "c1ncc[nH]1",
+    "O1C=CNC=N1",
+    "S1OC=NC=N1",
+    "N1=CNC=NS1",
+    "c1ncno1",
+    "N1=CN=CNC=C1",
+    "S1CSC=N1",
+    "N1CCNNC1",
+    "C1OCC=N1",
+    "C1CC=CC=C1",
+    "C1C=CC=C1",
+    "O=C1CCC(=O)O1",
+    "C1C=CN=N1",
+    "O=C1CCC=CO1",
+    "OC(=O)c1cnccc1Cl",
+    "O=Cc1occ(c1)C(=O)O",
+    "OC(=O)C1CCC(C1(C)C)(C(=O)O)C(=O)O",
+    "Clc1cccc(n1)C(=O)O",
+    "CNC(=O)C1(O)NC(=O)NC1=O",
+    "CCC1(CC)C(=O)NC(=O)NC1=O",
+    "CC1=C(C)C(CC1)(C)C",
+    "CCC1=CCC(C1(C)C)C(=O)O",
+    "CC1CN(CC1c1ccccc1)C",
+    "ON=C1C=CC(=NO)C=C1",
+    "ClC1C(Cl)CC=CC1=NNc1ccccc1",
+    "O=S1(=O)CCCC1",
+    "C1C=CC=[As]1",
+    "C1=CC=C=C=C1",
+    "P1=CC=C=C=C1",
+    "[K]1=PC=C=C=C1",
+    "C1S[Sb]SC=C1",
+    "N1CCCCOCCCC1",
+    "O=C1CCCC=C1",
+    "ClC1C(Cl)CC=CC1=O",
+    "OCC(=O)C1CC=C(C1(C)C)C",
+    "OC(=O)C1CCC(C1(C)C)(C)C(=O)O",
+    "CN1C(=N)NC(=O)C1Cc1ccccc1",
+    "OC=C1N=C(OC1=O)Cc1ccccc1",
+    "CC1N=NC(=O)C1=Nc1ccccc1",
+    "NC(=O)NC1C(=O)NC(=O)N(C1=O)C",
+    "O=C1OC(=O)C(OC1c1ccccc1)c1ccccc1",
+    "C1COPOC1",
+    "[Si]1C[Si]C[Si]C1",
+    "COC1CC1",
+    "Brc1ccc(cc1)n1c(=O)cc(n1C)C",
+    "c1ccc(cc1)CN(c1ccccc1)CC1=NCCN1",
+    "C1CCC#CCC1",
+    "CC(=C)C1CC=C(C(=O)C1)C",
+    "OC(=O)C1(C)CCC=CC1(C)C",
+    "NN=C1C=CC(=O)C(=C1)C(=O)O",
+    "O=S1OCCO1",
+    "O=Nn1[nH]c(c(c1=O)C)C",
+    "O=C1NC(=N)N(C1)C",
+    "N=c1oc(=N)oc(=N)o1",
+    "CCc1nc(N)nc(c1c1ccc(cc1)Cl)N",
+    "CCC1(C(=O)NC(=O)NC1=O)c1ccccc1",
+    "OCCc1cncc(c1)CO.Cl",
+    "O=C(N(C)C)Oc1ccc[n+](c1)Cc1ccccc1.[Br-]",
+    "CN1CCN(CC1)C(c1ccc(cc1)Cl)c1ccccc1.Cl.Cl",
+    "Nc1ccccc1C[n+]1cscc1C.[Cl-].Cl",
+    "[O-][n+]1ccccc1",
+    "C1CCC2C(C1)CCCC2",
+    "c1ccc2c(c1)cccc2",
+    "c1ccc2c(c1)c[nH]c2",
+    "c1ccc2c(c1)occ2",
+    "C1CNC2N1C=CS2.[Cl-]",
+    "C1=CC=C2C(=CC=C2)C1",
+    "OC(=O)c1ccc2c(c1)cccc2",
+    "COc1ccc2c(c1)[nH]cc2",
+    "OC(=O)c1cc2ccccc2cc1Cl",
+    "CC1=c2ccccc2=CC1(C)C",
+    "OC(=O)c1ccnc2c1nccc2",
+    "C1CCc2c(C1)nccc2",
+    "C1CCC2C(C1)N=CC=C2",
+    "C1CCC2=CCN=C2C1",
+    "C1CCC2=C(C1)CNCC2",
+    "C1=CC=C2C(=NC=CS2)C1",
+    "C1=NCc2c(S1)cccc2",
+    "C1CNc2[n+]1ccs2.[Cl-]",
+    "N1Cn2c(C1)cnc2",
+    "C1CCC2=C(C1)SN=CN2",
+    "C1CNCCc2c(CCC1)cccc2",
+    "BrC1=C2C=NC=C2C=N1",
+    "C1CCc2c(C1)cccc2",
+    "Oc1ccc(c2c1cccc2)O",
+    "ClC1CCC(c2c1cccc2)O",
+    "C1=CCC2=C(C1)OCC2",
+    "c1ccc2c(c1)c1ccccc1cc2",
+    "c1ccc2c(c1)cc1c(c2)cccc1",
+    "C1=CCc2c(=C1)ccc1=Nc3c(-c21)c1ccccc1cc3",
+    "c1ccc2c(c1)c1c[nH]cc1cc2",
+    "O=C1N2CCCCC2Cc2c1cc1ccccc1c2",
+    "c1ccc2c(c1)cc1c(c2)cc[nH]1",
+    "Clc1ccc2-c3c(C(=O)c2c1)cc(cc3)[N+](=O)[O-]",
+    "c1oc2c(c1)cc1c(c2)ccc2c1cc1ccc3c(c1c2)cco3",
+    "CN(CC[N+]1=C2CC=CC=C2Sc2c1cccc2)C",
+    "CN(CCN1c2ccccc2Cc2c1cccc2)C",
+    "Nc1ccc2c(c1)[n+](C)c1c(c2)ccc(c1)N.[Cl-].Cl",
+    "c1ccc2c(c1)c1C=CC=c1c1=CC=Cc21",
+    "c1ccc2c(c1)CC1N(C2)CCc2c1cccc2",
+    "O=C1CCC2(C(=C1)CCC1C2CCC2(C1CCC2)C)C",
+    "OCc1ccc(c2c1C(=O)c1cccc(c1C2=O)O)O",
+    "OC1CCC2(C(C1(C)C)CCC1(C2CC=C2C1(C)CCC1(C2CC(C)(C)CC1)C)C)C",
+    "Oc1ccc2c(c1)OCC1(C2c2cc(O)c(cc2C1)O)O",
+    "c1cc2cccc3c2c(c1)C=C3",
+    "c1cc2ccc3c4c2c(c1)ccc4ccc3",
+    "c1ccc2c(c1)cc1c3c2C=Cc3ccc1",
+    "c1cc2cc3cccc4c3c3c2c(c1)NC=c3cc4",
+    "c1cc2c3c(c1)c1ccccc1c3c1c3c2c2ccccc2c3ccc1",
+    "C1CC2CC3CCCCC3C3C2C(C1)c1c2c3cccc2cc2c1cccc2",
+    "c1cc2ccc3c4c2c(c1)ccc4c1c2c3ccc3c2c(cc1)ccc3",
+    "c1ccc2c(c1)cc1c(c2)cc2c3c1ccc1c3c(c3c2cccc3)ccc1",
+    "c1cc2Cc3cccc4c3c3c2c(c1)c1nc2ccccc2nc1c3cc4",
+    "C1=CC=c2c(C1)cc1c3c2c2ccccc2cc3ccc1",
+    "c1cc2cc3cccc4c3c3c2c(c1)c1cccc2c1c3c(O4)cc2",
+    "c1ccc2c(c1)cc1c(c2)c2c3cccc4c3c(c3c2c(c1)ccc3)ccc4",
+    "c1ccc2c(c1)c1sc3c4c1c1c2cccc1c1c4c(c2c3cccc2)ccc1",
+    "C1CC2C3C(C4C2C(C1)CCC4)C1C3C2CCCC3C2C1CCC3",
+    "c1cc2cc3C=CCc4c3c3C2c(c1)cc1c3c(c4)ccc1",
+    "C1CC2CC3CCCC4C3C35C2C(C1)CC1C3C(CCC1)CC1C5C(C4)CCC1",
+    "C1CC2CC3CCCC4C3C35C2C(C1)CC1C3C(C2C5C(C4)CCC2)CCC1",
+    "C1=CC2=CC=CC3=CN4C(=Nc5cccc6c5c4ccc6)C(=C1)C23",
+    "C1=CC2=CC=CC3=c4c(C(=C1)C23)c1c(=c2c3=C1CC=Cc3ccc2)s4",
+    "c1cc2c3ccc4c5c3c(c3c2c2c1N=Cc2cc3)ccc5N=C4",
+    "C1CC2CC3CCCC4C3C3C2C(C1)C1CC2CC5CC6CCCC7C6C6C5C(C2CC1C3CC4)CC1C6C(C7)CCC1",
+    "COc1cc2c(cc1O)ncc(c2O)c1cncc(c1)C(=O)O",
+    "CN1CC(O)CC(C1)c1cnccn1",
+    "CN1CCCCC1c1ccccn1",
+    "C1CCC(CC1)c1cc(cc2c1cccc2)c1ccc2c(c1)cccc2",
+    "C1CCC(CC1)C1CCCC(C1)c1c(ccc2c1ccnc2)c1ccc2c(c1)ccnc2",
+    "s1ccc(c1)c1cccs1",
+    "CN(CCN(c1ccccn1)Cc1ccc(s1)Br)C",
+    "CCN(CCOc1cccc(n1)C(c1ccco1)(c1ccc(cc1)c1ccccc1)O)CC",
+    "n1ccc(cc1)c1cc2ccccc2cc1C1=CCOC=C1",
+    "n1ccc(cc1)c1cc2ccccc2cc1C1CCOCC1",
+    "Brc1c(C2CCOCC2)c(c2ccncc2)c(c2c1cccc2)Cl",
+    "C1CC[Ge]2(CC1)CCOCC2",
+    "OC(=O)C1=COC=C2C1=CC1(C=COC=C1)C=C2",
+    "C1CCC2(C1)SCC1(CS2)CCCC1",
+    "c1ccc2c(c1)O[As]1(O2)Oc2c(O1)cccc2",
+    "c1ccc2c(c1)COC12c2ccc3c(c2Oc2c1ccc1c2cccc1)cccc3",
+    "O=C1C=CC2(O1)CCC2(C)C",
+    "C1CCC23C(C1)CCCC3CNCC2",
+    "C1CC2CC1CC2",
+    "C1CC2C(C1)COC2",
+    "C1CC2CC1OC2",
+    "C1CC2CCC1CC2",
+    "C1CC2CCC1NC2",
+    "OC1CC2CCC(C1)N2C",
+    "O1CC2CCC(C1)CO2",
+    "N1CC2COCC(C1)C2",
+    "C1CC2CCC1SC2",
+    "C1CC2OCC(C1)C2",
+    "C1CC2CCC(O1)C2",
+    "C1CCC2CC(C1)CNC2",
+    "C1CCC2C(C1)C1CCC2CC1",
+    "C1CC2CCC3(C1)C2CCC3",
+    "C1CC2C(C1)C1C3C(C2C2C1CCCC2)CCCC3",
+    "C1CC23CCCC(C1)(C2)C3",
+    "C1CCC23C(C1)(CCC3)CCC2",
+    "C1CCC23C(C1)CC(CC2)C1C3CCC1",
+    "C1CC2C3C1C1C2C1C3",
+    "c1ccc2c(c1)c1ccc2s1",
+    "C1OCc2c(O1)c1ccc2[nH]1",
+    "c1ccc2c(c1)CC1C2=C2C=CC1=C2",
+    "C1=CCC23C(=C1)C=C(O2)c1c3coc1",
+    "C1CC2COC3(C(C1)CCC3)C2",
+    "C1CCC2C(C1)N1CCCC3C1=C2C1=NCCC3C1",
+    "O1C=C2CC1=C1OCC34C1=C2C=C3O4",
+    "C1CC2CCC3CC2C(C1)CO3",
+    "C1OC2CCC3CCC1CC3C2",
+    "C1CCC2C(C1)C1CCC2CC1",
+    "C1CCC2C(C1)CC1C(C2)C2CCC1C1C2CCCC1",
+    "C1CCC2C(C1)CC1C(C2)C2C3C(C1C1C2COC1)CCCC3",
+    "C1C=CC23C(=C1)C=C(CC2)c1c3cccc1",
+    "C1CCC23C(C1)C1CCC4C(C1(CC2)OO3)COC4",
+    "O1CC2C(C1)C13CCCC3CC2CC1",
+    "O1CC2C3(C1)C1C3CCC2C1",
+    "C1CCC2C(C1)CC13C(C2CC3)CCCC1",
+    "C1=CC2=C3CCN(C2=C1)C1C23C=CC1=C2",
+    "C1CCC23C(C1)CC(CC2)OO3",
+    "C1C2C3CCC(C2CC2C1C1CCC2C1)C3",
+    "C1CC2CC1C1C2C2C(C1)C1CC2CC1",
+    "C1C2C3C(C1C1C2C2CCC1C2)C1CC3CC1",
+    "C1CC2CCC1C1C2C2CC1CC2",
+    "C1CCC2C(C1)C1CC2C2CC1C1C2CCCC1",
+    "C1CCC2C(C1)C1CC3CC(CC2C1)C1C3CCCC1",
+    "C1CCC2C(C1)C1CC3CC(C2C1)C1C3CCCC1",
+    "C1C2CC3CC1CC(C2)C3",
+    "C1N2CN3CN1CN(C2)C3",
+    "BrC12CC3CC(C2)CC(C1)C3",
+    "C1CC2C3C1CC2CC3",
+    "N1CC2CCC3N(C1)C2CC3",
+    "C1CC2C3C1C2CC3",
+    "C1CC2C3C1CC2OC3",
+    "C1CC2OCC3C(C1)C2CC1C3O1",
+    "C1CC2C(C1)C1C3C2C(C1)OCO3",
+    "C1CC2CC3OC(C1)C2CC3",
+    "C1CC2CC3CC(C1)C2CC3",
+    "C1CC2CC3C(C1)C(C2)CO3",
+    "C1CC2C1C1CC3C2C(C1)CO3",
+    "C[N+]12OSC3CC(C2C2CCCCC32)NC2C1CCCC2",
+    "C1CCC2C(C1)CC1C3C2OC(C1)CC3",
+    "C1OC2CCC3CCC1CC3C2",
+    "C1OC2C(O1)C1ON3CC1C(C2)CC3",
+    "N1CCC2C(C1)CC1C32CC2C(C3)CCC1N2",
+    "C1CC2OC3C45C2C(C1)C1CCN(C1C5CCC3)CC4",
+    "C1COSON2C3CC(OC1)CC2CC3",
+    "C1C2C3C2C2C1C32",
+    "C1CC2C3C1C1CCC2C(C1)O3",
+    "C1C2C3C4C1C1C2C2C(O3)C4C1C2",
+    "C1CCC2C(C1)C1CC3C4C2C2C5C(C1CC3C42)CCCC5",
+    "C1C2C3CC4C5C2CC1C5C3C4",
+    "C1OC2C3C4N(C1)C2CC(O3)C4",
+    "O1CC2C(C1)C1C3C2C2C1C2C3",
+    "C1C2C3C4C1C1C2C2C3CC4C12",
+    "C1CC2C3C1C1CC3C3C2C13",
+    "C1C2C3C4C1C1C2C3CC41",
+    "C1C2C3C4C1C1C2C(C3)C41",
+    "C1C2C3CC4C2CN1C4C3",
+    "C1C2C3CC1C1C3C3C2CC1C3",
+    "N1CN2N(C1)C1C3C2C2C1C2C3",
+    "O1CC2C3C4C(C1)C2CC3OC4",
+    "C1CC2C3CC4OC2C(C1)C(C3)C4",
+    "C1C2CC3C1C1C4C2C3C1CC4",
+    "O1CC2C3C1CC1C2COC1C3",
+    "C1CC2CC1C1C2C2C3C1C1C2C1C3",
+    "C1CCC2C(C1)NC1C32CC2C(C3)C3CC1N2CC3",
+    "c1ccc2c(c1)C=C1C3=CC(=CN1)N=Cc1ccc(SOS23)cc1",
+    "O1CC2C(C1)C1C3C(C2C2C1CCCC2)CC1C(C3)C2C3C(C1C1C2COC1)CCCC3",
+    "c1ccc2c(c1)cc1c(c2)c2ccc1nc1ccc(n2)c2c1cc1c(c2)cccc1",
+    "c1ccc2c(c1)c1Cc3[nH]c(c4c3cccc4)Cc3[nH]c(Cc4[nH]c(Cc2[nH]1)c1ccccc41)c1c3ccc1",
+    "C1Cc2cc3ccccc3cc2CCCc2c(C1)cccc2",
+    "C1CCC2C(C1)CC1C(C2)CCCC2CC(CCC1)CCC2",
+    "c1cc2ssc3cccc4c3cccc4ssc3c(c1)c2ccc3",
+    "c1ccc2c(c1)CN1C2=Nc2ccc(-c3ccc1cc3)cc2",
+    "c1ccc2c(c1)cc1c(c2)C2Oc3ccc(OC1c1c2cc2c(c1)cccc2)cc3",
+    "c1cc2Oc3ccc(cc3)Cc3nccc4c3cc(Oc3c5c(Cc(c1)c2)nccc5ccc3)cc4",
+    "C1CC2=NC1=Cc1ccc([nH]1)C=c1ccc(=CC3NC4=C2CCC4C3)[nH]1",
+    "C1=CCC2=CC=CC2=[C-]1.C1CCC2C(C1)CC[CH-]2.[Fe+2]",
+    "C1=CCC2=CC=CC2=[C-]1.CC1=[C-]C=CC1.[Fe+2]",
+    "c1c[c-]c(cc1)C1=[C-]C=CC1.c1c[c-]c(cc1)C1=[C-]C=CC1.[Fe+2].[Fe+2]",
+    "ClC1=CCC(=[C-]1)C1=[C-]C=CC1.CC1=CCC(=[C-]1)C1=[C-]C=CC1.[Fe+2].[Fe+2]",
+    "C1C[NH2][Cu][NH2]1.[OH-].[OH-]",
+    "CC1C=C(C)C(=O)[Au](O1)(C)C",
+    "C1C[NH2][Cu][NH2]1.[OH-].[OH-]",
+    "C1=Cc2cccc3c2N(C1)[Zn]1(O3)Oc2c3N1CC=Cc3ccc2",
+    "Cl[Pt]12N3C=CC=CC3=C3N2C(=C2N1C=CC=C2)C=CC3.[Cl-]",
+    "C1=CN2C(=C3N([Fe]2)C=CC=C3)C=C1.[O-]S(=O)(=O)[O-]",
+    "[O-]C(=O)C.[Na+]",
+    "[CH2-][N+]1(C)CCCCC1",
+    "C[N+]1(C)CCCCC1.[Cl-]",
+    "c1ccc2c(c1)[S+]CS2.[Cl-]",
+    "C1CC[N+]2(CC1)Cc1c(C2)cccc1.[Br-]",
+    "[O-]C(=O)C(=O)[O-].[Zn+2]",
+    "C1CC[N+]2(CC1)C=CC1=CC=CC1=N2"
+  };
+ 
+  fprintf(stderr, "WLN Read Benchmark\n"); 
   
-  symbol_t *c = 0;  
-  symbol_t *p = 0;
-  edge_t *e   = 0; 
-
-  for (u16 i=0; i<size; i++) {
-    if (inc && i==inc_pos)
-      c = inc; 
-    else 
-      c = new_symbol(g, CAR, 4); 
-    
-    if(!c)
-      return (ring_t*)0; 
-    else if (p) {
-      e = next_virtual_edge(p); 
-      e = set_virtual_edge(e, p, c); 
-      e->ring = 1;  
-    }
-
-    ring->path[i].s = c; 
-    ring->path[i].r_pack++; 
-    ring->path[i].hloc = i+1; // point to the next locant_t 
-    p = c; 
-  }
+  std::string buffer; 
+  OpenBabel::OBMol mol;
+  OpenBabel::OBConversion conv;
   
-  // end chain movement for pathfinderIII
-  ring->path[0].r_pack++; 
-  ring->path[size-1].r_pack++; 
-  ring->path[size-1].hloc = size-1; 
+  conv.SetOutFormat("can");
+  conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
   
-  ring->size = size; 
-  return ring; 
-}
+  unsigned int n_correct = 0; 
+  unsigned int n_wrong   = 0; 
 
+  struct timeval stop, start;
+  gettimeofday(&start, NULL);
 
-typedef struct  {
-  u8 r_loc; // use to calculate size + add in off-branch positions
-  u8 r_size;
-  u8 arom; 
-} r_assignment; 
-
-
-static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r, 
-                                   r_assignment *SSSR, u8 SSSR_ptr) 
-{
-  /*
-   * PathsolverIII FAST Algorithm (Michael Blakey):
-   *
-   * Named after the original attempts at WLN hamiltonian paths
-   * from lynch et al. PathsolverIII iterates a given hamiltonian 
-   * path by using the "allowed connections" property. Please
-   * refer to my thesis for more details. 
-   *
-   * In short - ring bonds can have a maximum of 3 connections
-   *            unless specified as bridging (-1) or expanded (+1)
-   *
-   * The path is maximised at each step which mirrors the minimisation
-   * of the fusion sum as mentioned in the manuals. 
-  */
-
-  u8 steps, s_pos;
-  edge_t *e; 
-  locant_t *start, *end; 
-  r_assignment *subcycle; 
-  
-  for (u16 i=0; i<SSSR_ptr; i++) {
-    subcycle = &SSSR[i];   
-    steps    = subcycle->r_size; 
-    s_pos    = subcycle->r_loc; 
-    start    = &r->path[s_pos]; 
-    end = start; 
-    
-    // if used max times in ring, shift along path
-    while ((start->r_pack & 0x0F) == 0 && s_pos < r->size) {
-      start = &r->path[++s_pos];  
-      steps--; 
-    }
-    
-    for (u16 s=0; s<steps-1; s++) {
-      end->s->arom |= subcycle->arom; 
-      end = &r->path[end->hloc]; 
-    }
-    end->s->arom |= subcycle->arom; 
-
-#if DEBUG 
-    fprintf(stderr,"%d: %c --> %c (%d)\n",steps,start - &r->path[0] + 'A',end - &r->path[0] + 'A', subcycle->arom); 
-#endif
-    
-    start->r_pack--; 
-    end->r_pack--; 
-
-    e = next_virtual_edge(start->s); 
-    e = set_virtual_edge(e, start->s, end->s);
-    if (!e)
-      return 0; 
-    else 
-      e->ring = 1; 
-    start->hloc = end - &r->path[0]; 
-  }
-
-  return r;   
-}
-
-static ring_t* pathsolverIII(graph_t *g, ring_t *r, 
-                             r_assignment *SSSR, u8 SSSR_ptr, 
-                             u8 *connection_table)
-{
-  u8 steps, s_pos;
-  edge_t *e; 
-  locant_t *c, *p=0;
-  locant_t *start, *end; 
-  r_assignment *subcycle; 
-
-  for (u16 i=0; i<r->size; i++) {
-    c = &r->path[i]; 
-    if (!c->s) 
-      c->s = new_symbol(g, CAR, 4); 
-
-    if (p) {
-      e = next_virtual_edge(p->s); 
-      e = set_virtual_edge(e, p->s, c->s); 
-      connection_table[i * r->size +(i-1)] = 1; 
-      connection_table[(i-1) * r->size + i] = 1; 
-    }
-
-    connection_table[i*r->size+i] = 1; // bond to itself?
-
-    c->r_pack++; 
-    c->hloc = i+1; // point to the next locant_t 
-    p = c; 
-  }
-
-  // end chain movement
-  r->path[0].r_pack++; 
-  r->path[r->size-1].r_pack++; 
-  r->path[r->size-1].hloc = r->size-1; 
-
-  /*
-   * PathsolverIII Algorithm (Michael Blakey):
-   *
-   * Named after the original attempts at WLN hamiltonian paths
-   * from lynch et al. PathsolverIII iterates a given hamiltonian 
-   * path by using the "allowed connections" property. Please
-   * refer to my thesis for more details. 
-   *
-   * Pseudo locants break the iterative walk, and a flood fill is required to 
-   * find the maximal path through the ring system, this can be optimised somewhat
-   * by using a priority queue on the walks, and bonding the pseudo positions
-   * during the notation parse
-   *
-   * connection table allows the floodfill to be done without another data structure, plus a 
-   * easy pass through for pseudo locants defined in the ring parse 
-  */
-  
-  return r;  
-}
-
-static u8 add_oxy(graph_t *g, symbol_t *p, u8 ion)
-{
-  edge_t *e = next_virtual_edge(p); 
-  symbol_t *c = next_symbol(g, e, OXY, 2); 
-  
-  if (!c)
-    return ERR_ABORT; 
-  else {
-    if (!ion) {
-      e->order++; 
-      p->valence_pack++; 
-    }
-    else{
-      p->valence_pack--; // let this be a free addition
-      p->charge++; // WLN defines an immediate balance
-      c->charge--; 
-      c->valence_pack++; 
-    }
-    e = set_virtual_edge(e, p, c); 
-  }
-  if (!e)
-    return ERR_ABORT; 
-  else 
-    return ERR_NONE; 
-}
-
-/* placeholder for charged alterations */ 
-static u8 add_tauto_dioxy(graph_t *g, symbol_t *p)
-{
-  u8 ret = 0; 
-  ret = add_oxy(g, p, 0); 
-  if (ret != ERR_NONE)
-    return ret; 
-  else if (((p->valence_pack >> 4) - (p->valence_pack & 0x0F)) >= 2) {
-    return add_oxy(g, p, 0); 
-  }
-  else 
-    return add_oxy(g, p, 1); 
-};
-
-static u8 default_methyls(graph_t *g, symbol_t *c, const u8 n)
-{
-  edge_t *e; 
-  symbol_t *m;
-  u8 b_store = c->n_bonds; 
-  for (u8 i=(c->valence_pack & 0x0F); i<n; i++) {
-    e = next_virtual_edge(c); 
-    m = next_symbol(g, e, CAR, 4); 
-    if (!m)
-      return ERR_ABORT; 
-    else 
-      e = set_virtual_edge(e, c, m); 
-  }
-
-  c->n_bonds = b_store;  
-  return ERR_NONE; 
-}
-
-/* locants can be expanded or read as branches with '&' and '-'
- * chars. In order to move the state as the string is being read, 
- * these have to be handled per locant_t read. The logic this saves
- * outweighs the branches in the loop */
-static u8 read_locant(const char *ptr, u16 *idx, u16 limit_idx)
-{
-  u8 locant_t = ptr[*idx] - 'A'; 
-  for (u16 i=*idx+1; i<limit_idx; i++) {
-    switch (ptr[i]) {
-      case '&':
-        locant_t += 23; 
-        break; 
-
-      case '-':
-        fprintf(stderr,"off-branch reads need handling\n"); 
-      
-      default:
-        return locant_t; 
-    }
-    (*idx)++; 
-  }
-  
-  return locant_t; 
-}
-
-
-static ring_t* parse_cyclic(const char *ptr, const u16 start, u16 end, 
-                            symbol_t *head, u16 head_loc, 
-                            graph_t *g) 
-{
-  symbol_t  *c    = 0; 
-  edge_t    *e    = 0; 
-  ring_t    *ring = 0; 
-
-  u8   locant_ch   = 0; 
-  u8   arom_count = 0;
-  u8   ring_size  = 0;  
-  
-  u8 SSSR_ptr  = 0; 
-  r_assignment SSSR[32]; // this really is sensible for WLN
-  
-  u8 bridge_ptr  = 0; 
-  u16 bridge_locants[16]; 
-
-  u8 buff_ptr = 0; 
-  unsigned char buffer[3]; 
-    
-  u8 *connection_table = 0; // stack allocates on pseudo read
-
-  u8 state = 0; // bit field:                      
-                 // [][][][pseudo][SSSR][dash][digit][space]
-
-  unsigned char ch; 
-  unsigned char ch_nxt; 
-
-  state = SSSR_READ; 
-  for (u16 sp=start; sp<end; sp++){
-    ch = ptr[sp]; 
-    ch_nxt = ptr[sp+1]; 
-
-    if (state & PSEUDO_READ && (ch >= 'A' && ch <= 'Z')) {
-      if (buff_ptr == 2) {
-        fprintf(stderr,"Error: more than two pseudo bonds specified\n"); 
-        goto ring_fail; 
+  for (unsigned int i=0; i<BENCH_N;i++) {
+    fprintf(stderr,"%s\n",wln_bench[i]); 
+    if (!C_ReadWLN(wln_bench[i], &mol))
+      fprintf(stderr, "%s null read\n", smiles_bench[i]); 
+    else {
+      buffer = conv.WriteString(&mol,true);
+      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) {
+        fprintf(stderr,"%s != %s\t%s\n", wln_bench[i] ,smiles_bench[i], buffer.c_str()); 
+        n_wrong++; 
       }
       else 
-        buffer[buff_ptr++] = ch; 
-    }
-    else if (state & SPACE_READ && (ch >= 'A' && ch <= 'Z')) {
-      locant_ch = read_locant(ptr, &sp, end);
-      ch_nxt = ptr[sp+1]; // might get updated  
-      
-      // handle single letter bridges, requires check for ring build
-      // bridges must come after multicyclic definition for correct syntax
-      if (ch_nxt == 'J' || ch_nxt == 'T' || ch_nxt == ' ') {
-        if (locant_ch > ring_size) {
-          fprintf(stderr, "Error: out of bounds locant_t access"); 
-          goto ring_fail; 
-        }
-        else 
-          bridge_locants[bridge_ptr++] = locant_ch; 
-
-        locant_ch = 0; 
-      }
-      state &= ~SPACE_READ; 
-    }
-    else if (state & MULTI_READ) {
-      // must be the incoming ring size
-      ring_size = read_locant(ptr, &sp, end) + 1; 
-      ring = rt_alloc(g, ring_size, head, head_loc); 
-      state &= ~MULTI_READ; 
-    }
-    else {
-      // create the ring as necessary
-      if (state & SSSR_READ && (ch >= 'A' && ch <= 'Z')){
-        // end the SSSR read, start element reading
-        if (ring || !SSSR_ptr) {
-          fprintf(stderr, "Error: ring backbone failure - syntax ordering issue\n"); 
-          goto ring_fail; 
-        }
-        else
-          ring = rt_alloc(g, ring_size-bridge_ptr, head, head_loc); 
-
-        state &= ~SSSR_READ; 
-      } 
-
-      switch (ch) {
-        // special pi bonding
-        case '0':
-          break; 
-
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          if (state & SPACE_READ && state & SSSR_READ) {
-            // multicyclic block start
-            // move forward space to skip redundant block - should appear on space, 
-            // if not, error. This is currently wrong
-
-            for (u8 i=0; i < ch-'0'+1; i++) 
-              read_locant(ptr, &++sp, end); 
-
-            if (sp >= end || ptr[sp] != ' ') {
-              fprintf(stderr, "Error: invalid format for multicyclic ring - %c\n", ptr[sp]);
-              goto ring_fail; 
-            }
-            else {
-              state |= MULTI_READ; 
-              state &= ~SPACE_READ; 
-              state &= ~SSSR_READ; 
-            }
-          }
-          else if (state & SSSR_READ){
-            ring_size += ch - '0' - (2*(ring_size>0)); 
-            SSSR[SSSR_ptr].r_size   = ch - '0'; 
-            SSSR[SSSR_ptr].arom     = 1; // default is aromatic 
-            SSSR[SSSR_ptr++].r_loc  =  locant_ch; //read_locant(ptr, &sp, end); 
-            locant_ch = 0; 
-          }
-          else {
-            fprintf(stderr, "Error: digit used outside of known state\n"); 
-            goto ring_fail; 
-          }
-          break; 
-        
-        case 'A':
-        case 'C':
-        case 'D':
-        case 'J':
-        case 'L':
-        case 'R':
-          fprintf(stderr, "Error: non-elemental symbols outside valid read states\n"); 
-          goto ring_fail; 
-          break; 
-      
-        case 'B':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            c = transmute_symbol(ring->path[locant_ch].s, BOR, 3); 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'H':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            c = ring->path[locant_ch].s; 
-            c->arom = -1; // will get ignored, bits overlap
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'K': 
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else { 
-            c = transmute_symbol(ring->path[locant_ch].s, NIT, 4); 
-            ring->path[locant_ch].r_pack++; 
-            c->charge++; 
-            
-            c->bonds[0].order = HANGING_BOND; 
-            c->bonds[1].order = HANGING_BOND;  
-            c->bonds[2].order = HANGING_BOND; 
-
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'M':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else { 
-            c = transmute_symbol(ring->path[locant_ch].s, NIT, 2); 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'N':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            c = transmute_symbol(ring->path[locant_ch].s, NIT, 3); 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'O':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            c = transmute_symbol(ring->path[locant_ch].s, OXY, 2); 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'P':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else { 
-            c = transmute_symbol(ring->path[locant_ch].s, PHO, 6); 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        case 'S':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {     
-            c = transmute_symbol(ring->path[locant_ch].s, SUL, 6); 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-  
-        case 'T':
-          state |= AROM_READ; 
-          SSSR[arom_count++].arom = 0; 
-          break; 
-
-        // some nice ghost logic here. On a successful chain creation, the first bond will always to 
-        // to the next symbol in the locant_t path. e.g A->B->C. therefore unsaturate bond[0]. 
-        // when mixed with dash, this will be the next avaliable bond which is not in the chain, and MUST
-        // be handled in the pathsolver algorithm, there place at bonds[1...n]. 
-        case 'U':
-          if (ch_nxt == '-') {
-            
-
-          }
-          else if (e) {
-            // means c must be live
-            c->valence_pack++; 
-            e->order++; 
-            e->c->valence_pack++; 
-          }
-          else if (locant_ch == ring_size - 1) {
-            // will wrap back onto the start, again, determined position likely at bonds[1], when logic shifts last bond, unsaturation on last position is technically undefined. 
-            c = ring->path[0].s;  
-            c->bonds[1].order += 2; // the edge is not yet live ~ 2
-            c->valence_pack++; 
-          }
-          else if (locant_ch < ring_size) {
-            c = ring->path[locant_ch].s;  
-            e = &c->bonds[0]; 
-            e->order++; 
-            c->valence_pack++;
-            ring->path[locant_ch+1].s->valence_pack++; 
-            locant_ch++; 
-          }
-          break; 
-          
-        case 'V':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            c = transmute_symbol(ring->path[locant_ch].s, CAR, 4);
-            e = &c->bonds[0]; 
-            if (!add_oxy(g, c, 0))
-              goto ring_fail; 
-            else { 
-              g->idx_symbols[sp+1] = c; 
-              locant_ch++; 
-            }
-          }
-          break; 
-
-        case 'W':
-          break; 
-
-        case 'X':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            c = ring->path[locant_ch].s; 
-
-            // purely virtual bonds that may or may not get tidyed up
-            c->bonds[1].order = HANGING_BOND; 
-            c->bonds[2].order = HANGING_BOND; 
-            c->bonds[3].order = HANGING_BOND; 
-
-            e = &c->bonds[0]; 
-            ring->path[locant_ch].r_pack++; // the me
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-      
-        case 'Y':
-          if (locant_ch > ring_size) {
-            fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-            goto ring_fail; 
-          }
-          else {
-            // treat as a carbon, WLN expects the U characters, this cannot be aromatic 
-            c = ring->path[locant_ch].s; 
-            c->arom = -1; 
-            e = &c->bonds[0]; 
-            g->idx_symbols[sp+1] = c; 
-            locant_ch++; 
-          }
-          break; 
-
-        
-        // undefined terminator ring sequences
-        case 'E':
-        case 'F':
-        case 'G':
-        case 'I':
-        case 'Q':
-        case 'Z':
-          fprintf(stderr, "Error: terminators as ring atoms are undefined symbols\n"); 
-          goto ring_fail; 
-          break; 
-
-        case '&':
-          if (state & MULTI_READ)
-            ring->size += 23; 
-          else if (state & PSEUDO_READ)
-            buffer[buff_ptr-1] += 23; 
-          else if (state & AROM_READ) 
-            SSSR[arom_count++].arom = 1; 
-          else if (locant_ch && locant_ch + 23 < ring_size)
-            locant_ch += 23; 
-          else {
-            SSSR[arom_count++].arom = 1; 
-            state |= AROM_READ; 
-          }
-          break; 
-
-        case '/':
-          if (state & SSSR_READ) {
-            state &= ~(SSSR_READ); 
-            buff_ptr = 0; 
-            state |= PSEUDO_READ; 
-          }
-          else if (state & PSEUDO_READ) {
-            if (buff_ptr != 2) {
-              fprintf(stderr, "Error: pseudo locants must come in pairs\n"); 
-              goto ring_fail; 
-            }
-            else 
-              fprintf(stderr,"need impl\n"); 
-          }
-          else {
-            buff_ptr = 0; 
-            state |= PSEUDO_READ; 
-          }
-          break; 
-
-        case ' ':
-          if (state & PSEUDO_READ) {
-            // make the pseudo bond immediately avaliable, 
-            if (buff_ptr != 2) {
-              fprintf(stderr, "Error: pseudo locants must come in pairs\n"); 
-              goto ring_fail; 
-            }
-            else {
-#if DEBUG 
-              fprintf(stderr,"pseudo: %c --> %c\n", buffer[0], buffer[1]); 
-#endif 
-              
-              buff_ptr = 0; 
-              memset(buffer,0,2); 
-
-              state &= ~(PSEUDO_READ & SSSR_READ);  // no further rings can come from pseudo bonds
-            }
-          }
-          
-          state |= SPACE_READ; 
-          locant_ch = 0; 
-          e = 0; 
-          break;
-
-        default:
-          fprintf(stderr,"Error: unknown symbol %c in ring parse\n",ch); 
-          goto ring_fail; 
-      }
+        n_correct++; 
+      buffer.clear(); 
+      mol.Clear(); 
     }
   }
-  
-  if (state & SSSR_READ) {
-    // this must be a poly cyclic ring, 
-    ring = rt_alloc(g, ring_size - bridge_ptr, head, head_loc); 
-  }
 
-  // resolve any bridges 
-  for (u16 i=0; i<bridge_ptr; i++) {
-    if (bridge_locants[i] >= ring->size) {
-      fprintf(stderr,"Error: out of bounds locant_t access\n"); 
-      goto ring_fail; 
-    } 
-    else 
-      ring->path[bridge_locants[i]].r_pack--; 
-  }
-
-
-  // forward any single arom assignments
-  for (u16 i=arom_count;i<SSSR_ptr;i++)
-    SSSR[i].arom = SSSR[0].arom; 
-  
-
-  return pathsolverIII_fast(g, ring, SSSR, SSSR_ptr);     
-
-// might be evil, tidies up the errors handling though
-ring_fail:
-  if (ring)
-    free(ring);
-
-  return (ring_t*)0; 
+  gettimeofday(&stop, NULL);
+  fprintf(stderr, "%d/%d compounds correct\n", n_correct, BENCH_N); 
+  fprintf(stderr, "slow benchmark took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
+  exit(0); 
 }
+#endif
 
-static u8 write_dash_symbol(symbol_t *c, u8 high, u8 low){
-  switch (high){
-    case 'A':
-      switch (low) {
-        case 'C':
-          c->atom_num = 89; 
-          break; 
-        case 'G':
-          c->atom_num = 47; 
-          break; 
-        case 'L':
-          c->atom_num = 13; 
-          break; 
-        case 'M':
-          c->atom_num = 95; 
-          break; 
-        case 'R':
-          c->atom_num = 18; 
-          break; 
-        case 'S':
-          c->atom_num = 33; 
-          break; 
-        case 'T':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 85; 
-          break; 
-        case 'U':
-          c->atom_num = 79; 
-          break; 
-      }
-      break; 
-
-    case 'B':
-      switch (low) {
-        case 0:
-          c->valence_pack = (4 << 4);
-          c->atom_num = BOR; 
-          break; 
-        case 'A':
-          c->valence_pack = (2 << 4);
-          c->atom_num = 56; 
-          break; 
-        case 'E':
-          c->valence_pack = (2 << 4);
-          c->atom_num = 4; 
-          break; 
-        case 'H':
-          c->atom_num = 107; 
-          break; 
-        case 'I':
-          c->atom_num = 83; 
-          break; 
-        case 'K':
-          c->atom_num = 97; 
-          break; 
-        case 'R':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = BRO; 
-          break; 
-      }
-      break; 
-
-    case 'C':
-      switch (low) {
-        case 0:
-          c->valence_pack = (5 << 4); 
-          c->atom_num = CAR; // allow the texas carbon "easter egg"
-          break; 
-        case 'A':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 20;
-          break; 
-        case 'D':
-          c->atom_num = 48;
-          break; 
-        case 'E':
-          c->atom_num = 58;
-          break; 
-        case 'F':
-          c->atom_num = 98;
-          break; 
-        case 'M':
-          c->atom_num = 96;
-          break; 
-        case 'N':
-          c->atom_num = 112;
-          break; 
-        case 'O':
-          c->atom_num = 27;
-          break; 
-        case 'R':
-          c->atom_num = 24;
-          break; 
-        case 'S':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 55;
-          break; 
-        case 'U':
-          c->atom_num = 29;
-          break; 
-      }
-      break; 
-
-    case 'D':
-      switch (low) {
-        case 'B':
-          c->atom_num = 105;
-          break; 
-        case 'S':
-          c->atom_num = 110;
-          break; 
-        case 'Y':
-          c->atom_num = 66;
-          break; 
-      }
-      break;
-
-    case 'E':
-      switch (low) {
-        case 0:
-          c->valence_pack = (3 << 4); // hypervalent bromine
-          c->atom_num = 35; 
-          break; 
-        case 'R':
-          c->atom_num = 68; 
-          break; 
-        case 'S':
-          c->atom_num = 99; 
-          break; 
-        case 'U':
-          c->atom_num = 63; 
-          break; 
-      }
-
-    case 'F':
-      switch (low) {
-        case 0:
-          c->valence_pack = (3 << 4); // hypervalent flourine
-          c->atom_num = FLU; 
-          break; 
-        case 'E':
-          c->atom_num = 26; 
-          break; 
-        case 'L':
-          c->atom_num = 114; 
-          break; 
-        case 'M':
-          c->atom_num = 100; 
-          break; 
-        case 'R':
-          c->atom_num = 87; 
-          break; 
-      }
-      break;
-
-    case 'G':
-      switch (low) {
-        case 0: 
-          c->valence_pack = (3 << 4); // hypervalent chlorine
-          c->atom_num = CHL; 
-          break; 
-        case 'A':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 31; 
-          break; 
-        case 'D':
-          c->atom_num = 64; 
-          break; 
-        case 'E':
-          c->valence_pack = (4 << 4); 
-          c->atom_num = 32; 
-          break; 
-      }
-      break;
-
-    case 'H':
-      switch (low) {
-        case 'E':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 2; 
-          break; 
-        case 'F':
-          c->atom_num = 72; 
-          break; 
-        case 'G':
-          c->atom_num = 80; 
-          break; 
-        case 'O':
-          c->atom_num = 67; 
-          break; 
-        case 'S':
-          c->atom_num = 108; 
-          break; 
-      }
-      break;
-
-    case 'I':
-      switch (low) {
-        case 0: 
-          c->valence_pack = (2 << 4); // hypervalent iodine
-          c->atom_num = IOD;
-          break; 
-        case 'N':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 49; 
-          break; 
-        case 'R':
-          c->atom_num = 77; 
-          break; 
-      }
-      break;
-
-    case 'K':
-      switch (low) {
-        case 0:  
-          c->valence_pack = (4 << 4); // already hyper nitrogen 
-          c->atom_num = NIT;
-          c->charge++; 
-          break; 
-        case 'R':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 36; 
-          break; 
-        case 'A':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 19; 
-          break; 
-      }
-      break;
-
-    case 'L':
-      switch (low) {
-        case 'A':
-          c->atom_num = 57; 
-          break; 
-        case 'I':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 3; 
-          break; 
-        case 'R':
-          c->atom_num = 103; 
-          break; 
-        case 'U':
-          c->atom_num = 71; 
-          break; 
-        case 'V':
-          c->atom_num = 116; 
-          break; 
-      }
-      break;
-
-    case 'M':
-      switch (low) {
-        case 0:
-          c->valence_pack = (2 << 4); // regular nitrogen
-          c->atom_num = NIT; 
-          break; 
-        case 'C':
-          c->atom_num = 115; 
-          break; 
-        case 'D':
-          c->atom_num = 101; 
-          break; 
-        case 'G':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 12; 
-          break; 
-        case 'N':
-          c->atom_num = 25; 
-          break; 
-        case 'O':
-          c->atom_num = 42; 
-          break; 
-        case 'T':
-          c->atom_num = 109; 
-          break; 
-      }
-      break;
-
-    case 'N':
-      switch (low) {
-        case 0:
-          c->valence_pack = (2 << 4); // regular nitrogen
-          c->atom_num = NIT; 
-          break; 
-        case 'A':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 11; 
-          break; 
-        case 'B':
-          c->atom_num = 41; 
-          break; 
-        case 'D':
-          c->atom_num = 60; 
-          break; 
-        case 'E':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 10; 
-          break; 
-        case 'H':
-          c->atom_num = 113; 
-          break; 
-        case 'I':
-          c->atom_num = 28; 
-          break; 
-        case 'O':
-          c->atom_num = 102; 
-          break; 
-        case 'P':
-          c->atom_num = 93; 
-          break; 
-      }
-      break; 
-
-    case 'O':
-      switch (low) {
-        case 0:
-          c->valence_pack = (3 << 4); // hypervalent oxygen
-          c->atom_num = OXY; 
-          break; 
-        case 'G':
-          c->atom_num = 118; 
-          break; 
-        case 'S':
-          c->atom_num = 76; 
-          break; 
-      }
-      break;
-
-    case 'P':
-      switch (low) {
-        case 0:
-          c->valence_pack = (5 << 4); // phos
-          c->atom_num = PHO; 
-          break; 
-        case 'A':
-          c->atom_num = 91; 
-          break; 
-        case 'B':
-          c->atom_num = 82; 
-          break; 
-        case 'D':
-          c->atom_num = 46; 
-          break; 
-        case 'M':
-          c->atom_num = 61; 
-          break; 
-        case 'O':
-          c->atom_num = 84; 
-          break; 
-        case 'R':
-          c->atom_num = 59; 
-          break; 
-        case 'T':
-          c->atom_num = 78; 
-          break; 
-        case 'U':
-          c->atom_num = 94; 
-          break; 
-      }
-      break;
-    
-    case 'Q':
-      c->valence_pack = (3 << 4); // hypervalent oxygen
-      c->atom_num = OXY; 
-      break; 
-
-    case 'R':
-      switch (low) {
-        case 'A':
-          c->atom_num = 88; 
-          break; 
-        case 'B':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 37; 
-          break; 
-        case 'E':
-          c->atom_num = 75; 
-          break; 
-        case 'F':
-          c->atom_num = 104; 
-          break; 
-        case 'G':
-          c->atom_num = 111; 
-          break; 
-        case 'H':
-          c->atom_num = 45; 
-          break; 
-        case 'N':
-          c->atom_num = 86; 
-          break; 
-        case 'U':
-          c->atom_num = 44; 
-          break; 
-      }
-      break;
-
-    case 'S':
-      switch (low) {
-        case 0: 
-          c->valence_pack = (6 << 4); // regular sulphur
-          c->atom_num = SUL; 
-          break; 
-        case 'B':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 51; 
-          break; 
-        case 'C':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 21; 
-          break; 
-        case 'E':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 34; 
-          break; 
-        case 'G':
-          c->atom_num = 106; 
-          break; 
-        case 'I':
-          c->valence_pack = (4 << 4); 
-          c->atom_num = 14; 
-          break; 
-        case 'M':
-          c->atom_num = 62; 
-          break; 
-        case 'N':
-          c->valence_pack = (4 << 4); 
-          c->atom_num = 50; 
-          break; 
-        case 'R':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 38; 
-          break; 
-      }
-      break;
-
-    case 'T':
-      switch (low) {
-        case 'A':
-          c->atom_num = 73; 
-          break; 
-        case 'B':
-          c->atom_num = 65; 
-          break; 
-        case 'C':
-          c->atom_num = 43; 
-          break; 
-        case 'E':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 52; 
-          break; 
-        case 'H':
-          c->atom_num = 90; 
-          break; 
-        case 'I':
-          c->atom_num = 22; 
-          break; 
-        case 'L':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 81; 
-          break; 
-        case 'M':
-          c->atom_num = 69; 
-          break; 
-        case 'S':
-          c->atom_num = 117; 
-          break; 
-      }
-      break;
-
-    case 'U':
-      if(low == 'R') {
-        c->atom_num = 92; 
-        break; 
-      }
-      break;
-
-    case 'V':
-      if(low == 'A') {
-        c->atom_num = 23; 
-        break; 
-      }
-      break;
-  
-    case 'W':
-      if(low == 'T') {
-        c->atom_num = 74; 
-        break; 
-      }
-      break; 
-
-    case 'X':
-      if (low == 'E') {
-        c->valence_pack = (1 << 4); 
-        c->atom_num = 54; 
-        break; 
-      }
-      break;
-
-    case 'Y':
-      if (low == 'T') {
-        c->valence_pack = (3 << 4); 
-        c->atom_num = 39; 
-        break; 
-      }
-      else if (low == 'B') {
-        c->atom_num = 70; 
-        break; 
-      }
-      break;
-
-    case 'Z':
-      if (low == 'N') {
-        c->atom_num = 30; 
-        break; 
-      }
-      else if (low == 'R') {
-        c->atom_num = 30; 
-        break; 
-      }
-      break;
-  }
-  
-  if (c->atom_num == DUM) {
-    fprintf(stderr,"Error: invalid elemental code -%c%c-\n",high,low); 
-    return ERR_ABORT; 
-  }
-  else 
-    return ERR_NONE; 
-}
-
-
-
-
-/* returns the pending unsaturate level for the next symbol */
-static edge_t* resolve_unsaturated_carbon(graph_t *g, edge_t *e, symbol_t *p, symbol_t *c, unsigned char ch_nxt)
+static void 
+DisplayUsage()
 {
-  
-  edge_t *ne = next_virtual_edge(c); // forward edge from 'C' 
+  fprintf(stderr, "--- wisswesser notation parser ---\n");
+  fprintf(stderr, "This parser reads and evaluates wiswesser\n"
+                  "line notation (wln), the parser is native C\n"
+                  "with a plug in function to OpenBabel\n\n");
+  fprintf(stderr, "readwln <options> -o<format> [-s <input (escaped)> | <infile>]\n");
+  fprintf(stderr, "<options>\n");
+  fprintf(stderr, " -h                   show the help for executable usage\n");
+  fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan)\n");
+  exit(1);
+}
 
-  // first check can you double bond to the previous - 
-  // the bond will be set to 1 so its >= 1
-  if ((p->valence_pack>>4) - (p->valence_pack & 0x0F) >= 1) {
-    
-    // next predict what bonding is possible to whats coming next
-    switch (ch_nxt) {
-      // alkyl chains have a weird relationship where they can but shouldn't unsaturate here - murky waters with implied chemical information
-      case '1':  
-      case '2':
-      case '3':
-      case '4':
-      case '5':
-      case '6':
-      case '7':
-      case '8':
-      case '9':
-      case 'Z':
-      case 'Q':
-      case 'E':
-      case 'F':
-      case 'G':
-      case 'H':
-      case 'I':
-        // force a triple bond to previous 
-        e->order += 2; 
-        p->valence_pack += 2;
-        c->valence_pack += 2; 
-        return check_bonding(ne, p, c); 
 
-      // if a triple can be made, force a triple forward
-      case 'N':
-      case 'K':
-      case 'X':
-      case 'Y':
-      case 'B':
-      case 'C': // very murky 
-      case 'P':
-      case 'S':
-      case '-':
-        ne->order += 2; 
-        c->valence_pack += 2; 
-        return ne; 
-      
-      // split the a double bond between the two
+static void 
+ProcessCommandLine(int argc, char *argv[])
+{
+  const char *ptr = 0;
+  int i;
+  int j = 0;
+
+  cli_inp = (const char *)0;
+  format = (const char *)0;
+  opt_string = false; 
+
+  if (argc < 2)
+    DisplayUsage();
+
+  for (i = 1; i < argc; i++) {
+    ptr = argv[i];
+    if (ptr[0] == '-' && ptr[1]) {
+      switch (ptr[1]) {
+        case 'h':
+          DisplayUsage(); 
+
+        case 's':
+          if (i >= argc - 1) {
+            fprintf(stderr, "Error: -s flag must be followed by an escaped argument\n");
+            DisplayUsage();
+          }
+          cli_inp = argv[++i];  
+          j = 1; 
+          opt_string = true; 
+          break; 
+
+        case 'o':
+          if (!strcmp(ptr, "-osmi"))
+          {
+            format = "smi";
+            break;
+          }
+          else if (!strcmp(ptr, "-oinchi"))
+          {
+            format = "inchi";
+            break;
+          }
+          else if(!strcmp(ptr,"-okey"))
+          {
+            format  = "inchikey";
+            break;
+          }
+          else if(!strcmp(ptr,"-owln"))
+          {
+            format  = "WLN";
+            break;
+          }
+          else {
+            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','key']\n");
+            DisplayUsage();
+          } 
+        default:
+          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
+          DisplayUsage();
+        }
+    }
+    else switch (j) {
+      case 0:
+        cli_inp = ptr;
+        break;
       default:
-        e->order++; 
-        ne->order++; 
-        p->valence_pack++;
-        c->valence_pack += 2;
-        return check_bonding(ne, p, c); 
-    } 
+        fprintf(stderr,"Error: reader input already set - %s\n", cli_inp);
+        DisplayUsage();
+    }
+    j++;
+  }
+
+  if (!format) {
+    fprintf(stderr,"Error: no output format selected\n");
+    DisplayUsage();
+  }
+  if (!cli_inp) {
+    fprintf(stderr,"Error: no input entered\n");
+    DisplayUsage();
+  }
+}
+
+int main(int argc, char *argv[])
+{
+  OpenBabel::OBMol mol;
+  OpenBabel::OBConversion conv;
+  
+  ProcessCommandLine(argc, argv);
+  
+  conv.SetOutFormat(format);
+  conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
+  
+  if (opt_string) {
+    if (!C_ReadWLN(cli_inp, &mol))
+      return 1;
+    else
+      conv.Write(&mol ,&std::cout);
   }
   else {
-    // must be a triple to the next bond
-    ne->order += 2; 
-    c->valence_pack += 2; 
-    return ne; 
-  }
-  
-  fprintf(stderr,"Error: C symbol requires a mandatory double/triple bond - impossible bonding env\n"); 
-  return (edge_t*)0; 
-}
-
-/*
- * -- Parse WLN Notation --
- *
- */
-static int parse_wln(const char *ptr, const u16 len, graph_t *g)
-{
-  edge_t   *e=0; 
-  symbol_t *c=0;
-  symbol_t *p=0;
-  ring_t   *r=0;
-
-  u8 ring_chars = 0; 
-  u16 locant_ch = 0; 
-  u16 digit_n   = 0; 
-  
-  u8 state = 0; // bit field: 
-                // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
-  
-  u8 dash_ptr = 0; 
-  unsigned char dash_chars[3] = {0}; // last byte is mainly for overflow 
- 
-  // init conditions, make one dummy atom, and one bond - work of the virtual bond
-  // idea entirely *--> grow...
-  
-  c = new_symbol(g, DUM, 1); 
-  e = next_virtual_edge(c); 
-  e->order = DUM; 
-  p = c; 
-  g->idx_symbols[0] = p;  // overwrite dummy when 0 pos is requested
-  
-  // charges are assigned through string indexing - tf: need a strlen() 
-    
-  unsigned char ch; 
-  unsigned char ch_nxt; 
-  
-  for (u16 sp=0; sp<len; sp++) {
-    ch     = ptr[sp]; 
-    ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
-    
-    if (state & RING_READ) {
-      if (ptr[sp-1] >= 'A' && ch == 'J' && ch_nxt < '0') {
-        // J can be used inside ring notation, requires lookahead 
-        // condition 
-        
-        // note: The ptr passed in does not include the 
-        //       starting L/T or ending J (<sp) 
-        
-        // ring must have at least one atom. 
-
-        c = next_symbol(g, e, CAR, 4);
-        if (!c)
-          return ERR_ABORT; 
-        else
-          e = set_virtual_edge(e, p, c); 
-
-        r = parse_cyclic(ptr, sp-ring_chars+1, sp, c, locant_ch, g);
-        if (!r)
-          return ERR_ABORT; 
-        else {
-          g->stack[g->stack_ptr].addr = r; 
-          g->stack[g->stack_ptr++].ref = -1; 
-          state &= ~(RING_READ);
-          ring_chars = 0; 
-        }
-
-        state &= ~(BIND_READ); 
-      }
-      else
-        ring_chars++; 
-    }
-    else if (state & DASH_READ && ch >= 'A' && ch <= 'Z') {
-      if (dash_ptr == 3) 
-        return error("Error: elemental code can only have 2 character symbols"); 
-      else
-        dash_chars[dash_ptr++] = ch; 
-    }
-    else if (state & SPACE_READ) {
-      // switch on packing - state popcnt() >= hit bits. 
-      locant_ch = ch - 'A'; 
-      state &= ~(SPACE_READ);
-
-      if (!(state & BIND_READ)) {
-        if (r && locant_ch < r->size) {
-          c = r->path[locant_ch].s; 
-          e = next_virtual_edge(c); 
-          p = c; 
-        } 
-        else 
-          return error("Error: out of bounds locant_t access"); 
-      }
+    FILE *fp = fopen(cli_inp, "r"); 
+    if (!fp) {
+      fprintf(stderr,"Error: file could not be opened\n"); 
+      return 1;
     }
     else {
-      switch (ch) {
-
-        case '0':
-          digit_n *= 10; 
-
-          if(state & DIOXO_READ) 
-            return error("Error: dioxo attachment needs higher valence atom"); 
-          else if (ch_nxt == '/') {
-            // positive charge assignment
-            if (digit_n > len || !g->idx_symbols[digit_n]) 
-              return error("Error: charge assignment out of bounds"); 
-            else {
-              g->idx_symbols[digit_n]->charge++; 
-              state |= CHARGE_READ; 
-              digit_n = 0; 
-              sp++; // skip the slash, only ever used again in R notation
-            }
-          } 
-          else if ( state & (CHARGE_READ | DIGIT_READ) 
-                    && (ch_nxt < '0' || ch_nxt > '9')) 
-          {  
-                       
-            if (state & CHARGE_READ) {
-              // negative charge assignment
-              if (digit_n > len || !g->idx_symbols[digit_n]) 
-                return error("Error: charge assignment out of bounds"); 
-              else {
-                g->idx_symbols[digit_n]->charge--; 
-                state &= ~CHARGE_READ; 
-                digit_n = 0; 
-              }
-            }
-            else {
-              // create the alkyl chain
-              for (u16 i=0; i<digit_n; i++) {
-                c = next_symbol(g, e, CAR, 4);
-                if (!c)
-                  return ERR_ABORT; 
-                else
-                  e = set_virtual_edge(e, p, c); 
-
-                if (!e)
-                  return ERR_ABORT; 
-                else {
-                  p = c;
-                  e = next_virtual_edge(p); 
-                }
-              }
-
-              g->idx_symbols[sp+1] = p; 
-              digit_n = 0; 
-            }
-          }
-          break;
-
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          digit_n *= 10; 
-          digit_n += ch - '0'; 
-
-          if(state & DIOXO_READ) 
-            return error("Error: dioxo attachment needs higher valence atom"); 
-          else if (ch_nxt == '/') {
-            // positive charge assignment
-            if (digit_n > len || !g->idx_symbols[digit_n]) 
-              return error("Error: charge assignment out of bounds"); 
-            else {
-              g->idx_symbols[digit_n]->charge++; 
-              state |= CHARGE_READ; 
-              digit_n = 0; 
-              sp++; // skip the slash, only ever used again in R notation
-            }
-          } 
-          else if (ch_nxt < '0' || ch_nxt > '9') { 
-            
-            if (state & CHARGE_READ) {
-              // negative charge assignment
-              if (digit_n > len || !g->idx_symbols[digit_n])
-                return error("Error: charge assignment out of bounds"); 
-              else {
-                g->idx_symbols[digit_n]->charge--; 
-                state &= ~CHARGE_READ; 
-                digit_n = 0; 
-              }
-
-            }
-            else {
-              // create the alkyl chain
-              for (u16 i=0; i<digit_n; i++) {
-                c = next_symbol(g, e, CAR, 4);
-                if (!c)
-                  return ERR_ABORT; 
-                else
-                  e = set_virtual_edge(e, p, c); 
-
-                if (!e)
-                  return ERR_ABORT; 
-                else {
-                  p = c;
-                  e = next_virtual_edge(p); 
-                }
-              }
-              g->idx_symbols[sp+1] = p; 
-              digit_n = 0; 
-            }
-          }
-          else
-            state |= DIGIT_READ; 
-          break;
-        
-        case 'A':
-        case 'J':
-          return error("Error: non-atomic symbol used in chain"); 
-        
-        case 'B':
-          c = next_symbol(g, e, BOR, 3);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
-          }
-          break; 
-        
-        case 'C':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = p; 
-            e = resolve_unsaturated_carbon(g, e, p, c, ch_nxt); 
-            if (!e)
-              return ERR_ABORT; 
-            else 
-              p = c;
-          }
-          break; 
-
-        // extrememly rare open chelate notation
-        case 'D':
-          fprintf(stderr,"chelate ring open needs handling\n"); 
-          break; 
-
-        case 'E':
-          c = next_symbol(g, e, BRO, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-
-        case 'F':
-          c = next_symbol(g, e, FLU, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-
-        case 'G':
-          c = next_symbol(g, e, CHL, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-
-        case 'H':
-          // treat hydrogen as a terminator
-          c = next_symbol(g, e, 1, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              // do not allow hydrogen to write back
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-
-        case 'I':
-          c = next_symbol(g, e, IOD, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-       
-        case 'K':
-          c = next_symbol(g, e, NIT, 4);
-          c->charge++; 
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              default_methyls(g, c, 4);  
-
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 3;
-              g->stack_ptr++; 
-            }
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-
-        case 'L':
-        case 'T':
-          state |= RING_READ; 
-          ring_chars++; 
-          break; 
-        
-        case 'M':
-          c = next_symbol(g, e, NIT, 3);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else {
-              p = c;
-              g->idx_symbols[sp+1] = p; 
-              e = next_virtual_edge(c); 
-            }
-
-          }
-          break;
-       
-        /* nitrogen symbols */
-        case 'N':
-          c = next_symbol(g, e, NIT, 3);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-  
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
-
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-        
-        case 'O':
-          c = next_symbol(g, e, OXY, 2);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-        
-        case 'P':
-          c = next_symbol(g, e, PHO, 5);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            // since these can expand valence, allow branch
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3;
-            g->stack_ptr++; 
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-
-
-        case 'Q':
-          c = next_symbol(g, e, OXY, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-
-        // shorthand benzene 
-        case 'R': 
-          // head symbol can come from virtual X|Y|K
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          r = rt_alloc(g, 6, c, 0); 
-          
-          if (!r)
-            return ERR_ABORT; // only way this can fail 
-          else {
-            for (u8 i=0; i<6; i++)
-              r->path[i].s->arom |= 1; 
-            // set the ring. R objects are kekulised on stack pop
-            p = r->path[0].s; 
-            c = r->path[5].s; 
-            e = next_virtual_edge(p); 
-            e = set_virtual_edge(e, p, c);
-            e->ring = 1; 
-          }
-
-          // add to ring stack
-          g->stack[g->stack_ptr].addr = r; 
-          g->stack[g->stack_ptr++].ref = -1; 
-
-          g->idx_symbols[sp+1] = p; 
-          e = next_virtual_edge(p); 
-          break; 
-        
-        case 'S':
-          c = next_symbol(g, e, SUL, 6);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            // since these can expand valence, allow branch
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3; // ?  
-            g->stack_ptr++; 
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-        
-        case 'U':
-          if (e) {
-            e->order++; 
-            p->valence_pack++; 
-          }
-          else
-            return error("Error: unsaturation called without previous bond"); 
-          break; 
-
-        case 'V':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (add_oxy(g, c, 0) == ERR_ABORT)
-              return ERR_ABORT; 
-            else {
-              p = c; 
-              g->idx_symbols[sp+1] = c; 
-              e = next_virtual_edge(c); 
-            }
-          }
-          break;
-        
-        // if not previous, create dummy carbon
-        // really trying to avoid a bit state on this
-        case 'W':
-          if(state & DIOXO_READ) 
-            return error("Error: double dioxo attachment needs is undefined"); 
-          else if (p->atom_num != DUM) {
-            if (add_tauto_dioxy(g, p) == ERR_ABORT)
-              return ERR_ABORT; 
-            else 
-              e = next_virtual_edge(p);  
-          }
-          else 
-            state |= DIOXO_READ; 
-          break; 
-
-        case 'X':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              default_methyls(g, c, 4);  
-
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 3;
-              g->stack_ptr++; 
-            }
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-
-        case 'Y':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return ERR_ABORT; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              default_methyls(g, c, 3);  
-
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
-          break;
-        
-        case 'Z':
-          c = next_symbol(g, e, NIT, 1);
-          if (!c)
-            return ERR_ABORT; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
-          }
-
-          if (!e)
-            return ERR_ABORT; 
-          else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
-          }
-          break;
-        
-        case '-':
-          // dashes open up several possible states which needs a lot of information to reason 
-          // 1. -XX- | -X- == symbol
-          // 2. <locant> -& <space> <locant_t> <ring> == spiro ring defintion  
-          // 3. <locant> (-|&)+ == high level access
-          // ?  <locant> (-&) space <no ring> == methyl shorthand on the level access (solved with VIRTUAL edge packing)
-          // seperating out 1 is trivial with a +1 lookahead. 
-          // 2 vs 3: 
-          if (state & DASH_READ) {
-            c = next_symbol(g, e, DUM, 6); // create a blank symbol
-            if (!c)
-              return ERR_ABORT; 
-            else {
-
-              if (write_dash_symbol(c, dash_chars[0], dash_chars[1]) == ERR_ABORT)
-                return ERR_ABORT; 
-              else {
-                e = set_virtual_edge(e, p, c); 
-
-                if(state & DIOXO_READ) {
-                  add_tauto_dioxy(g, c); 
-                  state &= ~DIOXO_READ; 
-                }
-                
-                memset(dash_chars,0,3); 
-                state &= ~DASH_READ; 
-                dash_ptr = 0; 
-
-                // add to branch stack
-                if ((c->valence_pack >> 4) >= 2) {
-                  g->stack[g->stack_ptr].addr = c; 
-                  g->stack[g->stack_ptr].ref  = c->valence_pack >> 4;
-                  g->stack_ptr++; 
-                }
-
-                p = c; 
-                g->idx_symbols[sp+1] = c; 
-                e = next_virtual_edge(c); 
-              }
-            }
-          }
-          else {
-            if (ch_nxt == ' ')
-              state |= BIND_READ;
-            else {
-              dash_ptr = 0; 
-              state |= DASH_READ; 
-            }
-          }
-          break; 
-
-        case ' ':
-          if (ch_nxt == '&') {
-            // all other states should make this the only place ions can be used. 
-            gt_stack_flush(g); 
-            sp++; 
-            c = new_symbol(g, DUM, 1); 
-            e = next_virtual_edge(c); 
-            e->order = DUM; 
-            p = c; 
-          }
-          else 
-            state |= SPACE_READ; 
-          break; 
-
-        case '&':
-          if(state & DIOXO_READ) 
-            return error("Error: dioxo attachment requires an atomic symbol"); 
-          else if (!g->stack_ptr) 
-            return error("Error: empty stack - too many &?"); 
-          else { 
-
-            if (g->stack[g->stack_ptr-1].ref < 0) {
-              // ring closures  
-              g->stack_ptr--; 
-              free(g->stack[g->stack_ptr].addr);
-              g->stack[g->stack_ptr].addr = 0; 
-              g->stack[g->stack_ptr].ref = 0;
-            }
-            else {
-              // branch closures
-              // note: methyl contractions will have a live virtual 
-              // bond, therefore can be used checked with AND. 
-
-              c = (symbol_t*)g->stack[g->stack_ptr-1].addr; 
-              g->stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-            }
-
-            // reseting block
-            if (!g->stack_ptr) 
-              return error("Error: empty stack - too many &?"); 
-            else 
-              gt_load_stack_frame(&p, &e, &r, g); 
-          }
-          break;
-
-        case '/':
-          return error("Error: slash seen outside of ring - multipliers currently unsupported");
-        
-        case '\n':
-          break; 
-
-        default:
-          return error("Error: invalid character read for WLN notation"); 
+      if (!C_ReadWLNFile(fp, &mol, &conv)) {
+        fclose(fp); 
+        return 1; 
       }
+      fclose(fp); 
     }
   }
-  
-  return ERR_NONE; 
+  return 0;
 }
-
-
-OpenBabel::OBAtom* ob_add_atom(OpenBabel::OBMol* mol, u16 elem, char charge, char hcount)
-{
-  OpenBabel::OBAtom* result = mol->NewAtom();
-  if(!result)
-    return 0;
-
-  result->SetAtomicNum(elem);
-  result->SetFormalCharge(charge);
-  if(hcount >= 0)
-    result->SetImplicitHCount(hcount);
-  
-  return result;
-}
-
-
-OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, OpenBabel::OBAtom* e, u8 order)
-{
-  OpenBabel::OBBond* bptr = 0; 
-  if (!s || !e) {
-    fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible s: %p, e: %p\n",s,e);
-    return bptr;
-  }
-
-  if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)) {
-    fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
-    return bptr;
-  }
-  else     
-    bptr = mol->GetBond(mol->NumBonds() - 1);
-  
-  return bptr;
-}
-
-
-/*
- * A dummy atom is created at new instance positions, siginificantly simplifies 
- * and speeds up the parsing code - removes a lot of branch checks, requires a mapping
- * to build mol
- */
-int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
-  OpenBabel::OBAtom *atom; 
-  OpenBabel::OBBond *bond;   
-  OpenBabel::OBAtom **amapping = (OpenBabel::OBAtom **)alloca(sizeof(OpenBabel::OBAtom*) * g->s_num); 
-  for (u16 i=1; i<g->s_num; i++) {
-    symbol_t *node = &g->symbols[i]; 
-    if (node->atom_num != DUM) {
-      u8 limit_val = node->valence_pack >> 4; 
-      u8 actual_val = node->valence_pack & 0x0F; 
-      
-      if (node->arom == 1)
-        actual_val += (limit_val != actual_val); 
-
-      switch (node->atom_num) {
-        case CAR: 
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 4 - actual_val); 
-          break; 
-
-        case NIT:
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 3 - actual_val); 
-          break; 
-        
-        case OXY:
-          node->charge |= node->arom; // ingvar input
-          node->charge += -(!node->charge)*(limit_val - actual_val);
-          node->valence_pack += abs(node->charge); 
-
-          if (node->valence_pack >> 4 == 1)
-            atom = ob_add_atom(mol, node->atom_num, node->charge, 1); 
-          else 
-            atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
-          break; 
-
-        case FLU:
-        case CHL:
-        case BRO:
-        case IOD:
-          // take a default -1 instead of H resolve
-          node->charge += -(!node->charge)*(actual_val == 0); 
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
-          break; 
-
-        case SUL:
-          atom = ob_add_atom(mol, node->atom_num, node->charge, (6 - actual_val) % 2); // sneaky H trick  
-          break;
-
-        case PHO: 
-          atom = ob_add_atom(mol, node->atom_num, node->charge, (5 - actual_val) % 2); // sneaky H trick  
-          break;
-
-        default: // dont add hydrogens
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
-      }
-      
-      amapping[i] = atom; 
-      if (node->arom == 1)
-        atom->SetAromatic(node->arom); 
-    }
-  }
-  
-  for (u16 i=1; i<g->s_num; i++) {
-    symbol_t *node = &g->symbols[i];
-    if (node->atom_num != DUM) {
-      for (u16 j=0; j<MAX_DEGREE; j++) {
-        u16 end; 
-        u16 beg = i; 
-        edge_t *e = &node->bonds[j];
-        if (e->c) {
-          end = e->c - g->symbols;
-          bond = ob_add_bond(mol, amapping[beg], amapping[end], e->order);
-          if (e->ring && node->arom == 1 && e->c->arom == 1)
-            bond->SetAromatic(1); 
-          else
-            bond->SetAromatic(0);
-        }
-        // purely virtual additions which need tidying up
-        else if (e->order == HANGING_BOND && (node->valence_pack & 0x0F) < (node->valence_pack>>4)) {
-          atom = ob_add_atom(mol, CAR, 0, 3); 
-          bond = ob_add_bond(mol, amapping[beg], atom, 1);
-          amapping[beg]->SetImplicitHCount(amapping[beg]->GetImplicitHCount()-1); 
-          node->valence_pack++;
-        }
-      }
-    }
-  }
-
-    // WLN has no inherent stereochemistry, this can be a flag but should be off by default
-  mol->SetChiralityPerceived(true);
-  mol->SetAromaticPerceived(true); // let the toolkit do maximal matching
-  mol->DeleteHydrogens();
-
-  OpenBabel::OBKekulize(mol); 
-
-  return 1; 
-}
-
-#if OPENBABEL
-
-// openbabel format reader function
-int C_ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
-{   
-  int ret = 0; 
-  graph_t wln_graph; 
-  graph_t *g = &wln_graph; 
-  const u16 len = strlen(ptr); 
-  
-  gt_alloc(g, SYMBOL_MAX); 
-  g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
-  memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
-
-  ret = parse_wln(ptr, len, g); 
-  if (ret == ERR_NONE)
-    ob_convert_wln_graph(mol, g);
-  else 
-    fprintf(stdout, "null (ERR %d)\n", ret);  
-
-  gt_free(g); 
-  free(g->idx_symbols); 
-  return 1; 
-}
-
-
-int C_ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
-{   
-  int ret = 0; 
-  u16 st_pool_size = 128; 
-  graph_t wln_graph; 
-  graph_t *g = &wln_graph; 
-  gt_alloc(g, st_pool_size); 
-  g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * 128); 
-  
-  u16 len;
-  u16 len_high = 128; 
-  char buffer[1024];
-  memset(buffer,0,1024); // safety for len read  
-  while (fgets(buffer, 1024, fp) != NULL) {
-    len = strlen(buffer); // ignore nl
-    if (len > len_high) {
-      g->idx_symbols = (symbol_t**)realloc(g->idx_symbols,sizeof(symbol_t*) * len_high); 
-      len_high = len; 
-    }
-    memset(g->idx_symbols,0,sizeof(symbol_t*)*len_high); 
-    
-    ret = parse_wln(buffer, len, g); 
-    if (ret == ERR_NONE) {
-      ob_convert_wln_graph(mol, g);
-      conv->Write(mol, &std::cout); 
-      gt_clear(g); 
-      mol->Clear(); 
-    }
-    else 
-      fprintf(stdout, "null\n");  
-     
-    memset(buffer,0,1024); // safety for len read  
-  }
-
-  gt_free(g);
-  free(g->idx_symbols); 
-  return 1; 
-}
-
-#endif 
