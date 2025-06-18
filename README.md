@@ -29,17 +29,3 @@ This repository contains a broad range of functionality using WLN notation for v
 * [WLN Conversion - Read and Write](./docs/convert.md) <br>
 * [WLN Compression - Lossless Compress/Decompress](./docs/compress.md)<br>
 * [WLN Extract - FSM wlngrep](./docs/extract.md) <br>
-
-
-## Unit Testing
-
-All unit tests are contained in the `/test` directory. <br>
-These include: 
-1. `compare.sh`
-2. `reading.sh`
-3. `writing.sh`
-4. `file.sh`
-
-Unit tests 1-3 operate on the data files in `\data`. For comparsions agaisnt the old parser in OpenBabel select 1, for reading count tests run 2, writing round trip tests 3. To parse a file of WLN strings, `file.sh` will attempt conversions on every line.
-
-
