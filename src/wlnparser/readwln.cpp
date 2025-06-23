@@ -16,7 +16,6 @@ GNU General Public License for more details.
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <stdbool.h>
 
 #include <iostream>
@@ -28,19 +27,20 @@ GNU General Public License for more details.
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
 
-const char *cli_inp;
-const char *format; 
-bool opt_string; 
+#define WLN_MAX_INPUT 64
 
+unsigned int ninput;
+const char *input[WLN_MAX_INPUT];
+const char *format; 
 
 static void 
 display_usage()
 {
   fprintf(stderr, "--- wisswesser notation parser ---\n");
   fprintf(stderr, "This parser reads and evaluates wiswesser\n"
-                  "line notation (wln), the parser is native C\n"
-                  "with a plug in function to OpenBabel\n\n");
-  fprintf(stderr, "readwln <options> -o<format> [-s <input (escaped)> | <infile>]\n");
+                  "line notation (wln), the parser is C\n"
+                  "with a C++ plug in function to OpenBabel\n\n");
+  fprintf(stderr, "readwln <options> -o<format> [<input (escaped)> | <infile>]\n");
   fprintf(stderr, "<options>\n");
   fprintf(stderr, " -h                   show the help for executable usage\n");
   fprintf(stderr, " -o                   choose output format (-osmi, -oinchi, -okey, -ocan)\n");
@@ -53,11 +53,9 @@ process_cml(int argc, char *argv[])
 {
   const char *ptr = 0;
   int i;
-  int j = 0;
-
-  cli_inp = (const char *)0;
+  
+  ninput = 0; 
   format = (const char *)0;
-  opt_string = false; 
 
   if (argc < 2)
     display_usage();
@@ -68,16 +66,6 @@ process_cml(int argc, char *argv[])
       switch (ptr[1]) {
         case 'h':
           display_usage(); 
-
-        case 's':
-          if (i >= argc - 1) {
-            fprintf(stderr, "Error: -s flag must be followed by an escaped argument\n");
-            display_usage();
-          }
-          cli_inp = argv[++i];  
-          j = 1; 
-          opt_string = true; 
-          break; 
 
         case 'o':
           if (!strcmp(ptr, "-osmi"))
@@ -90,12 +78,12 @@ process_cml(int argc, char *argv[])
             format = "inchi";
             break;
           }
-          else if(!strcmp(ptr,"-okey"))
+          else if (!strcmp(ptr,"-okey"))
           {
             format  = "inchikey";
             break;
           }
-          else if(!strcmp(ptr,"-owln"))
+          else if (!strcmp(ptr,"-owln"))
           {
             format  = "WLN";
             break;
@@ -109,26 +97,26 @@ process_cml(int argc, char *argv[])
           display_usage();
         }
     }
-    else switch (j) {
-      case 0:
-        cli_inp = ptr;
-        break;
-      default:
-        fprintf(stderr,"Error: reader input already set - %s\n", cli_inp);
-        display_usage();
-    }
-    j++;
+    else {
+      if (ninput == WLN_MAX_INPUT) {
+        fprintf(stderr, "Error: max input value reached - %u\n", WLN_MAX_INPUT); 
+        exit(1); 
+      }
+      else 
+        input[ninput++] = ptr; 
+    } 
   }
 
   if (!format) {
     fprintf(stderr,"Error: no output format selected\n");
     display_usage();
   }
-  if (!cli_inp) {
+  if (!ninput) {
     fprintf(stderr,"Error: no input entered\n");
     display_usage();
   }
 }
+
 
 int 
 main(int argc, char *argv[])
@@ -141,24 +129,18 @@ main(int argc, char *argv[])
   conv.SetOutFormat(format);
   conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
   
-  if (opt_string) {
-    if (!ReadWLN(cli_inp, &mol))
-      return 1;
-    else
-      conv.Write(&mol ,&std::cout);
-  }
-  else {
-    FILE *fp = fopen(cli_inp, "r"); 
-    if (!fp) {
-      fprintf(stderr,"Error: file could not be opened\n"); 
-      return 1;
-    }
+  for (int i = 0; i < ninput; i++) {
+    const char *inp = input[i]; 
+    if (strcmp(inp, "-") == 0) 
+      ReadWLNFile(stdin, &mol, &conv);
     else {
-      if (!ReadWLNFile(fp, &mol, &conv)) {
+      FILE *fp = fopen(inp, "r"); 
+      if (fp) {
+        ReadWLNFile(fp, &mol, &conv);
         fclose(fp); 
-        return 1; 
       }
-      fclose(fp); 
+      else if (ReadWLN(input[i], &mol))
+        conv.Write(&mol ,&std::cout);
     }
   }
   return 0;
