@@ -75,8 +75,6 @@ GNU General Public License for more details.
 #define IOD   53
 
 
-typedef struct symbol_t symbol_t; 
-
 static bool 
 error(const char *message) 
 {
@@ -84,29 +82,21 @@ error(const char *message)
   return false;  
 }
 
+#ifdef USING_OPENBABEL
 
-// 9 bytes
-typedef struct {
-  symbol_t* c; 
-  uint8_t order; 
-  uint8_t ring; 
-} edge_t; 
+#define graph_t  OpenBabel::OBMol
+#define atom_t   OpenBabel::OBAtom
+#define edge_t   OpenBabel::OBBond
 
-// 4 + (8*9) = 76 bytes per symbol
-// 80 = 16*5, multiple of 16 stack aligned
-struct symbol_t {
-  uint8_t    atom_num;   
-  char  arom; // -1 indicates ignore 
-  char  charge;   
-  uint8_t    valence_pack;  // [  max u4    ][ curr     u4 ]  [0-8][0-8] 
-  uint8_t    n_bonds; 
-  edge_t bonds[MAX_DEGREE]; // directional 
-};
+#elif defined USING_RDKIT
+
+#endif
+
 
 typedef struct locant_t {
   uint8_t hloc; // used for pathsolver 
   uint8_t r_pack; // [of 1b][ offL 1b ][ offR 1b ][ bridging 1b ][ dangling u4 ] 
-  symbol_t *s; 
+  atom_t *s; 
   locant_t *off_path[2]; // 0 = -. 1 = '&' 
 } locant_t; 
 
@@ -126,175 +116,334 @@ typedef struct {
 } ring_t;  
 
 
-typedef struct {
-  uint16_t s_num; 
-  uint16_t s_max; 
+static atom_t* 
+new_symbol(graph_t *mol, uint64_t atomic_num)
+{
+  atom_t *atom; 
+#if USING_OPENBABEL
+  atom = mol->NewAtom();
+  atom->SetAtomicNum(atomic_num); 
+#elif defined USING_RDKIT
 
-  uint8_t stack_ptr;  // WLN DFS style branch and ring stack
-  struct {
-    void *addr; 
-    char ref; // -1 for (ring_t*) else (symbol_t*) 
-  } stack[32];  
+#endif
+  return atom; 
+}
+
+static bool 
+assign_symbol(atom_t *s, uint16_t atomic_num)
+{
+#if USING_OPENBABEL
+  s->SetAtomicNum(atomic_num); 
+#elif defined USING_RDKIT
+
+#endif
+  return true; 
+}
+
+
+static bool
+assign_dash_symbol(atom_t *s, uint8_t fst_ch, uint8_t snd_ch) 
+{
+  switch (fst_ch){
+    case 'A':
+      switch (snd_ch) {
+        case 'C': return assign_symbol(s,89); 
+        case 'G': return assign_symbol(s,47); 
+        case 'L': return assign_symbol(s,13); 
+        case 'M': return assign_symbol(s,95); 
+        case 'R': return assign_symbol(s,18); 
+        case 'S': return assign_symbol(s,33); 
+        case 'T': return assign_symbol(s,85); 
+        case 'U': return assign_symbol(s,79); 
+      }
+      break; 
+
+    case 'B':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,BOR); 
+        case 'A': return assign_symbol(s,56); 
+        case 'E': return assign_symbol(s,4); 
+        case 'H': return assign_symbol(s,107); 
+        case 'I': return assign_symbol(s,83); 
+        case 'K': return assign_symbol(s,97); 
+        case 'R': return assign_symbol(s,BRO); 
+      }
+      break; 
+
+    case 'C':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,CAR); // allow the texas carbon "easter )egg"
+        case 'A': return assign_symbol(s,20);
+        case 'D': return assign_symbol(s,48);
+        case 'E': return assign_symbol(s,58);
+        case 'F': return assign_symbol(s,98);
+        case 'M': return assign_symbol(s,96);
+        case 'N': return assign_symbol(s,112);
+        case 'O': return assign_symbol(s,27);
+        case 'R': return assign_symbol(s,24);
+        case 'S': return assign_symbol(s,55);
+        case 'U': return assign_symbol(s,29);
+      }
+      break; 
+
+    case 'D':
+      switch (snd_ch) {
+        case 'B': return assign_symbol(s,105);
+        case 'S': return assign_symbol(s,110);
+        case 'Y': return assign_symbol(s,66);
+      }
+      break;
+
+    case 'E':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,35); 
+        case 'R': return assign_symbol(s,68); 
+        case 'S': return assign_symbol(s,99); 
+        case 'U': return assign_symbol(s,63); 
+      }
+
+    case 'F':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,FLU); 
+        case 'E': return assign_symbol(s,26); 
+        case 'L': return assign_symbol(s,114); 
+        case 'M': return assign_symbol(s,100); 
+        case 'R': return assign_symbol(s,87); 
+      }
+      break;
+
+    case 'G':
+      switch (snd_ch) {
+        case 0:  return assign_symbol(s,CHL); 
+        case 'A': return assign_symbol(s,31); 
+        case 'D': return assign_symbol(s,64); 
+        case 'E': return assign_symbol(s,32); 
+      }
+      break;
+
+    case 'H':
+      switch (snd_ch) {
+        case 'E': return assign_symbol(s,2); 
+        case 'F': return assign_symbol(s,72); 
+        case 'G': return assign_symbol(s,80); 
+        case 'O': return assign_symbol(s,67); 
+        case 'S': return assign_symbol(s,108); 
+      }
+      break;
+
+    case 'I':
+      switch (snd_ch) {
+        case 0:  return assign_symbol(s,IOD);
+        case 'N': return assign_symbol(s,49); 
+        case 'R': return assign_symbol(s,77); 
+      }
+      break;
+
+    case 'K':
+      switch (snd_ch) {
+        case 0:   return assign_symbol(s,NIT);
+        case 'R': return assign_symbol(s,36); 
+        case 'A': return assign_symbol(s,19); 
+      }
+      break;
+
+    case 'L':
+      switch (snd_ch) {
+        case 'A': return assign_symbol(s,57); 
+        case 'I': return assign_symbol(s,3); 
+        case 'R': return assign_symbol(s,103); 
+        case 'U': return assign_symbol(s,71); 
+        case 'V': return assign_symbol(s,116); 
+      }
+      break;
+
+    case 'M':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,NIT); 
+        case 'C': return assign_symbol(s,115); 
+        case 'D': return assign_symbol(s,101); 
+        case 'G': return assign_symbol(s,12); 
+        case 'N': return assign_symbol(s,25); 
+        case 'O': return assign_symbol(s,42); 
+        case 'T': return assign_symbol(s,109); 
+      }
+      break;
+
+    case 'N':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,NIT); 
+        case 'A': return assign_symbol(s,11); 
+        case 'B': return assign_symbol(s,41); 
+        case 'D': return assign_symbol(s,60); 
+        case 'E': return assign_symbol(s,10); 
+        case 'H': return assign_symbol(s,113); 
+        case 'I': return assign_symbol(s,28); 
+        case 'O': return assign_symbol(s,102); 
+        case 'P': return assign_symbol(s,93); 
+      }
+      break; 
+
+    case 'O':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,OXY); 
+        case 'G': return assign_symbol(s,118); 
+        case 'S': return assign_symbol(s,76); 
+      }
+      break;
+
+    case 'P':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,PHO); 
+        case 'A': return assign_symbol(s,91); 
+        case 'B': return assign_symbol(s,82); 
+        case 'D': return assign_symbol(s,46); 
+        case 'M': return assign_symbol(s,61); 
+        case 'O': return assign_symbol(s,84); 
+        case 'R': return assign_symbol(s,59); 
+        case 'T': return assign_symbol(s,78); 
+        case 'U': return assign_symbol(s,94); 
+      }
+      break;
+    
+    case 'Q':
+      switch (snd_ch) {
+        case 0: return assign_symbol(s,OXY); 
+      }
+      break; 
+
+    case 'R':
+      switch (snd_ch) {
+        case 'A': return assign_symbol(s,88); 
+        case 'B': return assign_symbol(s,37); 
+        case 'E': return assign_symbol(s,75); 
+        case 'F': return assign_symbol(s,104); 
+        case 'G': return assign_symbol(s,111); 
+        case 'H': return assign_symbol(s,45); 
+        case 'N': return assign_symbol(s,86); 
+        case 'U': return assign_symbol(s,44); 
+      }
+      break;
+
+    case 'S':
+      switch (snd_ch) {
+        case 0:  return assign_symbol(s,SUL); 
+        case 'B': return assign_symbol(s,51); 
+        case 'C': return assign_symbol(s,21); 
+        case 'E': return assign_symbol(s,34); 
+        case 'G': return assign_symbol(s,106); 
+        case 'I': return assign_symbol(s,14); 
+        case 'M': return assign_symbol(s,62); 
+        case 'N': return assign_symbol(s,50); 
+        case 'R': return assign_symbol(s,38); 
+      }
+      break;
+
+    case 'T':
+      switch (snd_ch) {
+        case 'A': return assign_symbol(s,73); 
+        case 'B': return assign_symbol(s,65); 
+        case 'C': return assign_symbol(s,43); 
+        case 'E': return assign_symbol(s,52); 
+        case 'H': return assign_symbol(s,90); 
+        case 'I': return assign_symbol(s,22); 
+        case 'L': return assign_symbol(s,81); 
+        case 'M': return assign_symbol(s,69); 
+        case 'S': return assign_symbol(s,117); 
+      }
+      break;
+
+    case 'U':
+      switch (snd_ch) {
+        case 'R': return assign_symbol(s,92); 
+      }
+      break;
+
+    case 'V':
+      switch (snd_ch) {
+        case 'A': return assign_symbol(s,23); 
+      }
+      break;
   
-  symbol_t  *symbols; 
-  symbol_t  **idx_symbols; 
-} graph_t; 
+    case 'W':
+      switch (snd_ch) {
+        case 'T': return assign_symbol(s,74); 
+      }
+      break; 
 
+    case 'X':
+      switch (snd_ch) {
+        case 'E': return assign_symbol(s,54); 
+      }
+      break;
 
-static void gt_alloc(graph_t *g, const size_t size)
-{
-  g->s_num      = 0; 
-  g->s_max      = size; 
-  g->stack_ptr  = 0; 
-  g->symbols    = (symbol_t*)malloc(sizeof(symbol_t) * size);  
-  memset(g->symbols, 0, sizeof(symbol_t) * size); 
-}
+    case 'Y':
+      switch (snd_ch) {
+        case 'T': return assign_symbol(s,39); 
+        case 'B': return assign_symbol(s,70); 
+      }
+      break;
 
-// seperated in order to reuse the symbols memory on file read
-static void gt_stack_flush(graph_t *g) 
-{
-  uint16_t stack_ptr = g->stack_ptr; 
-  for (uint16_t i=0;i<stack_ptr;i++) {
-    if (g->stack[i].ref < 0)  
-      free(g->stack[i].addr);
-    g->stack[i].addr = 0; 
-    g->stack[i].ref = 0;
+    case 'Z':
+      switch (snd_ch) {
+        case 'N': return assign_symbol(s,30); 
+        case 'R': return assign_symbol(s,30); 
+      }
+      break;
   }
-  g->stack_ptr = 0; 
+  
+  return false; 
 }
 
-static void gt_clear(graph_t *g)
-{
-  gt_stack_flush(g); 
-  g->stack_ptr = 0; 
-  g->s_num     = 0; 
-}
 
-static void gt_free(graph_t *g)
+// create a bond to a dummy atom type. allows bond modification without state hold 
+static edge_t* 
+add_bond(graph_t *g, atom_t *a, atom_t *b)
 {
-  gt_clear(g); 
-  g->s_max     = 0; 
-  free(g->symbols); 
-}
-
-static symbol_t* next_symbol(graph_t *g, edge_t *e, const uint16_t id, const uint8_t lim_valence)
-{
-  if (g->s_num == g->s_max) {
-    fprintf(stderr,"Warning: symbol limit reached (%d), this can be overidden in settings\n", g->s_max); 
-    return (symbol_t*)0; 
+  edge_t *bptr = (edge_t*)0;
+#ifdef USING_OPENBABEL
+  if (!g->AddBond(a->GetIdx(), b->GetIdx(), 1)) {
+    fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n", a->GetIdx(),b->GetIdx());
+    return bptr;
   }
-  else {
-    symbol_t *s = 0; 
-    
-    if (!e->c)
-      s = &g->symbols[g->s_num++];
-    else 
-      s = e->c; 
+  else     
+    bptr = g->GetBond(g->NumBonds() - 1);
+#elif defined USING_RDKIT
 
-    s->atom_num     = id; 
-    s->arom         = 0; 
-    s->charge       = 0; 
-    s->n_bonds      = 0;
-    s->valence_pack = lim_valence; 
-    s->valence_pack <<= 4;
-    return s; 
-  }
+#endif
+  return bptr;
 }
 
-static symbol_t* new_symbol(graph_t *g, const uint16_t id, const uint8_t lim_valence)
+
+static bool
+unsaturate_edge(edge_t *e)
 {
-  if (g->s_num == g->s_max) {
-    fprintf(stderr,"Warning: symbol limit reached, reallocating...\n"); 
-    return (symbol_t*)0; 
-  }
-  else {
-    
-    symbol_t *s = &g->symbols[g->s_num++];
+  if (!e)
+    return false; 
+#ifdef USING_OPENBABEL
+  if (e->GetBondOrder() < 3)
+    e->SetBondOrder(e->GetBondOrder() + 1); 
+  else return false; 
+#elif USING_RDKIT
 
-    s->atom_num     = id; 
-    s->arom         = 0; 
-    s->charge       = 0; 
-    s->n_bonds      = 0;
-    s->valence_pack = lim_valence; 
-    s->valence_pack <<= 4;
-    return s; 
-  }
+#endif
+  return true; 
 }
 
-/* used in the ring parse, leaves bonds alone */
-static symbol_t* transmute_symbol(symbol_t *s, const uint16_t id, const uint8_t lim_valence)
-{
-  s->atom_num     = id; 
-  s->charge       = 0; 
-  s->valence_pack &= 0x0F; 
-  s->valence_pack += lim_valence << 4; 
-  return s; 
-}
+typedef struct  {
+  uint8_t r_loc; // use to calculate size + add in off-branch positions
+  uint8_t r_size;
+  uint8_t arom; 
+} r_assignment; 
 
-/* read off dash buffer, nearly all dash symbols 
- * are stack compatible atoms, 
- * transition metals are given a 6 valence limit - not allowed to expand
- * the octet. WLN does not have any rules for this, so this heuristic is
- * subject to interpretation 
-*/
-
-static __always_inline edge_t* next_virtual_edge(symbol_t *p)
-{
-  edge_t *e = &p->bonds[p->n_bonds++]; 
-  e->order = (e->order | 0x01) & 0x03;  
-  return e; 
-}
-
-static edge_t* check_bonding(edge_t *e, symbol_t *p, symbol_t *c)
-{
-  // TODO - nibble bit trick is definitely possible
-  if ((p->valence_pack & 0x0F) > (p->valence_pack >> 4) || 
-      (c->valence_pack & 0x0F) > (c->valence_pack >> 4)) 
-  {
-    fprintf(stderr,"Error: symbol reached WLN allowed valence - %d/%d & %d/%d\n",
-            p->valence_pack & 0x0F, p->valence_pack >> 4,
-            c->valence_pack & 0x0F, c->valence_pack >> 4); 
-    return 0; 
-  }
-  else 
-    return e; 
-}
-
-/* if the edge is vitual, spawn it in by modifying the packing
- * for the child, packing for parent is modified on virtual spawn
- * but only needs checked when a real edge is made. 
- */
-static edge_t* set_virtual_edge(edge_t *e, symbol_t *p, symbol_t *c)
-{
-  p->valence_pack += (e->c == 0); // unsaturations modify this directly
-  e->c = c; 
-  c->valence_pack += e->order; 
-  return check_bonding(e, p, c); 
-}
-
-
-static void gt_load_stack_frame(symbol_t **p, edge_t **e, ring_t **r, graph_t *g)
-{
-  uint16_t stack_top = g->stack_ptr - 1; 
-  if (g->stack[stack_top].ref > 0) {
-    *p = (symbol_t*)g->stack[stack_top].addr; 
-    *e = next_virtual_edge(*p); 
-  }
-  else {
-    *p = 0;
-    *e = 0; 
-    *r = (ring_t*)g->stack[stack_top].addr; 
-  }
-}
-
-static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const uint16_t inc_pos) 
+#if 0
+static ring_t* rt_alloc(graph_t *g, const size_t size, atom_t *inc, const uint16_t inc_pos) 
 {
   ring_t *ring = 0; 
   ring = (ring_t*)malloc(sizeof(ring_t) + sizeof(locant_t)*(size-1)); 
   memset(ring, 0, sizeof(ring_t) + sizeof(locant_t)*(size-1)); 
   
-  symbol_t *c = 0;  
-  symbol_t *p = 0;
+  atom_t *c = 0;  
+  atom_t *p = 0;
   edge_t *e   = 0; 
 
   for (uint16_t i=0; i<size; i++) {
@@ -325,13 +474,6 @@ static ring_t* rt_alloc(graph_t *g, const size_t size, symbol_t *inc, const uint
   ring->size = size; 
   return ring; 
 }
-
-
-typedef struct  {
-  uint8_t r_loc; // use to calculate size + add in off-branch positions
-  uint8_t r_size;
-  uint8_t arom; 
-} r_assignment; 
 
 
 static ring_t* pathsolverIII_fast(graph_t *g, ring_t *r, 
@@ -449,32 +591,24 @@ pathsolverIII(graph_t *g, ring_t *r,
   
   return r;  
 }
+#endif
 
 static bool 
-add_oxy(graph_t *g, symbol_t *p, uint8_t ion)
+add_oxy(graph_t *mol, atom_t *atom)
 {
-  edge_t *e = next_virtual_edge(p); 
-  symbol_t *c = next_symbol(g, e, OXY, 2); 
-  if (!c)
+  atom_t *oxygen = new_symbol(mol, OXY); 
+  edge_t *bptr = add_bond(mol, atom, oxygen);
+  if (!bptr)  
+    return false;
+  else if (!unsaturate_edge(bptr))
     return false; 
-
-  if (!ion) {
-    e->order++; 
-    p->valence_pack++; 
-  }
-  else{
-    p->valence_pack--; // let this be a free addition
-    p->charge++; // WLN defines an immediate balance
-    c->charge--; 
-    c->valence_pack++; 
-  }
-  e = set_virtual_edge(e, p, c); 
-  return e != (edge_t*)0; 
+  return true; 
 }
 
+#if 0
 /* placeholder for charged alterations */ 
 static bool 
-add_tauto_dioxy(graph_t *g, symbol_t *p)
+add_tauto_dioxy(graph_t *g, atom_t *p)
 {
   bool ret = add_oxy(g, p, 0); 
   if (ret)
@@ -484,25 +618,7 @@ add_tauto_dioxy(graph_t *g, symbol_t *p)
   else 
     return add_oxy(g, p, 1); 
 };
-
-
-static bool 
-default_methyls(graph_t *g, symbol_t *c, uint8_t n)
-{
-  edge_t *e; 
-  symbol_t *m;
-  uint8_t b_store = c->n_bonds; 
-  for (uint8_t i=(c->valence_pack & 0x0F); i<n; i++) {
-    e = next_virtual_edge(c); 
-    m = next_symbol(g, e, CAR, 4); 
-    if (!m)
-      return false; 
-    e = set_virtual_edge(e, c, m); 
-  }
-  c->n_bonds = b_store;  
-  return true; 
-}
-
+#endif
 
 /* locants can be expanded or read as branches with '&' and '-'
  * chars. In order to move the state as the string is being read, 
@@ -527,16 +643,16 @@ read_locant(const char *ptr, uint16_t *idx, uint16_t limit_idx)
   return locant_t; 
 }
 
-
+#if 0
 static ring_t* 
 parse_cyclic(const char *ptr, 
              uint16_t start, 
              uint16_t end, 
-             symbol_t *head, 
+             atom_t *head, 
              uint16_t head_loc, 
              graph_t *g) 
 {
-  symbol_t  *c    = 0; 
+  atom_t  *c    = 0; 
   edge_t    *e    = 0; 
   ring_t    *ring = 0; 
 
@@ -940,548 +1056,16 @@ ring_fail:
     free(ring);
   return (ring_t*)0; 
 }
+#endif
 
 
-static bool
-write_dash_symbol(symbol_t *c, uint8_t high, uint8_t low){
-  switch (high){
-    case 'A':
-      switch (low) {
-        case 'C':
-          c->atom_num = 89; 
-          break; 
-        case 'G':
-          c->atom_num = 47; 
-          break; 
-        case 'L':
-          c->atom_num = 13; 
-          break; 
-        case 'M':
-          c->atom_num = 95; 
-          break; 
-        case 'R':
-          c->atom_num = 18; 
-          break; 
-        case 'S':
-          c->atom_num = 33; 
-          break; 
-        case 'T':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 85; 
-          break; 
-        case 'U':
-          c->atom_num = 79; 
-          break; 
-      }
-      break; 
-
-    case 'B':
-      switch (low) {
-        case 0:
-          c->valence_pack = (4 << 4);
-          c->atom_num = BOR; 
-          break; 
-        case 'A':
-          c->valence_pack = (2 << 4);
-          c->atom_num = 56; 
-          break; 
-        case 'E':
-          c->valence_pack = (2 << 4);
-          c->atom_num = 4; 
-          break; 
-        case 'H':
-          c->atom_num = 107; 
-          break; 
-        case 'I':
-          c->atom_num = 83; 
-          break; 
-        case 'K':
-          c->atom_num = 97; 
-          break; 
-        case 'R':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = BRO; 
-          break; 
-      }
-      break; 
-
-    case 'C':
-      switch (low) {
-        case 0:
-          c->valence_pack = (5 << 4); 
-          c->atom_num = CAR; // allow the texas carbon "easter egg"
-          break; 
-        case 'A':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 20;
-          break; 
-        case 'D':
-          c->atom_num = 48;
-          break; 
-        case 'E':
-          c->atom_num = 58;
-          break; 
-        case 'F':
-          c->atom_num = 98;
-          break; 
-        case 'M':
-          c->atom_num = 96;
-          break; 
-        case 'N':
-          c->atom_num = 112;
-          break; 
-        case 'O':
-          c->atom_num = 27;
-          break; 
-        case 'R':
-          c->atom_num = 24;
-          break; 
-        case 'S':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 55;
-          break; 
-        case 'U':
-          c->atom_num = 29;
-          break; 
-      }
-      break; 
-
-    case 'D':
-      switch (low) {
-        case 'B':
-          c->atom_num = 105;
-          break; 
-        case 'S':
-          c->atom_num = 110;
-          break; 
-        case 'Y':
-          c->atom_num = 66;
-          break; 
-      }
-      break;
-
-    case 'E':
-      switch (low) {
-        case 0:
-          c->valence_pack = (3 << 4); // hypervalent bromine
-          c->atom_num = 35; 
-          break; 
-        case 'R':
-          c->atom_num = 68; 
-          break; 
-        case 'S':
-          c->atom_num = 99; 
-          break; 
-        case 'U':
-          c->atom_num = 63; 
-          break; 
-      }
-
-    case 'F':
-      switch (low) {
-        case 0:
-          c->valence_pack = (3 << 4); // hypervalent flourine
-          c->atom_num = FLU; 
-          break; 
-        case 'E':
-          c->atom_num = 26; 
-          break; 
-        case 'L':
-          c->atom_num = 114; 
-          break; 
-        case 'M':
-          c->atom_num = 100; 
-          break; 
-        case 'R':
-          c->atom_num = 87; 
-          break; 
-      }
-      break;
-
-    case 'G':
-      switch (low) {
-        case 0: 
-          c->valence_pack = (3 << 4); // hypervalent chlorine
-          c->atom_num = CHL; 
-          break; 
-        case 'A':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 31; 
-          break; 
-        case 'D':
-          c->atom_num = 64; 
-          break; 
-        case 'E':
-          c->valence_pack = (4 << 4); 
-          c->atom_num = 32; 
-          break; 
-      }
-      break;
-
-    case 'H':
-      switch (low) {
-        case 'E':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 2; 
-          break; 
-        case 'F':
-          c->atom_num = 72; 
-          break; 
-        case 'G':
-          c->atom_num = 80; 
-          break; 
-        case 'O':
-          c->atom_num = 67; 
-          break; 
-        case 'S':
-          c->atom_num = 108; 
-          break; 
-      }
-      break;
-
-    case 'I':
-      switch (low) {
-        case 0: 
-          c->valence_pack = (2 << 4); // hypervalent iodine
-          c->atom_num = IOD;
-          break; 
-        case 'N':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 49; 
-          break; 
-        case 'R':
-          c->atom_num = 77; 
-          break; 
-      }
-      break;
-
-    case 'K':
-      switch (low) {
-        case 0:  
-          c->valence_pack = (4 << 4); // already hyper nitrogen 
-          c->atom_num = NIT;
-          c->charge++; 
-          break; 
-        case 'R':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 36; 
-          break; 
-        case 'A':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 19; 
-          break; 
-      }
-      break;
-
-    case 'L':
-      switch (low) {
-        case 'A':
-          c->atom_num = 57; 
-          break; 
-        case 'I':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 3; 
-          break; 
-        case 'R':
-          c->atom_num = 103; 
-          break; 
-        case 'U':
-          c->atom_num = 71; 
-          break; 
-        case 'V':
-          c->atom_num = 116; 
-          break; 
-      }
-      break;
-
-    case 'M':
-      switch (low) {
-        case 0:
-          c->valence_pack = (2 << 4); // regular nitrogen
-          c->atom_num = NIT; 
-          break; 
-        case 'C':
-          c->atom_num = 115; 
-          break; 
-        case 'D':
-          c->atom_num = 101; 
-          break; 
-        case 'G':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 12; 
-          break; 
-        case 'N':
-          c->atom_num = 25; 
-          break; 
-        case 'O':
-          c->atom_num = 42; 
-          break; 
-        case 'T':
-          c->atom_num = 109; 
-          break; 
-      }
-      break;
-
-    case 'N':
-      switch (low) {
-        case 0:
-          c->valence_pack = (2 << 4); // regular nitrogen
-          c->atom_num = NIT; 
-          break; 
-        case 'A':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 11; 
-          break; 
-        case 'B':
-          c->atom_num = 41; 
-          break; 
-        case 'D':
-          c->atom_num = 60; 
-          break; 
-        case 'E':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 10; 
-          break; 
-        case 'H':
-          c->atom_num = 113; 
-          break; 
-        case 'I':
-          c->atom_num = 28; 
-          break; 
-        case 'O':
-          c->atom_num = 102; 
-          break; 
-        case 'P':
-          c->atom_num = 93; 
-          break; 
-      }
-      break; 
-
-    case 'O':
-      switch (low) {
-        case 0:
-          c->valence_pack = (3 << 4); // hypervalent oxygen
-          c->atom_num = OXY; 
-          break; 
-        case 'G':
-          c->atom_num = 118; 
-          break; 
-        case 'S':
-          c->atom_num = 76; 
-          break; 
-      }
-      break;
-
-    case 'P':
-      switch (low) {
-        case 0:
-          c->valence_pack = (5 << 4); // phos
-          c->atom_num = PHO; 
-          break; 
-        case 'A':
-          c->atom_num = 91; 
-          break; 
-        case 'B':
-          c->atom_num = 82; 
-          break; 
-        case 'D':
-          c->atom_num = 46; 
-          break; 
-        case 'M':
-          c->atom_num = 61; 
-          break; 
-        case 'O':
-          c->atom_num = 84; 
-          break; 
-        case 'R':
-          c->atom_num = 59; 
-          break; 
-        case 'T':
-          c->atom_num = 78; 
-          break; 
-        case 'U':
-          c->atom_num = 94; 
-          break; 
-      }
-      break;
-    
-    case 'Q':
-      c->valence_pack = (3 << 4); // hypervalent oxygen
-      c->atom_num = OXY; 
-      break; 
-
-    case 'R':
-      switch (low) {
-        case 'A':
-          c->atom_num = 88; 
-          break; 
-        case 'B':
-          c->valence_pack = (1 << 4); 
-          c->atom_num = 37; 
-          break; 
-        case 'E':
-          c->atom_num = 75; 
-          break; 
-        case 'F':
-          c->atom_num = 104; 
-          break; 
-        case 'G':
-          c->atom_num = 111; 
-          break; 
-        case 'H':
-          c->atom_num = 45; 
-          break; 
-        case 'N':
-          c->atom_num = 86; 
-          break; 
-        case 'U':
-          c->atom_num = 44; 
-          break; 
-      }
-      break;
-
-    case 'S':
-      switch (low) {
-        case 0: 
-          c->valence_pack = (6 << 4); // regular sulphur
-          c->atom_num = SUL; 
-          break; 
-        case 'B':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 51; 
-          break; 
-        case 'C':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 21; 
-          break; 
-        case 'E':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 34; 
-          break; 
-        case 'G':
-          c->atom_num = 106; 
-          break; 
-        case 'I':
-          c->valence_pack = (4 << 4); 
-          c->atom_num = 14; 
-          break; 
-        case 'M':
-          c->atom_num = 62; 
-          break; 
-        case 'N':
-          c->valence_pack = (4 << 4); 
-          c->atom_num = 50; 
-          break; 
-        case 'R':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 38; 
-          break; 
-      }
-      break;
-
-    case 'T':
-      switch (low) {
-        case 'A':
-          c->atom_num = 73; 
-          break; 
-        case 'B':
-          c->atom_num = 65; 
-          break; 
-        case 'C':
-          c->atom_num = 43; 
-          break; 
-        case 'E':
-          c->valence_pack = (2 << 4); 
-          c->atom_num = 52; 
-          break; 
-        case 'H':
-          c->atom_num = 90; 
-          break; 
-        case 'I':
-          c->atom_num = 22; 
-          break; 
-        case 'L':
-          c->valence_pack = (3 << 4); 
-          c->atom_num = 81; 
-          break; 
-        case 'M':
-          c->atom_num = 69; 
-          break; 
-        case 'S':
-          c->atom_num = 117; 
-          break; 
-      }
-      break;
-
-    case 'U':
-      if(low == 'R') {
-        c->atom_num = 92; 
-        break; 
-      }
-      break;
-
-    case 'V':
-      if(low == 'A') {
-        c->atom_num = 23; 
-        break; 
-      }
-      break;
-  
-    case 'W':
-      if(low == 'T') {
-        c->atom_num = 74; 
-        break; 
-      }
-      break; 
-
-    case 'X':
-      if (low == 'E') {
-        c->valence_pack = (1 << 4); 
-        c->atom_num = 54; 
-        break; 
-      }
-      break;
-
-    case 'Y':
-      if (low == 'T') {
-        c->valence_pack = (3 << 4); 
-        c->atom_num = 39; 
-        break; 
-      }
-      else if (low == 'B') {
-        c->atom_num = 70; 
-        break; 
-      }
-      break;
-
-    case 'Z':
-      if (low == 'N') {
-        c->atom_num = 30; 
-        break; 
-      }
-      else if (low == 'R') {
-        c->atom_num = 30; 
-        break; 
-      }
-      break;
-  }
-  
-  if (c->atom_num == DUM) {
-    fprintf(stderr,"Error: invalid elemental code -%c%c-\n",high,low); 
-    return false; 
-  }
-  return true; 
-}
-
-
-
-
+#if 0
 /* returns the pending unsaturate level for the next symbol */
 static edge_t* 
 resolve_unsaturated_carbon(graph_t *g, 
                            edge_t *e, 
-                           symbol_t *p, 
-                           symbol_t *c, 
+                           atom_t *p, 
+                           atom_t *c, 
                            unsigned char ch_nxt)
 {
   edge_t *ne = next_virtual_edge(c); // forward edge from 'C' 
@@ -1548,50 +1132,62 @@ resolve_unsaturated_carbon(graph_t *g,
   fprintf(stderr,"Error: C symbol requires a mandatory double/triple bond - impossible bonding env\n"); 
   return (edge_t*)0; 
 }
+#endif
 
 
 /*
  * -- Parse WLN Notation --
- *
  */
-static bool 
-parse_wln(const char *ptr, const uint16_t len, graph_t *g)
+bool 
+ReadWLN(const char *wln, graph_t *molecule)
 {
-  edge_t   *e=0; 
-  symbol_t *c=0;
-  symbol_t *p=0;
-  ring_t   *r=0;
+  edge_t *curr_edge=0; 
+  atom_t *curr_atom=0;
+  atom_t *dummy_atom=0;
+  ring_t *curr_ring=0;
 
   uint8_t ring_chars = 0; 
   uint16_t locant_ch = 0; 
   uint16_t digit_n   = 0; 
   
   uint8_t state = 0; // bit field: 
-                // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
+                     // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
   
   uint8_t dash_ptr = 0; 
   unsigned char dash_chars[3] = {0}; // last byte is mainly for overflow 
  
-  // init conditions, make one dummy atom, and one bond - work of the virtual bond
-  // idea entirely *--> grow...
-  
-  c = new_symbol(g, DUM, 1); 
-  e = next_virtual_edge(c); 
-  e->order = DUM; 
-  p = c; 
-  g->idx_symbols[0] = p;  // overwrite dummy when 0 pos is requested
-  
   // charges are assigned through string indexing - tf: need a strlen() 
     
+  uint8_t stack_ptr = 0;  // WLN branch and ring dependency stack
+  struct wlnrefaddr {
+    void *addr; 
+    char ref; // -1 for (ring_t*) else (atom_t*) 
+  } dep_stack[64];  
+
+#if 0
+  // seperated in order to reuse the symbols memory on file read
+  for (uint16_t i=0;i<stack_ptr;i++) {
+    // if (stack[i].ref < 0)  
+    //   free(stack[i].addr);
+    stack[i].addr = 0; 
+    stack[i].ref = 0;
+  }
+#endif
+
+  // init conditions, make one dummy atom, and one bond - work of the virtual bond
+  // idea entirely *--> grow...
+  curr_atom = new_symbol(molecule, DUM); 
+  
   unsigned char ch; 
   unsigned char ch_nxt; 
-  
+  const uint32_t len = strlen(wln);  
   for (uint16_t sp=0; sp<len; sp++) {
-    ch     = ptr[sp]; 
-    ch_nxt = ptr[sp+1]; // one lookahead is defined behaviour 
+    ch     = wln[sp]; 
+    ch_nxt = wln[sp+1]; // one lookahead is defined behaviour 
     
     if (state & RING_READ) {
-      if (ptr[sp-1] >= 'A' && ch == 'J' && ch_nxt < '0') {
+#if 0
+      if (wln[sp-1] >= 'A' && ch == 'J' && ch_nxt < '0') {
         // J can be used inside ring notation, requires lookahead 
         // condition 
         
@@ -1599,14 +1195,14 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
         //       starting L/T or ending J (<sp) 
         
         // ring must have at least one atom. 
-        c = next_symbol(g, e, CAR, 4);
-        if (!c)
+        curr_atom = assign_symbol(g, curr_edge, CAR, 4);
+        if (!curr_atom)
           return false; 
-        e = set_virtual_edge(e, p, c); 
-        r = parse_cyclic(ptr, sp-ring_chars+1, sp, c, locant_ch, g);
-        if (!r)
+        curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
+        curr_ring = parse_cyclic(wln, sp-ring_chars+1, sp, curr_atom, locant_ch, g);
+        if (!curr_ring)
           return false; 
-        g->stack[g->stack_ptr].addr = r; 
+        g->stack[g->stack_ptr].addr = curr_ring; 
         g->stack[g->stack_ptr++].ref = -1; 
         state &= ~(RING_READ);
         ring_chars = 0; 
@@ -1626,14 +1222,15 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
       state &= ~(SPACE_READ);
 
       if (!(state & BIND_READ)) {
-        if (r && locant_ch < r->size) {
-          c = r->path[locant_ch].s; 
-          e = next_virtual_edge(c); 
-          p = c; 
+        if (curr_ring && locant_ch < curr_ring->size) {
+          curr_atom = curr_ring->path[locant_ch].s; 
+          curr_edge = next_virtual_edge(curr_atom); 
+          prev_atom = curr_atom; 
         } 
         else 
           return error("Error: out of bounds locant_t access"); 
       }
+#endif
     }
     else {
       switch (ch) {
@@ -1643,6 +1240,7 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
           if(state & DIOXO_READ) 
             return error("Error: dioxo attachment needs higher valence atom"); 
           else if (ch_nxt == '/') {
+#if 0
             // positive charge assignment
             if (digit_n > len || !g->idx_symbols[digit_n]) 
               return error("Error: charge assignment out of bounds"); 
@@ -1652,11 +1250,12 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
               digit_n = 0; 
               sp++; // skip the slash, only ever used again in R notation
             }
+#endif
           } 
-          else if ( state & (CHARGE_READ | DIGIT_READ) 
-                    && (ch_nxt < '0' || ch_nxt > '9')) 
+          else if (state & (CHARGE_READ | DIGIT_READ) 
+                   && (ch_nxt < '0' || ch_nxt > '9')) 
           {  
-                       
+#if 0
             if (state & CHARGE_READ) {
               // negative charge assignment
               if (digit_n > len || !g->idx_symbols[digit_n]) 
@@ -1670,25 +1269,26 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
             else {
               // create the alkyl chain
               for (uint16_t i=0; i<digit_n; i++) {
-                c = next_symbol(g, e, CAR, 4);
-                if (!c)
+                curr_atom = assign_symbol(g, curr_edge, CAR, 4);
+                if (!curr_atom)
                   return false; 
                 else
-                  e = set_virtual_edge(e, p, c); 
+                  curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
 
-                if (!e)
+                if (!curr_edge)
                   return false; 
                 else {
-                  p = c;
-                  e = next_virtual_edge(p); 
+                  prev_atom = curr_atom;
+                  curr_edge = next_virtual_edge(prev_atom); 
                 }
               }
 
-              g->idx_symbols[sp+1] = p; 
+              g->idx_symbols[sp+1] = prev_atom; 
               digit_n = 0; 
             }
-          }
-          break;
+#endif
+        }
+        break;
 
         case '1':
         case '2':
@@ -1705,6 +1305,7 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
           if(state & DIOXO_READ) 
             return error("Error: dioxo attachment needs higher valence atom"); 
           else if (ch_nxt == '/') {
+#if 0
             // positive charge assignment
             if (digit_n > len || !g->idx_symbols[digit_n]) 
               return error("Error: charge assignment out of bounds"); 
@@ -1731,22 +1332,23 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
             else {
               // create the alkyl chain
               for (uint16_t i=0; i<digit_n; i++) {
-                c = next_symbol(g, e, CAR, 4);
-                if (!c)
+                curr_atom = assign_symbol(g, curr_edge, CAR, 4);
+                if (!curr_atom)
                   return false; 
                 else
-                  e = set_virtual_edge(e, p, c); 
+                  curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
 
-                if (!e)
+                if (!curr_edge)
                   return false; 
                 else {
-                  p = c;
-                  e = next_virtual_edge(p); 
+                  prev_atom = curr_atom;
+                  curr_edge = next_virtual_edge(prev_atom); 
                 }
               }
-              g->idx_symbols[sp+1] = p; 
+              g->idx_symbols[sp+1] = prev_atom; 
               digit_n = 0; 
             }
+#endif
           }
           else
             state |= DIGIT_READ; 
@@ -1757,258 +1359,169 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
           return error("Error: non-atomic symbol used in chain"); 
         
         case 'B':
-          c = next_symbol(g, e, BOR, 3);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, BOR);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 2;
+          stack_ptr++; 
 
-          if (!e)
-            return false; 
-          else {
-
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
-          }
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break; 
         
         case 'C':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = p; 
-            e = resolve_unsaturated_carbon(g, e, p, c, ch_nxt); 
-            if (!e)
-              return false; 
-            else 
-              p = c;
-          }
+          fprintf(stderr, "WLN symbol C currently unhandled\n"); 
+          return false; 
           break; 
 
         // extrememly rare open chelate notation
         case 'D':
           fprintf(stderr,"chelate ring open needs handling\n"); 
           break; 
-
+        
+        // terminator symbol - no bond movement
         case 'E':
-          c = next_symbol(g, e, BRO, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, BRO);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
 
         case 'F':
-          c = next_symbol(g, e, FLU, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, BRO);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
 
         case 'G':
-          c = next_symbol(g, e, CHL, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, CHL);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
 
         case 'H':
-          // treat hydrogen as a terminator
-          c = next_symbol(g, e, 1, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, 1);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              // do not allow hydrogen to write back
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
 
         case 'I':
-          c = next_symbol(g, e, IOD, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, IOD);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
-
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
        
+        /* [N+](R)(R)(R)(R) */
         case 'K':
-          c = next_symbol(g, e, NIT, 4);
-          c->charge++; 
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, NIT);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 3;
+          stack_ptr++; 
 
-          if (!e)
-            return false; 
-          else {
-
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              default_methyls(g, c, 4);  
-
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 3;
-              g->stack_ptr++; 
-            }
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
 
         case 'L':
@@ -2017,334 +1530,202 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
           ring_chars++; 
           break; 
         
+        /* NH(R)(R) */
         case 'M':
-          c = next_symbol(g, e, NIT, 3);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return false; 
-          else {
-            
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else {
-              p = c;
-              g->idx_symbols[sp+1] = p; 
-              e = next_virtual_edge(c); 
-            }
-
-          }
+          assign_symbol(curr_atom, NIT);
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
        
-        /* nitrogen symbols */
+        /* NR(R)(R) */
         case 'N':
-          c = next_symbol(g, e, NIT, 3);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, NIT);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 2;
+          stack_ptr++; 
 
-          if (!e)
-            return false; 
-          else {
-  
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
-
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
-          }
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
         
+        /* OR(R) */
         case 'O':
-          c = next_symbol(g, e, OXY, 2);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return false; 
-          else {
-            p = c;
-            g->idx_symbols[sp+1] = p; 
-            e = next_virtual_edge(c); 
-          }
+          assign_symbol(curr_atom, OXY);
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
         
         case 'P':
-          c = next_symbol(g, e, PHO, 5);
-          if (!c)
+          assign_symbol(curr_atom, PHO);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 3;
+          stack_ptr++; 
+          
+          dummy_atom = new_symbol(molecule, DUM);
+          if (!dummy_atom) {
+            fprintf(stderr, "wahat? %p - %p\n", curr_atom, dummy_atom); 
             return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return false; 
-          else {
-            // since these can expand valence, allow branch
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3;
-            g->stack_ptr++; 
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
           }
+
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
 
-
         case 'Q':
-          c = next_symbol(g, e, OXY, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, OXY);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
 
         // shorthand benzene 
+#if 0
         case 'R': 
           // head symbol can come from virtual X|Y|K
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
+          curr_atom = assign_symbol(g, curr_edge, CAR, 4);
+          if (!curr_atom)
             return false; 
           else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+            g->idx_symbols[sp+1] = curr_atom; 
+            curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
           }
 
-          r = rt_alloc(g, 6, c, 0); 
+          curr_ring = rt_alloc(g, 6, curr_atom, 0); 
           
-          if (!r)
+          if (!curr_ring)
             return false; // only way this can fail 
           else {
             for (uint8_t i=0; i<6; i++)
-              r->path[i].s->arom |= 1; 
+              curr_ring->path[i].s->arom |= 1; 
             // set the ring. R objects are kekulised on stack pop
-            p = r->path[0].s; 
-            c = r->path[5].s; 
-            e = next_virtual_edge(p); 
-            e = set_virtual_edge(e, p, c);
-            e->ring = 1; 
+            prev_atom = curr_ring->path[0].s; 
+            curr_atom = curr_ring->path[5].s; 
+            curr_edge = next_virtual_edge(prev_atom); 
+            curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom);
+            curr_edge->ring = 1; 
           }
 
           // add to ring stack
-          g->stack[g->stack_ptr].addr = r; 
+          g->stack[g->stack_ptr].addr = curr_ring; 
           g->stack[g->stack_ptr++].ref = -1; 
 
-          g->idx_symbols[sp+1] = p; 
-          e = next_virtual_edge(p); 
+          g->idx_symbols[sp+1] = prev_atom; 
+          curr_edge = next_virtual_edge(prev_atom); 
           break; 
+#endif
         
         case 'S':
-          c = next_symbol(g, e, SUL, 6);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, SUL);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 3;
+          stack_ptr++; 
 
-          if (!e)
-            return false; 
-          else {
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            // since these can expand valence, allow branch
-            g->stack[g->stack_ptr].addr = c; 
-            g->stack[g->stack_ptr].ref  = 3; // ?  
-            g->stack_ptr++; 
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
         
         case 'U':
-          if (e) {
-            e->order++; 
-            p->valence_pack++; 
-          }
-          else
-            return error("Error: unsaturation called without previous bond"); 
+          if (!unsaturate_edge(curr_edge))
+            return error("Error: failed to unsaturate bond\n"); 
           break; 
 
         case 'V':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
-
-          if (!e)
-            return false; 
-          else {
-
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (add_oxy(g, c, 0) == false)
-              return false; 
-            else {
-              p = c; 
-              g->idx_symbols[sp+1] = c; 
-              e = next_virtual_edge(c); 
-            }
-          }
+          assign_symbol(curr_atom, CAR);
+          if (!add_oxy(molecule, curr_atom))
+            return error("Error: failed to add =O group\n"); 
+        
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          if (!curr_edge)
+            return error("Error: failed to add =O group\n"); 
+          curr_atom = dummy_atom;
           break;
         
         // if not previous, create dummy carbon
         // really trying to avoid a bit state on this
         case 'W':
-          if(state & DIOXO_READ) 
-            return error("Error: double dioxo attachment needs is undefined"); 
-          else if (p->atom_num != DUM) {
-            if (add_tauto_dioxy(g, p) == false)
-              return false; 
-            else 
-              e = next_virtual_edge(p);  
-          }
-          else 
-            state |= DIOXO_READ; 
+          return error("Error: W group needs supporting"); 
           break; 
 
         case 'X':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, CAR);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 3;
+          stack_ptr++; 
 
-          if (!e)
-            return false; 
-          else {
-            
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              default_methyls(g, c, 4);  
-
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 3;
-              g->stack_ptr++; 
-            }
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
 
         case 'Y':
-          c = next_symbol(g, e, CAR, 4);
-          if (!c)
-            return false; 
-          else
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, CAR);
+          
+          dep_stack[stack_ptr].addr = curr_atom; 
+          dep_stack[stack_ptr].ref  = 2;
+          stack_ptr++; 
 
-          if (!e)
-            return false; 
-          else {
-            
-            if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
-              state &= ~DIOXO_READ; 
-            }
-            else {
-              default_methyls(g, c, 3);  
-
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = 2;
-              g->stack_ptr++; 
-            }
-
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
-          }
+          dummy_atom = new_symbol(molecule, DUM); 
+          curr_edge = add_bond(molecule, dummy_atom, curr_atom); 
+          curr_atom = dummy_atom;
           break;
         
         case 'Z':
-          c = next_symbol(g, e, NIT, 1);
-          if (!c)
-            return false; 
-          else {
-            g->idx_symbols[sp+1] = c; 
-            e = set_virtual_edge(e, p, c); 
+          assign_symbol(curr_atom, NIT);
+          // note: terminators can act on an empty stack, '&' cannot
+          if (!stack_ptr) {
+            // the molecule has to end here. open charge notation
+            if (ch_nxt != ' ' || ch_nxt != '\0') 
+              return error("Error: terminating symbol closes molecule\n"); 
+            else 
+              state |= CHARGE_READ; 
           }
-
-          if (!e)
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
             return false; 
+          }
           else {
-            // terminating symbol
-            if(state & DIOXO_READ) 
-              return error("Error: dioxo attachment needs higher valence atom"); 
-            else if (g->stack_ptr && g->stack[g->stack_ptr-1].ref != -1){
-              g->stack[g->stack_ptr-1].ref--; 
-              g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
 
-              // reseting block
-              // note: terminators can empty the stack, '&' cannot
-              if (!g->stack_ptr) {
-                p = c; 
-                e = next_virtual_edge(p); 
-              }
-              else 
-                gt_load_stack_frame(&p, &e, &r, g); 
-            }
-            else {
-              p = c; 
-              e = next_virtual_edge(p); 
-            }
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
           break;
         
         case '-':
+          return error("Error: dash code needs hooking in\n"); 
+#if 0
           // dashes open up several possible states which needs a lot of information to reason 
           // 1. -XX- | -X- == symbol
           // 2. <locant> -& <space> <locant_t> <ring> == spiro ring defintion  
@@ -2353,15 +1734,15 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
           // seperating out 1 is trivial with a +1 lookahead. 
           // 2 vs 3: 
           if (state & DASH_READ) {
-            c = next_symbol(g, e, DUM, 6); // create a blank symbol
-            if (!c)
+            curr_atom = assign_symbol(g, curr_edge, DUM, 6); // create a blank symbol
+            if (!curr_atom)
               return false; 
-            if (write_dash_symbol(c, dash_chars[0], dash_chars[1]) == false)
+            if (write_dash_symbol(curr_atom, dash_chars[0], dash_chars[1]) == false)
               return false; 
 
-            e = set_virtual_edge(e, p, c); 
+            curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
             if(state & DIOXO_READ) {
-              add_tauto_dioxy(g, c); 
+              add_tauto_dioxy(g, curr_atom); 
               state &= ~DIOXO_READ; 
             }
             
@@ -2370,15 +1751,15 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
             dash_ptr = 0; 
 
             // add to branch stack
-            if ((c->valence_pack >> 4) >= 2) {
-              g->stack[g->stack_ptr].addr = c; 
-              g->stack[g->stack_ptr].ref  = c->valence_pack >> 4;
+            if ((curr_atom->valence_pack >> 4) >= 2) {
+              g->stack[g->stack_ptr].addr = curr_atom; 
+              g->stack[g->stack_ptr].ref  = curr_atom->valence_pack >> 4;
               g->stack_ptr++; 
             }
 
-            p = c; 
-            g->idx_symbols[sp+1] = c; 
-            e = next_virtual_edge(c); 
+            prev_atom = curr_atom; 
+            g->idx_symbols[sp+1] = curr_atom; 
+            curr_edge = next_virtual_edge(curr_atom); 
           }
           else {
             if (ch_nxt == ' ')
@@ -2388,48 +1769,46 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
               state |= DASH_READ; 
             }
           }
+#endif
           break; 
 
         case ' ':
+          return error("Error: space code needs hooking in\n"); 
+#if 0
           if (ch_nxt == '&') {
             // all other states should make this the only place ions can be used. 
             gt_stack_flush(g); 
             sp++; 
-            c = new_symbol(g, DUM, 1); 
-            e = next_virtual_edge(c); 
-            e->order = DUM; 
-            p = c; 
+            curr_atom = new_symbol(g, DUM, 1); 
+            curr_edge = next_virtual_edge(curr_atom); 
+            curr_edge->order = DUM; 
+            prev_atom = curr_atom; 
           }
           else 
             state |= SPACE_READ; 
+#endif
           break; 
 
         case '&':
           if (state & DIOXO_READ) 
             return error("Error: dioxo attachment requires an atomic symbol"); 
-          else if (!g->stack_ptr) 
-            return error("Error: empty stack - too many &?"); 
-
-          if (g->stack[g->stack_ptr-1].ref < 0) {
-            // ring closures  
-            g->stack_ptr--; 
-            free(g->stack[g->stack_ptr].addr);
-            g->stack[g->stack_ptr].addr = 0; 
-            g->stack[g->stack_ptr].ref = 0;
+          if (!stack_ptr) 
+            return error("Error: empty dependency stack - too many &?"); 
+                  
+          if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
+            return false; 
           }
           else {
-            // branch closures
-            // note: methyl contractions will have a live virtual 
-            // bond, therefore can be used checked with AND. 
-            c = (symbol_t*)g->stack[g->stack_ptr-1].addr; 
-            g->stack_ptr -= (p == c) & (c->bonds[c->n_bonds].c == 0); 
-            g->stack[g->stack_ptr-1].ref--; 
-            g->stack_ptr -= (g->stack[g->stack_ptr-1].ref==0); 
+            // a branch must be open.
+            dummy_atom = new_symbol(molecule, DUM); 
+            curr_edge = add_bond(molecule, (atom_t*)dep_stack[stack_ptr-1].addr, dummy_atom); 
+            curr_atom = dummy_atom; 
+
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
           }
-          // reseting block
-          if (!g->stack_ptr) 
-            return error("Error: empty stack - too many &?"); 
-          gt_load_stack_frame(&p, &e, &r, g); 
           break;
 
         case '\n':
@@ -2443,202 +1822,8 @@ parse_wln(const char *ptr, const uint16_t len, graph_t *g)
     }
   }
   
+  molecule->SetAromaticPerceived(false);
+  molecule->AddHydrogens(); 
   return true; 
 }
 
-
-OpenBabel::OBAtom* ob_add_atom(OpenBabel::OBMol* mol, uint16_t elem, char charge, char hcount)
-{
-  OpenBabel::OBAtom* result = mol->NewAtom();
-  if(!result)
-    return 0;
-
-  result->SetAtomicNum(elem);
-  result->SetFormalCharge(charge);
-  if(hcount >= 0)
-    result->SetImplicitHCount(hcount);
-  
-  return result;
-}
-
-
-OpenBabel::OBBond* ob_add_bond(OpenBabel::OBMol* mol, OpenBabel::OBAtom* s, OpenBabel::OBAtom* e, uint8_t order)
-{
-  OpenBabel::OBBond* bptr = 0; 
-  if (!s || !e) {
-    fprintf(stderr,"Error: could not find atoms in bond, bond creation impossible s: %p, e: %p\n",s,e);
-    return bptr;
-  }
-
-  if (!mol->AddBond(s->GetIdx(), e->GetIdx(), order)) {
-    fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n",s->GetIdx(),e->GetIdx());
-    return bptr;
-  }
-  else     
-    bptr = mol->GetBond(mol->NumBonds() - 1);
-  
-  return bptr;
-}
-
-
-/*
- * A dummy atom is created at new instance positions, siginificantly simplifies 
- * and speeds up the parsing code - removes a lot of branch checks, requires a mapping
- * to build mol
- */
-int ob_convert_wln_graph(OpenBabel::OBMol *mol, graph_t *g) {  
-  OpenBabel::OBAtom *atom; 
-  OpenBabel::OBBond *bond;   
-  OpenBabel::OBAtom **amapping = (OpenBabel::OBAtom **)alloca(sizeof(OpenBabel::OBAtom*) * g->s_num); 
-  for (uint16_t i=1; i<g->s_num; i++) {
-    symbol_t *node = &g->symbols[i]; 
-    if (node->atom_num != DUM) {
-      uint8_t limit_val = node->valence_pack >> 4; 
-      uint8_t actual_val = node->valence_pack & 0x0F; 
-      
-      if (node->arom == 1)
-        actual_val += (limit_val != actual_val); 
-
-      switch (node->atom_num) {
-        case CAR: 
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 4 - actual_val); 
-          break; 
-
-        case NIT:
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 3 - actual_val); 
-          break; 
-        
-        case OXY:
-          node->charge |= node->arom; // ingvar input
-          node->charge += -(!node->charge)*(limit_val - actual_val);
-          node->valence_pack += abs(node->charge); 
-
-          if (node->valence_pack >> 4 == 1)
-            atom = ob_add_atom(mol, node->atom_num, node->charge, 1); 
-          else 
-            atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
-          break; 
-
-        case FLU:
-        case CHL:
-        case BRO:
-        case IOD:
-          // take a default -1 instead of H resolve
-          node->charge += -(!node->charge)*(actual_val == 0); 
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
-          break; 
-
-        case SUL:
-          atom = ob_add_atom(mol, node->atom_num, node->charge, (6 - actual_val) % 2); // sneaky H trick  
-          break;
-
-        case PHO: 
-          atom = ob_add_atom(mol, node->atom_num, node->charge, (5 - actual_val) % 2); // sneaky H trick  
-          break;
-
-        default: // dont add hydrogens
-          atom = ob_add_atom(mol, node->atom_num, node->charge, 0); 
-      }
-      
-      amapping[i] = atom; 
-      if (node->arom == 1)
-        atom->SetAromatic(node->arom); 
-    }
-  }
-  
-  for (uint16_t i=1; i<g->s_num; i++) {
-    symbol_t *node = &g->symbols[i];
-    if (node->atom_num != DUM) {
-      for (uint16_t j=0; j<MAX_DEGREE; j++) {
-        uint16_t end; 
-        uint16_t beg = i; 
-        edge_t *e = &node->bonds[j];
-        if (e->c) {
-          end = e->c - g->symbols;
-          bond = ob_add_bond(mol, amapping[beg], amapping[end], e->order);
-          if (e->ring && node->arom == 1 && e->c->arom == 1)
-            bond->SetAromatic(1); 
-          else
-            bond->SetAromatic(0);
-        }
-        // purely virtual additions which need tidying up
-        else if (e->order == HANGING_BOND && (node->valence_pack & 0x0F) < (node->valence_pack>>4)) {
-          atom = ob_add_atom(mol, CAR, 0, 3); 
-          bond = ob_add_bond(mol, amapping[beg], atom, 1);
-          amapping[beg]->SetImplicitHCount(amapping[beg]->GetImplicitHCount()-1); 
-          node->valence_pack++;
-        }
-      }
-    }
-  }
-
-    // WLN has no inherent stereochemistry, this can be a flag but should be off by default
-  mol->SetChiralityPerceived(true);
-  mol->SetAromaticPerceived(true); // let the toolkit do maximal matching
-  mol->DeleteHydrogens();
-
-  OpenBabel::OBKekulize(mol); 
-
-  return 1; 
-}
-
-
-// openbabel format reader function
-bool 
-ReadWLN(const char *ptr, OpenBabel::OBMol* mol)
-{   
-  bool ret = false; 
-  graph_t wln_graph; 
-  graph_t *g = &wln_graph; 
-  const uint16_t len = strlen(ptr); 
-  
-  gt_alloc(g, SYMBOL_MAX); 
-  g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * len+1); 
-  memset(g->idx_symbols, 0, sizeof(symbol_t*) * len+1); 
-  
-  if (parse_wln(ptr, len, g)) {
-    ob_convert_wln_graph(mol, g);
-    ret = true; 
-  }
-  gt_free(g); 
-  free(g->idx_symbols); 
-  return ret; 
-}
-
-
-bool 
-ReadWLNFile(FILE *fp, OpenBabel::OBMol* mol, OpenBabel::OBConversion *conv)
-{   
-  uint16_t st_pool_size = 128; 
-  graph_t wln_graph; 
-  graph_t *g = &wln_graph; 
-  gt_alloc(g, st_pool_size); 
-  g->idx_symbols = (symbol_t**)malloc(sizeof(symbol_t*) * 128); 
-  
-  uint16_t len;
-  uint16_t len_high = 128; 
-  char buffer[1024];
-  memset(buffer,0,1024); // safety for len read  
-  while (fgets(buffer, 1024, fp) != NULL) {
-    len = strlen(buffer); // ignore nl
-    if (len > len_high) {
-      g->idx_symbols = (symbol_t**)realloc(g->idx_symbols,sizeof(symbol_t*) * len_high); 
-      len_high = len; 
-    }
-    memset(g->idx_symbols,0,sizeof(symbol_t*)*len_high); 
-    if (parse_wln(buffer, len, g)) {
-      ob_convert_wln_graph(mol, g);
-      conv->Write(mol, &std::cout); 
-      gt_clear(g); 
-      mol->Clear(); 
-    }
-    else 
-      fprintf(stdout, "null\n");  
-     
-    memset(buffer,0,1024); // safety for len read  
-  }
-
-  gt_free(g);
-  free(g->idx_symbols); 
-  return true; 
-}
