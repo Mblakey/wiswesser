@@ -27,6 +27,7 @@ GNU General Public License for more details.
 #include <openbabel/atom.h>
 #include <openbabel/bond.h>
 #include <openbabel/kekulize.h>
+#include <openbabel/obiter.h>
 
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
@@ -38,18 +39,19 @@ GNU General Public License for more details.
 #define MAX_DEGREE 8
 #define SYMBOL_MAX 256
 
-// common bit fields
-#define SPACE_READ  0x01 
-#define ALKYL_READ  0x02 
-#define DASH_READ   0x04
+// common states 
+#define INIT_READ   0x00
+#define CLOSE_READ  0x01
+#define SPACE_READ  0x02
+#define ALKYL_READ  0x04 
+#define DASH_READ   0x08
 
-// standard parse fields
-#define RING_READ   0x08
-#define BIND_READ   0x10 // locant_t ring access
-#define CHARGE_READ 0x20
-#define DIOXO_READ  0x40 // this is an annoying one
+// ReadWLN states 
+#define RING_READ   0x10
+#define BIND_READ   0x20 // locant_t ring access
+#define CHARGE_READ 0x40
 
-// ring parse fields
+// ring_parse states 
 #define SSSR_READ   0x08
 #define MULTI_READ  0x10
 #define PSEUDO_READ 0x20
@@ -83,20 +85,15 @@ error(const char *message)
 }
 
 #ifdef USING_OPENBABEL
+using namespace OpenBabel;
+#define graph_t    OBMol
+#define symbol_t   OBAtom
+#define edge_t     OBBond
 
-#define graph_t    OpenBabel::OBMol
-#define symbol_t   OpenBabel::OBAtom
-#define edge_t     OpenBabel::OBBond
-
-#define symbol_get_num(s)          s->GetAtomicNum()
-#define symbol_change_num(s, n)    s->SetAtomicNum(n)
-#define symbol_get_hydrogens(s)    s->GetImplicitHCount()
-#define symbol_set_hydrogens(s, n) \
-  if (n > 0) \
-    s->SetImplicitHCount(n)
-#define symbol_decr_hydrogrens(s) \
-  if (s->GetImplicitHCount() != 0) \
-    s->SetImplicitHCount(s->GetImplicitHCount() - 1)
+#define symbol_get_num(s)           s->GetAtomicNum()
+#define symbol_change_num(s, n)     s->SetAtomicNum(n)
+#define symbol_set_hydrogens(s, n)  s->SetImplicitHCount(n)
+#define symbol_incr_hydrogens(s)    s->SetImplicitHCount(s->GetImplicitHCount()+1)
 
 #define edge_unsaturate(e)        e->SetBondOrder(e->GetBondOrder()+1)
 
@@ -393,8 +390,39 @@ symbol_create_from_dash(symbol_t *s, uint8_t fst_ch, uint8_t snd_ch)
       }
       break;
   }
-  
   return false; 
+}
+
+
+static void 
+symbol_safeset_hydrogens(symbol_t *s, char n)
+{
+  if (n < 0)
+    n = 0; 
+  symbol_set_hydrogens(s, n);
+}
+
+
+static void 
+graph_sanitize(graph_t *g)
+{
+#ifdef USING_OPENBABEL
+  FOR_ATOMS_OF_MOL(a,g) {
+    unsigned char arom = a->IsAromatic(); 
+    unsigned char valence = a->GetExplicitValence();
+    unsigned char modifier = valence + arom; 
+    if (a->GetFormalCharge() == 0 && 
+        a->GetImplicitHCount() == 0) {
+      switch (a->GetAtomicNum()) {
+        case 6: symbol_safeset_hydrogens(a, 4 - modifier); break;
+        case 7: symbol_safeset_hydrogens(a, 3 - modifier); break;
+        case 8: symbol_safeset_hydrogens(a, 2 - modifier); break;
+      }
+    }
+  }; 
+#elif defined USING_RDKIT
+
+#endif
 }
 
 
@@ -408,10 +436,8 @@ edge_create(graph_t *g, symbol_t *curr, symbol_t *prev)
     fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n", curr->GetIdx(),prev->GetIdx());
     return bptr;
   }
-  else {
+  else 
     bptr = g->GetBond(g->NumBonds() - 1);
-    symbol_decr_hydrogrens(prev); 
-  }
 #elif defined USING_RDKIT
 
 #endif
@@ -634,7 +660,7 @@ read_locant(const char *ptr, uint16_t *idx, uint16_t limit_idx)
 
 #if 0
 static ring_t* 
-parse_cyclic(const char *ptr, 
+parse_cyclic(const char *&ptr, 
              uint16_t start, 
              uint16_t end, 
              symbol_t *head, 
@@ -1062,7 +1088,7 @@ ReadWLN(const char *wln, graph_t *molecule)
   uint8_t ring_chars = 0; 
   uint16_t locant_ch = 0; 
   uint16_t digit_n   = 0; 
-  uint8_t pending_unsaturate=0;
+  int8_t   h_modifier=0; // can be negative to add hydrogens
   
   uint8_t state = 0; // bit field: 
                      // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
@@ -1092,59 +1118,11 @@ ReadWLN(const char *wln, graph_t *molecule)
   
   unsigned char ch; 
   unsigned char ch_nxt; 
-  const uint32_t len = strlen(wln);  
-  for (uint16_t sp=0; sp<len; sp++) {
-    ch     = wln[sp]; 
-    ch_nxt = wln[sp+1]; // one lookahead is defined behaviour 
+  while (*wln) {
+    ch     = *wln++;
+    ch_nxt = *wln; 
     
-#if 0
-    if (state & RING_READ) {
-      if (wln[sp-1] >= 'A' && ch == 'J' && ch_nxt < '0') {
-        // J can be used inside ring notation, requires lookahead 
-        // condition 
-        
-        // note: The ptr passed in does not include the 
-        //       starting L/T or ending J (<sp) 
-        
-        // ring must have at least one atom. 
-        curr_atom = assign_symbol(g, curr_edge, CAR, 4);
-        if (!curr_atom)
-          return false; 
-        curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
-        curr_ring = parse_cyclic(wln, sp-ring_chars+1, sp, curr_atom, locant_ch, g);
-        if (!curr_ring)
-          return false; 
-        g->stack[g->stack_ptr].addr = curr_ring; 
-        g->stack[g->stack_ptr++].ref = -1; 
-        state &= ~(RING_READ);
-        ring_chars = 0; 
-        state &= ~(BIND_READ); 
-      }
-      else
-        ring_chars++; 
-    }
-    else if (state & DASH_READ && ch >= 'A' && ch <= 'Z') {
-      if (dash_ptr == 3) 
-        return error("Error: elemental code can only have 2 character symbols"); 
-      dash_chars[dash_ptr++] = ch; 
-    }
-    else if (state & SPACE_READ) {
-      // switch on packing - state popcnt() >= hit bits. 
-      locant_ch = ch - 'A'; 
-      state &= ~(SPACE_READ);
-
-      if (!(state & BIND_READ)) {
-        if (curr_ring && locant_ch < curr_ring->size) {
-          curr_atom = curr_ring->path[locant_ch].s; 
-          curr_edge = next_virtual_edge(curr_atom); 
-          prev_atom = curr_atom; 
-        } 
-        else 
-          return error("Error: out of bounds locant_t access"); 
-      }
-    }
-#endif
-    switch (ch) {
+    if (state == INIT_READ) switch (ch) {
       case '0':
       case '1':
       case '2':
@@ -1160,12 +1138,10 @@ ReadWLN(const char *wln, graph_t *molecule)
 
         if (ch_nxt < '0' || ch_nxt > '9') {
           symbol_change_num(curr_symbol, CAR);
-          symbol_set_hydrogens(curr_symbol, 3 + !prev_symbol - pending_unsaturate); 
-          pending_unsaturate = 0; 
+          h_modifier = 0; 
           for (uint16_t i=0; i<digit_n-1; i++) {
             prev_symbol = curr_symbol; 
             curr_symbol = symbol_create(molecule, CAR);
-            symbol_set_hydrogens(curr_symbol, 3); 
             edge_create(molecule, curr_symbol, prev_symbol);  
           }
           digit_n = 0; 
@@ -1211,8 +1187,14 @@ ReadWLN(const char *wln, graph_t *molecule)
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
           // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
+          
+          if (!prev_symbol) {
+            prev_symbol = curr_symbol;
+            curr_symbol = symbol_create(molecule, DUM); 
+            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+          }
+          else if (ch_nxt != ' ' || ch_nxt != '\0') 
+            return error("Error: terminating symbol closes molecule"); 
           else 
             state |= CHARGE_READ; 
         }
@@ -1237,7 +1219,12 @@ ReadWLN(const char *wln, graph_t *molecule)
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
           // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
+          if (!prev_symbol) {
+            prev_symbol = curr_symbol;
+            curr_symbol = symbol_create(molecule, DUM); 
+            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+          }
+          else if (ch_nxt != ' ' || ch_nxt != '\0') 
             return error("Error: terminating symbol closes molecule\n"); 
           else 
             state |= CHARGE_READ; 
@@ -1263,7 +1250,12 @@ ReadWLN(const char *wln, graph_t *molecule)
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
           // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
+          if (!prev_symbol) {
+            prev_symbol = curr_symbol;
+            curr_symbol = symbol_create(molecule, DUM); 
+            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+          }
+          else if (ch_nxt != ' ' || ch_nxt != '\0') 
             return error("Error: terminating symbol closes molecule\n"); 
           else 
             state |= CHARGE_READ; 
@@ -1285,29 +1277,7 @@ ReadWLN(const char *wln, graph_t *molecule)
         break;
 
       case 'H':
-        symbol_change_num(curr_symbol, 1);
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
-          else 
-            state |= CHARGE_READ; 
-        }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        symbol_incr_hydrogens(prev_symbol); 
         break;
 
       case 'I':
@@ -1315,7 +1285,12 @@ ReadWLN(const char *wln, graph_t *molecule)
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
           // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
+          if (!prev_symbol) {
+            prev_symbol = curr_symbol;
+            curr_symbol = symbol_create(molecule, DUM); 
+            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+          }
+          else if (ch_nxt != ' ' || ch_nxt != '\0') 
             return error("Error: terminating symbol closes molecule\n"); 
           else 
             state |= CHARGE_READ; 
@@ -1379,15 +1354,16 @@ ReadWLN(const char *wln, graph_t *molecule)
       /* OR(R) */
       case 'O':
         symbol_change_num(curr_symbol, OXY);
+        h_modifier=0; 
+
         prev_symbol = curr_symbol; 
         curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
         break;
       
       case 'P':
         symbol_change_num(curr_symbol, PHO);
-        symbol_set_hydrogens(curr_symbol, 2 - pending_unsaturate);
-        pending_unsaturate=0;
+        h_modifier=0;
         
         dep_stack[stack_ptr].addr = curr_symbol; 
         dep_stack[stack_ptr].ref  = 3;
@@ -1403,10 +1379,13 @@ ReadWLN(const char *wln, graph_t *molecule)
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
           // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
-          else 
-            state |= CHARGE_READ; 
+          if (!prev_symbol) {
+            prev_symbol = curr_symbol;
+            curr_symbol = symbol_create(molecule, DUM); 
+            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+          }
+          else if (ch_nxt != ' ' && ch_nxt == '\0') 
+            return error("Error: terminater used to close molecule"); 
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1474,8 +1453,6 @@ ReadWLN(const char *wln, graph_t *molecule)
       case 'U':
         if (!curr_edge)
           return error("Error: failed to unsaturate bond\n"); 
-        pending_unsaturate++;
-        symbol_decr_hydrogrens(prev_symbol);
         edge_unsaturate(curr_edge); 
         break; 
 
@@ -1499,7 +1476,6 @@ ReadWLN(const char *wln, graph_t *molecule)
 
       case 'X':
         symbol_change_num(curr_symbol, CAR);
-        symbol_set_hydrogens(curr_symbol, 4);
         
         dep_stack[stack_ptr].addr = curr_symbol; 
         dep_stack[stack_ptr].ref  = 3;
@@ -1512,7 +1488,6 @@ ReadWLN(const char *wln, graph_t *molecule)
 
       case 'Y':
         symbol_change_num(curr_symbol, CAR);
-        symbol_set_hydrogens(curr_symbol, 1);
         
         dep_stack[stack_ptr].addr = curr_symbol; 
         dep_stack[stack_ptr].ref  = 2;
@@ -1528,7 +1503,12 @@ ReadWLN(const char *wln, graph_t *molecule)
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
           // the molecule has to end here. open charge notation
-          if (ch_nxt != ' ' || ch_nxt != '\0') 
+          if (!prev_symbol) {
+            prev_symbol = curr_symbol;
+            curr_symbol = symbol_create(molecule, DUM); 
+            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+          }
+          else if (ch_nxt != ' ' || ch_nxt != '\0') 
             return error("Error: terminating symbol closes molecule\n"); 
           else 
             state |= CHARGE_READ; 
@@ -1599,25 +1579,22 @@ ReadWLN(const char *wln, graph_t *molecule)
         break; 
 
       case ' ':
-        return error("Error: space code needs hooking in\n"); 
-#if 0
         if (ch_nxt == '&') {
-          // all other states should make this the only place ions can be used. 
-          gt_stack_flush(g); 
-          sp++; 
-          curr_atom = symbol_create(g, DUM, 1); 
-          curr_edge = next_virtual_edge(curr_atom); 
-          curr_edge->order = DUM; 
-          prev_atom = curr_atom; 
+          prev_symbol = NULL;
+          stack_ptr   = 0;
+          curr_symbol = symbol_create(molecule, DUM);
+          state = CLOSE_READ;
+          wln++;
+          fprintf(stderr, "going to close\n"); 
         }
-        else 
+        else if (curr_ring) {
+
           state |= SPACE_READ; 
-#endif
+        }
+        else return error("Error: space used outside locant|ionic|mixture syntax"); 
         break; 
 
       case '&':
-        if (state & DIOXO_READ) 
-          return error("Error: dioxo attachment requires an atomic symbol"); 
         if (!stack_ptr) 
           return error("Error: empty dependency stack - too many &?"); 
                 
@@ -1645,13 +1622,14 @@ ReadWLN(const char *wln, graph_t *molecule)
         fprintf(stderr, "Error: invalid character read for WLN notation - %c\n", ch);
         return false; 
     }
+    else if (state == CLOSE_READ) switch (*wln) {
+    }
   }
   
   // clean up the hanging bond, one branch in exchange for many
-  if (symbol_get_num(curr_symbol) == DUM) {
+  if (symbol_get_num(curr_symbol) == DUM) 
     graph_delete_symbol(molecule, curr_symbol); 
-    symbol_set_hydrogens(prev_symbol, symbol_get_hydrogens(prev_symbol)+1); 
-  }
+  
+  graph_sanitize(molecule);
   return true; 
 }
-
