@@ -40,9 +40,9 @@ GNU General Public License for more details.
 #define SYMBOL_MAX 256
 
 // common states 
-#define INIT_READ   0x00
-#define CLOSE_READ  0x01
-#define SPACE_READ  0x02
+#define BRANCH_READ    0x00
+#define BRANCH_CLOSE   0x01
+#define LOCANT_ASSIGN  0x02
 #define ALKYL_READ  0x04 
 #define DASH_READ   0x08
 
@@ -80,7 +80,7 @@ GNU General Public License for more details.
 static bool 
 error(const char *message) 
 {
-  fprintf(stderr,"%s\n", message); 
+  fprintf(stderr,"%s", message); 
   return false;  
 }
 
@@ -91,13 +91,16 @@ using namespace OpenBabel;
 #define edge_t     OBBond
 
 #define symbol_get_num(s)           s->GetAtomicNum()
-#define symbol_change_num(s, n)     s->SetAtomicNum(n)
+#define symbol_set_num(s, n)        s->SetAtomicNum(n)
+#define symbol_get_charge(s)        s->GetFormalCharge()
+#define symbol_set_charge(s, n)     s->SetFormalCharge(n)
 #define symbol_set_hydrogens(s, n)  s->SetImplicitHCount(n)
 #define symbol_incr_hydrogens(s)    s->SetImplicitHCount(s->GetImplicitHCount()+1)
 
-#define edge_unsaturate(e)        e->SetBondOrder(e->GetBondOrder()+1)
+#define edge_unsaturate(e, n)       e->SetBondOrder(1 + n)
 
-#define graph_delete_symbol(g,s)         g->DeleteAtom(s)
+#define graph_new_symbol(g)         g->NewAtom()
+#define graph_delete_symbol(g,s)    g->DeleteAtom(s)
 
 #elif defined USING_RDKIT
 
@@ -130,267 +133,262 @@ typedef struct {
 static symbol_t* 
 symbol_create(graph_t *mol, uint64_t atomic_num)
 {
-  symbol_t *atom; 
-#if USING_OPENBABEL
-  atom = mol->NewAtom();
-  atom->SetAtomicNum(atomic_num); 
-#elif defined USING_RDKIT
-
-#endif
+  symbol_t *atom = graph_new_symbol(mol); 
+  symbol_set_num(atom, atomic_num);
   return atom; 
 }
 
 
-static bool
-symbol_create_from_dash(symbol_t *s, uint8_t fst_ch, uint8_t snd_ch) 
+static symbol_t*
+symbol_create_from_dash(graph_t *mol, unsigned char fst_ch, unsigned char snd_ch) 
 {
   switch (fst_ch){
     case 'A':
       switch (snd_ch) {
-        case 'C': symbol_change_num(s,89); return true;
-        case 'G': symbol_change_num(s,47); return true;
-        case 'L': symbol_change_num(s,13); return true;
-        case 'M': symbol_change_num(s,95); return true;
-        case 'R': symbol_change_num(s,18); return true;
-        case 'S': symbol_change_num(s,33); return true;
-        case 'T': symbol_change_num(s,85); return true;
-        case 'U': symbol_change_num(s,79); return true;
+        case 'C': return symbol_create(mol,89);
+        case 'G': return symbol_create(mol,47);
+        case 'L': return symbol_create(mol,13);
+        case 'M': return symbol_create(mol,95);
+        case 'R': return symbol_create(mol,18);
+        case 'S': return symbol_create(mol,33);
+        case 'T': return symbol_create(mol,85);
+        case 'U': return symbol_create(mol,79);
       }
       break; 
 
     case 'B':
       switch (snd_ch) {
-        case 0:   symbol_change_num(s,BOR); return true;
-        case 'A': symbol_change_num(s,56);  return true;
-        case 'E': symbol_change_num(s,4); return true;
-        case 'H': symbol_change_num(s,107); return true;
-        case 'I': symbol_change_num(s,83); return true;
-        case 'K': symbol_change_num(s,97); return true;
-        case 'R': symbol_change_num(s,BRO); return true;
+        case 0:   return symbol_create(mol,BOR);
+        case 'A': return symbol_create(mol,56);
+        case 'E': return symbol_create(mol,4);
+        case 'H': return symbol_create(mol,107);
+        case 'I': return symbol_create(mol,83);
+        case 'K': return symbol_create(mol,97);
+        case 'R': return symbol_create(mol,BRO);
       }
       break; 
 
     case 'C':
       switch (snd_ch) {
-        case 0:   symbol_change_num(s,CAR); return true;
-        case 'A': symbol_change_num(s,20);return true;
-        case 'D': symbol_change_num(s,48);return true;
-        case 'E': symbol_change_num(s,58);return true;
-        case 'F': symbol_change_num(s,98);return true;
-        case 'M': symbol_change_num(s,96);return true;
-        case 'N': symbol_change_num(s,112);return true;
-        case 'O': symbol_change_num(s,27);return true;
-        case 'R': symbol_change_num(s,24);return true;
-        case 'S': symbol_change_num(s,55);return true;
-        case 'U': symbol_change_num(s,29);return true;
+        case 0:   return symbol_create(mol,CAR);
+        case 'A': return symbol_create(mol,20);
+        case 'D': return symbol_create(mol,48);
+        case 'E': return symbol_create(mol,58);
+        case 'F': return symbol_create(mol,98);
+        case 'M': return symbol_create(mol,96);
+        case 'N': return symbol_create(mol,112);
+        case 'O': return symbol_create(mol,27);
+        case 'R': return symbol_create(mol,24);
+        case 'S': return symbol_create(mol,55);
+        case 'U': return symbol_create(mol,29);
       }
       break; 
 
     case 'D':
       switch (snd_ch) {
-        case 'B': symbol_change_num(s,105);return true;
-        case 'S': symbol_change_num(s,110);return true;
-        case 'Y': symbol_change_num(s,66);return true;
+        case 'B': return symbol_create(mol,105);
+        case 'S': return symbol_create(mol,110);
+        case 'Y': return symbol_create(mol,66);
       }
       break;
 
     case 'E':
       switch (snd_ch) {
-        case 0:   symbol_change_num(s,35); return true;
-        case 'R': symbol_change_num(s,68); return true;
-        case 'S': symbol_change_num(s,99); return true;
-        case 'U': symbol_change_num(s,63); return true;
+        case 0:   return symbol_create(mol,35);
+        case 'R': return symbol_create(mol,68);
+        case 'S': return symbol_create(mol,99);
+        case 'U': return symbol_create(mol,63);
       }
 
     case 'F':
       switch (snd_ch) {
-        case 0:   symbol_change_num(s,FLU); return true;
-        case 'E': symbol_change_num(s,26); return true;
-        case 'L': symbol_change_num(s,114); return true;
-        case 'M': symbol_change_num(s,100); return true;
-        case 'R': symbol_change_num(s,87); return true;
+        case 0:   return symbol_create(mol,FLU);
+        case 'E': return symbol_create(mol,26);
+        case 'L': return symbol_create(mol,114);
+        case 'M': return symbol_create(mol,100);
+        case 'R': return symbol_create(mol,87);
       }
       break;
 
     case 'G':
       switch (snd_ch) {
-        case 0:   symbol_change_num(s,CHL); return true;
-        case 'A': symbol_change_num(s,31); return true;
-        case 'D': symbol_change_num(s,64); return true;
-        case 'E': symbol_change_num(s,32); return true;
+        case 0:   return symbol_create(mol,CHL);
+        case 'A': return symbol_create(mol,31);
+        case 'D': return symbol_create(mol,64);
+        case 'E': return symbol_create(mol,32);
       }
       break;
 
     case 'H':
       switch (snd_ch) {
-        case 'E': symbol_change_num(s,2); return true;
-        case 'F': symbol_change_num(s,72); return true;
-        case 'G': symbol_change_num(s,80); return true;
-        case 'O': symbol_change_num(s,67); return true;
-        case 'S': symbol_change_num(s,108); return true;
+        case 'E': return symbol_create(mol,2);
+        case 'F': return symbol_create(mol,72);
+        case 'G': return symbol_create(mol,80);
+        case 'O': return symbol_create(mol,67);
+        case 'S': return symbol_create(mol,108);
       }
       break;
 
     case 'I':
       switch (snd_ch) {
-        case 0:  symbol_change_num(s,IOD);return true;
-        case 'N': symbol_change_num(s,49); return true;
-        case 'R': symbol_change_num(s,77); return true;
+        case 0:  return symbol_create(mol,IOD);
+        case 'N': return symbol_create(mol,49);
+        case 'R': return symbol_create(mol,77);
       }
       break;
 
     case 'K':
       switch (snd_ch) {
-        case 0:   symbol_change_num(s,NIT);return true;
-        case 'R': symbol_change_num(s,36); return true;
-        case 'A': symbol_change_num(s,19); return true;
+        case 0:   return symbol_create(mol,NIT);
+        case 'R': return symbol_create(mol,36);
+        case 'A': return symbol_create(mol,19);
       }
       break;
 
     case 'L':
       switch (snd_ch) {
-        case 'A': symbol_change_num(s,57); return true;
-        case 'I': symbol_change_num(s,3); return true;
-        case 'R': symbol_change_num(s,103); return true;
-        case 'U': symbol_change_num(s,71); return true;
-        case 'V': symbol_change_num(s,116); return true;
+        case 'A': return symbol_create(mol,57);
+        case 'I': return symbol_create(mol,3);
+        case 'R': return symbol_create(mol,103);
+        case 'U': return symbol_create(mol,71);
+        case 'V': return symbol_create(mol,116);
       }
       break;
 
     case 'M':
       switch (snd_ch) {
-        case 0: symbol_change_num(s,NIT); 
-        case 'C': symbol_change_num(s,115); return true;
-        case 'D': symbol_change_num(s,101); return true;
-        case 'G': symbol_change_num(s,12); return true;
-        case 'N': symbol_change_num(s,25); return true;
-        case 'O': symbol_change_num(s,42); return true;
-        case 'T': symbol_change_num(s,109); return true;
+        case 0: return symbol_create(mol,NIT);
+        case 'C': return symbol_create(mol,115);
+        case 'D': return symbol_create(mol,101);
+        case 'G': return symbol_create(mol,12);
+        case 'N': return symbol_create(mol,25);
+        case 'O': return symbol_create(mol,42);
+        case 'T': return symbol_create(mol,109);
       }
       break;
 
     case 'N':
       switch (snd_ch) {
-        case 0: symbol_change_num(s,NIT); return true;
-        case 'A': symbol_change_num(s,11); return true;
-        case 'B': symbol_change_num(s,41); return true;
-        case 'D': symbol_change_num(s,60); return true;
-        case 'E': symbol_change_num(s,10); return true;
-        case 'H': symbol_change_num(s,113); return true;
-        case 'I': symbol_change_num(s,28); return true;
-        case 'O': symbol_change_num(s,102); return true;
-        case 'P': symbol_change_num(s,93); return true;
+        case 0: return symbol_create(mol,NIT);
+        case 'A': return symbol_create(mol,11);
+        case 'B': return symbol_create(mol,41);
+        case 'D': return symbol_create(mol,60);
+        case 'E': return symbol_create(mol,10);
+        case 'H': return symbol_create(mol,113);
+        case 'I': return symbol_create(mol,28);
+        case 'O': return symbol_create(mol,102);
+        case 'P': return symbol_create(mol,93);
       }
       break; 
 
     case 'O':
       switch (snd_ch) {
-        case 0: symbol_change_num(s,OXY); return true;
-        case 'G': symbol_change_num(s,118); return true;
-        case 'S': symbol_change_num(s,76); return true;
+        case 0: return symbol_create(mol,OXY);
+        case 'G': return symbol_create(mol,118);
+        case 'S': return symbol_create(mol,76);
       }
       break;
 
     case 'P':
       switch (snd_ch) {
-        case 0: symbol_change_num(s,PHO); return true;
-        case 'A': symbol_change_num(s,91); return true;
-        case 'B': symbol_change_num(s,82); return true;
-        case 'D': symbol_change_num(s,46); return true;
-        case 'M': symbol_change_num(s,61); return true;
-        case 'O': symbol_change_num(s,84); return true;
-        case 'R': symbol_change_num(s,59); return true;
-        case 'T': symbol_change_num(s,78); return true;
-        case 'U': symbol_change_num(s,94); return true;
+        case 0: return symbol_create(mol,PHO);
+        case 'A': return symbol_create(mol,91);
+        case 'B': return symbol_create(mol,82);
+        case 'D': return symbol_create(mol,46);
+        case 'M': return symbol_create(mol,61);
+        case 'O': return symbol_create(mol,84);
+        case 'R': return symbol_create(mol,59);
+        case 'T': return symbol_create(mol,78);
+        case 'U': return symbol_create(mol,94);
       }
       break;
     
     case 'Q':
       switch (snd_ch) {
-        case 0: symbol_change_num(s,OXY); return true;
+        case 0: return symbol_create(mol,OXY);
       }
       break; 
 
     case 'R':
       switch (snd_ch) {
-        case 'A': symbol_change_num(s,88); return true;
-        case 'B': symbol_change_num(s,37); return true;
-        case 'E': symbol_change_num(s,75); return true;
-        case 'F': symbol_change_num(s,104); return true;
-        case 'G': symbol_change_num(s,111); return true;
-        case 'H': symbol_change_num(s,45); return true;
-        case 'N': symbol_change_num(s,86); return true;
-        case 'U': symbol_change_num(s,44); return true;
+        case 'A': return symbol_create(mol,88);
+        case 'B': return symbol_create(mol,37);
+        case 'E': return symbol_create(mol,75);
+        case 'F': return symbol_create(mol,104);
+        case 'G': return symbol_create(mol,111);
+        case 'H': return symbol_create(mol,45);
+        case 'N': return symbol_create(mol,86);
+        case 'U': return symbol_create(mol,44);
       }
       break;
 
     case 'S':
       switch (snd_ch) {
-        case 0:  symbol_change_num(s,SUL); return true;
-        case 'B': symbol_change_num(s,51); return true;
-        case 'C': symbol_change_num(s,21); return true;
-        case 'E': symbol_change_num(s,34); return true;
-        case 'G': symbol_change_num(s,106); return true;
-        case 'I': symbol_change_num(s,14); return true;
-        case 'M': symbol_change_num(s,62); return true;
-        case 'N': symbol_change_num(s,50); return true;
-        case 'R': symbol_change_num(s,38); return true;
+        case 0:  return symbol_create(mol,SUL);
+        case 'B': return symbol_create(mol,51);
+        case 'C': return symbol_create(mol,21);
+        case 'E': return symbol_create(mol,34);
+        case 'G': return symbol_create(mol,106);
+        case 'I': return symbol_create(mol,14);
+        case 'M': return symbol_create(mol,62);
+        case 'N': return symbol_create(mol,50);
+        case 'R': return symbol_create(mol,38);
       }
       break;
 
     case 'T':
       switch (snd_ch) {
-        case 'A': symbol_change_num(s,73); return true;
-        case 'B': symbol_change_num(s,65); return true;
-        case 'C': symbol_change_num(s,43); return true;
-        case 'E': symbol_change_num(s,52); return true;
-        case 'H': symbol_change_num(s,90); return true;
-        case 'I': symbol_change_num(s,22); return true;
-        case 'L': symbol_change_num(s,81); return true;
-        case 'M': symbol_change_num(s,69); return true;
-        case 'S': symbol_change_num(s,117); return true;
+        case 'A': return symbol_create(mol,73);
+        case 'B': return symbol_create(mol,65);
+        case 'C': return symbol_create(mol,43);
+        case 'E': return symbol_create(mol,52);
+        case 'H': return symbol_create(mol,90);
+        case 'I': return symbol_create(mol,22);
+        case 'L': return symbol_create(mol,81);
+        case 'M': return symbol_create(mol,69);
+        case 'S': return symbol_create(mol,117);
       }
       break;
 
     case 'U':
       switch (snd_ch) {
-        case 'R': symbol_change_num(s,92); return true;
+        case 'R': return symbol_create(mol,92);
       }
       break;
 
     case 'V':
       switch (snd_ch) {
-        case 'A': symbol_change_num(s,23); return true;
+        case 'A': return symbol_create(mol,23);
       }
       break;
   
     case 'W':
       switch (snd_ch) {
-        case 'T': symbol_change_num(s,74); return true;
+        case 'T': return symbol_create(mol,74);
       }
       break; 
 
     case 'X':
       switch (snd_ch) {
-        case 'E': symbol_change_num(s,54); return true;
+        case 'E': return symbol_create(mol,54);
       }
       break;
 
     case 'Y':
       switch (snd_ch) {
-        case 'T': symbol_change_num(s,39); return true;
-        case 'B': symbol_change_num(s,70); return true;
+        case 'T': return symbol_create(mol,39);
+        case 'B': return symbol_create(mol,70);
       }
       break;
 
     case 'Z':
       switch (snd_ch) {
-        case 'N': symbol_change_num(s,30); return true;
-        case 'R': symbol_change_num(s,30); return true;
+        case 'N': return symbol_create(mol,30);
+        case 'R': return symbol_create(mol,30);
       }
       break;
   }
-  return false; 
+  return NULL; 
 }
 
 
@@ -404,7 +402,7 @@ symbol_safeset_hydrogens(symbol_t *s, char n)
 
 
 static void 
-graph_sanitize(graph_t *g)
+graph_cleanup_hydrogens(graph_t *g)
 {
 #ifdef USING_OPENBABEL
   FOR_ATOMS_OF_MOL(a,g) {
@@ -452,9 +450,15 @@ add_oxy(graph_t *mol, symbol_t *atom)
   edge_t *bptr = edge_create(mol, atom, oxygen);
   if (!bptr)  
     return false;
+  edge_unsaturate(bptr, 1);
   return true; 
 }
 
+static void 
+add_methyl(graph_t *mol, symbol_t *atom) {
+  symbol_t *methyl = symbol_create(mol, CAR);
+  edge_t   *e = edge_create(mol, methyl, atom);
+}
 
 typedef struct  {
   uint8_t r_loc; // use to calculate size + add in off-branch positions
@@ -635,6 +639,29 @@ add_tauto_dioxy(graph_t *g, symbol_t *p)
 };
 #endif
 
+/* keep the struct scoped, no leaking */
+static void depstack_cleanup(graph_t *mol, const void *_depstack, unsigned int stack_ptr)
+{
+  struct wlnrefaddr {
+    void *addr; 
+    char ref; 
+  } *dep_stack = (struct wlnrefaddr*)_depstack;
+
+  // clean up the dep stack
+  for (unsigned int i = 0; i < stack_ptr; i++) {
+    symbol_t *potential_symbol = (symbol_t*)dep_stack[i].addr;
+    if (dep_stack[i].ref == -1)
+      free((ring_t*)dep_stack[i].addr);
+    else if (symbol_get_num(potential_symbol) == 6 || 
+             (symbol_get_num(potential_symbol) == 7 && 
+              symbol_get_charge(potential_symbol) == +1)) 
+    {
+      for (unsigned int j=0;j<dep_stack[i].ref;j++) 
+        add_methyl(mol, potential_symbol);  
+    }
+  }
+}
+
 /* locants can be expanded or read as branches with '&' and '-'
  * chars. In order to move the state as the string is being read, 
  * these have to be handled per locant_t read. The logic this saves
@@ -705,7 +732,7 @@ parse_cyclic(const char *&ptr,
       else 
         buffer[buff_ptr++] = ch; 
     }
-    else if (state & SPACE_READ && (ch >= 'A' && ch <= 'Z')) {
+    else if (state & LOCANT_ASSIGN && (ch >= 'A' && ch <= 'Z')) {
       locant_ch = read_locant(ptr, &sp, end);
       ch_nxt = ptr[sp+1]; // might get updated  
       
@@ -721,7 +748,7 @@ parse_cyclic(const char *&ptr,
 
         locant_ch = 0; 
       }
-      state &= ~SPACE_READ; 
+      state &= ~LOCANT_ASSIGN; 
     }
     else if (state & MULTI_READ) {
       // must be the incoming ring size
@@ -753,7 +780,7 @@ parse_cyclic(const char *&ptr,
         case '7':
         case '8':
         case '9':
-          if (state & SPACE_READ && state & SSSR_READ) {
+          if (state & LOCANT_ASSIGN && state & SSSR_READ) {
             // multicyclic block start
             // move forward space to skip redundant block - should appear on space, 
             // if not, error. This is currently wrong
@@ -767,7 +794,7 @@ parse_cyclic(const char *&ptr,
             }
 
             state |= MULTI_READ; 
-            state &= ~SPACE_READ; 
+            state &= ~LOCANT_ASSIGN; 
             state &= ~SSSR_READ; 
           }
           else if (state & SSSR_READ){
@@ -1035,7 +1062,7 @@ parse_cyclic(const char *&ptr,
             }
           }
           
-          state |= SPACE_READ; 
+          state |= LOCANT_ASSIGN; 
           locant_ch = 0; 
           e = 0; 
           break;
@@ -1081,14 +1108,15 @@ bool
 ReadWLN(const char *wln, graph_t *molecule)
 {
   edge_t *curr_edge=0; 
+  symbol_t *init_symbol=0;
   symbol_t *curr_symbol=0;
   symbol_t *prev_symbol=0;
   ring_t *curr_ring=0;
 
   uint8_t ring_chars = 0; 
   uint16_t locant_ch = 0; 
-  uint16_t digit_n   = 0; 
-  int8_t   h_modifier=0; // can be negative to add hydrogens
+  uint16_t counter   = 0; 
+  uint8_t  unsaturation=0; 
   
   uint8_t state = 0; // bit field: 
                      // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
@@ -1099,7 +1127,7 @@ ReadWLN(const char *wln, graph_t *molecule)
   uint8_t stack_ptr = 0;  // WLN branch and ring dependency stack
   struct wlnrefaddr {
     void *addr; 
-    char ref; // -1 for (ring_t*) else (symbol_t*) 
+    char ref; // -1 for (ring_t*) else (symbol_t*) how many extra branches >2 can the symbol have
   } dep_stack[64];  
 
 #if 0
@@ -1113,16 +1141,13 @@ ReadWLN(const char *wln, graph_t *molecule)
 #endif
 
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
-  // idea entirely *--> grow...
-  curr_symbol = symbol_create(molecule, DUM); 
+  // idea entirely *--> grow..., delete at the end to save branches
+  init_symbol = prev_symbol = symbol_create(molecule, DUM); 
   
-  unsigned char ch; 
-  unsigned char ch_nxt; 
+  unsigned char ch = *wln; 
   while (*wln) {
-    ch     = *wln++;
-    ch_nxt = *wln; 
-    
-    if (state == INIT_READ) switch (ch) {
+    ch  = *wln++;
+    if (state == BRANCH_READ) switch (ch) {
       case '0':
       case '1':
       case '2':
@@ -1133,26 +1158,18 @@ ReadWLN(const char *wln, graph_t *molecule)
       case '7':
       case '8':
       case '9':
-        digit_n *= 10; 
-        digit_n += ch - '0'; 
-
-        if (ch_nxt < '0' || ch_nxt > '9') {
-          symbol_change_num(curr_symbol, CAR);
-          h_modifier = 0; 
-          for (uint16_t i=0; i<digit_n-1; i++) {
-            prev_symbol = curr_symbol; 
-            curr_symbol = symbol_create(molecule, CAR);
-            edge_create(molecule, curr_symbol, prev_symbol);  
-          }
-          digit_n = 0; 
-          state &= ~ALKYL_READ; 
-
-          prev_symbol = curr_symbol; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
+        counter = ch - '0';
+        while ((ch = *wln) && ch >= '0' && ch <= '9') {
+          counter *= 10; 
+          counter += ch - '0'; 
+          wln++;
         }
-        else
-          state |= ALKYL_READ;
+        for (uint16_t i=0; i<counter; i++) {
+          curr_symbol = symbol_create(molecule, CAR);
+          curr_edge = edge_create(molecule, curr_symbol, prev_symbol);  
+          edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+          prev_symbol = curr_symbol; 
+        }
         break;
       
       case 'A':
@@ -1160,43 +1177,36 @@ ReadWLN(const char *wln, graph_t *molecule)
         return error("Error: non-atomic symbol used in chain"); 
       
       case 'B':
-        symbol_change_num(curr_symbol, BOR);
-        
+        curr_symbol = symbol_create(molecule, BOR);
+
         dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 2;
+        dep_stack[stack_ptr].ref  = 1;
         stack_ptr++; 
         
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol);
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
         break; 
       
       case 'C':
-        fprintf(stderr, "WLN symbol C currently unhandled\n"); 
-        return false; 
-        break; 
+        return error("Error: WLN symbol C currently unhandled\n"); 
 
       // extrememly rare open chelate notation
       case 'D':
-        fprintf(stderr,"chelate ring open needs handling\n"); 
-        break; 
+        return error("Error: WLN symbol D (chelate) currently unhandled\n"); 
       
       // terminator symbol - no bond movement
       case 'E':
-        symbol_change_num(curr_symbol, BRO);
+        curr_symbol = symbol_create(molecule, BRO);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (unsaturation) return error("Error: unsaturation on a terminator is not allowed\n");
+
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          
-          if (!prev_symbol) {
-            prev_symbol = curr_symbol;
-            curr_symbol = symbol_create(molecule, DUM); 
-            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          }
-          else if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule"); 
-          else 
-            state |= CHARGE_READ; 
+          if ((*wln) == ' ')
+            state = LOCANT_ASSIGN; 
+          else if (*wln != '\0')
+            return error("Error: terminator character closes molecule\n");
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1206,28 +1216,22 @@ ReadWLN(const char *wln, graph_t *molecule)
         else {
           // a branch must be open.
           prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
         break;
 
       case 'F':
-        symbol_change_num(curr_symbol, BRO);
+        curr_symbol = symbol_create(molecule, FLU);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (unsaturation) return error("Error: unsaturation on a terminator is not allowed\n");
+
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          if (!prev_symbol) {
-            prev_symbol = curr_symbol;
-            curr_symbol = symbol_create(molecule, DUM); 
-            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          }
-          else if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
-          else 
-            state |= CHARGE_READ; 
+          if ((*wln) == ' ')
+            state = LOCANT_ASSIGN; 
+          else if (*wln != '\0')
+            return error("Error: terminator character closes molecule\n");
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1237,28 +1241,22 @@ ReadWLN(const char *wln, graph_t *molecule)
         else {
           // a branch must be open.
           prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
         break;
 
       case 'G':
-        symbol_change_num(curr_symbol, CHL);
+        curr_symbol = symbol_create(molecule, CHL);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (unsaturation) return error("Error: unsaturation on a terminator is not allowed\n");
+
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          if (!prev_symbol) {
-            prev_symbol = curr_symbol;
-            curr_symbol = symbol_create(molecule, DUM); 
-            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          }
-          else if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
-          else 
-            state |= CHARGE_READ; 
+          if ((*wln) == ' ')
+            state = LOCANT_ASSIGN; 
+          else if (*wln != '\0')
+            return error("Error: terminator character closes molecule\n");
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1268,9 +1266,6 @@ ReadWLN(const char *wln, graph_t *molecule)
         else {
           // a branch must be open.
           prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
@@ -1281,19 +1276,16 @@ ReadWLN(const char *wln, graph_t *molecule)
         break;
 
       case 'I':
-        symbol_change_num(curr_symbol, IOD);
+        curr_symbol = symbol_create(molecule, IOD);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (unsaturation) return error("Error: unsaturation on a terminator is not allowed\n");
+
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          if (!prev_symbol) {
-            prev_symbol = curr_symbol;
-            curr_symbol = symbol_create(molecule, DUM); 
-            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          }
-          else if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
-          else 
-            state |= CHARGE_READ; 
+          if ((*wln) == ' ')
+            state = LOCANT_ASSIGN; 
+          else if (*wln != '\0')
+            return error("Error: terminator character closes molecule\n");
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1303,9 +1295,6 @@ ReadWLN(const char *wln, graph_t *molecule)
         else {
           // a branch must be open.
           prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
@@ -1313,15 +1302,47 @@ ReadWLN(const char *wln, graph_t *molecule)
      
       /* [N+](R)(R)(R)(R) */
       case 'K':
-        symbol_change_num(curr_symbol, NIT);
+        curr_symbol = symbol_create(molecule, NIT);
+        symbol_set_charge(curr_symbol, +1); 
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 3;
-        stack_ptr++; 
-        
-        prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
+        counter = 0;
+        if (*wln == '&') while (*wln == '&' && counter < 2) {
+          add_methyl(molecule, curr_symbol); 
+          counter++; 
+          wln++;
+        }
+        if (counter < 2) {
+          dep_stack[stack_ptr].addr = curr_symbol; 
+          dep_stack[stack_ptr].ref  = 2 - counter;
+          stack_ptr++; 
+        }
+       
+        // final contraction and stack movement if possible
+        if (*wln == '&') {
+          add_methyl(molecule, curr_symbol);
+          wln++;
+          if (!stack_ptr) {
+            if ((*wln) == ' ')
+              state = LOCANT_ASSIGN; 
+            else if (*wln != '\0')
+              return error("Error: final methyl contraction closes molecule\n");
+          }
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
+            return false; 
+          }
+          else {
+            // a branch must be open.
+            prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
+          }
+        }
+        else 
+          prev_symbol = curr_symbol; 
         break;
 
       case 'L':
@@ -1332,60 +1353,56 @@ ReadWLN(const char *wln, graph_t *molecule)
       
       /* NH(R)(R) */
       case 'M':
-        symbol_change_num(curr_symbol, NIT);
-        prev_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, prev_symbol, curr_symbol); 
-        curr_symbol = prev_symbol;
+        curr_symbol = symbol_create(molecule, NIT); 
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        prev_symbol = curr_symbol; 
         break;
      
       /* NR(R)(R) */
       case 'N':
-        symbol_change_num(curr_symbol, NIT);
-        
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 2;
-        stack_ptr++; 
+        curr_symbol = symbol_create(molecule, NIT);
 
+        dep_stack[stack_ptr].addr = curr_symbol; 
+        dep_stack[stack_ptr].ref  = 1;
+        stack_ptr++; 
+        
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
         break;
       
       /* OR(R) */
       case 'O':
-        symbol_change_num(curr_symbol, OXY);
-        h_modifier=0; 
-
-        prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
+        curr_symbol = symbol_create(molecule, OXY); 
         curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        prev_symbol = curr_symbol; 
         break;
       
       case 'P':
-        symbol_change_num(curr_symbol, PHO);
-        h_modifier=0;
-        
+        curr_symbol = symbol_create(molecule, PHO);
+
         dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 3;
+        dep_stack[stack_ptr].ref  = 1;
         stack_ptr++; 
         
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
         break;
 
       case 'Q':
-        symbol_change_num(curr_symbol, OXY);
+        curr_symbol = symbol_create(molecule, OXY);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (unsaturation) return error("Error: unsaturation on a terminator is not allowed\n");
+
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          if (!prev_symbol) {
-            prev_symbol = curr_symbol;
-            curr_symbol = symbol_create(molecule, DUM); 
-            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          }
-          else if (ch_nxt != ' ' && ch_nxt == '\0') 
-            return error("Error: terminater used to close molecule"); 
+          if ((*wln) == ' ')
+            state = LOCANT_ASSIGN; 
+          else if (*wln != '\0')
+            return error("Error: terminator character closes molecule\n");
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1395,9 +1412,6 @@ ReadWLN(const char *wln, graph_t *molecule)
         else {
           // a branch must be open.
           prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
@@ -1439,33 +1453,28 @@ ReadWLN(const char *wln, graph_t *molecule)
         break; 
 #endif
       case 'S':
-        symbol_change_num(curr_symbol, SUL);
-        
+        curr_symbol = symbol_create(molecule, SUL);
+
         dep_stack[stack_ptr].addr = curr_symbol; 
         dep_stack[stack_ptr].ref  = 3;
         stack_ptr++; 
-
+        
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
         break;
       
       case 'U':
-        if (!curr_edge)
-          return error("Error: failed to unsaturate bond\n"); 
-        edge_unsaturate(curr_edge); 
+        unsaturation++; 
         break; 
 
       case 'V':
-        symbol_change_num(curr_symbol, CAR);
+        curr_symbol = symbol_create(molecule, CAR);
         if (!add_oxy(molecule, curr_symbol))
           return error("Error: failed to add =O group\n"); 
-      
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
-        if (!curr_edge)
-          return error("Error: failed to add =O group\n"); 
         break;
       
       // if not previous, create dummy carbon
@@ -1475,43 +1484,104 @@ ReadWLN(const char *wln, graph_t *molecule)
         break; 
 
       case 'X':
-        symbol_change_num(curr_symbol, CAR);
+        curr_symbol = symbol_create(molecule, CAR);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 3;
-        stack_ptr++; 
+        // default methyl contraction for X,Y,K
+        counter = 0;
+        if (*wln == '&') while (*wln == '&' && counter < 2) {
+          add_methyl(molecule, curr_symbol); 
+          counter++; 
+          wln++;
+        }
 
-        prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (counter < 2) {
+          dep_stack[stack_ptr].addr = curr_symbol; 
+          dep_stack[stack_ptr].ref  = 2 - counter;
+          stack_ptr++; 
+        }
+
+        // final contraction and stack movement if possible
+        if (*wln == '&') {
+          add_methyl(molecule, curr_symbol);
+          wln++;
+          if (!stack_ptr) {
+            if ((*wln) == ' ')
+              state = LOCANT_ASSIGN; 
+            else if (*wln != '\0')
+              return error("Error: final methyl contraction closes molecule\n");
+          }
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
+            return false; 
+          }
+          else {
+            // a branch must be open.
+            prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
+          }
+        }
+        else 
+          prev_symbol = curr_symbol; 
         break;
 
       case 'Y':
-        symbol_change_num(curr_symbol, CAR);
+        curr_symbol = symbol_create(molecule, CAR);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
         
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 2;
-        stack_ptr++; 
+        // default methyl contraction for X,Y,K
+        if (*wln == '&') { 
+          add_methyl(molecule, curr_symbol); 
+          counter++; 
+          wln++;
+        }
+        else {
+          dep_stack[stack_ptr].addr = curr_symbol; 
+          dep_stack[stack_ptr].ref  = 1;
+          stack_ptr++; 
+        }
 
-        prev_symbol = curr_symbol; 
-        curr_symbol = symbol_create(molecule, DUM); 
-        curr_edge = edge_create(molecule, curr_symbol, prev_symbol); 
+        // final contraction and stack movement if possible
+        if (*wln == '&') {
+          add_methyl(molecule, curr_symbol);
+          wln++;
+          if (!stack_ptr) {
+            if ((*wln) == ' ')
+              state = LOCANT_ASSIGN; 
+            else if (*wln != '\0')
+              return error("Error: final methyl contraction closes molecule\n");
+          }
+          else if (dep_stack[stack_ptr-1].ref == -1) {
+            // ring is the next object to resolve
+            fprintf(stderr, "hook in ring code\n"); 
+            return false; 
+          }
+          else {
+            // a branch must be open.
+            prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
+            if (--dep_stack[stack_ptr-1].ref == 0)
+              stack_ptr--; 
+          }
+        }
+        else 
+          prev_symbol = curr_symbol; 
         break;
       
       case 'Z':
-        symbol_change_num(curr_symbol, NIT);
+        curr_symbol = symbol_create(molecule, NIT);
+        curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
+        if (unsaturation) return error("Error: unsaturation on a terminator is not allowed\n");
+
         // note: terminators can act on an empty stack, '&' cannot
         if (!stack_ptr) {
-          // the molecule has to end here. open charge notation
-          if (!prev_symbol) {
-            prev_symbol = curr_symbol;
-            curr_symbol = symbol_create(molecule, DUM); 
-            curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-          }
-          else if (ch_nxt != ' ' || ch_nxt != '\0') 
-            return error("Error: terminating symbol closes molecule\n"); 
-          else 
-            state |= CHARGE_READ; 
+          if ((*wln) == ' ')
+            state = LOCANT_ASSIGN; 
+          else if (*wln != '\0')
+            return error("Error: terminator character closes molecule\n");
         }
         else if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1521,9 +1591,6 @@ ReadWLN(const char *wln, graph_t *molecule)
         else {
           // a branch must be open.
           prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          curr_symbol = symbol_create(molecule, DUM); 
-          curr_edge   = edge_create(molecule, curr_symbol, prev_symbol); 
-
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
@@ -1579,24 +1646,27 @@ ReadWLN(const char *wln, graph_t *molecule)
         break; 
 
       case ' ':
+#if 0
         if (ch_nxt == '&') {
           prev_symbol = NULL;
           stack_ptr   = 0;
           curr_symbol = symbol_create(molecule, DUM);
-          state = CLOSE_READ;
+          state = BRANCH_CLOSE;
           wln++;
           fprintf(stderr, "going to close\n"); 
         }
+#endif
+        if (0);
         else if (curr_ring) {
 
-          state |= SPACE_READ; 
+          state |= LOCANT_ASSIGN; 
         }
-        else return error("Error: space used outside locant|ionic|mixture syntax"); 
+        else return error("Error: space used outside locant|ionic|mixture syntax\n"); 
         break; 
 
       case '&':
         if (!stack_ptr) 
-          return error("Error: empty dependency stack - too many &?"); 
+          return error("Error: empty dependency stack - too many &?\n"); 
                 
         if (dep_stack[stack_ptr-1].ref == -1) {
           // ring is the next object to resolve
@@ -1604,11 +1674,7 @@ ReadWLN(const char *wln, graph_t *molecule)
           return false; 
         }
         else {
-          // a branch must be open.
-          prev_symbol = symbol_create(molecule, DUM); 
-          curr_edge = edge_create(molecule, (symbol_t*)dep_stack[stack_ptr-1].addr, prev_symbol); 
-          curr_symbol = prev_symbol; 
-
+          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr;  
           if (--dep_stack[stack_ptr-1].ref == 0)
             stack_ptr--; 
         }
@@ -1617,19 +1683,20 @@ ReadWLN(const char *wln, graph_t *molecule)
       case '\n':
         break; 
       case '/':
-        return error("Error: slash seen outside of ring - multipliers currently unsupported");
+        return error("Error: slash seen outside of ring - multipliers currently unsupported\n");
       default:
-        fprintf(stderr, "Error: invalid character read for WLN notation - %c\n", ch);
+        fprintf(stderr, "Error: invalid character read for WLN notation - %c(%u)\n", ch, ch);
         return false; 
     }
-    else if (state == CLOSE_READ) switch (*wln) {
+    else if (state == LOCANT_ASSIGN) switch (ch) {
+
+
     }
   }
   
   // clean up the hanging bond, one branch in exchange for many
-  if (symbol_get_num(curr_symbol) == DUM) 
-    graph_delete_symbol(molecule, curr_symbol); 
-  
-  graph_sanitize(molecule);
+  graph_delete_symbol(molecule, init_symbol); 
+//depstack_cleanup(molecule, dep_stack, stack_ptr);  
+  graph_cleanup_hydrogens(molecule);
   return true; 
 }
