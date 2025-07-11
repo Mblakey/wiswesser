@@ -112,32 +112,7 @@ process_cml(int argc, char *argv[])
       switch (ptr[1]) {
         case 'h':
           display_usage(); 
-
-        case 'o':
-          if (!strcmp(ptr, "-osmi"))
-          {
-            format = "smi";
-            break;
-          }
-          else if (!strcmp(ptr, "-oinchi"))
-          {
-            format = "inchi";
-            break;
-          }
-          else if (!strcmp(ptr,"-okey"))
-          {
-            format  = "inchikey";
-            break;
-          }
-          else if (!strcmp(ptr,"-owln"))
-          {
-            format  = "WLN";
-            break;
-          }
-          else {
-            fprintf(stderr,"Error: unrecognised format, choose between ['smi','inchi','key']\n");
-            display_usage();
-          } 
+        case 'o': format = ptr+2; break;
         default:
           fprintf(stderr, "Error: unrecognised input %s\n", ptr);
           display_usage();

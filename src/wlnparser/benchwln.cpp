@@ -891,31 +891,34 @@ void RunBenchmark() {
   conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
   
   unsigned int n_correct = 0; 
-  unsigned int n_wrong   = 0; 
 
   struct timeval stop, start;
   gettimeofday(&start, NULL);
 
   for (unsigned int i = 0; i < BENCH_N; i++) {
-    fprintf(stderr,"%s\n",wln_bench[i]); 
-    if (!ReadWLN(wln_bench[i], &mol))
-      fprintf(stderr, "%s null read\n", smiles_bench[i]); 
+    const char *ptr = wln_bench[i];
+    const char *smi = smiles_bench[i];
+
+    fprintf(stdout,"%s\t", ptr);
+    if (!ReadWLN(ptr, &mol)) {
+      fprintf(stdout, "null read\t%s\n",smi); 
+      mol.Clear(); 
+    }
     else {
       buffer = conv.WriteString(&mol,true);
-      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) {
-        fprintf(stderr,"%s != %s\t%s\n", wln_bench[i] ,smiles_bench[i], buffer.c_str()); 
-        n_wrong++; 
-      }
-      else 
+      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) 
+        fprintf(stdout,"wrong\t%s\t%s\n", buffer.c_str(), smi); 
+      else {
+        fprintf(stdout,"correct\n"); 
         n_correct++; 
-      buffer.clear(); 
+      }
       mol.Clear(); 
     }
   }
 
   gettimeofday(&stop, NULL);
   fprintf(stderr, "%d/%d compounds correct\n", n_correct, BENCH_N); 
-  fprintf(stderr, "slow benchmark took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
+  fprintf(stderr, "benchmark took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
   exit(0); 
 }
 

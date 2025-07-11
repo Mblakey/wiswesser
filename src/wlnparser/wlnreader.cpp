@@ -454,10 +454,24 @@ add_oxy(graph_t *mol, symbol_t *atom)
   return true; 
 }
 
+
 static void 
 add_methyl(graph_t *mol, symbol_t *atom) {
   symbol_t *methyl = symbol_create(mol, CAR);
   edge_t   *e = edge_create(mol, methyl, atom);
+}
+
+
+static symbol_t*
+opening_terminator(graph_t *mol, unsigned char ch) {
+  switch (ch) {
+    case 'F': return symbol_create(mol, FLU);
+    case 'G': return symbol_create(mol, CHL);
+    case 'I': return symbol_create(mol, IOD);
+    case 'Q': return symbol_create(mol, OXY);
+    case 'Z': return symbol_create(mol, NIT);
+  } 
+  return NULL;
 }
 
 typedef struct  {
@@ -1143,6 +1157,12 @@ ReadWLN(const char *wln, graph_t *molecule)
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
   // idea entirely *--> grow..., delete at the end to save branches
   init_symbol = prev_symbol = symbol_create(molecule, DUM); 
+  curr_symbol = opening_terminator(molecule, *wln);
+  if (curr_symbol) {
+    curr_edge   = edge_create(molecule, curr_symbol, prev_symbol);
+    prev_symbol = curr_symbol; 
+    wln++;
+  }
   
   unsigned char ch = *wln; 
   while (*wln) {
@@ -1698,5 +1718,6 @@ ReadWLN(const char *wln, graph_t *molecule)
   graph_delete_symbol(molecule, init_symbol); 
 //depstack_cleanup(molecule, dep_stack, stack_ptr);  
   graph_cleanup_hydrogens(molecule);
+  molecule->SetChiralityPerceived(true);
   return true; 
 }
