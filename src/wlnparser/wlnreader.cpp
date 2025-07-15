@@ -110,8 +110,17 @@ symbol_change(symbol_t *s, uint16_t atomic_num)
 
 
 static symbol_t*
-symbol_create_from_dash(graph_t *mol, unsigned char fst_ch, unsigned char snd_ch) 
+parse_dash_notation(graph_t *mol, const char **wln) 
 {
+  const char *ptr = *wln;
+  unsigned char fst_ch = *ptr++; // this is known to not be null
+  unsigned char snd_ch = *ptr++; // this could be null (C-string safe)
+    
+  if (snd_ch && *ptr != '-')
+    return NULL;
+  else 
+    *wln = ptr;
+
   switch (fst_ch){
     case 'A':
       switch (snd_ch) {
@@ -413,17 +422,38 @@ add_oxy(graph_t *mol, symbol_t *atom)
 {
   symbol_t *oxygen = symbol_create(mol, OXY); 
   edge_t *bptr = edge_create(mol, atom, oxygen);
-  if (!bptr)  
-    return false;
+  if (!bptr) return false;
   edge_set_order(bptr, 2);
   return true; 
 }
 
 
-static void 
+static bool 
 add_methyl(graph_t *mol, symbol_t *atom) {
   symbol_t *methyl = symbol_create(mol, CAR);
-  edge_t   *e = edge_create(mol, methyl, atom);
+  edge_t *bptr = edge_create(mol, atom, methyl);
+  if (!bptr) return false;
+  return true;
+}
+
+
+static bool 
+add_dioxo(graph_t *mol, symbol_t *atom) {
+  if (!add_oxy(mol, atom))
+    return false;
+
+  symbol_t *oxygen = symbol_create(mol, OXY); 
+  switch (symbol_get_num(atom)) {
+    case NIT:
+      symbol_set_charge(oxygen, -1);
+      symbol_set_charge(atom, +1);
+      break;
+  }
+
+  edge_t *bptr = edge_create(mol, atom, oxygen);
+  if (!bptr)  
+    return false;
+  return true;
 }
 
 
@@ -445,6 +475,7 @@ struct wlnpath {
   wlnlocant path[1]; // malloc sizeof(locant_t) * (size-1) + (1 byte for size)
 }; 
 
+
 static wlnpath* 
 ring_error(const char *message) 
 {
@@ -452,8 +483,9 @@ ring_error(const char *message)
   return NULL;  
 }
 
+
 static struct wlnpath* 
-wlnpath_alloc(graph_t *mol, unsigned int size) 
+ring_create(graph_t *mol, unsigned int size) 
 {
   struct wlnpath *ring = 0; 
   ring = (struct wlnpath*)malloc(sizeof(struct wlnpath) + sizeof(struct wlnlocant)*(size-1)); 
@@ -476,9 +508,9 @@ wlnpath_alloc(graph_t *mol, unsigned int size)
 
 
 static struct wlnpath* 
-new_benzene(graph_t *mol) 
+ring_create_benzene(graph_t *mol) 
 {
-  wlnpath *benzene = wlnpath_alloc(mol, 6);
+  wlnpath *benzene = ring_create(mol, 6);
   edge_t *bond = edge_create(mol, benzene->path[0].s, benzene->path[5].s);
   edge_set_aromatic(bond, true);
 
@@ -640,7 +672,6 @@ depstack_cleanup(const struct wlnrefaddr *dep_stack,
 
   // clean up the dep stack
   for (unsigned int i = 0; i < stack_ptr; i++) {
-    symbol_t *potential_symbol = (symbol_t*)dep_stack[i].addr;
     if (dep_stack[i].ref == -1)
       free((struct wlnpath*)dep_stack[i].addr);
   }
@@ -678,8 +709,8 @@ depstack_pop(struct wlnrefaddr *dep_stack,
 {
   if (dep_stack[stack_ptr-1].ref == -1) {
     free(dep_stack[stack_ptr-1].addr);
-    stack_ptr--;
-    if (dep_stack[stack_ptr-1].ref != -1) {
+    stack_ptr--; 
+    if (stack_ptr > 0 && dep_stack[stack_ptr-1].ref != -1) {
       *prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr;  
       if (--dep_stack[stack_ptr-1].ref == 0)
         stack_ptr--; 
@@ -919,7 +950,7 @@ parse_cyclic(const char **wln, graph_t *mol)
     else switch (ch) {
       case 'J': 
         *wln = ptr; 
-        if (!ring) ring = wlnpath_alloc(mol, max_path_size); 
+        if (!ring) ring = ring_create(mol, max_path_size); 
         if (!pathsolverIII_fast(mol, ring, SSSR, SSSR_ptr)) {
           free(ring);
           return ring_error("Error: failed on path solver algorithm");  
@@ -953,7 +984,7 @@ parse_cyclic(const char **wln, graph_t *mol)
       case '-':
       case 'X':
       case 'Y':
-        if (!ring) ring = wlnpath_alloc(mol, max_path_size); 
+        if (!ring) ring = ring_create(mol, max_path_size); 
         if (!parse_heterocycle_symbols(&(--ptr), mol, ring, locant_ch))
           return ring_error("Error: failed in heterocyclic ring parse\n");
         break;
@@ -1201,7 +1232,7 @@ ReadWLN(const char *wln, graph_t *mol)
 
       // shorthand benzene 
       case 'R': 
-        curr_ring = new_benzene(mol);
+        curr_ring = ring_create_benzene(mol);
         stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
 
         curr_edge   = edge_create(mol, curr_ring->path[0].s, prev_symbol); 
@@ -1233,7 +1264,8 @@ ReadWLN(const char *wln, graph_t *mol)
       // if not previous, create dummy carbon
       // really trying to avoid a bit state on this
       case 'W':
-        return error("Error: W group needs supporting"); 
+        if (!add_dioxo(mol, prev_symbol))
+          return error("Error: failed to add dioxo group with W\n"); 
         break; 
 
       case 'X':
@@ -1311,7 +1343,34 @@ ReadWLN(const char *wln, graph_t *mol)
         break;
       
       case '-':
-        return error("Error: dash code needs hooking in\n"); 
+        if (*wln == ' ') {
+          if (!curr_ring)
+            return error("Error: inline ring creation requires a previous ring\n");
+          if ((locant_ch = parse_locant(&(++wln))) == -1)
+            return error("Error: failed on inline ring locant parse\n");
+          if (*wln != 'L' && *wln != 'T')
+            return error("Error: invalid format for inline ring\n");
+          
+          curr_ring = parse_cyclic(&(++wln), mol); 
+          if (!curr_ring) return false; 
+          stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
+          
+          if (locant_ch >= curr_ring->size)
+            return error("Error: locant larger than current ring\n");
+          
+          curr_edge   = edge_create(mol, curr_ring->path[locant_ch].s, prev_symbol); 
+          edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
+        }
+        else {
+          curr_symbol = parse_dash_notation(mol, &wln); 
+          if (!curr_symbol)
+            return error("Error: invalid elemental code\n");
+          curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
+          edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
+          prev_symbol = curr_symbol; 
+          wln++; 
+        }
+        break;
 
       case ' ':
         if (*wln == '&') {
@@ -1363,3 +1422,5 @@ ReadWLN(const char *wln, graph_t *mol)
 #endif
   return true; 
 }
+
+
