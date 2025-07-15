@@ -59,13 +59,6 @@ error(const char *message)
 }
 
 
-static void* 
-ring_error(const char *message) 
-{
-  fprintf(stderr,"%s", message); 
-  return NULL;  
-}
-
 #ifdef USING_OPENBABEL
 using namespace OpenBabel;
 #define graph_t    OBMol
@@ -83,12 +76,12 @@ using namespace OpenBabel;
 #define symbol_incr_hydrogens(s)    s->SetImplicitHCount(s->GetImplicitHCount()+1)
 #define symbol_get_valence(s)       s->GetExplicitValence()
 
-#define edge_unsaturate(e, n)       e->SetBondOrder(1 + n)
+#define edge_unsaturate(e)          e->SetBondOrder(1+e->GetBondOrder())
 #define edge_set_order(e, o)        e->SetBondOrder(o);
 #define edge_set_aromatic(e, b)     e->SetAromatic(b)
 
 #define graph_new_symbol(g)         g->NewAtom()
-#define graph_get_bond(x,y)         g->GetBond(x,y)
+#define graph_get_bond(g,x,y)       g->GetBond(x,y)
 #define graph_delete_symbol(g,s)    g->DeleteAtom(s)
 
 #define graph_symbol_iter(s, g)     FOR_ATOMS_OF_MOL(s,g)
@@ -100,11 +93,19 @@ using namespace OpenBabel;
 
 
 static symbol_t* 
-symbol_create(graph_t *mol, uint64_t atomic_num)
+symbol_create(graph_t *mol, uint16_t atomic_num)
 {
   symbol_t *atom = graph_new_symbol(mol); 
   symbol_set_num(atom, atomic_num);
   return atom; 
+}
+
+
+static symbol_t*
+symbol_change(symbol_t *s, uint16_t atomic_num)
+{
+  symbol_set_num(s, atomic_num);
+  return s; 
 }
 
 
@@ -371,9 +372,9 @@ symbol_safeset_hydrogens(symbol_t *s, char n)
 
 
 static void 
-graph_cleanup_hydrogens(graph_t *g)
+graph_cleanup_hydrogens(graph_t *mol)
 {
-  graph_symbol_iter(a, g) {
+  graph_symbol_iter(a, mol) {
     unsigned char arom     = symbol_get_aromatic(a); 
     unsigned char valence  = symbol_get_valence(a); 
     unsigned char modifier = valence + arom;
@@ -390,16 +391,16 @@ graph_cleanup_hydrogens(graph_t *g)
 
 // create a bond to a dummy atom type. allows bond modification without state hold 
 static edge_t* 
-edge_create(graph_t *g, symbol_t *curr, symbol_t *prev)
+edge_create(graph_t *mol, symbol_t *curr, symbol_t *prev)
 {
   edge_t *bptr = (edge_t*)0;
 #ifdef USING_OPENBABEL
-  if (!g->AddBond(curr->GetIdx(), prev->GetIdx(), 1)) {
+  if (!mol->AddBond(curr->GetIdx(), prev->GetIdx(), 1)) {
     fprintf(stderr, "Error: failed to make bond betweens atoms %d --> %d\n", curr->GetIdx(),prev->GetIdx());
     return bptr;
   }
   else 
-    bptr = g->GetBond(g->NumBonds() - 1);
+    bptr = mol->GetBond(mol->NumBonds() - 1);
 #elif defined USING_RDKIT
 
 #endif
@@ -414,7 +415,7 @@ add_oxy(graph_t *mol, symbol_t *atom)
   edge_t *bptr = edge_create(mol, atom, oxygen);
   if (!bptr)  
     return false;
-  edge_unsaturate(bptr, 1);
+  edge_set_order(bptr, 2);
   return true; 
 }
 
@@ -444,21 +445,27 @@ struct wlnpath {
   wlnlocant path[1]; // malloc sizeof(locant_t) * (size-1) + (1 byte for size)
 }; 
 
+static wlnpath* 
+ring_error(const char *message) 
+{
+  fprintf(stderr,"%s", message); 
+  return NULL;  
+}
 
 static struct wlnpath* 
-wlnpath_alloc(graph_t *g, unsigned int size) 
+wlnpath_alloc(graph_t *mol, unsigned int size) 
 {
   struct wlnpath *ring = 0; 
   ring = (struct wlnpath*)malloc(sizeof(struct wlnpath) + sizeof(struct wlnlocant)*(size-1)); 
   memset(ring, 0, sizeof(struct wlnpath) + sizeof(struct wlnlocant)*(size-1)); 
    
-  ring->path[0].s = symbol_create(g, CAR);
+  ring->path[0].s = symbol_create(mol, CAR);
   for (uint16_t i = 1; i < size; i++) {
     struct wlnlocant *curr = &ring->path[i];
     struct wlnlocant *prev = &ring->path[i-1];
 
-    curr->s = symbol_create(g, CAR);
-    if (!edge_create(g, curr->s, prev->s)) {
+    curr->s = symbol_create(mol, CAR);
+    if (!edge_create(mol, curr->s, prev->s)) {
       free(ring);
       return NULL;
     }
@@ -468,8 +475,30 @@ wlnpath_alloc(graph_t *g, unsigned int size)
 }
 
 
+static struct wlnpath* 
+new_benzene(graph_t *mol) 
+{
+  wlnpath *benzene = wlnpath_alloc(mol, 6);
+  edge_t *bond = edge_create(mol, benzene->path[0].s, benzene->path[5].s);
+  edge_set_aromatic(bond, true);
+
+  for (unsigned int i=1; i<6; i++) {
+    symbol_t *f = benzene->path[i].s;
+    symbol_t *p = benzene->path[i-1].s;
+
+    bond = graph_get_bond(mol, f, p);
+
+    symbol_set_aromatic(f, true);
+    symbol_set_aromatic(p, true);
+    edge_set_aromatic(bond, true);
+  }
+
+  return benzene;
+}
+
+
 static bool
-pathsolverIII_fast(graph_t *g, 
+pathsolverIII_fast(graph_t *mol, 
                    const struct wlnpath *r, 
                    struct wlnsubcycle SSSR[], 
                    uint8_t SSSR_ptr) 
@@ -523,7 +552,7 @@ pathsolverIII_fast(graph_t *g,
     for (uint16_t s = 0; s < steps-1; s++) {
       unsigned char nxt = path[end].nxt_locant; 
       symbol_set_aromatic(r->path[end].s, arom);
-      edge_t *e = graph_get_bond(r->path[end].s, r->path[nxt].s);
+      edge_t *e = graph_get_bond(mol, r->path[end].s, r->path[nxt].s);
       edge_set_aromatic(e, arom);
       end = nxt; 
     }
@@ -535,7 +564,7 @@ pathsolverIII_fast(graph_t *g,
     path[end].nlocants--;
     path[start].nxt_locant = end;
 
-    edge_t *cross = edge_create(g, r->path[start].s, r->path[end].s);
+    edge_t *cross = edge_create(mol, r->path[start].s, r->path[end].s);
     edge_set_aromatic(cross, arom);
   }
   return r;   
@@ -598,32 +627,74 @@ pathsolverIII(graph_t *g, struct ring_t *r,
 }
 #endif
 
+struct wlnrefaddr {
+  void *addr; 
+  char ref; 
+}; 
 
 /* keep the struct scoped, no leaking */
-static void depstack_cleanup(graph_t *mol, const void *_depstack, unsigned int stack_ptr)
+static unsigned int 
+depstack_cleanup(const struct wlnrefaddr *dep_stack, 
+                 unsigned int stack_ptr)
 {
-  struct wlnrefaddr {
-    void *addr; 
-    char ref; 
-  } *dep_stack = (struct wlnrefaddr*)_depstack;
 
   // clean up the dep stack
   for (unsigned int i = 0; i < stack_ptr; i++) {
     symbol_t *potential_symbol = (symbol_t*)dep_stack[i].addr;
     if (dep_stack[i].ref == -1)
       free((struct wlnpath*)dep_stack[i].addr);
-#if 0
-    else if (symbol_get_num(potential_symbol) == 6 || 
-             (symbol_get_num(potential_symbol) == 7 && 
-              symbol_get_charge(potential_symbol) == +1)) 
-    {
-      for (unsigned int j=0;j<dep_stack[i].ref;j++) 
-        add_methyl(mol, potential_symbol);  
-    }
-#endif
   }
+  return 0;
 }
 
+
+static unsigned int 
+depstack_push_branch(struct wlnrefaddr *dep_stack,  
+                     unsigned int stack_ptr,
+                     symbol_t *sym,
+                     unsigned int ref)
+{
+  dep_stack[stack_ptr].addr = sym; 
+  dep_stack[stack_ptr].ref  = ref;
+  return stack_ptr+1; 
+}
+
+
+static unsigned int 
+depstack_push_ring(struct wlnrefaddr *dep_stack,  
+                   unsigned int stack_ptr,
+                   struct wlnpath *ring)
+{
+  dep_stack[stack_ptr].addr = ring; 
+  dep_stack[stack_ptr].ref  = -1;
+  return stack_ptr+1; 
+}
+
+
+static unsigned int 
+depstack_pop(struct wlnrefaddr *dep_stack, 
+             unsigned int stack_ptr, 
+             symbol_t **prev_symbol)
+{
+  if (dep_stack[stack_ptr-1].ref == -1) {
+    free(dep_stack[stack_ptr-1].addr);
+    stack_ptr--;
+    if (dep_stack[stack_ptr-1].ref != -1) {
+      *prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr;  
+      if (--dep_stack[stack_ptr-1].ref == 0)
+        stack_ptr--; 
+    }
+  }
+  else {
+    // a branch must be open.
+    *prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
+    if (--dep_stack[stack_ptr-1].ref == 0)
+      stack_ptr--; 
+  }
+  return stack_ptr;
+}
+
+/* ################# Dispatch Functions ################# */
 
 static symbol_t*
 parse_opening_terminator(graph_t *mol, unsigned char ch) {
@@ -684,15 +755,139 @@ parse_aromaticity(const char **wln,
 }
 
 
+// -1 for error
+static int 
+parse_locant(const char **wln) 
+{
+  const char *ptr = *wln;
+  int locant_ch   = -1;
+  unsigned char ch = *ptr; 
+
+  while (*ptr) {
+    if ((ch >= 'A' && ch <= 'Z')) {
+      if (locant_ch == -1)
+        locant_ch = ch - 'A';
+      else break;
+    }
+    else if ((ch >= '0' && ch <= '9')) {
+      if (locant_ch == -1)
+        return -1;
+      else break;
+    }
+    else if (ch == '-')
+      ;
+    else if (ch == '&')
+      ;
+    else return -1;
+    ch = *(++ptr);
+  }
+  
+  *wln = ptr;
+  return locant_ch;
+}
+
+
+static bool 
+parse_heterocycle_symbols(const char **wln, 
+                          graph_t *mol, 
+                          wlnpath *ring, 
+                          int locant_ch)
+                          
+{
+  const char *ptr = *wln;
+  unsigned char ch = *ptr; 
+  edge_t* bond;
+
+  while (ch) {
+    switch (ch) {
+      case ' ':
+        locant_ch = parse_locant(&ptr);  
+        if (locant_ch == -1)
+          return false;
+        break;
+
+      case 'H':
+        break;
+
+      case 'B':
+        if (locant_ch >= ring->size)
+          return false;
+        symbol_change(ring->path[locant_ch++].s, BOR);
+        break;
+
+      case 'K':
+        if (locant_ch >= ring->size)
+          return false;
+        symbol_change(ring->path[locant_ch].s, NIT);
+        symbol_set_charge(ring->path[locant_ch++].s, +1);
+        break;
+
+      case 'N':
+      case 'M':
+        if (locant_ch >= ring->size)
+          return false;
+        symbol_change(ring->path[locant_ch++].s, NIT);
+        break;
+
+      case 'O':
+        if (locant_ch >= ring->size)
+          return false;
+        symbol_change(ring->path[locant_ch++].s, OXY);
+        break;
+
+      case 'P':
+        if (locant_ch >= ring->size)
+          return false;
+        symbol_change(ring->path[locant_ch++].s, PHO);
+        break;
+
+      case 'S':
+        if (locant_ch >= ring->size)
+          return false;
+        symbol_change(ring->path[locant_ch++].s, SUL);
+        break;
+
+      case 'U':
+        if (locant_ch > ring->size)
+          return false;
+        if (locant_ch == ring->size)
+          bond = graph_get_bond(mol, ring->path[locant_ch].s, 
+                                ring->path[0].s);
+        else
+          bond = graph_get_bond(mol, ring->path[locant_ch].s, 
+                                ring->path[locant_ch+1].s);
+        edge_unsaturate(bond);
+        break;
+
+      case '-':
+        break;
+      case 'X':
+      case 'Y':
+        break;
+      
+      case 'T':
+      case '&':
+      case 'J':
+        *wln = ptr; 
+        return true;
+    }
+    ch = *(++ptr);
+  }
+
+  *wln = ptr; 
+  return true;
+}
+
+
 static struct wlnpath* 
-parse_cyclic(const char **wln, graph_t *g) 
+parse_cyclic(const char **wln, graph_t *mol) 
 {
   const char *ptr = *wln; // set at the end
   struct wlnpath   *ring = 0; 
   
-  bool      expecting_locant = false;
-  uint8_t   locant_ch   = 0; 
-  uint8_t   max_path_size  = 0;  
+  bool    expecting_locant = false;
+  int     locant_ch   = 0; 
+  uint8_t max_path_size  = 0;  
   
   uint8_t SSSR_ptr  = 0; 
   struct wlnsubcycle SSSR[32]; // this really is sensible for WLN
@@ -721,27 +916,20 @@ parse_cyclic(const char **wln, graph_t *g)
         }
       }
     }
-    else if (expecting_locant) {
-      if (ch >= 'A' && ch <= 'Z') {
-        locant_ch = ch - 'A';
-        expecting_locant = false;
-      }
-      else return (struct wlnpath*)ring_error("Error: ring locant requires a space before the character\n"); 
-    }
     else switch (ch) {
       case 'J': 
         *wln = ptr; 
-        ring = wlnpath_alloc(g, max_path_size); 
-        if (!pathsolverIII_fast(g, ring, SSSR, SSSR_ptr)) {
+        if (!ring) ring = wlnpath_alloc(mol, max_path_size); 
+        if (!pathsolverIII_fast(mol, ring, SSSR, SSSR_ptr)) {
           free(ring);
-          return (struct wlnpath*)ring_error("Error: failed on path solver algorithm");  
+          return ring_error("Error: failed on path solver algorithm");  
         }
         else return ring; 
 
       case 'T':
       case '&':
         if (!SSSR_ptr) 
-          return (struct wlnpath*)ring_error("Error: no rings designated before ring close\n"); 
+          return ring_error("Error: no rings designated before ring close\n"); 
         if (!parse_aromaticity(&(--ptr), SSSR, SSSR_ptr)) {
           free(ring);
           return NULL;
@@ -749,11 +937,28 @@ parse_cyclic(const char **wln, graph_t *g)
         break;
 
       case ' ':
-        if (expecting_locant)
-          return (struct wlnpath*)ring_error("Error: double space seen in SSSR ring block\n"); 
-        expecting_locant = true; 
+        if ((locant_ch = parse_locant(&ptr)) == -1)
+          return ring_error("Error: failed on locant parse\n");
         break;
-      default: return (struct wlnpath*)ring_error("Error: invalid character in SSSR ring block\n"); 
+
+      case 'B':
+      case 'H':
+      case 'K':
+      case 'M':
+      case 'N':
+      case 'O':
+      case 'P':
+      case 'S':
+      case 'U':
+      case '-':
+      case 'X':
+      case 'Y':
+        if (!ring) ring = wlnpath_alloc(mol, max_path_size); 
+        if (!parse_heterocycle_symbols(&(--ptr), mol, ring, locant_ch))
+          return ring_error("Error: failed in heterocyclic ring parse\n");
+        break;
+
+      default: return ring_error("Error: invalid character in SSSR ring block\n"); 
     }
   }
 
@@ -780,32 +985,12 @@ ReadWLN(const char *wln, graph_t *mol)
   symbol_t *prev_symbol=0;
   struct wlnpath *curr_ring=0;
 
-  uint8_t ring_chars = 0; 
-  uint16_t locant_ch = 0; 
+  int locant_ch = 0; 
   uint16_t counter   = 0; 
   uint8_t  unsaturation=0; 
   
-  uint8_t state = 0; // bit field: 
-                     // [][dioxo][charge][ring locant_t][ring skip][dash][digit][space]
-  
-  uint8_t dash_ptr = 0; 
-  unsigned char dash_chars[3] = {0}; // last byte is mainly for overflow 
- 
   uint8_t stack_ptr = 0;  // WLN branch and ring dependency stack
-  struct wlnrefaddr {
-    void *addr; 
-    char ref; // -1 for (struct ring_t*) else (symbol_t*) how many extra branches >2 can the symbol have
-  } dep_stack[64];  
-
-#if 0
-  // seperated in order to reuse the symbols memory on file read
-  for (uint16_t i=0;i<stack_ptr;i++) {
-    // if (stack[i].ref < 0)  
-    //   free(stack[i].addr);
-    stack[i].addr = 0; 
-    stack[i].ref = 0;
-  }
-#endif
+  struct wlnrefaddr dep_stack[64];  
 
   // init conditions, make one dummy atom, and one bond - work of the virtual bond
   // idea entirely *--> grow..., delete at the end to save branches
@@ -840,7 +1025,7 @@ ReadWLN(const char *wln, graph_t *mol)
         for (uint16_t i=0; i<counter; i++) {
           curr_symbol = symbol_create(mol, CAR);
           curr_edge = edge_create(mol, curr_symbol, prev_symbol);  
-          edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+          edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
           prev_symbol = curr_symbol; 
         }
         break;
@@ -851,13 +1036,11 @@ ReadWLN(const char *wln, graph_t *mol)
       
       case 'B':
         curr_symbol = symbol_create(mol, BOR);
-
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 1;
-        stack_ptr++; 
+        
+        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
         
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol);
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break; 
       
@@ -879,17 +1062,8 @@ ReadWLN(const char *wln, graph_t *mol)
           if (*wln != ' ' && *wln != '\0')
             return error("Error: terminator character closes molecule\n");
         }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        else 
+          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
 
       case 'F':
@@ -902,17 +1076,8 @@ ReadWLN(const char *wln, graph_t *mol)
           if (*wln != ' ' && *wln != '\0')
             return error("Error: terminator character closes molecule\n");
         }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        else 
+          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
 
       case 'G':
@@ -925,17 +1090,8 @@ ReadWLN(const char *wln, graph_t *mol)
           if (*wln != ' ' && *wln != '\0')
             return error("Error: terminator character closes molecule\n");
         }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        else 
+          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
 
       case 'H':
@@ -952,17 +1108,8 @@ ReadWLN(const char *wln, graph_t *mol)
           if (*wln != ' ' && *wln != '\0')
             return error("Error: terminator character closes molecule\n");
         }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        else 
+          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
      
       /* [N+](R)(R)(R)(R) */
@@ -970,7 +1117,7 @@ ReadWLN(const char *wln, graph_t *mol)
         curr_symbol = symbol_create(mol, NIT);
         symbol_set_charge(curr_symbol, +1); 
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         
         counter = 0;
         if (*wln == '&') while (*wln == '&' && counter < 2) {
@@ -978,11 +1125,8 @@ ReadWLN(const char *wln, graph_t *mol)
           counter++; 
           wln++;
         }
-        if (counter < 2) {
-          dep_stack[stack_ptr].addr = curr_symbol; 
-          dep_stack[stack_ptr].ref  = 2 - counter;
-          stack_ptr++; 
-        }
+        if (counter < 2) 
+          stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 2-counter);
        
         // final contraction and stack movement if possible
         if (*wln == '&') {
@@ -992,17 +1136,8 @@ ReadWLN(const char *wln, graph_t *mol)
             if (*wln != ' ' && *wln != '\0')
               return error("Error: terminator character closes molecule\n");
           }
-          else if (dep_stack[stack_ptr-1].ref == -1) {
-            // ring is the next object to resolve
-            fprintf(stderr, "hook in ring code\n"); 
-            return false; 
-          }
-          else {
-            // a branch must be open.
-            prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-            if (--dep_stack[stack_ptr-1].ref == 0)
-              stack_ptr--; 
-          }
+          else 
+            stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         }
         else 
           prev_symbol = curr_symbol; 
@@ -1012,26 +1147,24 @@ ReadWLN(const char *wln, graph_t *mol)
       case 'T':
         curr_ring = parse_cyclic(&wln, mol);
         if (!curr_ring) return false;
+        stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
         break; 
       
       /* NH(R)(R) */
       case 'M':
         curr_symbol = symbol_create(mol, NIT); 
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break;
      
       /* NR(R)(R) */
       case 'N':
         curr_symbol = symbol_create(mol, NIT);
-
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 1;
-        stack_ptr++; 
+        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
         
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break;
       
@@ -1039,19 +1172,16 @@ ReadWLN(const char *wln, graph_t *mol)
       case 'O':
         curr_symbol = symbol_create(mol, OXY); 
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break;
       
       case 'P':
         curr_symbol = symbol_create(mol, PHO);
-
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 1;
-        stack_ptr++; 
+        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
         
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break;
 
@@ -1065,63 +1195,25 @@ ReadWLN(const char *wln, graph_t *mol)
           if (*wln != ' ' && *wln != '\0')
             return error("Error: terminator character closes molecule\n");
         }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        else 
+          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
 
       // shorthand benzene 
-#if 0
       case 'R': 
-        // head symbol can come from virtual X|Y|K
-        curr_atom = assign_symbol(g, curr_edge, CAR, 4);
-        if (!curr_atom)
-          return false; 
-        else {
-          g->idx_symbols[sp+1] = curr_atom; 
-          curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
-        }
+        curr_ring = new_benzene(mol);
+        stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
 
-        curr_ring = rt_alloc(g, 6, curr_atom, 0); 
-        
-        if (!curr_ring)
-          return false; // only way this can fail 
-        else {
-          for (uint8_t i=0; i<6; i++)
-            curr_ring->path[i].s->arom |= 1; 
-          // set the ring. R objects are kekulised on stack pop
-          prev_atom = curr_ring->path[0].s; 
-          curr_atom = curr_ring->path[5].s; 
-          curr_edge = next_virtual_edge(prev_atom); 
-          curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom);
-          curr_edge->ring = 1; 
-        }
+        curr_edge   = edge_create(mol, curr_ring->path[0].s, prev_symbol); 
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
+        break;
 
-        // add to ring stack
-        g->stack[g->stack_ptr].addr = curr_ring; 
-        g->stack[g->stack_ptr++].ref = -1; 
-
-        g->idx_symbols[sp+1] = prev_atom; 
-        curr_edge = next_virtual_edge(prev_atom); 
-        break; 
-#endif
       case 'S':
         curr_symbol = symbol_create(mol, SUL);
-
-        dep_stack[stack_ptr].addr = curr_symbol; 
-        dep_stack[stack_ptr].ref  = 3;
-        stack_ptr++; 
+        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 3);
         
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break;
       
@@ -1134,7 +1226,7 @@ ReadWLN(const char *wln, graph_t *mol)
         if (!add_oxy(mol, curr_symbol))
           return error("Error: failed to add =O group\n"); 
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         prev_symbol = curr_symbol; 
         break;
       
@@ -1147,7 +1239,7 @@ ReadWLN(const char *wln, graph_t *mol)
       case 'X':
         curr_symbol = symbol_create(mol, CAR);
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         
         // default methyl contraction for X,Y,K
         counter = 0;
@@ -1157,11 +1249,8 @@ ReadWLN(const char *wln, graph_t *mol)
           wln++;
         }
 
-        if (counter < 2) {
-          dep_stack[stack_ptr].addr = curr_symbol; 
-          dep_stack[stack_ptr].ref  = 2 - counter;
-          stack_ptr++; 
-        }
+        if (counter < 2) 
+          stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 2-counter);
 
         // final contraction and stack movement if possible
         if (*wln == '&') {
@@ -1171,17 +1260,8 @@ ReadWLN(const char *wln, graph_t *mol)
             if (*wln != ' ' && *wln != '\0')
               return error("Error: terminator character closes molecule\n");
           }
-          else if (dep_stack[stack_ptr-1].ref == -1) {
-            // ring is the next object to resolve
-            fprintf(stderr, "hook in ring code\n"); 
-            return false; 
-          }
-          else {
-            // a branch must be open.
-            prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-            if (--dep_stack[stack_ptr-1].ref == 0)
-              stack_ptr--; 
-          }
+          else 
+            stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         }
         else 
           prev_symbol = curr_symbol; 
@@ -1190,7 +1270,7 @@ ReadWLN(const char *wln, graph_t *mol)
       case 'Y':
         curr_symbol = symbol_create(mol, CAR);
         curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_unsaturate(curr_edge, unsaturation); unsaturation = 0;
+        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
         
         // default methyl contraction for X,Y,K
         if (*wln == '&') { 
@@ -1198,11 +1278,8 @@ ReadWLN(const char *wln, graph_t *mol)
           counter++; 
           wln++;
         }
-        else {
-          dep_stack[stack_ptr].addr = curr_symbol; 
-          dep_stack[stack_ptr].ref  = 1;
-          stack_ptr++; 
-        }
+        else 
+          stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
 
         // final contraction and stack movement if possible
         if (*wln == '&') {
@@ -1212,17 +1289,8 @@ ReadWLN(const char *wln, graph_t *mol)
             if (*wln != ' ' && *wln != '\0')
               return error("Error: terminator character closes molecule\n");
           }
-          else if (dep_stack[stack_ptr-1].ref == -1) {
-            // ring is the next object to resolve
-            fprintf(stderr, "hook in ring code\n"); 
-            return false; 
-          }
-          else {
-            // a branch must be open.
-            prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-            if (--dep_stack[stack_ptr-1].ref == 0)
-              stack_ptr--; 
-          }
+          else 
+            stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         }
         else 
           prev_symbol = curr_symbol; 
@@ -1238,100 +1306,40 @@ ReadWLN(const char *wln, graph_t *mol)
           if (*wln != ' ' && *wln != '\0')
             return error("Error: terminator character closes molecule\n");
         }
-        else if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          // a branch must be open.
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        else 
+          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
       
       case '-':
         return error("Error: dash code needs hooking in\n"); 
-#if 0
-        // dashes open up several possible states which needs a lot of information to reason 
-        // 1. -XX- | -X- == symbol
-        // 2. <locant> -& <space> <locant_t> <ring> == spiro ring defintion  
-        // 3. <locant> (-|&)+ == high level access
-        // ?  <locant> (-&) space <no ring> == methyl shorthand on the level access (solved with VIRTUAL edge packing)
-        // seperating out 1 is trivial with a +1 lookahead. 
-        // 2 vs 3: 
-        if (state & DASH_READ) {
-          curr_atom = assign_symbol(g, curr_edge, DUM, 6); // create a blank symbol
-          if (!curr_atom)
-            return false; 
-          if (write_dash_symbol(curr_atom, dash_chars[0], dash_chars[1]) == false)
-            return false; 
-
-          curr_edge = set_virtual_edge(curr_edge, prev_atom, curr_atom); 
-          if(state & DIOXO_READ) {
-            add_tauto_dioxy(g, curr_atom); 
-            state &= ~DIOXO_READ; 
-          }
-          
-          memset(dash_chars,0,3); 
-          state &= ~DASH_READ; 
-          dash_ptr = 0; 
-
-          // add to branch stack
-          if ((curr_atom->valence_pack >> 4) >= 2) {
-            g->stack[g->stack_ptr].addr = curr_atom; 
-            g->stack[g->stack_ptr].ref  = curr_atom->valence_pack >> 4;
-            g->stack_ptr++; 
-          }
-
-          prev_atom = curr_atom; 
-          g->idx_symbols[sp+1] = curr_atom; 
-          curr_edge = next_virtual_edge(curr_atom); 
-        }
-        else {
-          if (ch_nxt == ' ')
-            state |= BIND_READ;
-          else {
-            dash_ptr = 0; 
-            state |= DASH_READ; 
-          }
-        }
-#endif
-        break; 
 
       case ' ':
-#if 0
-        if (ch_nxt == '&') {
-          prev_symbol = NULL;
-          stack_ptr   = 0;
-          curr_symbol = symbol_create(molecule, DUM);
-          state = BRANCH_CLOSE;
-          wln++;
-          fprintf(stderr, "going to close\n"); 
+        if (*wln == '&') {
+          // parse end notation
         }
-#endif
-        if (0);
-        else if (curr_ring) {
-
+        else if ((locant_ch = parse_locant(&wln)) == -1)
+          return error("Error: could not parse locant\n");
+        
+        curr_ring = NULL;
+        while (stack_ptr > 0) {
+          if (dep_stack[stack_ptr-1].ref == -1) {
+            curr_ring = (struct wlnpath*)dep_stack[stack_ptr-1].addr; 
+            break;
+          } 
+          stack_ptr--;
         }
-        else return error("Error: space used outside locant|ionic|mixture syntax\n"); 
+        
+        if (!curr_ring)
+          return error("Error: locant notation used without previously defined ring\n");
+        if (locant_ch >= curr_ring->size)
+          return error("Error: locant larger than current ring\n");
+        prev_symbol = curr_ring->path[locant_ch].s;
         break; 
 
       case '&':
         if (!stack_ptr) 
           return error("Error: empty dependency stack - too many &?\n"); 
-                
-        if (dep_stack[stack_ptr-1].ref == -1) {
-          // ring is the next object to resolve
-          fprintf(stderr, "hook in ring code\n"); 
-          return false; 
-        }
-        else {
-          prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr;  
-          if (--dep_stack[stack_ptr-1].ref == 0)
-            stack_ptr--; 
-        }
+        stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         break;
 
       case '\n':
@@ -1346,7 +1354,7 @@ ReadWLN(const char *wln, graph_t *mol)
 
   // clean up the hanging bond, one branch in exchange for many
   graph_delete_symbol(mol, init_symbol); 
-  depstack_cleanup(mol, dep_stack, stack_ptr);  
+  depstack_cleanup(dep_stack, stack_ptr);  
   graph_cleanup_hydrogens(mol);
 
 #ifdef USING_OPENBABEL
