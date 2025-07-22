@@ -148,7 +148,10 @@ wlnmatcher_alloc() {
   fsm_state_add_transition(branch, BRANCH, 'S'); 
   fsm_state_add_transition(branch, BRANCH, 'U'); 
   fsm_state_add_transition_range(branch, BRANCH, 'V', 'Z'); 
-  
+
+
+  fsm_state_add_transition(branch, BRANCH, '&'); 
+
   fsm_state_add_transition_range(ring_open, RING_SSSR, '0', '9');
   fsm_state_add_transition_range(ring_SSSR, RING_SSSR, '0', '9');
   fsm_state_add_transition(ring_SSSR, RING_CLOSE, 'J');

@@ -2,30 +2,79 @@
 
 * WLN Parser               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
 * WLN FSM                  - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
-* WLN Compresser      - compress WLN strings using markov decision processes. <br>
 
 This is Linux and MacOS software only. <br>
 
-Note: This project is solely created by Michael as part of his PhD work, if you are interested using the project, or find any bugs or issues, reporting them would be extremely helpful. 
-
-<img src="./docs/intro_wln.png" width="800">
+<img src="./intro_wln.png" width="800">
 
 ## Requirements
 
-**git**, **cmake**, **make** and a **c++ compiler** are all essential. <br>
-**graphviz** is an optional install to view wln graphs (not needed for build). 
+A chemical toolkit, either **OpenBabel** [see repo](https://github.com/openbabel/openbabel) or **RDKit** [see repo](https://github.com/rdkit/rdkit). These can be installed into $PATH, or one directory level up from this project if building from source without a global install. 
 
-**OpenBabel** [see repo](https://github.com/openbabel/openbabel), will be installed as an external dependency.  
 
 ## Build
 
-Run `./bootstrap.sh` from the project directory, this will clone and build openbabel as well as linking
-the library to the parser in cmake. Babel files will be installed to `external`. Building the projects places all executables into `build/`. <br>
+This project uses **cmake** and **make** for building. Standard CMake build applies, 
+```
+mkdir build
+cd build
+cmake ..
+make -j10
+```
 
-## Project Structure 
+# Converting between WLN and CLN Formats
 
-This repository contains a broad range of functionality using WLN notation for various operations. As such, please read the individual `README.txt` files for the required area. <br>
+`readwln` - This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and returns the desired output format.<br> 
 
-* [WLN Conversion - Read and Write](./docs/convert.md) <br>
-* [WLN Compression - Lossless Compress/Decompress](./docs/compress.md)<br>
-* [WLN Extract - FSM wlngrep](./docs/extract.md) <br>
+`writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string.<br> 
+
+`-h` - display the help menu <br>
+`-o`|`-i` - choose output|input format for string, options are `-osmi`, `-oinchi`, `-okey` (inchikey) and `-ocan` following OpenBabels format conventions <br>
+
+
+## Wiswesser Conversion Release Notes
+
+The following are sections from Elbert G. Smiths rule book that were used to create the wln reader. Note that not all chapters are listed here, only the ones where compound types were introduced.
+
+Please note that the "MANTRAP" rules, are not officialy given in either volume of the offical Wiswesser manuals, as such, implementation is tricky at best. For this parser, they will not be supported. 
+
+| Rule | Read | Write |
+| ---- | ---- | ---- |
+|Unbranched and Branched Chains | :heavy_check_mark: | :heavy_check_mark: | 
+|Systematic Contractions | :heavy_check_mark: | :heavy_check_mark: |
+|Organic Salts | :heavy_check_mark: | :heavy_check_mark: |
+|Benzene Derivatives | :heavy_check_mark: | :heavy_check_mark: |
+|Multisubstituted Benzene Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Benzene Rings in Branching Chains | :heavy_check_mark: | :heavy_check_mark: |
+|Monocyclic Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Bicyclic Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Polycyclic Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Perifused Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Chains of Rings other than Benzene | :heavy_check_mark: | :heavy_check_mark: |
+|Sprio Rings | :heavy_check_mark: | :heavy_check_mark: |
+|Bicyclic Bridged Rings |:heavy_check_mark: | :heavy_check_mark: |
+|Rings with Pseudo Bridges | :heavy_check_mark: | :heavy_check_mark: |  
+|Ring Structures with Crossed Bonds and Unbranched Bridges | :heavy_check_mark: | :heavy_check_mark: |
+|Rings of Rings Contraction | :heavy_check_mark: |  | 
+|Metallocenes and Catanenes | :heavy_check_mark: | :heavy_check_mark: |
+|Chelete Compounds | :heavy_check_mark: | :heavy_check_mark: |
+|Ionic Charges, Free Radicals and Isotopes | :heavy_check_mark: | :heavy_check_mark: |
+|Multipliers | | |
+|Ring Contractions and Multipliers | | |
+|All Special Problems Rules | | |
+
+
+# WLN Extraction 
+
+Grep-style tool for extracting WLN strings from text. 
+
+```
+wlngrep <options> <filename>
+```
+
+#### Flags 
+
+`-c` - return number of matches instead of string <br>
+`-o` - print only the matched parts of line <br>
+`-x` - return string if whole line matches <br>
+`-v` - invert matching <br> 
