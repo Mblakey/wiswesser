@@ -28,6 +28,11 @@ add_executable(readwln
   ${CMAKE_SOURCE_DIR}/src/wlnreader.cpp
 )
 
+add_executable(writewln 
+  ${CMAKE_SOURCE_DIR}/src/writewln.cpp 
+  ${CMAKE_SOURCE_DIR}/src/wlnwriter.cpp
+)
+
 add_executable(benchwln 
   ${CMAKE_SOURCE_DIR}/src/benchwln.cpp 
   ${CMAKE_SOURCE_DIR}/src/wlnreader.cpp
@@ -35,6 +40,7 @@ add_executable(benchwln
 
 target_link_libraries(readwln   ${OPENBABEL3_LIBRARIES})
 target_link_libraries(benchwln  ${OPENBABEL3_LIBRARIES})
+target_link_libraries(writewln  ${OPENBABEL3_LIBRARIES})
 
 message(WARNING "wlngrep will take a long time to build")
 

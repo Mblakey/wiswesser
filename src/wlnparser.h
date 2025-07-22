@@ -8,5 +8,6 @@
 #include <openbabel/obconversion.h>
 
 bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol); 
+bool WriteWLN(char *ptr, OpenBabel::OBMol* mol); 
 
 #endif 
