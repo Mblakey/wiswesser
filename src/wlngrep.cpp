@@ -107,10 +107,22 @@ wlnmatcher_alloc() {
 
 #define INIT   1
 #define BRANCH 2
-  fsm_state *init = &fsm[INIT]; 
 
-  fsm_state *branch = &fsm[BRANCH]; 
+#define RING_OPEN 3
+#define RING_SSSR 4
+#define RING_CLOSE 5
+
+#define LOCANT 6
+
+  fsm_state *init       = &fsm[INIT]; 
+  fsm_state *branch     = &fsm[BRANCH]; 
+  fsm_state *ring_open  = &fsm[RING_OPEN]; 
+  fsm_state *ring_SSSR  = &fsm[RING_SSSR]; 
+  fsm_state *ring_close = &fsm[RING_CLOSE]; 
+  fsm_state *locant     = &fsm[LOCANT]; 
+  
   fsm_state_make_final(branch); 
+  fsm_state_make_final(ring_close); 
 
   fsm_state_add_transition_range(init, BRANCH, '0', '9'); 
   fsm_state_add_transition(init, BRANCH, 'B'); 
@@ -122,6 +134,9 @@ wlnmatcher_alloc() {
   fsm_state_add_transition(init, BRANCH, 'S'); 
   fsm_state_add_transition_range(init, BRANCH, 'V', 'Z'); 
 
+  fsm_state_add_transition(init, RING_OPEN, 'L'); 
+  fsm_state_add_transition(init, RING_OPEN, 'T');
+
   fsm_state_add_transition_range(branch, BRANCH, '0', '9'); 
   fsm_state_add_transition(branch, BRANCH, 'B'); 
   fsm_state_add_transition(branch, BRANCH, 'C'); 
@@ -132,7 +147,10 @@ wlnmatcher_alloc() {
   fsm_state_add_transition(branch, BRANCH, 'S'); 
   fsm_state_add_transition(branch, BRANCH, 'U'); 
   fsm_state_add_transition_range(branch, BRANCH, 'V', 'Z'); 
-
+  
+  fsm_state_add_transition_range(ring_open, RING_SSSR, '0', '9');
+  fsm_state_add_transition_range(ring_SSSR, RING_SSSR, '0', '9');
+  fsm_state_add_transition(ring_SSSR, RING_CLOSE, 'J');
   return fsm;
 }
 
@@ -153,14 +171,14 @@ match_buffer(char *buffer,
       unsigned int jmpid = head->jmp[ch];
       if (!jmpid) {
         if (!head->final) {
-          head = &fsm[1]; // reset to root
           memset(&match_map[i], 0, len-i); 
         }
         else {
           i = j; // greedy match
           any_match = true;
-          //match_map[i] = 1;
         }
+        head = &fsm[1]; // reset to root
+        break;
       }
       else {
         head = &fsm[jmpid];
@@ -168,7 +186,6 @@ match_buffer(char *buffer,
       }
     }
   }
-
   return any_match; 
 }
 
@@ -191,10 +208,11 @@ print_buffer(char *buffer,
       matching = 0; 
       if (latty) printf(RESET);
     }
-
     fputc(buffer[i], stdout); 
   }
+  fputc('\n', stdout); 
 }
+
 
 static bool 
 process_file(FILE *fp, struct fsm_state *fsm)
