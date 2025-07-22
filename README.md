@@ -1,9 +1,10 @@
-# The Wiswesser Line Notation (WLN) Project 
+# Wiswesser Line Notation (WLN) Chemical Converter
 
 * WLN Parser               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
 * WLN FSM                  - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
 
 This is Linux and MacOS software only. <br>
+Tools are designed to be piped together and therefore will take `stdin` by default. <br> 
 
 <img src="./intro_wln.png" width="800">
 
@@ -22,11 +23,11 @@ cmake ..
 make -j10
 ```
 
-# Converting between WLN and CLN Formats
+# Converting between WLN and CLN Formats 
 
-`readwln` - This takes a WLN sequence (single quote escaped) from the command line. e.g 'L6TJ', and returns the desired output format.<br> 
 
-`writewln` - This takes an input sequence (single quote escaped) from the command line. e.g 'c1ccccc1', and returns the corresponding WLN string.<br> 
+`readwln` - This takes WLN sequences and returns the desired format.  <br>
+`writewln` - This takes CLN sequences and returns WLN strings.  <br>
 
 `-h` - display the help menu <br>
 `-o`|`-i` - choose output|input format for string, options are `-osmi`, `-oinchi`, `-okey` (inchikey) and `-ocan` following OpenBabels format conventions <br>
