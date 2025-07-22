@@ -4,7 +4,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "wlnfsm.h" // generated file
+#define RESET  "\e[0;0m"
+#define RED    "\e[0;31m"
 
 // 0 - return whole line, 
 // 1 - return matches only, 
@@ -67,14 +68,83 @@ readline(FILE *fp, char *buffer, unsigned int n, char add_nl){
   return 0;
 }
 
+struct fsm_state {
+  unsigned char final; 
+  unsigned short jmp[256];
+};
+
 
 static void 
-MatchBuffer(char *buffer, 
+fsm_state_make_final(fsm_state *s) {
+  s->final = 1; 
+}
+
+
+static void 
+fsm_state_add_transition(fsm_state *s, 
+                         unsigned short trg_id, 
+                         unsigned char ch)
+{
+  s->jmp[ch] = trg_id;
+}
+
+
+static void 
+fsm_state_add_transition_range(fsm_state *s, 
+                               unsigned short trg_id, 
+                               unsigned char s_ch, 
+                               unsigned char t_ch)
+{
+  for (unsigned char ch=s_ch; ch <= t_ch;ch++) 
+    s->jmp[ch] = trg_id;
+}
+
+
+static struct fsm_state*
+wlnmatcher_alloc() {
+  struct fsm_state *fsm = (struct fsm_state*)malloc(sizeof(struct fsm_state) * 300);
+  memset(fsm, 0, sizeof(struct fsm_state) * 300); 
+
+#define INIT   1
+#define BRANCH 2
+  fsm_state *init = &fsm[INIT]; 
+
+  fsm_state *branch = &fsm[BRANCH]; 
+  fsm_state_make_final(branch); 
+
+  fsm_state_add_transition_range(init, BRANCH, '0', '9'); 
+  fsm_state_add_transition(init, BRANCH, 'B'); 
+  fsm_state_add_transition(init, BRANCH, 'C'); 
+
+  fsm_state_add_transition_range(init, BRANCH, 'E', 'I'); 
+  fsm_state_add_transition(init, BRANCH, 'K'); 
+  fsm_state_add_transition_range(init, BRANCH, 'M', 'Q'); 
+  fsm_state_add_transition(init, BRANCH, 'S'); 
+  fsm_state_add_transition_range(init, BRANCH, 'V', 'Z'); 
+
+  fsm_state_add_transition_range(branch, BRANCH, '0', '9'); 
+  fsm_state_add_transition(branch, BRANCH, 'B'); 
+  fsm_state_add_transition(branch, BRANCH, 'C'); 
+
+  fsm_state_add_transition_range(branch, BRANCH, 'E', 'I'); 
+  fsm_state_add_transition(branch, BRANCH, 'K'); 
+  fsm_state_add_transition_range(branch, BRANCH, 'M', 'Q'); 
+  fsm_state_add_transition(branch, BRANCH, 'S'); 
+  fsm_state_add_transition(branch, BRANCH, 'U'); 
+  fsm_state_add_transition_range(branch, BRANCH, 'V', 'Z'); 
+
+  return fsm;
+}
+
+
+static bool
+match_buffer(char *buffer, 
             char *match_map,
+            unsigned int len,
             struct fsm_state *fsm) 
 {
+  bool any_match = false;
   fsm_state *head = &fsm[1]; 
-  const unsigned int len = strlen(buffer); 
 
   for (unsigned int i=0; i<len; i++) {
     unsigned char ch = buffer[i];
@@ -82,31 +152,62 @@ MatchBuffer(char *buffer,
       ch = buffer[j];
       unsigned int jmpid = head->jmp[ch];
       if (!jmpid) {
-        fprintf(stderr, "failed? - %d\n", head->final); 
-        if (!head->final) 
+        if (!head->final) {
           head = &fsm[1]; // reset to root
+          memset(&match_map[i], 0, len-i); 
+        }
         else {
           i = j; // greedy match
-          fprintf(stderr, "matched\n");
+          any_match = true;
+          //match_map[i] = 1;
         }
       }
       else {
-        head = &fsm[jmpid]; 
-        fprintf(stderr, "moved on %c\n", ch); 
+        head = &fsm[jmpid];
+        match_map[j] = 1;
       }
     }
   }
+
+  return any_match; 
 }
 
+
+static void 
+print_buffer(char *buffer, 
+             char *match_map,
+             unsigned int len, 
+             unsigned char inverse) 
+{
+  char matching = 0; 
+  for (unsigned int i=0; i<len; i++) {
+    if (match_map[i]) { 
+      if (!matching) {
+        matching = 1;
+        if (latty) printf(RED);
+      }
+    }
+    else if (matching) {
+      matching = 0; 
+      if (latty) printf(RESET);
+    }
+
+    fputc(buffer[i], stdout); 
+  }
+}
 
 static bool 
 process_file(FILE *fp, struct fsm_state *fsm)
 {
   char buffer[4096];  
   char match_map[4096];  
+  unsigned int len; 
   while (readline(fp, buffer, 4096, false)){
     lines_parsed++;
-    MatchBuffer(buffer, match_map, fsm);  
+    len = strlen(buffer);
+    memset(match_map, 0, 4096);
+    if (match_buffer(buffer, match_map, len, fsm))
+      print_buffer(buffer, match_map, len, opt_invert_match);  
   }
   
   if(opt_count)
@@ -184,8 +285,13 @@ int
 main(int argc, char* argv[])
 {
   process_cml(argc,argv); 
-  fsm_state *wlnfsm = generate_WLN_fsm();  
-  
+
+  if (isatty(STDOUT_FILENO))
+    latty = 0xff;
+  else 
+    latty = 0x0; 
+
+  struct fsm_state *wlnfsm = wlnmatcher_alloc(); 
   process_file(fp, wlnfsm);  
   if (fp != stdin) 
     fclose(fp); 
