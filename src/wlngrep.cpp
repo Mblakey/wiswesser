@@ -10,18 +10,20 @@
 // 0 - return whole line, 
 // 1 - return matches only, 
 // 2 - exact match only, 
-// 3- invert exact match
+
+#define LINE_MATCH  0
+#define MATCH_ONLY  1
+#define EXACT_MATCH 2
 
 FILE *fp;
 unsigned char latty = 0;
 
-unsigned int opt_match_option = 0; 
-unsigned int opt_count        = 0;
-unsigned int opt_invert_match  = 0;
+unsigned int opt_match_option;  
+unsigned int opt_invert_match; 
+unsigned int opt_count; 
 
 unsigned int matches = 0; 
 unsigned int lines_parsed = 0; 
-
 
 unsigned char 
 readline(FILE *fp, char *buffer, unsigned int n, char add_nl){
@@ -112,14 +114,13 @@ wlnmatcher_alloc() {
 #define RING_SSSR 4
 #define RING_CLOSE 5
 
-#define LOCANT 6
+#define BRANCH_WC  6; // after a cycle logic is expanded
 
   fsm_state *init       = &fsm[INIT]; 
   fsm_state *branch     = &fsm[BRANCH]; 
   fsm_state *ring_open  = &fsm[RING_OPEN]; 
   fsm_state *ring_SSSR  = &fsm[RING_SSSR]; 
   fsm_state *ring_close = &fsm[RING_CLOSE]; 
-  fsm_state *locant     = &fsm[LOCANT]; 
   
   fsm_state_make_final(branch); 
   fsm_state_make_final(ring_close); 
@@ -157,12 +158,13 @@ wlnmatcher_alloc() {
 
 static bool
 match_buffer(char *buffer, 
-            char *match_map,
-            unsigned int len,
-            struct fsm_state *fsm) 
+             char *match_map,
+             unsigned int len,
+             struct fsm_state *fsm) 
 {
   bool any_match = false;
-  fsm_state *head = &fsm[1]; 
+  fsm_state *root = &fsm[1]; 
+  fsm_state *head = root; 
 
   for (unsigned int i=0; i<len; i++) {
     unsigned char ch = buffer[i];
@@ -177,7 +179,7 @@ match_buffer(char *buffer,
           i = j; // greedy match
           any_match = true;
         }
-        head = &fsm[1]; // reset to root
+        head = root; 
         break;
       }
       else {
@@ -197,8 +199,22 @@ print_buffer(char *buffer,
              unsigned char inverse) 
 {
   char matching = 0; 
-  for (unsigned int i=0; i<len; i++) {
+
+  if (!inverse) for (unsigned int i=0; i<len; i++) {
     if (match_map[i]) { 
+      if (!matching) {
+        matching = 1;
+        if (latty) printf(RED);
+      }
+    }
+    else if (matching) {
+      matching = 0; 
+      if (latty) printf(RESET);
+    }
+    fputc(buffer[i], stdout); 
+  }
+  else for (unsigned int i=0; i<len; i++) {
+    if (!match_map[i]) { 
       if (!matching) {
         matching = 1;
         if (latty) printf(RED);
@@ -214,6 +230,38 @@ print_buffer(char *buffer,
 }
 
 
+static void 
+print_matches(char *buffer, 
+              char *match_map,
+              unsigned int len, 
+              unsigned char inverse) 
+{
+  char matching = 0;
+  if (!inverse) for (unsigned int i=0; i<len; i++) {
+    if (match_map[i]) {
+      if (!matching)
+        matching = 1;
+      fputc(buffer[i], stdout); 
+    }
+    else if (matching) {
+      matching = 0;
+      fputc('\n', stdout); 
+    }
+  }
+  else for (unsigned int i=0; i<len; i++) {
+    if (!match_map[i]) {
+      if (!matching)
+        matching = 1;
+      fputc(buffer[i], stdout); 
+    }
+    else if (matching) {
+      matching = 0;
+      fputc('\n', stdout); 
+    }
+  }
+}
+
+
 static bool 
 process_file(FILE *fp, struct fsm_state *fsm)
 {
@@ -224,8 +272,15 @@ process_file(FILE *fp, struct fsm_state *fsm)
     lines_parsed++;
     len = strlen(buffer);
     memset(match_map, 0, 4096);
-    if (match_buffer(buffer, match_map, len, fsm))
-      print_buffer(buffer, match_map, len, opt_invert_match);  
+    if (match_buffer(buffer, match_map, len, fsm)) {
+      
+      switch (opt_match_option) {
+        case LINE_MATCH: print_buffer(buffer, match_map, len, opt_invert_match); break;
+        case MATCH_ONLY: print_matches(buffer, match_map, len, opt_invert_match); break; 
+        case EXACT_MATCH: break; 
+      }
+
+    }
   }
   
   if(opt_count)
@@ -253,6 +308,10 @@ process_cml(int argc, char *argv[])
 {
   const char *ptr = 0;
   fp = NULL; 
+  opt_count = 0; 
+  opt_invert_match = 0; 
+  opt_match_option = LINE_MATCH; 
+
   int i, j;
   j = 0;
   for (i = 1; i < argc; i++) {
@@ -263,8 +322,8 @@ process_cml(int argc, char *argv[])
     }
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
       case 'c': opt_count = 1; break;
-      case 'o': opt_match_option = 1; break;
-      case 'x': opt_match_option = 2; break;
+      case 'o': opt_match_option = MATCH_ONLY; break;
+      case 'x': opt_match_option = EXACT_MATCH; break;
       case 'v': opt_invert_match = 1; break;
 
       case '-':
