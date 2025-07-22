@@ -21,31 +21,27 @@ else()
   message(FATAL_ERROR "OpenBabel library not found")
 endif(OPENBABEL3_FOUND)
 
-include_directories(
-  ${CMAKE_SOURCE_DIR}/src/wlnparser
-  ${CMAKE_SOURCE_DIR}/src/wlngrep
-  ${CMAKE_SOURCE_DIR}/src/wlncompress
-)
+include_directories(${CMAKE_SOURCE_DIR}/src/)
 
 add_executable(readwln 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/readwln.cpp 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/wlnreader.cpp
+  ${CMAKE_SOURCE_DIR}/src/readwln.cpp 
+  ${CMAKE_SOURCE_DIR}/src/wlnreader.cpp
 )
 
 add_executable(benchwln 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/benchwln.cpp 
-  ${CMAKE_SOURCE_DIR}/src/wlnparser/wlnreader.cpp
+  ${CMAKE_SOURCE_DIR}/src/benchwln.cpp 
+  ${CMAKE_SOURCE_DIR}/src/wlnreader.cpp
 )
 
 target_link_libraries(readwln   ${OPENBABEL3_LIBRARIES})
 target_link_libraries(benchwln  ${OPENBABEL3_LIBRARIES})
 
-add_executable(wlngrep ${CMAKE_SOURCE_DIR}/src/wlngrep/wlngrep.cpp)
+message(WARNING "wlngrep will take a long time to build")
 
-# this will not compile on Arm64 // fix at later date
-if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-  add_executable(wlnpaq6
-    ${CMAKE_SOURCE_DIR}/src/wlncompress/paq6.cpp
-  )
-  set_target_properties(wlnpaq6 PROPERTIES COMPILE_OPTIONS "-m32" LINK_FLAGS "-m32") 
-endif() 
+add_custom_target(build_warning
+  COMMAND ${CMAKE_COMMAND} -E echo "Building wlngrep — this may take a while..."
+)
+
+add_executable(wlngrep ${CMAKE_SOURCE_DIR}/src/wlngrep.cpp)
+add_dependencies(wlngrep build_warning)
+
