@@ -53,16 +53,17 @@ GNU General Public License for more details.
 #define BRO   35
 #define IOD   53
 
+#define WLN_ERROR -1
+#define WLN_OK 0
 
-static bool 
-error(const char *format, ...) 
+static int wln_error(const char *format, ...) 
 {
   va_list args;
   va_start(args, format);
   fprintf(stderr, "Error: ");  
   vfprintf(stderr, format, args); 
   va_end(args); 
-  return false;  
+  return WLN_ERROR;  
 }
 
 
@@ -90,9 +91,16 @@ using namespace OpenBabel;
 #define edge_set_order(e, o)        e->SetBondOrder(o);
 #define edge_set_aromatic(e, b)     e->SetAromatic(b)
 
+#define edge_set_begin(e, s)       e->SetBegin(s)
+#define edge_set_end(e, s)         e->SetEnd(s)
+#define edge_get_end(e)            e->GetEndAtom()
+
 #define graph_new_symbol(g)         g->NewAtom()
-#define graph_get_bond(g,x,y)       g->GetBond(x,y)
+#define graph_new_edge(g)           g->NewBond()
+#define graph_set_edge(g,e)         g->AddBond(*e)
+#define graph_get_edge(g,x,y)       g->GetBond(x,y)
 #define graph_delete_symbol(g,s)    g->DeleteAtom(s)
+#define graph_delete_edge(g,e)      g->DeleteBond(e)
 #define graph_num_atoms(g)          g->NumAtoms()
 
 #define graph_symbol_iter(s, g)     FOR_ATOMS_OF_MOL(s,g)
@@ -109,6 +117,22 @@ symbol_create(graph_t *mol, uint16_t atomic_num)
   symbol_t *atom = graph_new_symbol(mol); 
   symbol_set_num(atom, atomic_num);
   return atom; 
+}
+
+
+static edge_t* edge_create(graph_t *mol, symbol_t *parent) {
+  edge_t *bond = graph_new_edge(mol); 
+  edge_set_begin(bond, parent); 
+  edge_set_order(bond, 1);
+  return bond; 
+}
+
+
+static bool edge_bond(graph_t *mol, edge_t *bond, symbol_t *child)
+{
+  edge_set_end(bond, child); 
+  graph_set_edge(mol, bond);
+  return true; 
 }
 
 
@@ -441,15 +465,6 @@ add_oxy(graph_t *mol, symbol_t *atom)
 
 
 static bool 
-add_methyl(graph_t *mol, symbol_t *atom) {
-  symbol_t *methyl = symbol_create(mol, CAR);
-  edge_t *bptr = edge_create(mol, atom, methyl);
-  if (!bptr) return false;
-  return true;
-}
-
-
-static bool 
 add_dioxo(graph_t *mol, symbol_t *atom) {
   if (!add_oxy(mol, atom))
     return false;
@@ -522,7 +537,7 @@ ring_create_benzene(graph_t *mol)
     symbol_t *f = benzene->path[i].s;
     symbol_t *p = benzene->path[i-1].s;
 
-    bond = graph_get_bond(mol, f, p);
+    bond = graph_get_edge(mol, f, p);
 
     symbol_set_aromatic(f, true);
     symbol_set_aromatic(p, true);
@@ -586,7 +601,7 @@ static bool pathsolverIII_fast(graph_t *mol,
     for (uint16_t s = 0; s < steps-1; s++) {
       unsigned char nxt = path[end].nxt_locant; 
       symbol_set_aromatic(r->path[end].s, arom);
-      edge_t *e = graph_get_bond(mol, r->path[end].s, r->path[nxt].s);
+      edge_t *e = graph_get_edge(mol, r->path[end].s, r->path[nxt].s);
       edge_set_aromatic(e, arom);
       end = nxt; 
     }
@@ -714,7 +729,7 @@ static bool pathsolverIII(graph_t *mol,
     for (int i=1; i<r->size; i++) {
       symbol_set_aromatic(r->path[best_path[i]].s, arom);
       symbol_set_aromatic(r->path[best_path[i-1]].s, arom);
-      edge_t *e = graph_get_bond(mol, r->path[best_path[i]].s, r->path[best_path[i-1]].s);
+      edge_t *e = graph_get_edge(mol, r->path[best_path[i]].s, r->path[best_path[i-1]].s);
       edge_set_aromatic(e, arom);
     }
 
@@ -728,70 +743,6 @@ static bool pathsolverIII(graph_t *mol,
   return true; 
 }
 
-
-struct wlnrefaddr {
-  void *addr; 
-  char ref; 
-}; 
-
-/* keep the struct scoped, no leaking */
-static unsigned int 
-depstack_cleanup(const struct wlnrefaddr *dep_stack, 
-                 unsigned int stack_ptr)
-{
-  for (unsigned int i = 0; i < stack_ptr; i++) {
-    if (dep_stack[i].ref == -1)
-      free((struct wlnpath*)dep_stack[i].addr);
-  }
-  return 0;
-}
-
-
-static unsigned int 
-depstack_push_branch(struct wlnrefaddr *dep_stack,  
-                     unsigned int stack_ptr,
-                     symbol_t *sym,
-                     unsigned int ref)
-{
-  dep_stack[stack_ptr].addr = sym; 
-  dep_stack[stack_ptr].ref  = ref;
-  return stack_ptr+1; 
-}
-
-
-static unsigned int 
-depstack_push_ring(struct wlnrefaddr *dep_stack,  
-                   unsigned int stack_ptr,
-                   struct wlnpath *ring)
-{
-  dep_stack[stack_ptr].addr = ring; 
-  dep_stack[stack_ptr].ref  = -1;
-  return stack_ptr+1; 
-}
-
-
-static unsigned int 
-depstack_pop(struct wlnrefaddr *dep_stack, 
-             unsigned int stack_ptr, 
-             symbol_t **prev_symbol)
-{
-  if (dep_stack[stack_ptr-1].ref == -1) {
-    free(dep_stack[stack_ptr-1].addr);
-    stack_ptr--; 
-    if (stack_ptr > 0 && dep_stack[stack_ptr-1].ref != -1) {
-      *prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr;  
-      if (--dep_stack[stack_ptr-1].ref == 0)
-        stack_ptr--; 
-    }
-  }
-  else {
-    // a branch must be open.
-    *prev_symbol = (symbol_t*)dep_stack[stack_ptr-1].addr; 
-    if (--dep_stack[stack_ptr-1].ref == 0)
-      stack_ptr--; 
-  }
-  return stack_ptr;
-}
 
 /* ################# Dispatch Functions ################# */
 
@@ -949,12 +900,12 @@ parse_heterocycle_symbols(const char **wln,
 
       case 'U':
         if (locant_ch > ring->size) 
-          return error("could not unsaturate bond due - locant out of bounds");
+          return wln_error("could not unsaturate bond due - locant out of bounds");
         if (locant_ch == ring->size)
-          bond = graph_get_bond(mol, ring->path[locant_ch].s, 
+          bond = graph_get_edge(mol, ring->path[locant_ch].s, 
                                 ring->path[0].s);
         else
-          bond = graph_get_bond(mol, ring->path[locant_ch].s, 
+          bond = graph_get_edge(mol, ring->path[locant_ch].s, 
                                 ring->path[locant_ch+1].s);
         edge_unsaturate(bond);
         break;
@@ -979,7 +930,7 @@ parse_heterocycle_symbols(const char **wln,
         return true;
 
       default:
-        return error("unhandled symbol - %c\n", ch); 
+        return wln_error("unhandled symbol - %c\n", ch); 
     }
   }
 
@@ -1037,7 +988,7 @@ parse_cyclic(const char **wln, graph_t *mol)
 #else
         if (!pathsolverIII(mol, ring, SSSR, SSSR_ptr)) {
           free(ring);
-          return (struct wlnpath*)error("failed on path solver algorithm");  
+          return (struct wlnpath*)wln_error("failed on path solver algorithm");  
         }
 #endif
         return ring; 
@@ -1045,7 +996,7 @@ parse_cyclic(const char **wln, graph_t *mol)
       case 'T':
       case '&':
         if (!SSSR_ptr) 
-          return (struct wlnpath*)error("no rings designated before ring close\n"); 
+          return (struct wlnpath*)wln_error("no rings designated before ring close\n"); 
         if (!parse_aromaticity(&(--ptr), SSSR, SSSR_ptr)) {
           free(ring);
           return NULL;
@@ -1054,7 +1005,7 @@ parse_cyclic(const char **wln, graph_t *mol)
 
       case ' ':
         if ((locant_ch = parse_locant(&ptr)) == -1)
-          return (struct wlnpath*)error("failed on locant parse\n");
+          return (struct wlnpath*)wln_error("failed on locant parse\n");
         break;
 
       case 'B':
@@ -1072,11 +1023,11 @@ parse_cyclic(const char **wln, graph_t *mol)
       case 'V':
         if (!ring) ring = ring_create(mol, max_path_size); 
         if (!parse_heterocycle_symbols(&(--ptr), mol, ring, locant_ch))
-          return (struct wlnpath*)error("failed in heterocyclic symbol parse\n");
+          return (struct wlnpath*)wln_error("failed in heterocyclic symbol parse\n");
         break;
 
       default: 
-        return (struct wlnpath*)error("invalid character in SSSR ring block - %c\n", ch); 
+        return (struct wlnpath*)wln_error("invalid character in SSSR ring block - %c\n", ch); 
     }
   }
 
@@ -1085,44 +1036,20 @@ parse_cyclic(const char **wln, graph_t *mol)
 }
 
 
-/*
- * -- Parse WLN Notation --
- */
-bool 
-ReadWLN(const char *wln, graph_t *mol)
+static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
 {
-#ifdef USING_OPENBABEL
-  mol->BeginModify(); 
-  mol->SetAromaticPerceived(true);
-  mol->SetChiralityPerceived(true); // no stereo for WLN
-#endif
-
-  edge_t *curr_edge=0; 
-  symbol_t *init_symbol=0;
-  symbol_t *curr_symbol=0;
-  symbol_t *prev_symbol=0;
-  struct wlnpath *curr_ring=0;
-
-  int locant_ch = 0; 
+  int ret; 
+  char *ptr = *wln; 
+  unsigned char ch = *ptr; 
+  edge_t *curr_edge = edge;
+  symbol_t *curr_symbol;
   uint16_t counter   = 0; 
-  uint8_t  unsaturation=0; 
-  
-  uint8_t stack_ptr = 0;  // WLN branch and ring dependency stack
-  struct wlnrefaddr dep_stack[64];  
 
-  // init conditions, make one dummy atom, and one bond - work of the virtual bond
-  // idea entirely *--> grow..., delete at the end to save branches
-  init_symbol = prev_symbol = symbol_create(mol, DUM); 
-  curr_symbol = parse_opening_terminator(mol, *wln);
-  if (curr_symbol) {
-    curr_edge   = edge_create(mol, curr_symbol, prev_symbol);
-    prev_symbol = curr_symbol; 
-    wln++;
-  }
-  
-  unsigned char ch = *wln; 
-  while (*wln) {
-    ch  = *wln++;
+  if (!*ptr)
+    return WLN_OK;
+
+  while (*ptr) {
+    ch  = *ptr++;
     switch (ch) {
       case '0':
       case '1':
@@ -1135,301 +1062,233 @@ ReadWLN(const char *wln, graph_t *mol)
       case '8':
       case '9':
         counter = ch - '0';
-        while ((ch = *wln) && ch >= '0' && ch <= '9') {
+        while ((ch = *ptr) && ch >= '0' && ch <= '9') {
           counter *= 10; 
           counter += ch - '0'; 
-          wln++;
+          ptr++;
         }
         for (uint16_t i=0; i<counter; i++) {
-          curr_symbol = symbol_create(mol, CAR);
-          curr_edge = edge_create(mol, curr_symbol, prev_symbol);  
-          edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-          prev_symbol = curr_symbol; 
+          symbol_t *carbon = symbol_create(mol, CAR);
+          edge_bond(mol, curr_edge, carbon); 
+          curr_edge = edge_create(mol, carbon); 
+          curr_symbol = carbon; 
         }
         break;
       
       case 'A':
       case 'J':
-        return error("non-atomic symbol used in chain"); 
+        return wln_error("non-atomic symbol used in chain"); 
       
       case 'B':
         curr_symbol = symbol_create(mol, BOR);
-        
-        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
-        
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol);
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
-        break; 
+        edge_bond(mol, curr_edge, curr_symbol); 
+
+        for (unsigned int i=0; i<2; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+        }
+        *wln = ptr; 
+        return WLN_OK; 
       
       case 'C':
-        return error("WLN symbol C currently unhandled\n"); 
+        return wln_error("WLN symbol C currently unhandled\n"); 
 
       // extrememly rare open chelate notation
       case 'D':
-        return error("WLN symbol D (chelate) currently unhandled\n"); 
+        return wln_error("WLN symbol D (chelate) currently unhandled\n"); 
       
-      // terminator symbol - no bond movement
+      // terminator symbol 
       case 'E':
         curr_symbol = symbol_create(mol, BRO);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        if (unsaturation) return error("unsaturation on a terminator is not allowed\n");
-
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          if (*wln != ' ' && *wln != '\0')
-            return error("terminator character closes molecule\n");
-        }
-        else 
-          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        *wln = ptr; 
+        return WLN_OK; 
 
       case 'F':
         curr_symbol = symbol_create(mol, FLU);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        if (unsaturation) return error("unsaturation on a terminator is not allowed\n");
-
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          if (*wln != ' ' && *wln != '\0')
-            return error("terminator character closes molecule\n");
-        }
-        else 
-          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        *wln = ptr; 
+        return WLN_OK; 
 
       case 'G':
         curr_symbol = symbol_create(mol, CHL);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        if (unsaturation) return error("unsaturation on a terminator is not allowed\n");
-
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          if (*wln != ' ' && *wln != '\0')
-            return error("terminator character closes molecule\n");
-        }
-        else 
-          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        *wln = ptr; 
+        return WLN_OK; 
 
       case 'H':
-        symbol_incr_hydrogens(prev_symbol); 
+        symbol_incr_hydrogens(curr_symbol); 
         break;
 
       case 'I':
         curr_symbol = symbol_create(mol, IOD);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        if (unsaturation) return error("unsaturation on a terminator is not allowed\n");
-
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          if (*wln != ' ' && *wln != '\0')
-            return error("terminator character closes molecule\n");
-        }
-        else 
-          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        *wln = ptr; 
+        return WLN_OK; 
      
       /* [N+](R)(R)(R)(R) */
       case 'K':
         curr_symbol = symbol_create(mol, NIT);
+        edge_bond(mol, curr_edge, curr_symbol); 
         symbol_set_charge(curr_symbol, +1); 
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        
-        counter = 0;
-        if (*wln == '&') while (*wln == '&' && counter < 2) {
-          add_methyl(mol, curr_symbol); 
-          counter++; 
-          wln++;
-        }
-        if (counter < 2) 
-          stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 2-counter);
-       
-        // final contraction and stack movement if possible
-        if (*wln == '&') {
-          add_methyl(mol, curr_symbol);
-          wln++;
-          if (!stack_ptr) {
-            if (*wln != ' ' && *wln != '\0')
-              return error("terminator character closes molecule\n");
+
+        for (unsigned int i=0; i<3; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+          if (!edge_get_end(curr_edge)) {
+            symbol_t *methyl = symbol_create(mol, CAR);
+            edge_bond(mol, curr_edge, methyl);  
           }
-          else 
-            stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         }
-        else 
-          prev_symbol = curr_symbol; 
-        break;
+        *wln = ptr; 
+        return WLN_OK; 
 
       case 'L':
       case 'T':
-        curr_ring = parse_cyclic(&wln, mol);
-        if (!curr_ring) return false;
-        stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
-        break; 
+        /* impossible from here */
+        return wln_error("ring notation must start the molecule to be used\n");
       
       /* NH(R)(R) */
       case 'M':
         curr_symbol = symbol_create(mol, NIT); 
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
+        edge_bond(mol, curr_edge, curr_symbol); 
+        curr_edge = edge_create(mol, curr_symbol); 
         break;
      
       /* NR(R)(R) */
       case 'N':
         curr_symbol = symbol_create(mol, NIT);
-        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
-        
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        for (unsigned int i=0; i<2; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+        }
+        *wln = ptr; 
+        return WLN_OK; 
       
       /* OR(R) */
       case 'O':
         curr_symbol = symbol_create(mol, OXY); 
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
+        edge_bond(mol, curr_edge, curr_symbol); 
+        curr_edge = edge_create(mol, curr_symbol); 
         break;
       
       case 'P':
         curr_symbol = symbol_create(mol, PHO);
-        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
-        
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+
+        for (unsigned int i=0; i<3; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+        }
+
+        *wln = ptr; 
+        return WLN_OK; 
 
       case 'Q':
         curr_symbol = symbol_create(mol, OXY);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        if (unsaturation) return error("unsaturation on a terminator is not allowed\n");
-
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          if (*wln != ' ' && *wln != '\0')
-            return error("terminator character closes molecule\n");
-        }
-        else 
-          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        *wln = ptr; 
+        return true; 
 
       // shorthand benzene 
       case 'R': 
+#if 0
         curr_ring = ring_create_benzene(mol);
-        stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
+        wln_ampstack_push_ring(&dep_stack, curr_ring, 0, 0);  
 
         curr_edge   = edge_create(mol, curr_ring->path[0].s, prev_symbol); 
         edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
+#endif
         break;
 
       case 'S':
         curr_symbol = symbol_create(mol, SUL);
-        stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 3);
-        
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+
+        for (unsigned int i=0; i<3; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+        }
+
+        *wln = ptr; 
+        return WLN_OK; 
       
       case 'U':
-        unsaturation++; 
+        edge_unsaturate(curr_edge); 
         break; 
 
       case 'V':
         curr_symbol = symbol_create(mol, CAR);
+        edge_bond(mol, curr_edge, curr_symbol); 
         if (!add_oxy(mol, curr_symbol))
-          return error("failed to add =O group\n"); 
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        prev_symbol = curr_symbol; 
+          return wln_error("failed to add =O group\n"); 
+        curr_edge = edge_create(mol, curr_symbol); 
         break;
       
       // if not previous, create dummy carbon
       // really trying to avoid a bit state on this
       case 'W':
+#if 0
         if (!add_dioxo(mol, prev_symbol))
           return error("failed to add dioxo group with W\n"); 
+#endif
         break; 
 
       case 'X':
         curr_symbol = symbol_create(mol, CAR);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        
-        // default methyl contraction for X,Y,K
-        counter = 0;
-        if (*wln == '&') while (*wln == '&' && counter < 2) {
-          add_methyl(mol, curr_symbol); 
-          counter++; 
-          wln++;
-        }
+        edge_bond(mol, curr_edge, curr_symbol); 
 
-        if (counter < 2) 
-          stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 2-counter);
-
-        // final contraction and stack movement if possible
-        if (*wln == '&') {
-          add_methyl(mol, curr_symbol);
-          wln++;
-          if (!stack_ptr) {
-            if (*wln != ' ' && *wln != '\0')
-              return error("terminator character closes molecule\n");
+        for (unsigned int i=0; i<3; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+          if (!edge_get_end(curr_edge)) {
+            symbol_t *methyl = symbol_create(mol, CAR);
+            edge_bond(mol, curr_edge, methyl);  
           }
-          else 
-            stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         }
-        else 
-          prev_symbol = curr_symbol; 
-        break;
+
+        *wln = ptr; 
+        return WLN_OK; 
 
       case 'Y':
         curr_symbol = symbol_create(mol, CAR);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
+        edge_bond(mol, curr_edge, curr_symbol); 
         
-        // default methyl contraction for X,Y,K
-        if (*wln == '&') { 
-          add_methyl(mol, curr_symbol); 
-          counter++; 
-          wln++;
-        }
-        else 
-          stack_ptr = depstack_push_branch(dep_stack, stack_ptr, curr_symbol, 1);
-
-        // final contraction and stack movement if possible
-        if (*wln == '&') {
-          add_methyl(mol, curr_symbol);
-          wln++;
-          if (!stack_ptr) {
-            if (*wln != ' ' && *wln != '\0')
-              return error("terminator character closes molecule\n");
+        for (unsigned int i=0; i<2; i++) {
+          curr_edge = edge_create(mol, curr_symbol); 
+          int ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          if (ret == WLN_ERROR)
+            return ret; 
+          if (!edge_get_end(curr_edge)) {
+            symbol_t *methyl = symbol_create(mol, CAR);
+            edge_bond(mol, curr_edge, methyl);  
           }
-          else 
-            stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
         }
-        else 
-          prev_symbol = curr_symbol; 
-        break;
+        
+        *wln = ptr; 
+        return WLN_OK; 
       
       case 'Z':
         curr_symbol = symbol_create(mol, NIT);
-        curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-        if (unsaturation) return error("unsaturation on a terminator is not allowed\n");
-
-        // note: terminators can act on an empty stack, '&' cannot
-        if (!stack_ptr) {
-          if (*wln != ' ' && *wln != '\0')
-            return error("terminator character closes molecule\n");
-        }
-        else 
-          stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        edge_bond(mol, curr_edge, curr_symbol); 
+        *wln = ptr; 
+        return true; 
       
       case '-':
+#if 0
         if (*wln == ' ') {
           if (!curr_ring)
             return error("inline ring creation requires a previous ring\n");
@@ -1439,9 +1298,10 @@ ReadWLN(const char *wln, graph_t *mol)
             return error("invalid format for inline ring\n");
           
           curr_ring = parse_cyclic(&(++wln), mol); 
+#if 0
           if (!curr_ring) return false; 
           stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
-          
+#endif
           if (locant_ch >= curr_ring->size)
             return error("locant larger than current ring\n");
           
@@ -1457,55 +1317,80 @@ ReadWLN(const char *wln, graph_t *mol)
           prev_symbol = curr_symbol; 
           wln++; 
         }
+#endif
         break;
 
       case ' ':
-        if (*wln == '&') {
+        if (*ptr == '&') {
           // parse end notation
         }
-        else if ((locant_ch = parse_locant(&wln)) == -1)
-          return error("could not parse locant\n");
-        
-        curr_ring = NULL;
-        while (stack_ptr > 0) {
-          if (dep_stack[stack_ptr-1].ref == -1) {
-            curr_ring = (struct wlnpath*)dep_stack[stack_ptr-1].addr; 
-            break;
-          } 
-          stack_ptr--;
-        }
-        
-        if (!curr_ring)
-          return error("locant notation used without previously defined ring\n");
-        if (locant_ch >= curr_ring->size)
-          return error("locant larger than current ring\n");
-        prev_symbol = curr_ring->path[locant_ch].s;
-        break; 
+        else return wln_error("spaces are only allowed with ring notation"); 
 
       case '&':
-        if (!stack_ptr) 
-          return error("empty dependency stack - too many &?\n"); 
-        stack_ptr = depstack_pop(dep_stack, stack_ptr, &prev_symbol); 
-        break;
+        /* branch must of closed */
+        *wln = ptr; 
+        return WLN_OK;
 
       case '\n':
         break; 
       case '/':
-        return error("slash seen outside of ring - multipliers currently unsupported\n");
+        return wln_error("slash seen outside of ring - multipliers currently unsupported\n");
       default:
         fprintf(stderr, "invalid character read for WLN notation - %c(%u)\n", ch, ch);
         return false; 
     }
   }
+  
+  *wln = ptr; 
+  return true; 
+}
+
+
+/*
+ * -- Parse WLN Notation --
+ */
+bool ReadWLN(const char *wln, graph_t *mol)
+{
+#ifdef USING_OPENBABEL
+  mol->BeginModify(); 
+  mol->SetAromaticPerceived(true);
+  mol->SetChiralityPerceived(true); // no stereo for WLN
+#endif
+  
+  // init conditions, make one dummy atom, and one bond - work of the virtual bond
+  // idea entirely *--> grow..., delete at the end to save branches
+  symbol_t *init_symbol = symbol_create(mol, DUM); 
+  edge_t *init_edge = graph_new_edge(mol); 
+  edge_set_begin(init_edge, init_symbol); 
+
+  symbol_t *open_term = parse_opening_terminator(mol, *wln);
+  if (open_term) {
+    edge_bond(mol, init_edge, open_term); 
+    init_edge = edge_create(mol, open_term); 
+    wln++; 
+  }
+  
+  char *ptr = (char*)wln; 
+
+  switch (*wln) {
+    case 'L':
+    case 'T':
+    default:
+      if (branch_recursive_parse(&ptr, mol, init_edge) == WLN_ERROR)
+        return false; 
+  }
+
+  if (*ptr) {
+    wln_error("parse ended before end of notation - %s\n", ptr); 
+    return false; 
+  }
 
   // clean up the hanging bond, one branch in exchange for many
   graph_delete_symbol(mol, init_symbol); 
-  depstack_cleanup(dep_stack, stack_ptr);  
   graph_cleanup_hydrogens(mol);
 
 #ifdef USING_OPENBABEL
   OBKekulize(mol); 
-  //mol->EndModify(); // do not retrigger chirality 
 #endif
   return true; 
 }
