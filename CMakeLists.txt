@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.21)
 project(wisswesser)
+enable_testing()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 message(STATUS "CMake System: ${CMAKE_SYSTEM_NAME}")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3 -std=c++11")
 if(CMAKE_BUILD_TYPE STREQUAL "DEBUG")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fsanitize=address -Wall -Wpedantic -Wextra")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wpedantic -Wextra")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
