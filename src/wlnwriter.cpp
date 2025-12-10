@@ -2497,7 +2497,6 @@ bool parse_acyclic(char **buffer, OBMol *mol, OBAtom *atom)
 
 bool WriteWLN(char *buffer, OBMol* mol)
 {   
-  unsigned int i = 0; 
 #ifdef USING_OPENBABEL
   bool cyclic = !mol->GetSSSR().empty();
 #endif
@@ -2506,7 +2505,9 @@ bool WriteWLN(char *buffer, OBMol* mol)
 
   } 
   else FOR_ATOMS_OF_MOL(a, mol) {
-
+    OBAtom *atom = &(*a);  
+    if (atom->GetExplicitDegree() == 1)
+      return parse_acyclic(&buffer, mol, atom); 
   }
     
   return true; 

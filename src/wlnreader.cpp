@@ -59,12 +59,14 @@ error(const char *message)
 }
 
 
+
 #ifdef USING_OPENBABEL
 using namespace OpenBabel;
 #define graph_t    OBMol
 #define symbol_t   OBAtom
 #define edge_t     OBBond
 
+#define symbol_get_id(s)            s->GetId()
 #define symbol_get_num(s)           s->GetAtomicNum()
 #define symbol_set_num(s, n)        s->SetAtomicNum(n)
 #define symbol_get_charge(s)        s->GetFormalCharge()
@@ -75,6 +77,7 @@ using namespace OpenBabel;
 #define symbol_get_aromatic(s)      s->IsAromatic()
 #define symbol_incr_hydrogens(s)    s->SetImplicitHCount(s->GetImplicitHCount()+1)
 #define symbol_get_valence(s)       s->GetExplicitValence()
+#define symbol_nbor_iter(a, s)      FOR_NBORS_OF_ATOM(a,s)
 
 #define edge_unsaturate(e)          e->SetBondOrder(1+e->GetBondOrder())
 #define edge_set_order(e, o)        e->SetBondOrder(o);
@@ -83,6 +86,7 @@ using namespace OpenBabel;
 #define graph_new_symbol(g)         g->NewAtom()
 #define graph_get_bond(g,x,y)       g->GetBond(x,y)
 #define graph_delete_symbol(g,s)    g->DeleteAtom(s)
+#define graph_num_atoms(g)          g->NumAtoms()
 
 #define graph_symbol_iter(s, g)     FOR_ATOMS_OF_MOL(s,g)
 #define graph_edge_iter(e, g)       FOR_BONDS_OF_MOL(e,g)
@@ -530,11 +534,24 @@ ring_create_benzene(graph_t *mol)
 }
 
 
-static bool
-pathsolverIII_fast(graph_t *mol, 
-                   const struct wlnpath *r, 
-                   struct wlnsubcycle SSSR[], 
-                   uint8_t SSSR_ptr) 
+/*
+ * PathsolverIII FAST Algorithm (Michael Blakey):
+ *
+ * Named after the original attempts at WLN hamiltonian paths
+ * from lynch et al. PathsolverIII iterates a given hamiltonian 
+ * path by using the "allowed connections" property. Please
+ * refer to my thesis for more details. 
+ *
+ * In short - ring bonds can have a maximum of 3 connections
+ *            unless specified as bridging (-1) or expanded (+1)
+ *
+ * The path is maximised at each step which mirrors the minimisation
+ * of the fusion sum as mentioned in the manuals. 
+*/
+static bool pathsolverIII_fast(graph_t *mol, 
+                               const struct wlnpath *r, 
+                               struct wlnsubcycle *SSSR, 
+                               uint8_t nSSSR)
 {
   uint8_t last_idx = r->size-1; 
   struct pathmapping {
@@ -550,26 +567,11 @@ pathsolverIII_fast(graph_t *mol,
   path[last_idx].nlocants = 3; 
   path[last_idx].nxt_locant = last_idx;
 
-  /*
-   * PathsolverIII FAST Algorithm (Michael Blakey):
-   *
-   * Named after the original attempts at WLN hamiltonian paths
-   * from lynch et al. PathsolverIII iterates a given hamiltonian 
-   * path by using the "allowed connections" property. Please
-   * refer to my thesis for more details. 
-   *
-   * In short - ring bonds can have a maximum of 3 connections
-   *            unless specified as bridging (-1) or expanded (+1)
-   *
-   * The path is maximised at each step which mirrors the minimisation
-   * of the fusion sum as mentioned in the manuals. 
-  */
-
   uint8_t steps, start, end;
   bool arom;
   struct wlnsubcycle *subcycle; 
   
-  for (uint16_t i=0; i<SSSR_ptr; i++) {
+  for (uint16_t i=0; i<nSSSR; i++) {
     subcycle = &SSSR[i];   
     steps    = subcycle->size; 
     start    = subcycle->locant; 
@@ -603,62 +605,106 @@ pathsolverIII_fast(graph_t *mol,
   return r;   
 }
 
-#if 0
-static struct ring_t* 
-pathsolverIII(graph_t *g, struct ring_t *r, 
-              r_assignment *SSSR, uint8_t SSSR_ptr, 
-              uint8_t *connection_table)
+
+static int pathsolver_recursive_floodfill(struct wlnpath *r, 
+                                          symbol_t *s, 
+                                          bool *seen, 
+                                          int n)
 {
-  uint8_t steps, s_pos;
-  edge_t *e; 
-  locant_t *c, *p=0;
-  locant_t *start, *end; 
-  r_assignment *subcycle; 
-
-  for (uint16_t i=0; i<r->size; i++) {
-    c = &r->path[i]; 
-    if (!c->s) 
-      c->s = symbol_create(g, CAR, 4); 
-
-    if (p) {
-      e = next_virtual_edge(p->s); 
-      e = set_virtual_edge(e, p->s, c->s); 
-      connection_table[i * r->size +(i-1)] = 1; 
-      connection_table[(i-1) * r->size + i] = 1; 
+  if (n==0) { 
+    for (int end = 0; end < r->size; end++) {
+      unsigned int id = symbol_get_id(s); 
+      if (r->path[end].s == s) {
+        seen[id] = false;
+        return end; 
+      }
     }
-
-    connection_table[i*r->size+i] = 1; // bond to itself?
-
-    c->r_pack++; 
-    c->hloc = i+1; // point to the next locant_t 
-    p = c; 
   }
-
-  // end chain movement
-  r->path[0].r_pack++; 
-  r->path[r->size-1].r_pack++; 
-  r->path[r->size-1].hloc = r->size-1; 
-
-  /*
-   * PathsolverIII Algorithm (Michael Blakey):
-   *
-   * Named after the original attempts at WLN hamiltonian paths
-   * from lynch et al. PathsolverIII iterates a given hamiltonian 
-   * path by using the "allowed connections" property. Please
-   * refer to my thesis for more details. 
-   *
-   * Pseudo locants break the iterative walk, and a flood fill is required to 
-   * find the maximal path through the ring system, this can be optimised somewhat
-   * by using a priority queue on the walks, and bonding the pseudo positions
-   * during the notation parse
-   *
-   * connection table allows the floodfill to be done without another data structure, plus a 
-   * easy pass through for pseudo locants defined in the ring parse 
-  */
   
-  return r;  
+  int max = 0; 
+  symbol_nbor_iter(a, s) {
+    symbol_t *nbr = &(*a); 
+    unsigned int id = symbol_get_id(nbr); 
+    if (!seen[id]) {
+      seen[id] = true; 
+      int loc  = pathsolver_recursive_floodfill(r, nbr, seen, n-1);
+      if (loc > max)
+        max = loc; 
+      seen[id] = false; 
+    }
+  } 
+  return max;  
 }
-#endif
+
+/*
+ * PathsolverIII Algorithm (Michael Blakey):
+ *
+ * Named after the original attempts at WLN hamiltonian paths
+ * from lynch et al. PathsolverIII iterates a given hamiltonian 
+ * path by using the "allowed connections" property. Please
+ * refer to my thesis for more details. 
+ *
+ * Pseudo locants break the iterative walk, and a flood fill is required to 
+ * find the maximal path through the ring system, this can be optimised somewhat
+ * by using a priority queue on the walks, and bonding the pseudo positions
+ * during the notation parse
+ *
+ * connection table allows the floodfill to be done without another data structure, plus a 
+ * easy pass through for pseudo locants defined in the ring parse 
+*/
+static bool pathsolverIII(graph_t *mol, 
+                          struct wlnpath *r, 
+                          struct wlnsubcycle *SSSR, 
+                          uint8_t nSSSR)
+{
+  const unsigned int natoms = graph_num_atoms(mol); 
+  const uint8_t last_idx = r->size-1; 
+  
+  uint8_t *nlocants = (uint8_t*)alloca(r->size); 
+  bool *seen = (bool*)malloc(natoms); 
+  memset(seen, 0, natoms); 
+  
+  for (uint16_t i = 1; i < r->size; i++) 
+    nlocants[i] = 2;
+  nlocants[0]        = 3; 
+  nlocants[last_idx] = 3; 
+
+  uint8_t steps, start, end;
+  bool arom;
+  struct wlnsubcycle *subcycle; 
+  
+  for (uint16_t i=0; i<nSSSR; i++) {
+    subcycle = &SSSR[i];   
+    steps    = subcycle->size; 
+    start    = subcycle->locant; 
+    arom     = subcycle->aromatic;
+  
+    
+    // if used max times in ring, shift along path
+    while (nlocants[start] == 0 && start < r->size) {
+      start++;
+      steps--; 
+    }
+    
+    symbol_t *s_sym = r->path[start].s; 
+    seen[symbol_get_id(s_sym)] = true; 
+    end = pathsolver_recursive_floodfill(r, s_sym, seen, steps-1); 
+    seen[symbol_get_id(s_sym)] = false; 
+
+    symbol_set_aromatic(r->path[end].s, arom);
+    edge_t *e = edge_create(mol, r->path[end].s, r->path[start].s);
+    edge_set_aromatic(e, arom);
+
+    fprintf(stderr,"%d: %c --> %c (%d)\n",steps, start + 'A', end + 'A', subcycle->aromatic); 
+    
+    nlocants[start]--;
+    nlocants[end]--;
+  }
+  
+  free(seen); 
+  return true; 
+}
+
 
 struct wlnrefaddr {
   void *addr; 
@@ -670,8 +716,6 @@ static unsigned int
 depstack_cleanup(const struct wlnrefaddr *dep_stack, 
                  unsigned int stack_ptr)
 {
-
-  // clean up the dep stack
   for (unsigned int i = 0; i < stack_ptr; i++) {
     if (dep_stack[i].ref == -1)
       free((struct wlnpath*)dep_stack[i].addr);
@@ -923,7 +967,7 @@ parse_cyclic(const char **wln, graph_t *mol)
   
   uint8_t SSSR_ptr  = 0; 
   struct wlnsubcycle SSSR[32]; // this really is sensible for WLN
-
+  
   unsigned char ch; 
   while (*ptr) {
     ch = *ptr++; 
@@ -948,15 +992,22 @@ parse_cyclic(const char **wln, graph_t *mol)
         }
       }
     }
-    else switch (ch) {
-      case 'J': 
+    else switch (ch) 
+      case 'J': {
         *wln = ptr; 
         if (!ring) ring = ring_create(mol, max_path_size); 
+#if 0
         if (!pathsolverIII_fast(mol, ring, SSSR, SSSR_ptr)) {
           free(ring);
           return ring_error("Error: failed on path solver algorithm");  
         }
-        else return ring; 
+#else
+        if (!pathsolverIII(mol, ring, SSSR, SSSR_ptr)) {
+          free(ring);
+          return ring_error("Error: failed on path solver algorithm");  
+        }
+#endif
+        return ring; 
 
       case 'T':
       case '&':
