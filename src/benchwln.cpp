@@ -16,11 +16,10 @@ GNU General Public License for more details.
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/time.h>
 #include <stdbool.h>
 
-#include <iostream>
+#include <string.h>
+#include <sys/time.h>
 
 #include "wlnparser.h"
 
@@ -29,9 +28,7 @@ GNU General Public License for more details.
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
 
-const char *cli_inp;
-const char *format; 
-bool opt_string; 
+bool opt_early_stop; 
 
 #define BENCH_N 417
 
@@ -879,8 +876,7 @@ const char *smiles_bench[BENCH_N] =
 
 
 /* not fast, but will do the job */ 
-void RunBenchmark() {
- 
+void run_benchmark() {
   fprintf(stderr, "WLN Read Benchmark\n"); 
   
   std::string buffer; 
@@ -903,11 +899,14 @@ void RunBenchmark() {
     if (!ReadWLN(ptr, &mol)) {
       fprintf(stdout, "null read\t%s\n",smi); 
       mol.Clear(); 
+      if (opt_early_stop) return; 
     }
     else {
       buffer = conv.WriteString(&mol,true);
-      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) 
+      if (strcmp(smiles_bench[i], buffer.c_str()) != 0) {
         fprintf(stdout,"wrong\t%s\t%s\n", buffer.c_str(), smi); 
+        if (opt_early_stop) return; 
+      }
       else {
         fprintf(stdout,"correct\n"); 
         n_correct++; 
@@ -926,8 +925,9 @@ void RunBenchmark() {
 static void 
 display_usage() {
   fprintf(stderr, "usage:\n"
-                  "  benchwln <options>\n"
+                  "  benchwln [-e]\n"
                   "options:\n"
+                  "  -e\tearly stop, if error, print string and early stop\n"
       ); 
   exit(1); 
 }
@@ -937,10 +937,13 @@ process_cml(int argc, char *argv[])
 {
   const char *ptr = 0;
   int i;
+  
+  opt_early_stop = false; 
 
   for (i = 1; i < argc; i++) {
     ptr = argv[i];
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
+      case 'e': opt_early_stop = true; break; 
       case 'h':
         display_usage(); 
       default:
@@ -955,6 +958,6 @@ int
 main(int argc, char *argv[])
 {
   process_cml(argc, argv); 
-  RunBenchmark(); 
+  run_benchmark(); 
   return 0; 
 }
