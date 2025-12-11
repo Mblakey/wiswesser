@@ -471,10 +471,9 @@ static int add_oxy(graph_t *mol, symbol_t *atom)
 }
 
 
-static bool 
-add_dioxo(graph_t *mol, symbol_t *atom) {
+static int add_dioxo(graph_t *mol, symbol_t *atom) {
   if (!add_oxy(mol, atom))
-    return false;
+    return WLN_ERROR;
 
   symbol_t *oxygen = symbol_create(mol, OXY); 
   switch (symbol_get_num(atom)) {
@@ -488,6 +487,19 @@ add_dioxo(graph_t *mol, symbol_t *atom) {
   if (!bptr)  
     return false;
   return true;
+}
+
+
+static int is_cycle_end_ch(unsigned char ch)
+{
+  switch (ch) {
+    case 'T':
+    case '&':
+    case 'J':
+    case ' ':
+      return WLN_OK;
+  }
+  return WLN_ERROR; 
 }
 
 
@@ -579,11 +591,11 @@ static void pathsolverIII_fast(graph_t *mol,
   } *path = (struct pathmapping*)alloca(r->size*sizeof(struct pathmapping));
 
   for (uint16_t i = 1; i < r->size; i++) {
-    path[i].nlocants = 1;
+    path[i].nlocants = 1 - r->path[i].is_bridge;
     path[i-1].nxt_locant = i;
   }
-  path[0].nlocants = 2; 
-  path[last_idx].nlocants = 2; 
+  path[0].nlocants = 2 - r->path[0].is_bridge;
+  path[last_idx].nlocants = 2 - r->path[last_idx].is_bridge;
   path[last_idx].nxt_locant = last_idx;
 
   uint8_t steps, start, end;
@@ -832,6 +844,10 @@ static int cyclic_recursive_parse(graph_t *mol, edge_t *inline_edge, int inline_
   uint8_t nSSSR  = 0; 
   struct wlnsubcycle SSSR[32]; // this really is sensible for WLN
   uint8_t assignments = 0; 
+  
+  uint8_t nbridge = 0;
+  int bridge_locants[32]; 
+
 ring_parse_sssr:
   while (*wln_ptr) {
     ch = *wln_ptr++; 
@@ -848,7 +864,7 @@ ring_parse_sssr:
         max_path_size += (ch - '0') - (2 * (max_path_size > 0)); 
         SSSR[nSSSR].size      = ch - '0'; 
         SSSR[nSSSR].aromatic  = true; // default is aromatic 
-        SSSR[nSSSR++].locant  =  locant_ch; 
+        SSSR[nSSSR++].locant  = locant_ch;  
         locant_ch = 0; 
         break; 
 
@@ -856,6 +872,11 @@ ring_parse_sssr:
         if (*wln_ptr >= 'A' && *wln_ptr <= 'Z') {
           if ((locant_ch = parse_locant()) == WLN_ERROR)
             return WLN_ERROR; 
+          if (is_cycle_end_ch(*wln_ptr) == WLN_OK) {
+            bridge_locants[nbridge++] = locant_ch;
+            max_path_size--; 
+            locant_ch = 0; 
+          }
         }
         else if (*wln_ptr >= '1' && *wln_ptr <= '9')
           goto ring_parse_multi;
@@ -866,6 +887,7 @@ ring_parse_sssr:
       case '&':
         ring = ring_create(mol, max_path_size); 
         goto ring_parse_arom;
+
       case 'T': 
         ring = ring_create(mol, max_path_size); 
         goto ring_parse_arom;
@@ -890,7 +912,7 @@ ring_parse_sssr:
 
 ring_parse_multi:
   ch = *wln_ptr; 
-  wln_ptr += ch - '0' + 1; // skip the multi-block
+  wln_ptr += (ch - '0') + 1; // skip the multi-block
   if (*wln_ptr != ' ')
     return wln_error("invalid notation for ring multi block\n"); 
   wln_ptr++; 
@@ -915,6 +937,7 @@ ring_parse_multi:
       case 'N':
       case 'K':
       case 'M':
+      case 'P':
         goto ring_parse_hetero; 
   }
 
@@ -1018,6 +1041,9 @@ ring_parse_arom:
   }
 
 ring_parse_end:
+  for (unsigned int i=0; i<nbridge; i++)
+    ring->path[bridge_locants[i]].is_bridge = true; 
+
   if (seen_pseudo)
     pathsolverIII(mol, ring, SSSR, nSSSR);  
   else
