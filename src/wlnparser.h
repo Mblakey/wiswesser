@@ -7,7 +7,7 @@
 #include <openbabel/mol.h>
 #include <openbabel/obconversion.h>
 
-bool ReadWLN(const char *ptr, OpenBabel::OBMol* mol); 
-bool WriteWLN(char *ptr, OpenBabel::OBMol* mol); 
+bool ReadWLN(const char *buffer, OpenBabel::OBMol* mol); 
+bool WriteWLN(char *buffer, unsigned int nbuffer, OpenBabel::OBMol* mol); 
 
 #endif 

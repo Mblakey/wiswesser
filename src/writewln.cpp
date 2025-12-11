@@ -75,14 +75,16 @@ process_file(FILE *fp)
 
   conv.SetInFormat(format);
   
-  char wlnout[1024]; 
+  char wlnout[1024] = {0}; 
+
   char buffer[4096]; 
-  
   while (readline(fp, buffer, 4096, 0)) {
-    if (WriteWLN(wlnout,&mol))
+    conv.ReadString(&mol, buffer); 
+    if (WriteWLN(wlnout, 1024, &mol))
       fprintf(stdout, "%s\n", wlnout); 
     else 
       fprintf(stdout, "NULL\n"); 
+    mol.Clear(); 
   }
 }
 

@@ -1,5 +1,7 @@
-#ifdef USING_OPENBABEL
 /*********************************************************************
+ 
+Author : Michael Blakey
+
 This file is part of the Open Babel project.
 For more information, see <http://openbabel.org/>
 
@@ -12,13 +14,20 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
-#endif
-
+#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>
 
-#ifdef USING_OPENBABEL
+#include <set>
+#include <vector>
+#include <stack>
+#include <map>
+#include <string>
+
+#include <utility> // std::pair
+#include <iterator>
+#include <algorithm>
+
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
 #include <openbabel/atom.h>
@@ -32,30 +41,71 @@ GNU General Public License for more details.
 #include "openbabel/stereo/stereo.h"
 #include <openbabel/stereo/tetrahedral.h>
 
-using namespace OpenBabel; 
-#endif
-
 #include "wlnparser.h"
 
-// Element "magic numbers"
-#define DUM   0
-#define BOR   5
-#define CAR   6
-#define NIT   7
-#define OXY   8
-#define FLU   9
-#define PHO   15
-#define SUL   16
-#define CHL   17
-#define BRO   35
-#define IOD   53
+#define WLN_OK 0
+#define WLN_ERROR -1
+
+#ifdef USING_OPENBABEL
+using namespace OpenBabel;
+#define graph_t    OBMol
+#define symbol_t   OBAtom
+#define edge_t     OBBond
+#define ring_t struct wlnpath
+
+#define symbol_get_id(s)            s->GetId()
+#define symbol_get_num(s)           s->GetAtomicNum()
+#define symbol_set_num(s, n)        s->SetAtomicNum(n)
+#define symbol_get_charge(s)        s->GetFormalCharge()
+#define symbol_set_charge(s, n)     s->SetFormalCharge(n)
+#define symbol_set_hydrogens(s, n)  s->SetImplicitHCount(n)
+#define symbol_get_hydrogens(s)     s->GetImplicitHCount()
+#define symbol_set_aromatic(s, b)   s->SetAromatic(b)
+#define symbol_get_aromatic(s)      s->IsAromatic()
+#define symbol_incr_hydrogens(s)    s->SetImplicitHCount(s->GetImplicitHCount()+1)
+#define symbol_get_valence(s)       s->GetExplicitValence()
+#define symbol_get_degree(s)        s->GetExplicitDegree()
+
+#define edge_unsaturate(e)          e->SetBondOrder(1+e->GetBondOrder())
+#define edge_set_order(e, o)        e->SetBondOrder(o)
+#define edge_set_aromatic(e, b)     e->SetAromatic(b)
+#define edge_get_order(e)           edge->GetBondOrder()
+
+#define edge_set_begin(e, s)       e->SetBegin(s)
+#define edge_set_end(e, s)         e->SetEnd(s)
+#define edge_get_end(e)            e->GetEndAtom()
+
+#define graph_new_symbol(g)         g->NewAtom()
+#define graph_new_edge(g)           g->NewBond()
+#define graph_set_edge(g,e)         g->AddBond(*e)
+#define graph_get_edge(g,x,y)       g->GetBond(x,y)
+#define graph_delete_symbol(g,s)    g->DeleteAtom(s)
+#define graph_delete_edge(g,e)      g->DeleteBond(e)
+#define graph_num_atoms(g)          g->NumAtoms()
+
+#define symbol_nbor_iter(a, s)      FOR_NBORS_OF_ATOM(a,s)
+
+#define graph_symbol_iter(s, g)     FOR_ATOMS_OF_MOL(s,g)
+#define graph_edge_iter(e, g)       FOR_BONDS_OF_MOL(e,g)
+
+#elif defined USING_RDKIT
+
+#endif
+
+
+#define WLNDEBUG 0
+#define REASONABLE 1024
+#define MACROTOOL 0
+#define STEREO 0  
 
 
 #define INT_TO_LOCANT(X) (X+64)
 #define LOCANT_TO_INT(X) (X-64)
 
+char *wln_out; 
+unsigned int wln_len; 
+bool *seen; 
 
-#if 0
 struct LocantPos{
   unsigned int locant;  // lets branch locants be placed at the back of the array, past 255 indexing
   OBAtom *atom;         // atoms are mallocd by obabel so should be alive at all times
@@ -180,9 +230,15 @@ void write_ring_size(OBRing *ring, std::string &buffer){
   if(ring->Size() < 9)
     buffer += ring->Size() + '0'; 
   else{
+#if MODERN
     buffer += '-';
     buffer += std::to_string(ring->Size()); 
     buffer += '-';
+#else
+    buffer += '-';
+    buffer += std::to_string(ring->Size()); 
+    buffer += '-';
+#endif
   }
 
 }
@@ -412,6 +468,11 @@ void TestPathSequences( OBMol *mol,LocantPos*locant_path, unsigned int path_size
 
     while(allowed_connection[lowest] < 1)
       lowest++; 
+
+    // fprintf(stderr,"[ ");
+    // for(unsigned int k=0;k<ring->Size();k++)
+    //   fprintf(stderr,"%c ",sequence[k].locant);
+    // fprintf(stderr,"]\n");
 
     // always check that the ends first, as this takes highest priotrity due to fusion sum
     if(!IsConsecutiveLocants(&sequence[0], &sequence[ring->Size()-1]) && 
@@ -1600,6 +1661,486 @@ struct BabelGraph{
     return; 
   }
 
+  void WriteSpecial(OBAtom *atom, std::string &buffer){
+    if(!atom)
+      Fatal("writing notation from dead atom ptr");
+    // all special elemental cases
+    //
+    
+    string_position[atom] = buffer.size()+1; // always first character 
+    switch(atom->GetAtomicNum()){
+      case 5:
+        buffer += "B";
+        break;
+
+      case 7:
+        buffer += "N";
+        break;
+      
+      case 8:
+        buffer += "O";
+        break;
+
+      case 9:
+        buffer += "F";
+        break;
+
+      case 53:
+        buffer += "I";
+        break;
+
+      case 35:
+        buffer += "E";
+        break;
+
+      case 17:
+        buffer += "G";
+        break; 
+      
+      case 15:
+        buffer += "P";
+        break;
+
+      case 89:
+        buffer += "AC";
+        break;
+
+      case 47:
+        buffer += "AG";
+        break;
+    
+      case 13:
+        buffer += "AL";
+        break;
+
+      case 95:
+        buffer += "AM";
+        break;
+
+      case 18:
+        buffer += "AR";
+        break;
+
+      case 33:
+        buffer += "AS";
+        break;
+
+      case 85:
+        buffer += "AT";
+        break;
+
+      case 79:
+        buffer += "AU";
+        break;
+
+
+      case 56:
+        buffer += "BA";
+        break;
+
+      case 4:
+        buffer += "BE";
+        break;
+
+      case 107:
+        buffer += "BH";
+        break;
+
+      case 83:
+        buffer += "BI";
+        break;
+
+      case 97:
+        buffer += "BK";
+        break;
+
+      case 20:
+        buffer += "CA";
+        break;
+      
+      case 48:
+        buffer += "CD";
+        break;
+
+      case 58:
+        buffer += "CE";
+        break;
+
+      case 98:
+        buffer += "CF";
+        break;
+
+      case 96:
+        buffer += "CN";
+        break;
+
+      case 112:
+        buffer += "CN";
+        break;
+
+      case 27:
+        buffer += "CO";
+        break;
+
+      case 24:
+        buffer += "CR";
+        break;
+
+      case 55:
+        buffer += "CS";
+        break;
+
+      case 29:
+        buffer += "CU";
+        break;
+
+      case 105:
+        buffer += "DB";
+        break;
+
+      case 110:
+        buffer += "DS";
+        break;
+
+      case 66:
+        buffer += "DY";
+        break;
+
+      case 68:
+        buffer += "ER";
+        break;
+
+      case 99:
+        buffer += "ES";
+        break;
+
+      case 63:
+        buffer += "EU";
+        break;
+
+      case 26:
+        buffer += "FE";
+        break;
+
+      case 114:
+        buffer += "FL";
+        break;
+
+      case 100:
+        buffer += "FM";
+        break;
+
+      case 87:
+        buffer += "FR";
+        break;
+
+      case 31:
+        buffer += "GA";
+        break;
+
+      case 64:
+        buffer += "GD";
+        break;
+
+      case 32:
+        buffer += "GE";
+        break;
+
+      case 2:
+        buffer += "HE";
+        break;
+
+      case 72:
+        buffer += "HF";
+        break;
+
+      case 80:
+        buffer += "HG";
+        break;
+
+      case 67:
+        buffer += "HO";
+        break;
+
+      case 108:
+        buffer += "HS";
+        break;
+
+      case 49:
+        buffer += "IN";
+        break;
+
+      case 77:
+        buffer += "IR";
+        break;
+
+      case 36:
+        buffer += "KR";
+        break;
+
+      case 19:
+        buffer += "KA";
+        break;
+
+      case 57:
+        buffer += "LA";
+        break;
+
+      case 3:
+        buffer += "LI";
+        break;
+
+      case 103:
+        buffer += "LR";
+        break;
+
+      case 71:
+        buffer += "LU";
+        break;
+
+      case 116:
+        buffer += "LV";
+        break;
+
+      case 115:
+        buffer += "MC";
+        break;
+
+      case 101:
+        buffer += "MD";
+        break;
+
+      case 12:
+        buffer += "MG";
+        break;
+
+      case 25:
+        buffer += "MN";
+        break;
+
+      case 42:
+        buffer += "MO";
+        break;
+
+      case 109:
+        buffer += "MT";
+        break;
+
+      case 11:
+        buffer += "NA";
+        break;
+
+      case 41:
+        buffer += "NB";
+        break;
+
+      case 60:
+        buffer += "ND";
+        break;
+
+      case 10:
+        buffer += "NE";
+        break;
+
+      case 113:
+        buffer += "NH";
+        break;
+
+      case 28:
+        buffer += "NI";
+        break;
+
+      case 102:
+        buffer += "NO";
+        break;
+
+      case 93:
+        buffer += "NP";
+        break;
+
+      case 118:
+        buffer += "OG";
+        break;
+
+      case 76:
+        buffer += "OS";
+        break;
+
+      case 91:
+        buffer += "PA";
+        break;
+
+      case 82:
+        buffer += "PB";
+        break;
+
+      case 46:
+        buffer += "PD";
+        break;
+
+      case 61:
+        buffer += "PM";
+        break;
+
+      case 84:
+        buffer += "PO";
+        break;
+
+      case 59:
+        buffer += "PR";
+        break;
+
+      case 78:
+        buffer += "PT";
+        break;
+
+      case 94:
+        buffer += "PU";
+        break;
+
+      case 88:
+        buffer += "RA";
+        break;
+
+      case 37:
+        buffer += "RB";
+        break;
+
+      case 75:
+        buffer += "RE";
+        break;
+
+      case 104:
+        buffer += "RF";
+        break;
+
+      case 111:
+        buffer += "RG";
+        break;
+
+      case 45:
+        buffer += "RH";
+        break;
+
+      case 86:
+        buffer += "RN";
+        break;
+
+      case 44:
+        buffer += "RU";
+        break;
+
+      case 51:
+        buffer += "SB";
+        break;
+
+      case 21:
+        buffer += "SC";
+        break;
+
+      case 34:
+        buffer += "SE";
+        break;
+
+      case 106:
+        buffer += "SG";
+        break;
+
+      case 14:
+        buffer += "SI";
+        break;
+
+      case 62:
+        buffer += "SM";
+        break;
+
+      case 50:
+        buffer += "SN";
+        break;
+
+      case 38:
+        buffer += "SR";
+        break;
+
+
+      case 73:
+        buffer += "TA";
+        break;
+
+      case 65:
+        buffer += "TB";
+        break;
+
+      case 43:
+        buffer += "TC";
+        break;
+
+      case 52:
+        buffer += "TE";
+        break;
+
+      case 90:
+        buffer += "TH";
+        break;
+
+      case 22:
+        buffer += "TI";
+        break;
+
+      case 81:
+        buffer += "TL";
+        break;
+
+      case 69:
+        buffer += "TM";
+        break;
+
+      case 117:
+        buffer += "TS";
+        break;
+
+      case 92:
+        buffer += "UR";
+        break;
+
+      case 23:
+        buffer += "VA";
+        break;
+      
+      case 74:
+        buffer += "WT";
+        break;
+
+      case 54:
+        buffer += "XE";
+        break;
+
+      case 39:
+        buffer += "YT";
+        break;
+
+      case 70:
+        buffer += "YB";
+        break;
+
+      case 30:
+        buffer += "ZN";
+        break;
+
+      case 40:
+        buffer += "ZR";
+        break;
+    }
+
+#if MODERN
+    ModernCharge(atom, buffer); 
+    buffer += ">";
+#else
+    buffer += "-";
+#endif
+    
+    return; 
+  }
 
 
   bool CheckCarbonyl(OBAtom *atom){
@@ -1631,16 +2172,628 @@ struct BabelGraph{
     return 0;
   }
 
+  /* parse non-cyclic atoms DFS style - return last atom seen in chain */
+  bool ParseNonCyclic(OBMol *mol, OBAtom* start_atom, OBAtom *spawned_from,OBBond *inc_bond,
+                      unsigned char locant, LocantPos *locant_path, unsigned int path_size, 
+                      std::string &buffer)
+  {
+    if(!start_atom)
+      Fatal("writing notation from dead atom ptr");
+
+    unsigned int border = 0; 
+    unsigned char stereo = 0; 
+
+    if(inc_bond){
+      border = inc_bond->GetBondOrder();
+      if(inc_bond->IsHash())
+        stereo = 'D';
+      else if (inc_bond->IsWedge())
+        stereo =  'A'; 
+    }
+
+    if(locant && locant != '0' && border > 0){ // allows OM through
+      buffer+=' ';
+      write_locant(locant,buffer);
+    }
+
+    for(unsigned int b=1;b<border;b++)
+      buffer+='U';
+
+    unsigned int carbon_chain = 0;
+    unsigned char wln_character = 0; 
+
+    OBAtom* atom = start_atom;
+    OBAtom* prev = 0; 
+    OBBond *bond = 0; 
+   
+    std::stack<OBAtom*> atom_stack; 
+    std::stack<OBAtom*> branch_stack;
+    std::map<OBAtom*,bool> branching_atom; 
+    atom_stack.push(atom);
+
+    bool require_macro_closure = false;
+
+    while(!atom_stack.empty()){
+      atom = atom_stack.top(); 
+      atom_stack.pop();
+      atoms_seen[atom] = true;
+    
+      if(prev){
+        bond = mol->GetBond(prev,atom); 
+        if(!bond && !branch_stack.empty()){
+          
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+          
+          // a closure is any symbol that you would expect to have a symbol on either side
+          // e.g 2N2 or even 2UUN<...> since N normally has two symbols either side it requires 
+          // a closure, this can be stated with a degree check, terminators are not considered here
+          if(!branching_atom[prev]  )
+            buffer += '&'; // requires a closure 
+          else if (!branch_stack.empty() && prev == branch_stack.top() && prev->GetExplicitDegree() == 1){
+            buffer += '&'; 
+            branch_stack.pop(); // returns immedietely
+          }
+
+          while(!branch_stack.empty()){
+            prev = branch_stack.top();
+            if(mol->GetBond(atom,prev)){
+              bond = mol->GetBond(atom,prev); 
+              break;
+            }
+            else{
+              if (remaining_branches[prev] > 0)
+                buffer += '&';
+              
+              branch_stack.pop();
+            }
+          }
+        }
+
+        remaining_branches[prev]--; // reduce the branches remaining  
+
+#if MODERN && STEREO
+        if(bond->IsHash())
+          buffer += 'D';
+        else if (bond->IsWedge())
+          buffer += 'A'; 
+#endif
+
+        for(unsigned int i=1;i<bond->GetBondOrder();i++){
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+          
+          buffer += 'U';
+          if(prev->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
+            remaining_branches[prev]--;
+        }
+      }
+
+      if(atom->IsInRing()){
+        if(carbon_chain){
+          buffer += std::to_string(carbon_chain);
+          carbon_chain = 0;
+        }
+
+        if(locant == '0' && !border){
+          buffer += '-';
+          buffer += ' ';
+          buffer += '0';
+          if(!RecursiveParse(mol,atom,spawned_from,false,buffer))
+            Fatal("failed to make pi bonded ring");
+        }
+        else{
+          if(!RecursiveParse(mol,atom,spawned_from,true,buffer))
+            Fatal("failed to make inline ring");
+        }
+        
+        // this should count as a branch?, lets see - doesnt seem
+        // if(prev) 
+        //   remaining_branches[prev]--; // reduce the branches remaining  
+
+        if(!branch_stack.empty())
+          prev = return_open_branch(branch_stack);
+        
+        continue;
+      }
+        
+       // remaining_branches are -1, we only look forward
+      unsigned int correction = 0; 
+      wln_character =  WriteSingleChar(atom);
+      atom_chars[atom] = wln_character; 
+    
+      if(prev && bond)
+        correction = bond->GetBondOrder() - 1;
+      else if (border > 0)
+        correction = border - 1;
+
+      // last added char, not interested in the ring types of '-'
+      switch(wln_character){
+// oxygens
+        case 'O':
+        case 'V':
+        case 'M':
+        case 'W': // W is not actually seen as a prev,
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+          
+          prev = atom; 
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size(); 
+          break;
+
+// carbons 
+        // alkyl chain 
+        case '1':
+          prev = atom; 
+          if(CheckCarbonyl(atom)){
+            if(carbon_chain){
+              buffer += std::to_string(carbon_chain);
+              carbon_chain = 0;
+            }
+            buffer += 'V';
+            string_position[atom] = buffer.size();
+          }
+#if MODERN
+          else if (atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += 'C';
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+            string_position[atom] = buffer.size()+1; // writen next so offset by 1
+          }
+#endif
+          else{
+            string_position[atom] = buffer.size()+1; // writen next so offset by 1
+            carbon_chain++; 
+          }
+          
+          break;
+
+        case 'Y':
+        case 'X':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom;
+          if(CheckCarbonyl(atom))
+            buffer += 'V';
+          else{
+#if MODERN
+            if(atom->GetFormalCharge() != 0){
+              buffer += '<'; 
+              buffer += wln_character; 
+              ModernCharge(atom, buffer); 
+              buffer += '>'; 
+            }
+            else 
+              buffer += wln_character; 
+#else
+            buffer += wln_character; 
+#endif
+            if(wln_character == 'X')
+              remaining_branches[atom] += 3;
+            else
+              remaining_branches[atom] += 2; 
+
+            branching_atom[atom] = true;
+            branch_stack.push(atom);
+          }
+          string_position[atom] = buffer.size();
+          break;
+
+        case 'N':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          prev = atom; 
+          string_position[atom] = buffer.size();
+          
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
+          remaining_branches[atom] += 2 - correction; 
+          branch_stack.push(atom);
+          branching_atom[atom] = true;
+          break;
+
+
+        case 'B':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom; 
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size();
+          
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+         
+          remaining_branches[atom] += 2 - correction; 
+          branch_stack.push(atom);
+          branching_atom[atom] = true;
+          break;
+
+        case 'K':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom;
+          buffer += wln_character;
+          string_position[atom] = buffer.size();
+
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+          
+          // K now given for all positive nitrogen - NO!
+          remaining_branches[atom] += 3 - correction;
+          branching_atom[atom] = true; 
+          branch_stack.push(atom);
+          atom->SetFormalCharge(0); // remove the charge, as this is expected 
+          break;
+        
+        case 'P':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size();
+          
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+          
+          remaining_branches[atom] += 4 - correction; 
+          branching_atom[atom] = true;
+          branch_stack.push(atom);
+          break;
+
+        case 'S':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom;
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else 
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size();
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
+          remaining_branches[atom] += 5 - correction; 
+          branching_atom[atom] = true;
+          branch_stack.push(atom);
+          break;
+
+        case '*':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+          prev = atom; 
+          WriteSpecial(atom,buffer);
+          for(unsigned int h=0;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+          
+          switch (atom->GetAtomicNum()) {
+            case 8:
+              remaining_branches[atom] += 2 - correction; // oxygen gets expanded to 3 only
+              break;
+
+            default:
+              remaining_branches[atom] += 5 - correction; // octdhedral max geometry 
+          }
+            
+          branching_atom[atom] = true;
+          branch_stack.push(atom);
+          break;
+          
+// terminators
+        case 'Q':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size();
+          for(unsigned int h=1;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
+          if(!branch_stack.empty())
+            prev = return_open_branch(branch_stack);
+
+          if(atom->GetExplicitDegree() == 0)
+            atom->SetFormalCharge(0); // notational implied, do not write ionic code
+
+          break;
+
+        case 'Z':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size();
+          for(unsigned int h=2;h<atom->GetImplicitHCount();h++)
+            buffer += 'H'; 
+
+          if(!branch_stack.empty())
+            prev = return_open_branch(branch_stack);
+
+          if(atom->GetExplicitDegree() == 0 && !atom->GetImplicitHCount())
+            atom->SetFormalCharge(0); // notational implied, do not write ionic code
+          break;
+
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'I':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+
+#if MODERN
+          if(atom->GetFormalCharge() != 0 && atom->GetHeteroDegree() > 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
+          buffer += wln_character; 
+#endif
+          string_position[atom] = buffer.size();
+
+          if(!branch_stack.empty())
+            prev = return_open_branch(branch_stack);
+
+          if(atom->GetExplicitDegree() == 0)
+            atom->SetFormalCharge(0); // notational implied, do not write ionic code
+          
+          if(atom->GetImplicitHCount())
+            buffer += 'H'; 
+          break;
+
+        case 'H':
+          if(carbon_chain){
+            buffer += std::to_string(carbon_chain);
+            carbon_chain = 0;
+          }
+#if MODERN
+          if(atom->GetFormalCharge() != 0){
+            buffer += '<'; 
+            buffer += wln_character; 
+            ModernCharge(atom, buffer); 
+            buffer += '>'; 
+          }
+          else  
+            buffer += wln_character; 
+#else
+          buffer += wln_character;
+#endif
+          string_position[atom] = buffer.size();
+          break;
+
+        default:
+          fprintf(stderr,"Error: unhandled char %c\n",wln_character); 
+          return 0; 
+      }
+
+      // here we ask, is this bonded to a ring atom that is not 'spawned from'
+      FOR_NBORS_OF_ATOM(a,atom){
+        OBAtom *nbor = &(*a);
+        if(nbor != spawned_from && nbor->IsInRing() && atoms_seen[nbor] == true){
+  
+          if(require_macro_closure){
+            fprintf(stderr,"Error: macro-closure appearing more than once\n");
+            return 0;
+          }
+          else{
+            require_macro_closure = true;
+            
+            if(carbon_chain){
+              buffer += std::to_string(carbon_chain);
+              carbon_chain = 0;
+            }
+
+            OBBond *macro_bond = mol->GetBond(atom, nbor);
+            if(branching_atom[atom])
+              remaining_branches[atom]--; 
+
+            if(macro_bond->GetBondOrder() > 1){
+#if MODERN && STEREO      
+              if(bond->IsHash())
+                buffer += 'D';
+              else if (bond->IsWedge())
+                buffer += 'A'; 
+#endif
+              buffer += 'U'; 
+              if(branching_atom[atom] && atom->GetAtomicNum() != 6)  // branches unaffected when carbon Y or X
+                remaining_branches[prev]--;
+            }
+
+            buffer += '-';
+            buffer += ' ';
+            
+            if(!locant_path){
+              fprintf(stderr,"Error: no locant path to wrap back macro-closures\n");
+              return 0;
+            }
+            else{
+              for (unsigned int i=0;i<path_size;i++) {
+                if(locant_path[i].atom == nbor){
+                  write_locant(locant_path[i].locant, buffer);
+                  break;
+                }
+              }
+            }
+
+            buffer += "-x-";
+            // the wrapper needs to be handled on closure of all the locants in a ring... hmmm
+            break;
+          }
+        }
+      }
+
+      FOR_NBORS_OF_ATOM(a,atom){
+        if(!atoms_seen[&(*a)])
+          atom_stack.push(&(*a));
+      }
+    }
+
+    if(carbon_chain){
+      buffer += std::to_string(carbon_chain);
+      carbon_chain = 0;
+    }
+
+    if(require_macro_closure){
+      buffer += 'J';
+    }
+    
+    // burn the branch stack here, recursion takes care of the rest 
+    // may be over cautious
+        
+    if(!branch_stack.empty()){
+      OBAtom *top = return_open_branch(branch_stack);
+      
+      if(top && prev != top){
+        switch (wln_character) {
+            case 'E':
+            case 'F':
+            case 'G':
+            case 'H':
+            case 'I':
+            case 'Q':
+            case 'Z':
+            case 'W':
+              break;
+
+            default:
+              buffer += '&';
+        }
+      }
+
+      while(!branch_stack.empty()){
+        if(remaining_branches[branch_stack.top()] > 0){
+          buffer += '&';
+        }
+        branch_stack.pop(); 
+      }
+    }
+
+    return atom; 
+  }
 
   void AddPostCharges(OBMol *mol,std::string &buffer){
-    
     bool working = true;
     while(working){
       working = false;
       FOR_ATOMS_OF_MOL(a,mol){
         OBAtom *atom = &(*a);
         if(atom->GetFormalCharge() != 0){
-
 
           if(atom->GetFormalCharge() > 0){
             buffer += ' ';
@@ -1813,15 +2966,12 @@ struct BabelGraph{
       }
     }
 
-
-
-
     local_data.bridging = bridge_count;
     local_data.path_size = ring_atoms.size();  
     return true; 
   }
 
-#if 0
+
   /* create the heteroatoms and locant path unsaturations where neccesary */
   bool ReadLocantAtomsBonds(  OBMol *mol, LocantPos* locant_path,unsigned int path_size,
                               std::vector<OBRing*> &ring_order,
@@ -1889,7 +3039,18 @@ struct BabelGraph{
             if(het_char == 'K')
               locant_atom->SetFormalCharge(0);
 
+#if MODERN
+            if(locant_atom->GetFormalCharge() != 0){
+              buffer += '<';
+              buffer += het_char; 
+              ModernCharge(locant_path[i].atom, buffer);
+              buffer += '>';
+            }
+            else 
+              buffer += het_char; 
+#else
             buffer+=het_char;
+#endif
             string_position[locant_atom] = buffer.size();
           }
           else{
@@ -1934,9 +3095,27 @@ struct BabelGraph{
         buffer += ' ';
         write_locant(locant_char,buffer);
 
+#if MODERN && STEREO      
+        if(locant_bond->IsHash())
+          buffer += 'D';
+        else if (locant_bond->IsWedge())
+          buffer += 'A'; 
+#endif
+
         for(unsigned int b=1;b<locant_bond->GetBondOrder();b++)
           buffer += 'U';
       }
+#if MODERN && STEREO
+      else if(locant_bond && (locant_bond->IsWedge()||locant_bond->IsHash())){
+        buffer += ' ';
+        write_locant(locant,buffer);
+
+        if(locant_bond->IsHash())
+          buffer += 'D';
+        else if (locant_bond->IsWedge())
+          buffer += 'A'; 
+      }
+#endif
     }
 
 
@@ -1949,6 +3128,12 @@ struct BabelGraph{
         
         buffer += ' ';
         write_locant(floc,buffer);
+#if MODERN && STEREO
+        if(fbond->IsHash())
+          buffer += 'D';
+        else if (fbond->IsWedge())
+          buffer += 'A'; 
+#endif
         for(unsigned int b=1;b<fbond->GetBondOrder();b++)
           buffer += 'U';
         buffer+='-';
@@ -1956,10 +3141,29 @@ struct BabelGraph{
         write_locant(bloc,buffer);
         break;
       }
+#if MODERN && STEREO 
+      else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
+
+        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        buffer += ' ';
+        write_locant(floc,buffer);
+        
+        if(fbond->IsHash())
+          buffer += 'D';
+        else if (fbond->IsWedge())
+          buffer += 'A'; 
+        
+        buffer+='-';
+        buffer+=' ';
+        write_locant(bloc,buffer);
+      }
+#endif
     }
     
     return true;
   }
+
 
   void ReadMultiCyclicPoints( LocantPos *locant_path,unsigned int path_size, 
                               std::map<OBAtom*,unsigned int> &ring_shares,std::string &buffer)
@@ -1974,14 +3178,18 @@ struct BabelGraph{
       }
     }
 
+#if MODERN
+    buffer += ' ';
+    buffer+= std::to_string(count);
+#else
     buffer += ' ';
     buffer+= std::to_string(count);
     buffer+= append;
+#endif
   }
 
   /* constructs and parses a cyclic structure, locant path is returned with its path_size */
   void ParseCyclic(OBMol *mol, OBAtom *ring_root,OBAtom *spawned_from,bool inline_ring,PathData &pd,std::string &buffer){
-
     LocantPos*                      locant_path = 0; 
     std::set<OBRing*>               local_SSSR;
     std::set<OBAtom*>               ring_atoms;
@@ -2020,7 +3228,6 @@ struct BabelGraph{
 
     branch_locants = LocalSSRS_data.path_size - path_size; 
     
-
     if(inline_ring){
       buffer+= '-';
       bool spiro = false;
@@ -2067,8 +3274,12 @@ struct BabelGraph{
     if(multi){
       ReadMultiCyclicPoints(locant_path,LocalSSRS_data.path_size,atom_shares,buffer);
       
+#if MODERN
+      write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
+#else
       buffer += ' ';
       write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
+#endif
     }
 
     path_size = LocalSSRS_data.path_size; 
@@ -2122,394 +3333,506 @@ struct BabelGraph{
   }
     
 
-
-};
-
-
-#if 0
-bool 
-parse_acyclic(char buffer, unsigned int i, OBMol *mol, OBAtom *atom) {
-  
-  PathData pd; 
-  ParseCyclic(mol,atom,spawned_from,inline_ring,pd,buffer);
-  if(!pd.locant_path){
-    fprintf(stderr,"Error: failed on cyclic parse\n");
-    return false;
-  }
-  
-  // handle hydrogens here
-  for(unsigned int i=0;i<pd.path_size;i++){
-    atoms_seen[pd.locant_path[i].atom] = true;
-    OBAtom *lc = pd.locant_path[i].atom;
-    unsigned int locant = pd.locant_path[i].locant;
+  bool RecursiveParse(OBMol *mol, OBAtom *atom, OBAtom *spawned_from, bool inline_ring,std::string &buffer){
+    // assumes atom is a ring atom 
     
-    switch(atom_chars[lc]){
-      case '1':
-        break; // ring carbons
-
-      case 'M':
-        for(unsigned int h=1;h<lc->GetImplicitHCount();h++){
-          buffer += " ";
-          write_locant(locant, buffer); 
-          buffer += 'H';
-        }
-        break;
-
-
-      case 'Z':
-        for(unsigned int h=2;h<lc->GetImplicitHCount();h++){
-          buffer += " ";
-          write_locant(locant, buffer); 
-          buffer += 'H';
-        }
-        break;
-
-      case 'P':
-        if(lc->GetExplicitValence() & 1)
-          break;
-        else{
-          for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
-            buffer += " ";
-            write_locant(locant, buffer); 
-            buffer += 'H';
-          }
-        }
-        break;
-
-      case 'S':
-        if( !(lc->GetExplicitValence() & 1))
-          break;
-        else{
-          for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
-            buffer += " ";
-            write_locant(locant, buffer); 
-            buffer += 'H';
-          }
-        }
-        break;
-
-      default:
-        for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
-          buffer += " ";
-          write_locant(locant, buffer); 
-          buffer += 'H';
-        }
-        break;
+    PathData pd; 
+    ParseCyclic(mol,atom,spawned_from,inline_ring,pd,buffer);
+    if(!pd.locant_path){
+      fprintf(stderr,"Error: failed on cyclic parse\n");
+      return false;
     }
-  }
     
-  for(unsigned int i=0;i<pd.path_size;i++){
-    FOR_NBORS_OF_ATOM(iter,pd.locant_path[i].atom){
-      OBAtom *latom = &(*iter);
-      OBBond* lbond = pd.locant_path[i].atom->GetBond(latom);
-      if(!atoms_seen[latom]){
-        if(!ParseNonCyclic( mol,latom,pd.locant_path[i].atom,lbond,
-                            pd.locant_path[i].locant,pd.locant_path,pd.path_size,buffer)){
-          fprintf(stderr,"Error: failed on non-cyclic parse\n");
-          return false;
-        }
+    // handle hydrogens here
+    for(unsigned int i=0;i<pd.path_size;i++){
+      atoms_seen[pd.locant_path[i].atom] = true;
+      OBAtom *lc = pd.locant_path[i].atom;
+      unsigned int locant = pd.locant_path[i].locant;
+      
+      switch(atom_chars[lc]){
+        case '1':
+          break; // ring carbons
 
+        case 'M':
+          for(unsigned int h=1;h<lc->GetImplicitHCount();h++){
+            buffer += " ";
+            write_locant(locant, buffer); 
+            buffer += 'H';
+          }
+          break;
+
+
+        case 'Z':
+          for(unsigned int h=2;h<lc->GetImplicitHCount();h++){
+            buffer += " ";
+            write_locant(locant, buffer); 
+            buffer += 'H';
+          }
+          break;
+
+        case 'P':
+          if(lc->GetExplicitValence() & 1)
+            break;
+          else{
+            for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
+              buffer += " ";
+              write_locant(locant, buffer); 
+              buffer += 'H';
+            }
+          }
+          break;
+
+        case 'S':
+          if( !(lc->GetExplicitValence() & 1))
+            break;
+          else{
+            for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
+              buffer += " ";
+              write_locant(locant, buffer); 
+              buffer += 'H';
+            }
+          }
+          break;
+
+        default:
+          for(unsigned int h=0;h<lc->GetImplicitHCount();h++){
+            buffer += " ";
+            write_locant(locant, buffer); 
+            buffer += 'H';
+          }
+          break;
       }
     }
+      
+    for(unsigned int i=0;i<pd.path_size;i++){
+      FOR_NBORS_OF_ATOM(iter,pd.locant_path[i].atom){
+        OBAtom *latom = &(*iter);
+        OBBond* lbond = pd.locant_path[i].atom->GetBond(latom);
+        if(!atoms_seen[latom]){
+          if(!ParseNonCyclic( mol,latom,pd.locant_path[i].atom,lbond,
+                              pd.locant_path[i].locant,pd.locant_path,pd.path_size,buffer)){
+            fprintf(stderr,"Error: failed on non-cyclic parse\n");
+            return false;
+          }
 
-    // OM logic 
-    if(pd.locant_path[i].atom->GetAtomicNum() == 6 && pd.locant_path[i].atom->GetFormalCharge() == -1){
-      FOR_ATOMS_OF_MOL(om,mol){
-        OBAtom *organometallic = &(*om);
-        if( organometallic->GetAtomicNum() >= 20 && 
-            organometallic->GetFormalCharge() > 1 &&
-            organometallic->GetExplicitValence() == 0){
-          
-          unsigned int charge = organometallic->GetFormalCharge(); 
-          if(!atoms_seen[organometallic]){
-            buffer += ' ';
-            buffer += '0';
-            WriteSpecial(organometallic,buffer);
-            atoms_seen[organometallic] = true;
-            pd.locant_path[i].atom->SetFormalCharge(0);
-            if(charge)
-              charge--;
+        }
+      }
 
-            // find and write the other rings based on the negative charges
-            FOR_ATOMS_OF_MOL(negc,mol){
-              OBAtom* next_pi =  &(*negc); 
-              if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
-                  && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
-                if(!ParseNonCyclic(mol,next_pi,pd.locant_path[i].atom,0,
-                            '0',pd.locant_path,pd.path_size,buffer)){
-                        
+      // OM logic 
+      if(pd.locant_path[i].atom->GetAtomicNum() == 6 && pd.locant_path[i].atom->GetFormalCharge() == -1){
+        FOR_ATOMS_OF_MOL(om,mol){
+          OBAtom *organometallic = &(*om);
+          if( organometallic->GetAtomicNum() >= 20 && 
+              organometallic->GetFormalCharge() > 1 &&
+              organometallic->GetExplicitValence() == 0){
+            
+            unsigned int charge = organometallic->GetFormalCharge(); 
+            if(!atoms_seen[organometallic]){
+              buffer += ' ';
+              buffer += '0';
+              WriteSpecial(organometallic,buffer);
+              atoms_seen[organometallic] = true;
+              pd.locant_path[i].atom->SetFormalCharge(0);
+              if(charge)
+                charge--;
 
-                  fprintf(stderr,"Error: failed on non-cyclic parse\n");
-                  return false;
+              // find and write the other rings based on the negative charges
+              FOR_ATOMS_OF_MOL(negc,mol){
+                OBAtom* next_pi =  &(*negc); 
+                if(!atoms_seen[next_pi] && next_pi->GetAtomicNum() == 6
+                    && next_pi->GetFormalCharge() == -1 && next_pi->IsInRing()){
+                  if(!ParseNonCyclic(mol,next_pi,pd.locant_path[i].atom,0,
+                              '0',pd.locant_path,pd.path_size,buffer)){
+                          
+
+                    fprintf(stderr,"Error: failed on non-cyclic parse\n");
+                    return false;
+                  }
+
+                  next_pi->SetFormalCharge(0);
+                  if(charge)
+                    charge--;
+                  else
+                    Fatal("Linking more pi bonded organometallics then charge allows\n");
+
+                  organometallic->SetFormalCharge(charge);
                 }
-
-                next_pi->SetFormalCharge(0);
-                if(charge)
-                  charge--;
-                else
-                  Fatal("Linking more pi bonded organometallics then charge allows\n");
-
-                organometallic->SetFormalCharge(charge);
               }
             }
           }
         }
       }
+
     }
-
-  }
-  
-
-  // lets try this
-  buffer += '&'; // close the ring everytime 
-
-  free(pd.locant_path);  
-  return true;
-}
-#endif
-#endif
-
-#endif
-
-unsigned char wln_character(OBAtom *atom) 
-{
-  unsigned int valence = atom->GetExplicitValence(); 
-  unsigned int degree  = atom->GetExplicitDegree(); 
-  switch (atom->GetAtomicNum()) {
-
-    case BRO: return 'E';
-    case IOD: return 'I';
-    case FLU: return 'F';
-    case CHL: return 'G';
-    case BOR: return 'B';
-    case PHO: return 'P';
-    case SUL: return 'S';
-
-    case OXY: 
-      if (valence <= 1) 
-        return 'Q';
-      else return 'O';
-    case NIT: 
-      if (valence <= 1) 
-        return 'Z';
-      if (valence == 2) 
-        return 'M';
-      if (valence == 4)
-        return 'K';
-      else return 'N';
-
-    case CAR:
-      if (degree == 3) 
-        return 'Y';
-      if (degree == 4)
-        return 'X';
-  }
-  return '*';  // parse as dash
-}
-
-
-static void 
-wln_dash_character(char **buffer, OBAtom *atom)
-{
-  char *ptr = *buffer;
-  *ptr++ = '-';
-  switch (atom->GetAtomicNum()) {
-    case 5:  *ptr++  = 'B'; break;
-    case 7:  *ptr++  = 'N';  break;
-    case 8:  *ptr++  = 'O'; break;
-    case 9:  *ptr++  = 'F'; break;
-    case 53: *ptr++  = 'I'; break;
-    case 35: *ptr++  = 'E'; break;
-    case 17: *ptr++  = 'G'; break; 
-    case 15: *ptr++  = 'P'; break;
-    case 89: *ptr++ = 'A';*ptr++ = 'C'; break;
-    case 47: *ptr++ = 'A';*ptr++ = 'G'; break;
-    case 13: *ptr++ = 'A';*ptr++ = 'L'; break;
-    case 95: *ptr++ = 'A';*ptr++ = 'M'; break;
-    case 18: *ptr++ = 'A';*ptr++ = 'R'; break;
-    case 33: *ptr++ = 'A';*ptr++ = 'S'; break;
-    case 85: *ptr++ = 'A';*ptr++ = 'T'; break;
-    case 79: *ptr++ = 'A';*ptr++ = 'U'; break;
-    case 56: *ptr++ = 'B';*ptr++ = 'A'; break;
-    case 4: *ptr++ = 'B';*ptr++ = 'E'; break;
-    case 107: *ptr++ = 'B';*ptr++ = 'H'; break;
-    case 83: *ptr++ = 'B';*ptr++ = 'I'; break;
-    case 97: *ptr++ = 'B';*ptr++ = 'K'; break;
-    case 20: *ptr++ = 'C';*ptr++ = 'A'; break;
-    case 48: *ptr++ = 'C';*ptr++ = 'D'; break;
-    case 58: *ptr++ = 'C';*ptr++ = 'E'; break;
-    case 98: *ptr++ = 'C';*ptr++ = 'F'; break;
-    case 96: *ptr++ = 'C';*ptr++ = 'N'; break;
-    case 112: *ptr++ = 'C';*ptr++ = 'N'; break;
-    case 27: *ptr++ = 'C';*ptr++ = 'O'; break;
-    case 24: *ptr++ = 'C';*ptr++ = 'R'; break;
-    case 55: *ptr++ = 'C';*ptr++ = 'S'; break;
-    case 29: *ptr++ = 'C';*ptr++ = 'U'; break;
-    case 105: *ptr++ = 'D';*ptr++ = 'B'; break;
-    case 110: *ptr++ = 'D';*ptr++ = 'S'; break;
-    case 66: *ptr++ = 'D';*ptr++ = 'Y'; break;
-    case 68: *ptr++ = 'E';*ptr++ = 'R'; break;
-    case 99: *ptr++ = 'E';*ptr++ = 'S'; break;
-    case 63: *ptr++ = 'E';*ptr++ = 'U'; break;
-    case 26: *ptr++ = 'F';*ptr++ = 'E'; break;
-    case 114: *ptr++ = 'F';*ptr++ = 'L'; break;
-    case 100: *ptr++ = 'F';*ptr++ = 'M'; break;
-    case 87: *ptr++ = 'F';*ptr++ = 'R'; break;
-    case 31: *ptr++ = 'G';*ptr++ = 'A'; break;
-    case 64: *ptr++ = 'G';*ptr++ = 'D'; break;
-    case 32: *ptr++ = 'G';*ptr++ = 'E'; break;
-    case 2: *ptr++ = 'H';*ptr++ = 'E'; break;
-    case 72: *ptr++ = 'H';*ptr++ = 'F'; break;
-    case 80: *ptr++ = 'H';*ptr++ = 'G'; break;
-    case 67: *ptr++ = 'H';*ptr++ = 'O'; break;
-    case 108: *ptr++ = 'H';*ptr++ = 'S'; break;
-    case 49: *ptr++ = 'I';*ptr++ = 'N'; break;
-    case 77: *ptr++ = 'I';*ptr++ = 'R'; break;
-    case 36: *ptr++ = 'K';*ptr++ = 'R'; break;
-    case 19: *ptr++ = 'K';*ptr++ = 'A'; break;
-    case 57: *ptr++ = 'L';*ptr++ = 'A'; break;
-    case 3: *ptr++ = 'L';*ptr++ = 'I'; break;
-    case 103: *ptr++ = 'L';*ptr++ = 'R'; break;
-    case 71: *ptr++ = 'L';*ptr++ = 'U'; break;
-    case 116: *ptr++ = 'L';*ptr++ = 'V'; break;
-    case 115: *ptr++ = 'M';*ptr++ = 'C'; break;
-    case 101: *ptr++ = 'M';*ptr++ = 'D'; break;
-    case 12: *ptr++ = 'M';*ptr++ = 'G'; break;
-    case 25: *ptr++ = 'M';*ptr++ = 'N'; break;
-    case 42: *ptr++ = 'M';*ptr++ = 'O'; break;
-    case 109: *ptr++ = 'M';*ptr++ = 'T'; break;
-    case 11: *ptr++ = 'N';*ptr++ = 'A'; break;
-    case 41: *ptr++ = 'N';*ptr++ = 'B'; break;
-    case 60: *ptr++ = 'N';*ptr++ = 'D'; break;
-    case 10: *ptr++ = 'N';*ptr++ = 'E'; break;
-    case 113: *ptr++ = 'N';*ptr++ = 'H'; break;
-    case 28: *ptr++ = 'N';*ptr++ = 'I'; break;
-    case 102: *ptr++ = 'N';*ptr++ = 'O'; break;
-    case 93: *ptr++ = 'N';*ptr++ = 'P'; break;
-    case 118: *ptr++ = 'O';*ptr++ = 'G'; break;
-    case 76: *ptr++ = 'O';*ptr++ = 'S'; break;
-    case 91: *ptr++ = 'P';*ptr++ = 'A'; break;
-    case 82: *ptr++ = 'P';*ptr++ = 'B'; break;
-    case 46: *ptr++ = 'P';*ptr++ = 'D'; break;
-    case 61: *ptr++ = 'P';*ptr++ = 'M'; break;
-    case 84: *ptr++ = 'P';*ptr++ = 'O'; break;
-    case 59: *ptr++ = 'P';*ptr++ = 'R'; break;
-    case 78: *ptr++ = 'P';*ptr++ = 'T'; break;
-    case 94: *ptr++ = 'P';*ptr++ = 'U'; break;
-    case 88: *ptr++ = 'R';*ptr++ = 'A'; break;
-    case 37: *ptr++ = 'R';*ptr++ = 'B'; break;
-    case 75: *ptr++ = 'R';*ptr++ = 'E'; break;
-    case 104: *ptr++ = 'R';*ptr++ = 'F'; break;
-    case 111: *ptr++ = 'R';*ptr++ = 'G'; break;
-    case 45: *ptr++ = 'R';*ptr++ = 'H'; break;
-    case 86: *ptr++ = 'R';*ptr++ = 'N'; break;
-    case 44: *ptr++ = 'R';*ptr++ = 'U'; break;
-    case 51: *ptr++ = 'S';*ptr++ = 'B'; break;
-    case 21: *ptr++ = 'S';*ptr++ = 'C'; break;
-    case 34: *ptr++ = 'S';*ptr++ = 'E'; break;
-    case 106: *ptr++ = 'S';*ptr++ = 'G'; break;
-    case 14: *ptr++ = 'S';*ptr++ = 'I'; break;
-    case 62: *ptr++ = 'S';*ptr++ = 'M'; break;
-    case 50: *ptr++ = 'S';*ptr++ = 'N'; break;
-    case 38: *ptr++ = 'S';*ptr++ = 'R'; break;
-    case 65: *ptr++ = 'T';*ptr++ = 'B'; break;
-    case 43: *ptr++ = 'T';*ptr++ = 'C'; break;
-    case 52: *ptr++ = 'T';*ptr++ = 'E'; break;
-    case 90: *ptr++ = 'T';*ptr++ = 'H'; break;
-    case 22: *ptr++ = 'T';*ptr++ = 'I'; break;
-    case 81: *ptr++ = 'T';*ptr++ = 'L'; break;
-    case 69: *ptr++ = 'T';*ptr++ = 'M'; break;
-    case 117: *ptr++ = 'T';*ptr++ = 'S'; break;
-    case 92: *ptr++ = 'U';*ptr++ = 'R'; break;
-    case 23: *ptr++ = 'V';*ptr++ = 'A'; break;
-    case 74: *ptr++ = 'W';*ptr++ = 'T'; break;
-    case 54: *ptr++ = 'X';*ptr++ = 'E'; break;
-    case 39: *ptr++ = 'Y';*ptr++ = 'T'; break;
-    case 70: *ptr++ = 'Y';*ptr++ = 'B'; break;
-    case 30: *ptr++ = 'Z';*ptr++ = 'N'; break;
-    case 40: *ptr++ = 'Z';*ptr++ = 'R'; break;
-  }
-
-  *ptr++ = '-';
-  *buffer = ptr; 
-}
-
-/* parses the acyclic substructures from a given start point */
-bool parse_acyclic(char **buffer, OBMol *mol, OBAtom *atom) 
-{
-  char *ptr = *buffer; 
-  unsigned char ch; 
-
-  unsigned int carbon_chain = 0;
-  unsigned int stack_ptr = 0; 
-
-  struct node_edge {
-    OBAtom *a;
-    OBAtom *p;
-    unsigned int order;
-  } dfs_stack[256];  
-
-#define add_traversal_node(s,t,_a,_p,o)\
-  s[t].a = _a;\
-  s[t].p = _p;\
-  s[t].order = o;\
-  
-  unsigned char *seen = (unsigned char*)alloca(mol->NumAtoms()); 
-  memset(seen, 0, mol->NumAtoms()); 
-  
-  ch = wln_character(atom);
-  if (ch == '*')
-    wln_dash_character(&ptr, atom); 
-  seen[atom->GetId()] = ch; 
-
-  FOR_BONDS_OF_ATOM(b, atom) {
-    OBBond *bond = &(*b); 
-    OBAtom *nxt = bond->GetNbrAtom(atom); 
-    if (!seen[nxt->GetId()] && !nxt->IsInRing()) {
-      add_traversal_node(dfs_stack, stack_ptr++, nxt, atom, bond->GetBondOrder()); 
-    }
-  }
-
-  while (stack_ptr > 0) {
-    OBAtom *p = dfs_stack[--stack_ptr].p;
-    OBAtom *a = dfs_stack[stack_ptr].a;
-
-    for (unsigned int i=1;i<dfs_stack[stack_ptr].order;i++)
-      *ptr++ = 'U'; 
     
-    ch = wln_character(a);
-    if (ch == '*')
-      wln_dash_character(&ptr, a); 
-    seen[atom->GetId()] = ch; 
 
-    FOR_BONDS_OF_ATOM(b, atom) {
-      OBBond *bond = &(*b); 
-      OBAtom *nxt = bond->GetNbrAtom(atom); 
-      if (!seen[nxt->GetId()] && !nxt->IsInRing()) {
-        add_traversal_node(dfs_stack, stack_ptr++, nxt, atom, bond->GetBondOrder()); 
+    // lets try this
+    buffer += '&'; // close the ring everytime 
+
+    free(pd.locant_path);  
+    return true;
+  }
+
+
+};
+
+
+#define wln_push(ch)        wln_out[wln_len++] = ch
+#define wln_pop()           wln_out[--wln_len] = '\0'
+#define wln_back()          wln_out[wln_len-1]
+#define wln_terminate()     wln_out[wln_len] = '\0'
+#define wln_set_length(n)   wln_len = n
+#define wln_length()        wln_len
+#define wln_at(n)           wln_out[n]
+#define wln_set(ch, n)      wln_out[n] = ch
+
+
+/**********************************************************************
+                         API FUNCTION
+**********************************************************************/
+
+
+// if modern, charges are completely independent apart from assumed K
+static void wln_write_element_symbol(OBAtom* atom) {
+  const unsigned int neighbours = atom->GetExplicitDegree(); 
+  const unsigned int orders     = atom->GetExplicitValence(); 
+  const unsigned int hcount     = atom->GetImplicitHCount(); 
+  const int charge              = atom->GetFormalCharge(); 
+
+  switch(atom->GetAtomicNum()){
+    case 1: wln_push('H'); break; 
+
+    case 5:
+      if (orders > 3) {
+        wln_push('-');  
+        wln_push('B');  
+        wln_push('-');  
       }
+      else 
+        wln_push('H'); 
+      break; 
+
+    case 6:
+      if (neighbours <= 2)
+        wln_push('1');
+      else if(neighbours == 3)
+        wln_push('Y');
+      else if(neighbours == 4)
+        wln_push('X');
+      break; 
+    
+    case 7:
+        if (orders <= 1 && hcount == 2)
+          wln_push('Z');
+        else if (orders == 2 && hcount == 1)
+          wln_push('M');
+        else if (charge == +1 && orders == 4)
+          wln_push('K');
+        else if (orders >= 4) {
+          wln_push('-');  
+          wln_push('N');  
+          wln_push('-');  
+        }
+        else 
+          wln_push('N');  
+        break; 
+    
+    case 8:
+      if (neighbours == 1 && orders==1 && charge == 0)
+        wln_push('Q');
+      else if (neighbours == 0 && charge != -2)
+        wln_push('Q');
+      else if (orders > 2) {
+        wln_push('-');  
+        wln_push('O');  
+        wln_push('-');  
+      }
+      else
+        wln_push('O');  
+      break; 
+        
+    case 9:
+      if (neighbours > 1) {
+        wln_push('-');  
+        wln_push('F');  
+        wln_push('-');  
+      }
+      else 
+        wln_push('F');  
+      break; 
+
+    case 15:
+      if (neighbours > 5) {
+        wln_push('-');  
+        wln_push('P');  
+        wln_push('-');  
+      }
+      else 
+        wln_push('P');  
+      break; 
+
+    case 16: wln_push('S'); break; 
+
+    case 17:
+      if (neighbours > 1) {
+        wln_push('-');  
+        wln_push('G');  
+        wln_push('-');  
+      }
+      else 
+        wln_push('G');  
+      break; 
+
+    case 35:
+      if (neighbours > 1) {
+        wln_push('-');  
+        wln_push('E');  
+        wln_push('-');  
+      }
+      else 
+        wln_push('E');  
+      break; 
+
+    case 53:
+      if (neighbours > 1) {
+        wln_push('-');  
+        wln_push('I');  
+        wln_push('-');  
+      }
+      else 
+        wln_push('I');  
+      break; 
+
+      case 89: wln_push('-'); wln_push('A'); wln_push('C'); wln_push('-'); break;
+      case 47: wln_push('-'); wln_push('A'); wln_push('G'); wln_push('-'); break;
+      case 13: wln_push('-'); wln_push('A'); wln_push('L'); wln_push('-'); break;
+      case 95: wln_push('-'); wln_push('A'); wln_push('M'); wln_push('-'); break;
+      case 18: wln_push('-'); wln_push('A'); wln_push('R'); wln_push('-'); break;
+      case 33: wln_push('-'); wln_push('A'); wln_push('S'); wln_push('-'); break;
+      case 85: wln_push('-'); wln_push('A'); wln_push('T'); wln_push('-'); break;
+      case 79: wln_push('-'); wln_push('A'); wln_push('U'); wln_push('-'); break;
+      case 56: wln_push('-'); wln_push('B'); wln_push('A'); wln_push('-'); break;
+      case 4: wln_push('-'); wln_push('B'); wln_push('E'); wln_push('-'); break;
+      case 107: wln_push('-'); wln_push('B'); wln_push('H'); wln_push('-'); break;
+      case 83: wln_push('-'); wln_push('B'); wln_push('I'); wln_push('-'); break;
+      case 97: wln_push('-'); wln_push('B'); wln_push('K'); wln_push('-'); break;
+      case 20: wln_push('-'); wln_push('C'); wln_push('A'); wln_push('-'); break;
+      case 48: wln_push('-'); wln_push('C'); wln_push('D'); wln_push('-'); break;
+      case 58: wln_push('-'); wln_push('C'); wln_push('E'); wln_push('-'); break;
+      case 98: wln_push('-'); wln_push('C'); wln_push('F'); wln_push('-'); break;
+      case 96: wln_push('-'); wln_push('C'); wln_push('N'); wln_push('-'); break;
+      case 112: wln_push('-'); wln_push('C'); wln_push('N'); wln_push('-'); break;
+      case 27: wln_push('-'); wln_push('C'); wln_push('O'); wln_push('-'); break;
+      case 24: wln_push('-'); wln_push('C'); wln_push('R'); wln_push('-'); break;
+      case 55: wln_push('-'); wln_push('C'); wln_push('S'); wln_push('-'); break;
+      case 29: wln_push('-'); wln_push('C'); wln_push('U'); wln_push('-'); break;
+      case 105: wln_push('-'); wln_push('D'); wln_push('B'); wln_push('-'); break;
+      case 110: wln_push('-'); wln_push('D'); wln_push('S'); wln_push('-'); break;
+      case 66: wln_push('-'); wln_push('D'); wln_push('Y'); wln_push('-'); break;
+      case 68: wln_push('-'); wln_push('E'); wln_push('R'); wln_push('-'); break;
+      case 99: wln_push('-'); wln_push('E'); wln_push('S'); wln_push('-'); break;
+      case 63: wln_push('-'); wln_push('E'); wln_push('U'); wln_push('-'); break;
+      case 26: wln_push('-'); wln_push('F'); wln_push('E'); wln_push('-'); break;
+      case 114: wln_push('-'); wln_push('F'); wln_push('L'); wln_push('-'); break;
+      case 100: wln_push('-'); wln_push('F'); wln_push('M'); wln_push('-'); break;
+      case 87: wln_push('-'); wln_push('F'); wln_push('R'); wln_push('-'); break;
+      case 31: wln_push('-'); wln_push('G'); wln_push('A'); wln_push('-'); break;
+      case 64: wln_push('-'); wln_push('G'); wln_push('D'); wln_push('-'); break;
+      case 32: wln_push('-'); wln_push('G'); wln_push('E'); wln_push('-'); break;
+      case 2: wln_push('-'); wln_push('H'); wln_push('E'); wln_push('-'); break;
+      case 72: wln_push('-'); wln_push('H'); wln_push('F'); wln_push('-'); break;
+      case 80: wln_push('-'); wln_push('H'); wln_push('G'); wln_push('-'); break;
+      case 67: wln_push('-'); wln_push('H'); wln_push('O'); wln_push('-'); break;
+      case 108: wln_push('-'); wln_push('H'); wln_push('S'); wln_push('-'); break;
+      case 49: wln_push('-'); wln_push('I'); wln_push('N'); wln_push('-'); break;
+      case 77: wln_push('-'); wln_push('I'); wln_push('R'); wln_push('-'); break;
+      case 36: wln_push('-'); wln_push('K'); wln_push('R'); wln_push('-'); break;
+      case 19: wln_push('-'); wln_push('K'); wln_push('A'); wln_push('-'); break;
+      case 57: wln_push('-'); wln_push('L'); wln_push('A'); wln_push('-'); break;
+      case 3: wln_push('-'); wln_push('L'); wln_push('I'); wln_push('-'); break;
+      case 103: wln_push('-'); wln_push('L'); wln_push('R'); wln_push('-'); break;
+      case 71: wln_push('-'); wln_push('L'); wln_push('U'); wln_push('-'); break;
+      case 116: wln_push('-'); wln_push('L'); wln_push('V'); wln_push('-'); break;
+      case 115: wln_push('-'); wln_push('M'); wln_push('C'); wln_push('-'); break;
+      case 101: wln_push('-'); wln_push('M'); wln_push('D'); wln_push('-'); break;
+      case 12: wln_push('-'); wln_push('M'); wln_push('G'); wln_push('-'); break;
+      case 25: wln_push('-'); wln_push('M'); wln_push('N'); wln_push('-'); break;
+      case 42: wln_push('-'); wln_push('M'); wln_push('O'); wln_push('-'); break;
+      case 109: wln_push('-'); wln_push('M'); wln_push('T'); wln_push('-'); break;
+      case 11: wln_push('-'); wln_push('N'); wln_push('A'); wln_push('-'); break;
+      case 41: wln_push('-'); wln_push('N'); wln_push('B'); wln_push('-'); break;
+      case 60: wln_push('-'); wln_push('N'); wln_push('D'); wln_push('-'); break;
+      case 10: wln_push('-'); wln_push('N'); wln_push('E'); wln_push('-'); break;
+      case 113: wln_push('-'); wln_push('N'); wln_push('H'); wln_push('-'); break;
+      case 28: wln_push('-'); wln_push('N'); wln_push('I'); wln_push('-'); break;
+      case 102: wln_push('-'); wln_push('N'); wln_push('O'); wln_push('-'); break;
+      case 93: wln_push('-'); wln_push('N'); wln_push('P'); wln_push('-'); break;
+      case 118: wln_push('-'); wln_push('O'); wln_push('G'); wln_push('-'); break;
+      case 76: wln_push('-'); wln_push('O'); wln_push('S'); wln_push('-'); break;
+      case 91: wln_push('-'); wln_push('P'); wln_push('A'); wln_push('-'); break;
+      case 82: wln_push('-'); wln_push('P'); wln_push('B'); wln_push('-'); break;
+      case 46: wln_push('-'); wln_push('P'); wln_push('D'); wln_push('-'); break;
+      case 61: wln_push('-'); wln_push('P'); wln_push('M'); wln_push('-'); break;
+      case 84: wln_push('-'); wln_push('P'); wln_push('O'); wln_push('-'); break;
+      case 59: wln_push('-'); wln_push('P'); wln_push('R'); wln_push('-'); break;
+      case 78: wln_push('-'); wln_push('P'); wln_push('T'); wln_push('-'); break;
+      case 94: wln_push('-'); wln_push('P'); wln_push('U'); wln_push('-'); break;
+      case 88: wln_push('-'); wln_push('R'); wln_push('A'); wln_push('-'); break;
+      case 37: wln_push('-'); wln_push('R'); wln_push('B'); wln_push('-'); break;
+      case 75: wln_push('-'); wln_push('R'); wln_push('E'); wln_push('-'); break;
+      case 104: wln_push('-'); wln_push('R'); wln_push('F'); wln_push('-'); break;
+      case 111: wln_push('-'); wln_push('R'); wln_push('G'); wln_push('-'); break;
+      case 45: wln_push('-'); wln_push('R'); wln_push('H'); wln_push('-'); break;
+      case 86: wln_push('-'); wln_push('R'); wln_push('N'); wln_push('-'); break;
+      case 44: wln_push('-'); wln_push('R'); wln_push('U'); wln_push('-'); break;
+      case 51: wln_push('-'); wln_push('S'); wln_push('B'); wln_push('-'); break;
+      case 21: wln_push('-'); wln_push('S'); wln_push('C'); wln_push('-'); break;
+      case 34: wln_push('-'); wln_push('S'); wln_push('E'); wln_push('-'); break;
+      case 106: wln_push('-'); wln_push('S'); wln_push('G'); wln_push('-'); break;
+      case 14: wln_push('-'); wln_push('S'); wln_push('I'); wln_push('-'); break;
+      case 62: wln_push('-'); wln_push('S'); wln_push('M'); wln_push('-'); break;
+      case 50: wln_push('-'); wln_push('S'); wln_push('N'); wln_push('-'); break;
+      case 38: wln_push('-'); wln_push('S'); wln_push('R'); wln_push('-'); break;
+      case 73: wln_push('-'); wln_push('T'); wln_push('A'); wln_push('-'); break;
+      case 65: wln_push('-'); wln_push('T'); wln_push('B'); wln_push('-'); break;
+      case 43: wln_push('-'); wln_push('T'); wln_push('C'); wln_push('-'); break;
+      case 52: wln_push('-'); wln_push('T'); wln_push('E'); wln_push('-'); break;
+      case 90: wln_push('-'); wln_push('T'); wln_push('H'); wln_push('-'); break;
+      case 22: wln_push('-'); wln_push('T'); wln_push('I'); wln_push('-'); break;
+      case 81: wln_push('-'); wln_push('T'); wln_push('L'); wln_push('-'); break;
+      case 69: wln_push('-'); wln_push('T'); wln_push('M'); wln_push('-'); break;
+      case 117: wln_push('-'); wln_push('T'); wln_push('S'); wln_push('-'); break;
+      case 92: wln_push('-'); wln_push('U'); wln_push('R'); wln_push('-'); break;
+      case 23: wln_push('-'); wln_push('V'); wln_push('A'); wln_push('-'); break;
+      case 74: wln_push('-'); wln_push('W'); wln_push('T'); wln_push('-'); break;
+      case 54: wln_push('-'); wln_push('X'); wln_push('E'); wln_push('-'); break;
+      case 39: wln_push('-'); wln_push('Y'); wln_push('T'); wln_push('-'); break;
+      case 70: wln_push('-'); wln_push('Y'); wln_push('B'); wln_push('-'); break;
+      case 30: wln_push('-'); wln_push('Z'); wln_push('N'); wln_push('-'); break;
+      case 40: wln_push('-'); wln_push('Z'); wln_push('R'); wln_push('-'); break;
+  }
+}
+
+
+static int branch_recursive_write(graph_t *mol, symbol_t *atom)
+{
+  seen[symbol_get_id(atom)] = true; 
+  wln_write_element_symbol(atom);
+    
+  const unsigned int ndegree = symbol_get_degree(atom); 
+
+  symbol_nbor_iter(s, atom) {
+    symbol_t *nbor = &(*s); 
+    edge_t *edge = graph_get_edge(mol, atom, nbor);
+    for (unsigned int i=1; i < edge_get_order(e); i++)
+      wln_push('U'); 
+
+    if (!seen[symbol_get_id(nbor)]) {
+      if (branch_recursive_write(mol, nbor) != WLN_OK)
+        return WLN_ERROR; 
+    }
+  
+    if (ndegree > 2) switch (wln_back()) {
+      case 'Q':
+      case 'E':
+      case 'F':
+      case 'G':
+      case 'I':
+      case 'Z':
+        break;
+      default:
+        wln_push('&'); 
+    }
+  }  
+  return WLN_OK;
+}
+
+/* all sequences of 1's can be folded into their singular numbers */
+static void fold_carbon_chains()
+{
+  int start = -1; 
+  unsigned int chain_len;  
+  unsigned int folded = 0;
+  for (unsigned int i=0; i<wln_length(); i++) {
+    unsigned char ch = wln_at(i); 
+    if (ch == '1') {
+      if (start == -1) {
+        start = i; 
+        chain_len = 1; 
+      }
+      else 
+        chain_len++; 
+    }
+    else {
+      if (start != -1) {
+        while (chain_len > 0) {
+          unsigned char digit = (chain_len % 10) + '0';  // Get rightmost digit
+          wln_set(digit, start++);
+          chain_len = chain_len / 10;    // Remove rightmost digit
+        }
+
+        unsigned int diff = wln_length() - i; 
+        memmove(wln_out+start, wln_out+i, diff); 
+        i -= diff; 
+        folded += diff; 
+      }
+      start = -1;
     }
   }
 
-  return true; 
-}
+#if 0
+  if (chain_len) {
+    while (chain_len > 0) {
+      unsigned char digit = (chain_len % 10) + '0';  // Get rightmost digit
+      wln_set(digit, start++);
+      chain_len = chain_len / 10;    // Remove rightmost digit
+    }
 
-bool WriteWLN(char *buffer, OBMol* mol)
-{   
-#ifdef USING_OPENBABEL
-  bool cyclic = !mol->GetSSSR().empty();
+    unsigned int diff = wln_length() - start; 
+    memmove(wln_out+start, wln_out+wln_length(), diff); 
+    folded += diff; 
+  }
 #endif
 
-  if (cyclic) FOR_RINGS_OF_MOL(r, mol) { 
+  unsigned int len = wln_length() - folded;
+  wln_set_length(len); 
+}
 
-  } 
-  else FOR_ATOMS_OF_MOL(a, mol) {
-    OBAtom *atom = &(*a);  
-    if (atom->GetExplicitDegree() == 1)
-      return parse_acyclic(&buffer, mol, atom); 
-  }
+
+bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
+{   
+  wln_out = buffer; 
+  wln_len = 0; 
+
+  seen = (bool*)malloc(graph_num_atoms(mol)); 
+  memset(seen, 0, graph_num_atoms(mol)); 
+
+  /* find an atom that has only one bond, if not cyclic this must be true */
+  char new_mol = 0; 
+  symbol_t *seed; 
+  graph_symbol_iter(s, mol) {
+    seed = &(*s); 
     
+    /* from the seed atom, recursively build the branch */
+    if (!seen[symbol_get_id(s)] && symbol_get_degree(seed) == 1) {
+      if (new_mol) {
+        wln_push(' ');
+        wln_push('&');
+      }
+
+      if (branch_recursive_write(mol, seed) != WLN_OK)
+        return false; 
+      new_mol = 1; 
+    }
+  }  
+  
+  while (wln_back() == '&')
+    wln_pop(); 
+  fold_carbon_chains(); 
+
+  free(seen); 
   return true; 
 }
+
 
 
