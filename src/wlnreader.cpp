@@ -612,7 +612,7 @@ static void pathsolverIII_fast(graph_t *mol,
     }
     symbol_set_aromatic(r->path[end].s, arom);
 
-    fprintf(stderr,"%d: %c --> %c (%d)\n",steps, start + 'A', end + 'A', subcycle->aromatic); 
+//    fprintf(stderr,"%d: %c --> %c (%d)\n",steps, start + 'A', end + 'A', subcycle->aromatic); 
     
     path[start].nlocants--;
     path[start].nxt_locant = end;
@@ -737,7 +737,7 @@ static void pathsolverIII(graph_t *mol,
       edge_set_aromatic(e, arom);
     }
 
-    fprintf(stderr,"%d: %c --> %c (%d)\n",steps, start + 'A', end + 'A', subcycle->aromatic); 
+//    fprintf(stderr,"%d: %c --> %c (%d)\n",steps, start + 'A', end + 'A', subcycle->aromatic); 
     
     nlocants[start]--;
     nlocants[end]--;
@@ -750,8 +750,7 @@ static void pathsolverIII(graph_t *mol,
 
 /* ################# Dispatch Functions ################# */
 
-static symbol_t*
-parse_opening_terminator(graph_t *mol, unsigned char ch) {
+static symbol_t* parse_opening_terminator(graph_t *mol, unsigned char ch) {
   switch (ch) {
     case 'E': return symbol_create(mol, BRO);
     case 'F': return symbol_create(mol, FLU);
@@ -800,26 +799,19 @@ static int parse_aromaticity(wlnsubcycle SSSR[],
 // -1 for error
 static int parse_locant() 
 {
-  int locant_ch   = -1;
+  int locant_ch   = WLN_ERROR;
   unsigned char ch = *wln_ptr; 
 
   while (*wln_ptr) {
     if ((ch >= 'A' && ch <= 'Z')) {
       if (locant_ch == -1)
         locant_ch = ch - 'A';
-      else break;
+      else return locant_ch;
     }
-    else if ((ch >= '0' && ch <= '9')) {
-      if (locant_ch == -1)
-        return WLN_ERROR;
-      else break;
-    }
-    else if (ch == '-')
-      ;
     else if (ch == '&')
-      ;
+      locant_ch += 23; 
     else 
-      return WLN_ERROR;
+      return locant_ch;
     ch = *(++wln_ptr);
   }
   
@@ -829,16 +821,17 @@ static int parse_locant()
 
 
 /* this expects the symbol after the opening L|T */
-static int cyclic_recursive_parse(graph_t *mol) 
+static int cyclic_recursive_parse(graph_t *mol, edge_t *inline_edge, int inline_locant) 
 {
   bool seen_pseudo = false; 
   struct wlnpath   *ring = NULL; 
   int locant_ch     = 0; 
   int max_path_size = 0;  
-  
+  unsigned char ch;   
+
   uint8_t nSSSR  = 0; 
   struct wlnsubcycle SSSR[32]; // this really is sensible for WLN
-  unsigned char ch;   
+  uint8_t assignments = 0; 
 ring_parse_sssr:
   while (*wln_ptr) {
     ch = *wln_ptr++; 
@@ -887,8 +880,11 @@ ring_parse_sssr:
       case 'N':
       case 'K':
       case 'M':
+      case 'V':
         ring = ring_create(mol, max_path_size); 
         goto ring_parse_hetero; 
+
+      default: return wln_error("invalid character in ring parse - %c\n", ch); 
     }
   }
 
@@ -906,7 +902,7 @@ ring_parse_multi:
   ch = *wln_ptr; 
   switch (ch) {
       case ' ': goto ring_parse_hetero; 
-      case 'J': goto ring_parse_end;
+      case 'J': wln_ptr++ ; goto ring_parse_end;
 
       case '&':
         goto ring_parse_arom;
@@ -946,11 +942,15 @@ ring_parse_hetero:
         symbol_set_charge(ring->path[locant_ch++].s, +1);
         break;
 
-      case 'N':
+      case 'N': symbol_change(ring->path[locant_ch++].s, NIT); break;
       case 'M': symbol_change(ring->path[locant_ch++].s, NIT); break;
       case 'O': symbol_change(ring->path[locant_ch++].s, OXY); break;
       case 'P': symbol_change(ring->path[locant_ch++].s, PHO); break;
       case 'S': symbol_change(ring->path[locant_ch++].s, SUL); break;
+      case 'V': if (add_oxy(mol, ring->path[locant_ch++].s) != WLN_OK) 
+                  return WLN_ERROR; 
+                else break; 
+      
 
       case 'U':
 #if 0
@@ -972,10 +972,6 @@ ring_parse_hetero:
       case 'Y':
         break;
 
-      case 'V': if (add_oxy(mol, ring->path[locant_ch++].s) != WLN_OK) 
-                  return WLN_ERROR; 
-                else break; 
-      
       case '&':
         goto ring_parse_arom;
       case 'T': 
@@ -983,14 +979,43 @@ ring_parse_hetero:
 
       case 'J': goto ring_parse_end;
 
-      default:
-        return wln_error("unhandled symbol - %c\n", ch); 
+      default: return wln_error("invalid character in ring parse - %c\n", ch); 
     }
   }
 
 
+  while (*wln_ptr) {
+    ch = *wln_ptr++; 
 ring_parse_arom:
+    if (*wln_ptr == 'J') {
+    }
+    
+    switch (ch) {
+      
+      case '&':
+        if (assignments == nSSSR) 
+          return wln_error("too many aromaticity assignments for wln ring\n");
+        SSSR[assignments++].aromatic = true;  
+        break; 
 
+      case 'T':
+        if (assignments == nSSSR) 
+          return wln_error("too many aromaticity assignments for wln ring\n");
+        SSSR[assignments++].aromatic = false;  
+        break; 
+
+      case 'J':
+        if (assignments == 1 && !SSSR[0].aromatic) {
+          for (unsigned int i=1; i < nSSSR; i++)
+            SSSR[i].aromatic = false;
+        }
+        else if (assignments != nSSSR) 
+          return wln_error("not enough aromaticity assignments for wln ring\n");
+        goto ring_parse_end; 
+
+      default: return wln_error("invalid character in ring parse - %c\n", ch); 
+    }
+  }
 
 ring_parse_end:
   if (seen_pseudo)
@@ -998,7 +1023,13 @@ ring_parse_end:
   else
     pathsolverIII_fast(mol, ring, SSSR, nSSSR);  
 
-  wln_ptr++; 
+  if (inline_edge) {
+    if (inline_locant >= max_path_size)
+      return wln_error("inline locant out of bounds for ring\n"); 
+    symbol_t *inline_atom = ring->path[inline_locant].s;
+    edge_bond(mol, inline_edge, inline_atom); 
+  }
+
   if (*wln_ptr == ' ') {
     wln_ptr++; 
     if (*wln_ptr == '&') {
@@ -1008,6 +1039,7 @@ ring_parse_end:
     else if (parse_ring_locants(mol, ring) != WLN_OK)
       return WLN_ERROR; 
   }
+
   free(ring); 
   return WLN_OK; 
 }
@@ -1310,14 +1342,21 @@ static int branch_recursive_parse(graph_t *mol, edge_t *edge, ring_t *ring)
         return WLN_OK; 
       
       case '-':
-#if 1
         if (*wln_ptr == ' ') {
           /* must be an inline ring */
+          wln_ptr++; 
+          int inline_locant = parse_locant(); 
+          if (inline_locant == WLN_ERROR)
+            return wln_error("invalid notation for inline locant"); 
+          if (!(*wln_ptr == 'L' || *wln_ptr == 'T'))
+            return WLN_ERROR; 
+
+          wln_ptr++; 
+          if (cyclic_recursive_parse(mol, curr_edge, inline_locant) != WLN_OK)
+            return WLN_ERROR; 
+          if (!*wln_ptr)
+            return WLN_OK; 
         }
-#if 0
-          if (!curr_ring) return false; 
-          stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
-#endif
         else {
           curr_symbol = dash_symbol_create(mol, &wln_ptr); 
           edge_bond(mol, curr_edge, curr_symbol); 
@@ -1334,7 +1373,6 @@ static int branch_recursive_parse(graph_t *mol, edge_t *edge, ring_t *ring)
           }
           return WLN_OK; 
         }
-#endif
         break;
 
       case ' ':
@@ -1373,7 +1411,6 @@ static int start_wln_parse(graph_t *mol)
 {
   symbol_t *init_symbol = symbol_create(mol, DUM); 
   edge_t *init_edge = graph_new_edge(mol); 
-  edge_t *null_edge = init_edge;
   edge_set_begin(init_edge, init_symbol); 
 
   symbol_t *open_term = parse_opening_terminator(mol, *wln_ptr);
@@ -1386,7 +1423,8 @@ static int start_wln_parse(graph_t *mol)
   switch (*wln_ptr) {
     case 'L':
     case 'T':
-      if (cyclic_recursive_parse(mol) == WLN_ERROR)
+      wln_ptr++; 
+      if (cyclic_recursive_parse(mol, NULL, 0) == WLN_ERROR)
         return WLN_ERROR; 
       break; 
     default:
@@ -1422,7 +1460,7 @@ bool ReadWLN(const char *wln, graph_t *mol)
   }
 
   graph_cleanup_hydrogens(mol);
-  
+
 #ifdef USING_OPENBABEL
   OBKekulize(mol); 
 #endif

@@ -28,6 +28,7 @@ GNU General Public License for more details.
 #include <openbabel/babelconfig.h>
 #include <openbabel/obconversion.h>
 
+bool opt_verbose; 
 bool opt_early_stop; 
 
 #define BENCH_N 417
@@ -895,6 +896,9 @@ void run_benchmark() {
     const char *ptr = wln_bench[i];
     const char *smi = smiles_bench[i];
 
+    if (opt_verbose)
+      fprintf(stderr, "testing %s\n", ptr); 
+
     fprintf(stdout,"%s\t", ptr);
     if (!ReadWLN(ptr, &mol)) {
       fprintf(stdout, "null read\t%s\n",smi); 
@@ -938,14 +942,17 @@ process_cml(int argc, char *argv[])
   const char *ptr = 0;
   int i;
   
+  opt_verbose = false; 
   opt_early_stop = false; 
 
   for (i = 1; i < argc; i++) {
     ptr = argv[i];
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
       case 'e': opt_early_stop = true; break; 
+      case 'v': opt_verbose    = true; break; 
       case 'h':
         display_usage(); 
+
       default:
         fprintf(stderr, "Error: unrecognised option - %s\n", ptr); 
         display_usage(); 
@@ -954,10 +961,11 @@ process_cml(int argc, char *argv[])
 }
 
 
-int 
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
   process_cml(argc, argv); 
   run_benchmark(); 
   return 0; 
 }
+
+
