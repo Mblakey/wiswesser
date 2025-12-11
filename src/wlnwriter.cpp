@@ -2271,8 +2271,7 @@ parse_acyclic(char buffer, unsigned int i, OBMol *mol, OBAtom *atom) {
 
 #endif
 
-unsigned char 
-wln_character(OBAtom *atom) 
+unsigned char wln_character(OBAtom *atom) 
 {
   unsigned int valence = atom->GetExplicitValence(); 
   unsigned int degree  = atom->GetExplicitDegree(); 
