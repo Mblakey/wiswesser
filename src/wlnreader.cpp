@@ -73,6 +73,7 @@ using namespace OpenBabel;
 #define graph_t    OBMol
 #define symbol_t   OBAtom
 #define edge_t     OBBond
+#define ring_t struct wlnpath
 
 #define symbol_get_id(s)            s->GetId()
 #define symbol_get_num(s)           s->GetAtomicNum()
@@ -110,6 +111,8 @@ using namespace OpenBabel;
 
 #endif
 
+static int start_wln_parse(char **wln, graph_t *mol); 
+static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge, ring_t *ring); 
 
 static symbol_t* 
 symbol_create(graph_t *mol, uint16_t atomic_num)
@@ -145,16 +148,16 @@ symbol_change(symbol_t *s, uint16_t atomic_num)
 
 
 static symbol_t*
-parse_dash_notation(graph_t *mol, const char **wln) 
+dash_symbol_create(graph_t *mol, char **wln) 
 {
-  const char *ptr = *wln;
+  char *ptr = *wln;
   unsigned char fst_ch = *ptr++; // this is known to not be null
   unsigned char snd_ch = *ptr++; // this could be null (C-string safe)
-    
+
   if (snd_ch && *ptr != '-')
     return NULL;
   else 
-    *wln = ptr;
+    *wln = ++ptr;
 
   switch (fst_ch){
     case 'A':
@@ -503,8 +506,7 @@ struct wlnpath {
 }; 
 
 
-static struct wlnpath* 
-ring_create(graph_t *mol, unsigned int size) 
+static ring_t* ring_create(graph_t *mol, unsigned int size) 
 {
   struct wlnpath *ring = 0; 
   ring = (struct wlnpath*)malloc(sizeof(struct wlnpath) + sizeof(struct wlnlocant)*(size-1)); 
@@ -526,8 +528,7 @@ ring_create(graph_t *mol, unsigned int size)
 }
 
 
-static struct wlnpath* 
-ring_create_benzene(graph_t *mol) 
+static ring_t* ring_create_benzene(graph_t *mol) 
 {
   wlnpath *benzene = ring_create(mol, 6);
   edge_t *bond = edge_create(mol, benzene->path[0].s, benzene->path[5].s);
@@ -563,7 +564,7 @@ ring_create_benzene(graph_t *mol)
  * of the fusion sum as mentioned in the manuals. 
 */
 static bool pathsolverIII_fast(graph_t *mol, 
-                               const struct wlnpath *r, 
+                               ring_t *r, 
                                struct wlnsubcycle *SSSR, 
                                uint8_t nSSSR)
 {
@@ -765,12 +766,11 @@ parse_opening_terminator(graph_t *mol, unsigned char ch) {
 #define PSEUDO_READ 0x04
 
 
-static bool 
-parse_aromaticity(const char **wln, 
-                  wlnsubcycle SSSR[], 
-                  unsigned short SSSR_ptr)
+static bool parse_aromaticity(char **wln, 
+                              wlnsubcycle SSSR[], 
+                              unsigned short SSSR_ptr)
 {
-  const char *ptr = *wln;
+  char *ptr = *wln;
   unsigned char ch = *ptr; 
 
   unsigned short assigments = 0;
@@ -806,9 +806,9 @@ parse_aromaticity(const char **wln,
 
 
 // -1 for error
-static int parse_locant(const char **wln) 
+static int parse_locant(char **wln) 
 {
-  const char *ptr = *wln;
+  char *ptr = *wln;
   int locant_ch   = -1;
   unsigned char ch = *ptr; 
 
@@ -820,7 +820,7 @@ static int parse_locant(const char **wln)
     }
     else if ((ch >= '0' && ch <= '9')) {
       if (locant_ch == -1)
-        return -1;
+        return WLN_ERROR;
       else break;
     }
     else if (ch == '-')
@@ -828,7 +828,7 @@ static int parse_locant(const char **wln)
     else if (ch == '&')
       ;
     else 
-      return -1;
+      return WLN_ERROR;
     ch = *(++ptr);
   }
   
@@ -837,14 +837,13 @@ static int parse_locant(const char **wln)
 }
 
 
-static bool 
-parse_heterocycle_symbols(const char **wln, 
-                          graph_t *mol, 
-                          wlnpath *ring, 
-                          int locant_ch)
+static bool parse_heterocycle_symbols(char **wln, 
+                                      graph_t *mol, 
+                                      ring_t *ring, 
+                                      int locant_ch)
                           
 {
-  const char *ptr = *wln;
+  char *ptr = *wln;
   unsigned char ch = *ptr; 
   edge_t* bond;
 
@@ -939,10 +938,9 @@ parse_heterocycle_symbols(const char **wln,
 }
 
 
-static struct wlnpath* 
-parse_cyclic(const char **wln, graph_t *mol) 
+static ring_t* parse_cyclic(char **wln, graph_t *mol) 
 {
-  const char *ptr = *wln; // set at the end
+  char *ptr = *wln; // set at the end
   struct wlnpath   *ring = 0; 
   
   bool    expecting_locant = false;
@@ -1036,13 +1034,61 @@ parse_cyclic(const char **wln, graph_t *mol)
 }
 
 
-static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
+/* this expects the character under the ptr to be the one after 
+ * the locant space */
+static int parse_ring_locants(char **wln, graph_t *mol, ring_t *ring)
+{
+  int ret; 
+  char *ptr = *wln; 
+  unsigned char ch = *ptr; 
+
+  if (!*ptr)
+    return WLN_ERROR;
+
+  while (*ptr) {
+    int locant = parse_locant(&ptr); 
+
+    if (locant == WLN_ERROR) 
+      return wln_error("failed to parse locant\n");  
+    if (locant >= ring->size) 
+      return wln_error("locant out of range of ring\n"); 
+  
+    symbol_t *curr_symbol = ring->path[locant].s; 
+    edge_t *curr_edge = edge_create(mol, curr_symbol); 
+
+    switch (ch) {
+      case ' ':
+        *wln = ptr; 
+        return WLN_OK; // might be a single methyl e.g L6TJ A<EOL>
+      
+      case '-':
+        /* inline ring definition */
+        break; 
+      
+      default:
+        if (branch_recursive_parse(&ptr, mol, curr_edge, ring) == WLN_ERROR)
+          return WLN_ERROR; 
+        if (!edge_get_end(curr_edge)) {
+          symbol_t *methyl = symbol_create(mol, CAR);
+          edge_bond(mol, curr_edge, methyl);  
+        }
+        break; 
+    }
+  }
+
+  *wln = ptr; 
+  return WLN_OK; 
+}
+
+
+static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge, ring_t *ring)
 {
   int ret; 
   char *ptr = *wln; 
   unsigned char ch = *ptr; 
   edge_t *curr_edge = edge;
   symbol_t *curr_symbol;
+  ring_t *benzene; 
   uint16_t counter   = 0; 
 
   if (!*ptr)
@@ -1085,9 +1131,11 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
 
         for (unsigned int i=0; i<2; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
+          if (!*ptr)
+            break; 
         }
         *wln = ptr; 
         return WLN_OK; 
@@ -1119,7 +1167,6 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
         return WLN_OK; 
 
       case 'H':
-        symbol_incr_hydrogens(curr_symbol); 
         break;
 
       case 'I':
@@ -1136,7 +1183,7 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
 
         for (unsigned int i=0; i<3; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
           if (!edge_get_end(curr_edge)) {
@@ -1165,9 +1212,11 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
         edge_bond(mol, curr_edge, curr_symbol); 
         for (unsigned int i=0; i<2; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
+          if (!*ptr)
+            break; 
         }
         *wln = ptr; 
         return WLN_OK; 
@@ -1185,9 +1234,11 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
 
         for (unsigned int i=0; i<3; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
+          if (!*ptr)
+            break; 
         }
 
         *wln = ptr; 
@@ -1197,17 +1248,21 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
         curr_symbol = symbol_create(mol, OXY);
         edge_bond(mol, curr_edge, curr_symbol); 
         *wln = ptr; 
-        return true; 
+        return WLN_OK; 
 
       // shorthand benzene 
       case 'R': 
-#if 0
-        curr_ring = ring_create_benzene(mol);
-        wln_ampstack_push_ring(&dep_stack, curr_ring, 0, 0);  
-
-        curr_edge   = edge_create(mol, curr_ring->path[0].s, prev_symbol); 
-        edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-#endif
+        benzene = ring_create_benzene(mol);
+        curr_symbol = benzene->path[0].s; 
+        edge_bond(mol, curr_edge, curr_symbol); 
+        if (*ptr == ' ') {
+          ptr++; 
+          if (parse_ring_locants(&ptr, mol, benzene) == WLN_ERROR)
+            return WLN_ERROR; 
+          *wln = ptr; 
+        }
+        else
+          curr_edge = edge_create(mol, curr_symbol); 
         break;
 
       case 'S':
@@ -1216,9 +1271,11 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
 
         for (unsigned int i=0; i<3; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
+          if (!*ptr)
+            break; 
         }
 
         *wln = ptr; 
@@ -1251,7 +1308,7 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
 
         for (unsigned int i=0; i<3; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
           if (!edge_get_end(curr_edge)) {
@@ -1269,7 +1326,7 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
         
         for (unsigned int i=0; i<2; i++) {
           curr_edge = edge_create(mol, curr_symbol); 
-          int ret = branch_recursive_parse(&ptr, mol, curr_edge); 
+          int ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
           if (ret == WLN_ERROR)
             return ret; 
           if (!edge_get_end(curr_edge)) {
@@ -1285,46 +1342,51 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
         curr_symbol = symbol_create(mol, NIT);
         edge_bond(mol, curr_edge, curr_symbol); 
         *wln = ptr; 
-        return true; 
+        return WLN_OK; 
       
       case '-':
-#if 0
-        if (*wln == ' ') {
-          if (!curr_ring)
-            return error("inline ring creation requires a previous ring\n");
-          if ((locant_ch = parse_locant(&(++wln))) == -1)
-            return error("failed on inline ring locant parse\n");
-          if (*wln != 'L' && *wln != 'T')
-            return error("invalid format for inline ring\n");
-          
-          curr_ring = parse_cyclic(&(++wln), mol); 
+#if 1
+        if (*ptr == ' ') {
+          /* must be an inline ring */
+        }
 #if 0
           if (!curr_ring) return false; 
           stack_ptr = depstack_push_ring(dep_stack, stack_ptr, curr_ring);  
 #endif
-          if (locant_ch >= curr_ring->size)
-            return error("locant larger than current ring\n");
-          
-          curr_edge   = edge_create(mol, curr_ring->path[locant_ch].s, prev_symbol); 
-          edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-        }
         else {
-          curr_symbol = parse_dash_notation(mol, &wln); 
+          curr_symbol = dash_symbol_create(mol, &ptr); 
+          edge_bond(mol, curr_edge, curr_symbol); 
           if (!curr_symbol)
-            return error("invalid elemental code\n");
-          curr_edge   = edge_create(mol, curr_symbol, prev_symbol); 
-          edge_set_order(curr_edge, unsaturation+1); unsaturation = 0;
-          prev_symbol = curr_symbol; 
-          wln++; 
+            return wln_error("invalid elemental code - %s\n", ptr);
+
+          for (unsigned int i=0; i<3; i++) {
+            curr_edge = edge_create(mol, curr_symbol); 
+            ret = branch_recursive_parse(&ptr, mol, curr_edge, ring); 
+            if (ret == WLN_ERROR)
+              return ret; 
+            if (!*ptr)
+              break; 
+          }
+
+          *wln = ptr; 
+          return WLN_OK; 
         }
 #endif
         break;
 
       case ' ':
         if (*ptr == '&') {
-          // parse end notation
+          ptr++; 
+          if (start_wln_parse(&ptr, mol) == WLN_ERROR)
+            return WLN_ERROR; 
         }
-        else return wln_error("spaces are only allowed with ring notation"); 
+        else {
+          if (!ring) 
+            return wln_error("opening ring notation without a prior ring\n"); 
+          if (parse_ring_locants(&ptr, mol, ring) == WLN_ERROR)
+            return WLN_ERROR;
+        }
+        break; 
 
       case '&':
         /* branch must of closed */
@@ -1342,7 +1404,41 @@ static int branch_recursive_parse(char **wln, graph_t *mol, edge_t *edge)
   }
   
   *wln = ptr; 
-  return true; 
+  return WLN_OK; 
+}
+
+
+// init conditions, make one dummy atom, and one bond - work of the virtual bond
+// idea entirely *--> grow..., delete at the end to save branches
+static int start_wln_parse(char **wln, graph_t *mol)
+{
+  char *ptr = *wln;
+  symbol_t *init_symbol = symbol_create(mol, DUM); 
+  edge_t *init_edge = graph_new_edge(mol); 
+  edge_t *null_edge = init_edge;
+  edge_set_begin(init_edge, init_symbol); 
+
+  symbol_t *open_term = parse_opening_terminator(mol, *ptr);
+  if (open_term) {
+    edge_bond(mol, init_edge, open_term); 
+    init_edge = edge_create(mol, open_term); 
+    ptr++; 
+  }
+
+  switch (*ptr) {
+    case 'L':
+    case 'T':
+    default:
+      if (branch_recursive_parse(&ptr, mol, init_edge, NULL) == WLN_ERROR)
+        return WLN_ERROR; 
+  }
+
+  if (!edge_get_end(null_edge))
+    return wln_error("empty molecule from wln parse\n");
+  
+  graph_delete_symbol(mol, init_symbol); 
+  *wln = ptr; 
+  return WLN_OK;
 }
 
 
@@ -1357,38 +1453,17 @@ bool ReadWLN(const char *wln, graph_t *mol)
   mol->SetChiralityPerceived(true); // no stereo for WLN
 #endif
   
-  // init conditions, make one dummy atom, and one bond - work of the virtual bond
-  // idea entirely *--> grow..., delete at the end to save branches
-  symbol_t *init_symbol = symbol_create(mol, DUM); 
-  edge_t *init_edge = graph_new_edge(mol); 
-  edge_set_begin(init_edge, init_symbol); 
-
-  symbol_t *open_term = parse_opening_terminator(mol, *wln);
-  if (open_term) {
-    edge_bond(mol, init_edge, open_term); 
-    init_edge = edge_create(mol, open_term); 
-    wln++; 
-  }
-  
   char *ptr = (char*)wln; 
-
-  switch (*wln) {
-    case 'L':
-    case 'T':
-    default:
-      if (branch_recursive_parse(&ptr, mol, init_edge) == WLN_ERROR)
-        return false; 
-  }
+  if (start_wln_parse(&ptr, mol) == WLN_ERROR)
+    return false; 
 
   if (*ptr) {
     wln_error("parse ended before end of notation - %s\n", ptr); 
     return false; 
   }
 
-  // clean up the hanging bond, one branch in exchange for many
-  graph_delete_symbol(mol, init_symbol); 
   graph_cleanup_hydrogens(mol);
-
+  
 #ifdef USING_OPENBABEL
   OBKekulize(mol); 
 #endif
