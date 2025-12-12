@@ -1,4 +1,3 @@
-#define DEBUG
 
 /*********************************************************************
  
@@ -16,19 +15,8 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ***********************************************************************/
-#include <cstdio>
 #include <stdlib.h>
 #include <stdio.h>
-
-#include <set>
-#include <vector>
-#include <stack>
-#include <map>
-#include <string>
-
-#include <utility> // std::pair
-#include <iterator>
-#include <algorithm>
 
 #include <openbabel/mol.h>
 #include <openbabel/plugin.h>
@@ -45,6 +33,7 @@ GNU General Public License for more details.
 
 #include "wlnparser.h"
 
+#define DEBUG
 #define WLN_OK 0
 #define WLN_ERROR -1
 
@@ -131,9 +120,8 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom);
 static bool is_wln_V(symbol_t *atom)
 {
   if (symbol_get_valence(atom) == 4 &&
-      symbol_get_degree(atom) == 3 &&
-      symbol_get_charge(atom) == 0
-      ) 
+      symbol_get_degree(atom) == 3  &&
+      symbol_get_charge(atom) == 0) 
   {
     
     symbol_bond_iter(b, atom) {
@@ -373,7 +361,6 @@ static void wln_write_element_symbol(OBAtom* atom) {
       case 40: wln_push('-'); wln_push('Z'); wln_push('R'); wln_push('-'); break;
   }
 }
-
 
 
 struct wln_ring {
@@ -673,7 +660,6 @@ static bool wln_write_cycle(struct wln_ring *r,
     for (unsigned int i=0; i<r->size; i++) {
       symbol_t *atom = r->locants[i]; 
       if (symbol_get_num(atom) != 6) {
-
         if (i != last_pos + 1) {
           wln_push(' ');
           wln_push((i + 'A'));
@@ -688,8 +674,6 @@ static bool wln_write_cycle(struct wln_ring *r,
   free(atoms_seen); 
   return true; 
 }
-
-
 
 
 static int branch_recursive_write(graph_t *mol, symbol_t *atom)
@@ -710,7 +694,6 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
         wln_push('U'); 
 
       if (symbol_is_cyclic(nbor)) {
-#if 1
         wln_push('-'); 
         wln_push(' '); 
 
@@ -730,7 +713,7 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
         if (locant_recursive_write(wln_ring, mol) != WLN_OK)
           return WLN_ERROR; 
         wln_ring_free(wln_ring); 
-#endif 
+        wln_push('&'); 
       }
       else {
         if (branch_recursive_write(mol, nbor) != WLN_OK)
@@ -768,7 +751,7 @@ static int locant_recursive_write(struct wln_ring *wln_ring,
         wln_push(' ');
         wln_push((i + 'A'));
 
-        for (unsigned int o=1; o < edge_get_order(edge); o++)
+        for (unsigned int o = 1; o < edge_get_order(edge); o++)
           wln_push('U'); 
 
         if (branch_recursive_write(mol, nbor) != WLN_OK)
@@ -776,7 +759,6 @@ static int locant_recursive_write(struct wln_ring *wln_ring,
       }
     }
   }
-
   return WLN_OK; 
 }
 
@@ -896,6 +878,5 @@ bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
   free(seen); 
   return true; 
 }
-
 
 
