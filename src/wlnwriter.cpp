@@ -74,6 +74,7 @@ using namespace OpenBabel;
 #define edge_set_begin(e, s)       e->SetBegin(s)
 #define edge_set_end(e, s)         e->SetEnd(s)
 #define edge_get_end(e)            e->GetEndAtom()
+#define edge_get_nbor(e, a)        e->GetNbrAtom(a)
 
 #define graph_new_symbol(g)         g->NewAtom()
 #define graph_new_edge(g)           g->NewBond()
@@ -84,6 +85,7 @@ using namespace OpenBabel;
 #define graph_num_atoms(g)          g->NumAtoms()
 
 #define symbol_nbor_iter(a, s)      FOR_NBORS_OF_ATOM(a,s)
+#define symbol_bond_iter(b, s)      FOR_BONDS_OF_ATOM(b,s)
 
 #define graph_symbol_iter(s, g)     FOR_ATOMS_OF_MOL(s,g)
 #define graph_edge_iter(e, g)       FOR_BONDS_OF_MOL(e,g)
@@ -115,6 +117,7 @@ struct PathData {
   LocantPos *locant_path = 0;
   unsigned int path_size = 0;
   bool macro_ring = false;
+
 };
 
 
@@ -139,6 +142,7 @@ static void Fatal(const char *str){
 
 template <typename T>
 void burn_stack(std::stack<T> &stack){
+
   while(!stack.empty())
     stack.pop(); 
 }
@@ -3493,6 +3497,29 @@ struct BabelGraph{
 **********************************************************************/
 
 
+static bool is_wln_V(symbol_t *atom)
+{
+  if (symbol_get_valence(atom) == 4 &&
+      symbol_get_degree(atom) == 3 &&
+      symbol_get_charge(atom) == 0
+      ) 
+  {
+    
+    symbol_bond_iter(b, atom) {
+      edge_t *edge = &(*b); 
+      symbol_t *child = edge_get_nbor(edge, atom); 
+      if (edge_get_order(edge) == 2 &&
+          symbol_get_num(child) == 8) 
+      {
+        seen[symbol_get_id(child)] = true; 
+        return true; 
+      }
+    }      
+  } 
+
+  return false; 
+}
+
 // if modern, charges are completely independent apart from assumed K
 static void wln_write_element_symbol(OBAtom* atom) {
   const unsigned int neighbours = atom->GetExplicitDegree(); 
@@ -3514,7 +3541,9 @@ static void wln_write_element_symbol(OBAtom* atom) {
       break; 
 
     case 6:
-      if (neighbours <= 2)
+      if (is_wln_V(atom)) 
+        wln_push('V'); 
+      else if (neighbours <= 2)
         wln_push('1');
       else if(neighbours == 3)
         wln_push('Y');
@@ -3725,12 +3754,13 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
 
   symbol_nbor_iter(s, atom) {
     symbol_t *nbor = &(*s); 
-    edge_t *edge = graph_get_edge(mol, atom, nbor);
-    for (unsigned int i=1; i < edge_get_order(e); i++)
-      wln_push('U'); 
+    edge_t *edge = graph_get_edge(mol, nbor, atom);
 
     if (!seen[symbol_get_id(nbor)]) {
       nbranch++; 
+      for (unsigned int i=1; i < edge_get_order(e); i++)
+        wln_push('U'); 
+
       if (branch_recursive_write(mol, nbor) != WLN_OK)
         return WLN_ERROR; 
   
