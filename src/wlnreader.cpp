@@ -947,6 +947,7 @@ ring_parse_multi:
       case 'P':
         ch = *wln_ptr++; 
         goto ring_parse_hetero; 
+      default: return wln_error("invalid character in ring parse - %c\n", ch); 
   }
 
   while (*wln_ptr) {
@@ -1030,8 +1031,6 @@ ring_parse_hetero:
 #endif
         break;
 
-      case '-':
-        break;
       case 'X':
       case 'Y':
         break;
