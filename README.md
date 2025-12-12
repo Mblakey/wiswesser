@@ -1,5 +1,7 @@
 # Wiswesser Line Notation (WLN) Chemical Converter
 
+**WARNING** This project is undergoing a complete rework, use branch <old> for stable (but slow) behaviour. 
+
 * WLN Parser               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
 * WLN FSM                  - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
 
