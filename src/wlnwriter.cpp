@@ -72,7 +72,7 @@ using namespace OpenBabel;
 #define edge_unsaturate(e)          e->SetBondOrder(1+e->GetBondOrder())
 #define edge_set_order(e, o)        e->SetBondOrder(o)
 #define edge_set_aromatic(e, b)     e->SetAromatic(b)
-#define edge_get_order(e)           edge->GetBondOrder()
+#define edge_get_order(e)           e->GetBondOrder()
 
 #define edge_set_begin(e, s)       e->SetBegin(s)
 #define edge_set_end(e, s)         e->SetEnd(s)
@@ -386,7 +386,7 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
 
     if (!seen[symbol_get_id(nbor)]) {
       nbranch++; 
-      for (unsigned int i=1; i < edge_get_order(e); i++)
+      for (unsigned int i=1; i < edge_get_order(edge); i++)
         wln_push('U'); 
 
       if (branch_recursive_write(mol, nbor) != WLN_OK)
@@ -408,7 +408,6 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
   }  
   return WLN_OK;
 }
-
 
 
 struct wln_ring {
@@ -510,6 +509,32 @@ static void wln_ring_fill_sssr(struct wln_ring *wln_ring,
 #ifdef DEBUG
   fprintf(stderr, "WLN cycle: %lu atoms, %lu SSSR\n", size, wln_ring->nsssr); 
 #endif
+}
+
+
+static int locant_recursive_write(struct wln_ring *wln_ring, 
+                                  graph_t *mol)
+{
+  
+  for (unsigned int i=0; i<wln_ring->size; i++) {
+    symbol_t *locant = wln_ring->locants[i]; 
+    symbol_bond_iter(b, locant) {
+      edge_t *edge = &(*b); 
+      symbol_t *nbor = edge_get_nbor(edge, locant); 
+      if (!symbol_is_cyclic(nbor) && !seen[symbol_get_id(nbor)]) {
+        wln_push(' ');
+        wln_push((i + 'A'));
+
+        for (unsigned int b=1; b < edge_get_order(edge); b++)
+          wln_push('U'); 
+
+        if (branch_recursive_write(mol, nbor) != WLN_OK)
+          return WLN_ERROR; 
+      }
+    }
+  }
+
+  return WLN_OK; 
 }
 
 /*
@@ -717,11 +742,6 @@ static bool wln_write_cycle(struct wln_ring *r,
 }
 
 
-/**********************************************************************
-                         API FUNCTION
-**********************************************************************/
-
-
 /* all sequences of 1's can be folded into their singular numbers */
 static void fold_carbon_chains()
 {
@@ -781,14 +801,13 @@ bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
     symbol_t *seed; 
     graph_symbol_iter(s, mol) {
       seed = &(*s); 
-      
       /* from the seed atom, recursively build the branch */
       if (!seen[symbol_get_id(s)] && symbol_get_degree(seed) == 1) {
         if (new_mol) {
           wln_push(' ');
           wln_push('&');
         }
-
+        
         if (branch_recursive_write(mol, seed) != WLN_OK)
           return false; 
         new_mol = 1; 
@@ -818,6 +837,8 @@ bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
         wln_ring_fill_sssr(wln_ring, mol, root);  
         wln_ring_fill_locant_path(wln_ring, mol); 
         wln_write_cycle(wln_ring, mol); 
+        if (locant_recursive_write(wln_ring, mol) != WLN_OK)
+          return false; 
         wln_ring_free(wln_ring); 
       }
     }
