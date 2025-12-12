@@ -1,7 +1,7 @@
 #ifndef OBABEL_WLN_PARSER_H
 #define OBABEL_WLN_PARSER_H
 
-#include <inttypes.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 #include <openbabel/mol.h>

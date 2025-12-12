@@ -1,3 +1,5 @@
+#define DEBUG
+
 /*********************************************************************
  
 Author : Michael Blakey
@@ -51,7 +53,7 @@ using namespace OpenBabel;
 #define graph_t    OBMol
 #define symbol_t   OBAtom
 #define edge_t     OBBond
-#define ring_t struct wlnpath
+#define ring_t     OBRing 
 
 #define symbol_get_id(s)            s->GetId()
 #define symbol_get_num(s)           s->GetAtomicNum()
@@ -65,6 +67,7 @@ using namespace OpenBabel;
 #define symbol_incr_hydrogens(s)    s->SetImplicitHCount(s->GetImplicitHCount()+1)
 #define symbol_get_valence(s)       s->GetExplicitValence()
 #define symbol_get_degree(s)        s->GetExplicitDegree()
+#define symbol_is_cyclic(s)         s->IsInRing()
 
 #define edge_unsaturate(e)          e->SetBondOrder(1+e->GetBondOrder())
 #define edge_set_order(e, o)        e->SetBondOrder(o)
@@ -73,8 +76,15 @@ using namespace OpenBabel;
 
 #define edge_set_begin(e, s)       e->SetBegin(s)
 #define edge_set_end(e, s)         e->SetEnd(s)
+#define edge_get_begin(e)          e->GetBeginAtom()
 #define edge_get_end(e)            e->GetEndAtom()
-#define edge_get_nbor(e, a)        e->GetNbrAtom(a)
+#define edge_get_nbor(e, s)        e->GetNbrAtom(s)
+
+#define ring_get_size(r)            r->Size()
+#define ring_get_first(r, g)        g->GetAtom(r->_path[0])
+#define ring_get_id(r)              r->ring_id
+#define ring_symbol_member(r,s)     r->IsMember(s)
+#define ring_edge_member(r,e)       r->IsMember(e)
 
 #define graph_new_symbol(g)         g->NewAtom()
 #define graph_new_edge(g)           g->NewBond()
@@ -83,30 +93,326 @@ using namespace OpenBabel;
 #define graph_delete_symbol(g,s)    g->DeleteAtom(s)
 #define graph_delete_edge(g,e)      g->DeleteBond(e)
 #define graph_num_atoms(g)          g->NumAtoms()
+#define graph_num_cycles(g)         g->GetSSSR().size()
 
 #define symbol_nbor_iter(a, s)      FOR_NBORS_OF_ATOM(a,s)
 #define symbol_bond_iter(b, s)      FOR_BONDS_OF_ATOM(b,s)
 
 #define graph_symbol_iter(s, g)     FOR_ATOMS_OF_MOL(s,g)
 #define graph_edge_iter(e, g)       FOR_BONDS_OF_MOL(e,g)
+#define graph_ring_iter(r, g)       FOR_RINGS_OF_MOL(r,g)
 
 #elif defined USING_RDKIT
 
 #endif
 
 
-#define WLNDEBUG 0
-#define REASONABLE 1024
-#define MACROTOOL 0
-#define STEREO 0  
-
-
-#define INT_TO_LOCANT(X) (X+64)
-#define LOCANT_TO_INT(X) (X-64)
+#define int_to_locant(X) (X+64)
+#define locant_to_int(X) (X-64)
 
 char *wln_out; 
 unsigned int wln_len; 
 bool *seen; 
+
+#define wln_push(ch)        wln_out[wln_len++] = ch
+#define wln_pop()           wln_out[--wln_len] = '\0'
+#define wln_back()          wln_out[wln_len-1]
+#define wln_terminate()     wln_out[wln_len] = '\0'
+#define wln_length()        wln_len
+#define wln_at(n)           wln_out[n]
+#define wln_set(ch, n)      wln_out[n] = ch
+#define wln_ptr(n)          &wln_out[n]
+#define wln_end_ptr()       &wln_out[wln_len-1]
+
+
+struct wln_ring {
+  unsigned int size;
+  unsigned int nsssr;
+  unsigned int fsum;
+  unsigned long long multi; // bitset 
+  bool hetero;
+  ring_t *sssr[32]; 
+  symbol_t *locants[1];
+}; 
+
+
+static struct wln_ring* wln_ring_alloc(size_t size)
+{
+  const size_t bytes = sizeof(struct wln_ring) + (size-1)*sizeof(symbol_t*); 
+  struct wln_ring *r = (struct wln_ring*)malloc(bytes); 
+
+  r->size = size; 
+  r->nsssr  = 0; 
+  r->fsum   = 0xFFFFFFFF; 
+  r->multi  = 0; 
+  r->hetero = false; 
+  return r; 
+}
+
+
+static void wln_ring_free(struct wln_ring *r)
+{
+  free(r); 
+}
+
+
+static void wln_ring_add_subcycle(struct wln_ring *r, ring_t *ring)
+{
+  r->sssr[r->nsssr++] = ring; 
+}
+
+
+/* will return the size of the local SSSR sum */
+static int walk_ring_recursive(struct wln_ring *wln_ring, 
+                               graph_t *mol, 
+                               symbol_t *parent, 
+                               bool *ring_set, 
+                               int ratoms)
+{
+  if (symbol_get_num(parent) != 6)
+    wln_ring->hetero = true; 
+
+  seen[symbol_get_id(parent)] = true; 
+  symbol_nbor_iter(a, parent) {
+    symbol_t *nbor = &(*a); 
+    const unsigned int nid = symbol_get_id(nbor); 
+    if (symbol_is_cyclic(nbor) && !seen[nid]) {
+      /* get the ring membership */
+      graph_ring_iter(r, mol) {
+        ring_t *sssr_ring = &(*r);
+        if (!ring_symbol_member(sssr_ring, nbor))
+          continue; 
+
+        if (!ring_set[ring_get_id(sssr_ring)]) {
+          wln_ring_add_subcycle(wln_ring, sssr_ring); 
+          ring_set[ring_get_id(sssr_ring)] = true; 
+          break;
+        }
+      }
+      wln_ring->locants[ratoms] = nbor;
+      ratoms = walk_ring_recursive(wln_ring, mol, nbor, ring_set, ratoms+1);
+    }
+  }
+  
+  return ratoms;
+}
+
+
+static unsigned int symbol_ring_share_count(struct wln_ring *r, symbol_t *s) 
+{
+  unsigned int memb = 0; 
+  for (unsigned int i=0; i<r->nsssr;i++) {
+    ring_t *ring = r->sssr[i]; 
+    memb += ring_symbol_member(ring, s); 
+  }
+  return memb; 
+}
+
+
+static void wln_ring_fill_sssr(struct wln_ring *wln_ring,
+                               graph_t *mol,   
+                               symbol_t *init_atom)
+{
+  const unsigned int ncycles = graph_num_cycles(mol); 
+  
+  bool *added = (bool*)alloca(ncycles);
+  memset(added, false, ncycles); 
+  
+  wln_ring->locants[0] = init_atom;
+  unsigned int size = walk_ring_recursive(wln_ring, mol, init_atom, added, 1); 
+  wln_ring->size = size; 
+#ifdef DEBUG
+  fprintf(stderr, "WLN cycle: %lu atoms, %lu SSSR\n", size, wln_ring->nsssr); 
+#endif
+}
+
+/*
+Fusion sums are a way of comparing two unique locant paths in order to provide a unique solution. 
+The sum is calculated by taking each individual sub-cycle in the local SSSR, and summing the lowest 
+locant value contained in that cycle from the calculated path. For example if a sub-cycle contained the 
+locant 'A', its locant sum value would be zero.
+*/
+static int fusion_sum_score_path(struct wln_ring *r, symbol_t **path)
+{
+  unsigned int sum = 0; 
+  for (unsigned int i=0; i<r->nsssr; i++) {
+    ring_t *subcycle = r->sssr[i]; 
+    for (unsigned int j=0; j<r->size; j++) {
+      symbol_t *atom = path[j]; 
+      if (ring_symbol_member(subcycle, atom)) {
+        sum += j;
+        break;
+      } 
+    }
+  }
+  return sum; 
+}
+
+
+static int ring_share_score_path(struct wln_ring *r, symbol_t **path, unsigned int *shares)
+{
+  unsigned int sum = 0; 
+  for (unsigned int j=0; j<r->size; j++) 
+    sum += j * shares[j]; 
+  return sum; 
+}
+
+
+/* flood fill style, take every path, and minimise the fusion sum */
+static bool fusion_sum_traverse_recursive(struct wln_ring *r, 
+                                          graph_t *mol, 
+                                          symbol_t *parent, 
+                                          symbol_t **path,
+                                          unsigned int *shares,
+                                          bool *local_seen, 
+                                          int id)
+{
+  bool ret = false;
+  if (id == r->size) {
+    /* score and copy path */
+    unsigned int fsum = fusion_sum_score_path(r, path); 
+    if (fsum < r->fsum) {
+      memcpy(r->locants, path, r->size*sizeof(symbol_t*)); 
+      r->fsum = fsum; 
+    }
+    
+    /* break ties with share sum */
+    if (fsum == r->fsum) {
+      unsigned int orig_share = ring_share_score_path(r, r->locants, shares); 
+      if (ring_share_score_path(r, path, shares) < orig_share) 
+        memcpy(r->locants, path, r->size*sizeof(symbol_t*)); 
+    }
+    return true; 
+  }
+
+  local_seen[symbol_get_id(parent)] = true; 
+  symbol_nbor_iter(a, parent) {
+    symbol_t *nbor = &(*a); 
+    const unsigned int nid = symbol_get_id(nbor); 
+    if (symbol_is_cyclic(nbor) && !local_seen[nid]) {
+      local_seen[nid] = true;
+      
+      path[id++] = nbor;
+      ret |= fusion_sum_traverse_recursive(r, mol, nbor, path, shares, local_seen,id); 
+      id--;  
+      local_seen[nid] = false;
+    }
+  }
+
+  return ret; 
+}
+
+
+static bool wln_ring_fill_locant_path(struct wln_ring *r, 
+                                      graph_t *mol)
+{
+  const unsigned int size = r->size;
+  unsigned int *shares = (unsigned int*)malloc(sizeof(unsigned int)*size); 
+  memset(shares, 0, sizeof(unsigned int)*size);  
+
+  bool *local_seen = (bool*)malloc(size); 
+  memset(local_seen, false, size); 
+
+  symbol_t **ordered_path = (symbol_t**)malloc(sizeof(symbol_t*)*size); 
+  
+  symbol_t *start_symbol; 
+  unsigned int max_share = 0; 
+  for (unsigned int i=0; i<size; i++) {
+    shares[i] = symbol_ring_share_count(r, r->locants[i]); 
+    if (max_share < shares[i]) {
+      max_share = shares[i];
+      start_symbol = r->locants[i]; 
+    }
+  }
+
+  local_seen[symbol_get_id(start_symbol)] = true; 
+  ordered_path[0] = start_symbol; 
+  if (!fusion_sum_traverse_recursive(r, mol, start_symbol, 
+                                     ordered_path, 
+                                     shares, 
+                                     local_seen, 1)) 
+  {
+    fprintf(stderr, "Error: no locant path possible\n"); 
+    return false; 
+  }
+  
+  /* set up multi bit set */
+  for (unsigned int i=0; i<size; i++) {
+    if (symbol_ring_share_count(r, r->locants[i]) > 2) 
+      r->multi |= (1 << i); 
+  }
+  
+  free(local_seen); 
+  free(ordered_path); 
+  free(shares); 
+  return true; 
+}
+
+
+static int lowest_fusion_locant(struct wln_ring *r, ring_t *subcycle)
+{
+  for (unsigned int j=0; j<r->size; j++) {
+    symbol_t *atom = r->locants[j]; 
+    if (ring_symbol_member(subcycle, atom)) 
+      return j; 
+  }
+  return 0; 
+}
+
+
+static bool wln_write_cycle(struct wln_ring *r, 
+                            graph_t *mol)
+{
+  if (r->hetero) 
+    wln_push('T');
+  else 
+    wln_push('L');
+  
+  const unsigned int sssr_size = r->nsssr; 
+  
+  int *atoms_seen = (int*)malloc(sizeof(int)*sssr_size);
+  for (unsigned int i=0; i<sssr_size; i++) 
+    atoms_seen[i] = ring_get_size(r->sssr[i]);  
+  
+  for (unsigned int i=0; i<r->size; i++) {
+    symbol_t *atom = r->locants[i]; 
+    for (unsigned int j=0; j<sssr_size; j++) {
+      ring_t *subcycle = r->sssr[j]; 
+      if (ring_symbol_member(subcycle, atom)) {
+        if (--atoms_seen[j] == 0) {
+          int locant = lowest_fusion_locant(r, subcycle);
+          if (locant != 0) {
+            wln_push(' '); 
+            wln_push((locant + 'A')); 
+          }
+          wln_push((ring_get_size(subcycle) + '0')); 
+        }
+      }
+    }
+  }  
+  
+  if (r->multi) {
+    wln_push(' ');
+    wln_push((__builtin_popcount(r->multi) + '0')); 
+    
+    unsigned int pos = 0;
+    unsigned long long n = r->multi; 
+    while (n) {
+      if (n & 1)
+        wln_push((pos + 'A'));
+      n >>= 1; 
+      pos++; 
+    }
+    wln_push(' ');
+    wln_push((r->size-1 + 'A')); 
+  }
+  
+  wln_push('J'); 
+
+  free(atoms_seen); 
+  return true; 
+}
+
 
 struct LocantPos{
   unsigned int locant;  // lets branch locants be placed at the back of the array, past 255 indexing
@@ -250,7 +556,7 @@ void write_ring_size(OBRing *ring, std::string &buffer){
 /* calculates the locant path A->X site for a broken locant */
 unsigned char broken_parent_char(unsigned int locant){
   for(unsigned char ch = 'A'; ch < 'X';ch++){ // could expand this later on
-    if(locant >= 128+(LOCANT_TO_INT(ch)*6) && locant < 128+(LOCANT_TO_INT(ch)*6) +6) 
+    if(locant >= 128+(locant_to_int(ch)*6) && locant < 128+(locant_to_int(ch)*6) +6) 
       return ch; 
   }
   return 0; 
@@ -266,7 +572,7 @@ void static write_locant(unsigned int locant,std::string &buffer){
     if(!loc_start)
       Fatal("could not fetch off path parent for broken locant"); 
 
-    offset = locant - (128 + (LOCANT_TO_INT(loc_start)*6)); // 0 = E-, 1 = E-&
+    offset = locant - (128 + (locant_to_int(loc_start)*6)); // 0 = E-, 1 = E-&
     buffer += loc_start;
 
     switch (offset) {
@@ -357,7 +663,7 @@ void update_broken_locants(OBMol* mol, LocantPos *ratom,
       // this could be E- or E-&, where E- should always get set first. 
       unsigned int movement = 1;
       unsigned int offset = 1; // skip the E-& 
-      unsigned int off_path_char = 128 + (LOCANT_TO_INT(ratom->locant) * 6);
+      unsigned int off_path_char = 128 + (locant_to_int(ratom->locant) * 6);
       // check the atom, does it already have a E-, if so E-&, this has to be exact.
       if(off_branches[b].locant == off_path_char){
         off_path_char++; // move it to E-&;
@@ -523,7 +829,7 @@ bool sequential_chain(  OBMol *mol,OBRing *ring,
   for(unsigned int i=0;i<ring->Size();i++){
     if(in_locant_path(mol->GetAtom(ring->_path[i]),locant_path, path_size)){
       unsigned int pos = position_in_path(mol->GetAtom(ring->_path[i]),locant_path,path_size);
-      sequence[i] = INT_TO_LOCANT(pos+1); 
+      sequence[i] = int_to_locant(pos+1); 
     }
     else
       sequence[i] = 0; 
@@ -563,7 +869,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
   std::map<unsigned char, unsigned char> highest_jump;
 
   for(unsigned int i=0;i<path_size;i++){
-    unsigned char ch = INT_TO_LOCANT(i+1); 
+    unsigned char ch = int_to_locant(i+1); 
     connections[ch] = 1;
     if(i==0 || i == path_size-1)
       connections[ch]++;
@@ -579,7 +885,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       }
 
       if(rbonds==4)
-        connections[INT_TO_LOCANT(i+1)] = 4;
+        connections[int_to_locant(i+1)] = 4;
     }
   }
 
@@ -589,7 +895,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
   for(unsigned int i=0;i<path_size;i++){
     for(unsigned int j=i+2;j<path_size;j++){
       if(mol->GetBond(locant_path[i],locant_path[j]))
-        non_trivials.push_back({INT_TO_LOCANT(i+1),INT_TO_LOCANT(j+1)});
+        non_trivials.push_back({int_to_locant(i+1),int_to_locant(j+1)});
     }
   }
 
@@ -605,7 +911,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
     for(unsigned int step = 0; step < steps;step++){
       if(highest_jump[locant])
         locant = highest_jump[locant];
-      else if(locant < INT_TO_LOCANT(path_size))
+      else if(locant < int_to_locant(path_size))
         locant++;
 
       path.push_back(locant);
@@ -614,7 +920,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
     // add the loop back logic
     for(unsigned int i=0;i<path.size();i++){
       unsigned int tally = 1;
-      if(path[i] == INT_TO_LOCANT(path_size)){
+      if(path[i] == int_to_locant(path_size)){
         for(unsigned int j=i+1;j<path.size();j++){
           if(path[j] == path[i]){
             path[j] += -tally; // looping back
@@ -624,7 +930,7 @@ unsigned int PseudoCheck( OBMol *mol, OBAtom **locant_path, unsigned int path_si
       }
     }
 
-    while(!connections[bind] && bind < INT_TO_LOCANT(path_size)){
+    while(!connections[bind] && bind < int_to_locant(path_size)){
       bind++; // increase bind_1
       bool found = false;
       for(unsigned int a=0;a<path.size();a++){
@@ -747,7 +1053,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
           for(unsigned int k=0;k<wring->Size();k++){
             if(in_locant_path(mol->GetAtom(wring->_path[k]),locant_path,path_size)){
               unsigned int pos = position_in_path(mol->GetAtom(wring->_path[k]),locant_path,path_size);
-              unsigned char loc = INT_TO_LOCANT(pos+1);
+              unsigned char loc = int_to_locant(pos+1);
 
               if(loc < min_loc)
                 min_loc = loc; 
@@ -781,7 +1087,7 @@ unsigned int ReadLocantPath(  OBMol *mol, OBAtom **locant_path, unsigned int pat
 
     for(unsigned int k=0;k<to_write->Size();k++){
       if(in_locant_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)){ 
-        unsigned char loc = INT_TO_LOCANT(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
+        unsigned char loc = int_to_locant(position_in_path(mol->GetAtom(to_write->_path[k]),locant_path,path_size)+1); 
         in_chain[loc] = true;
       }
     }
@@ -831,7 +1137,7 @@ LocantPos *SingleWalk(OBMol *mol, unsigned int path_size,
 
   for(unsigned int i=0;i<mono->Size();i++){
     locant_path[i].atom = mol->GetAtom(mono->_path[i]);
-    locant_path[i].locant = INT_TO_LOCANT(i+1); 
+    locant_path[i].locant = int_to_locant(i+1); 
   }
   
   write_ring_size(mono, buffer); 
@@ -1018,7 +1324,7 @@ LocantPos *PathFinderIIIa(    OBMol *mol, unsigned int path_size,
       for(;;){
 
         locant_path[locant_pos].atom = ratom; 
-        locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);        
+        locant_path[locant_pos].locant = int_to_locant(locant_pos+1);        
         locant_pos++; 
         visited[ratom] = true;
 
@@ -1167,7 +1473,7 @@ path_solve:
         for(;;){
           
           locant_path[locant_pos].atom = ratom;
-          locant_path[locant_pos].locant = INT_TO_LOCANT(locant_pos+1);
+          locant_path[locant_pos].locant = int_to_locant(locant_pos+1);
           locant_pos++; 
           
           // check if attached to broken, if yes, update their locants
@@ -3148,8 +3454,8 @@ struct BabelGraph{
 #if MODERN && STEREO 
       else if(!bonds_checked[fbond] && fbond->IsWedgeOrHash()){
 
-        unsigned char floc = INT_TO_LOCANT(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
-        unsigned char bloc = INT_TO_LOCANT(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
+        unsigned char floc = int_to_locant(position_in_path(fbond->GetBeginAtom(),locant_path,path_size)+1); 
+        unsigned char bloc = int_to_locant(position_in_path(fbond->GetEndAtom(),locant_path,path_size)+1); 
         buffer += ' ';
         write_locant(floc,buffer);
         
@@ -3238,11 +3544,11 @@ struct BabelGraph{
       unsigned char root_locant = 0;
       for(unsigned int i=0;i<path_size;i++){
         if(locant_path[i].atom == ring_root)
-          root_locant = INT_TO_LOCANT(i+1);
+          root_locant = int_to_locant(i+1);
 
         if(locant_path[i].atom == spawned_from){
           // must be spiro ring
-          root_locant = INT_TO_LOCANT(i+1);
+          root_locant = int_to_locant(i+1);
           spiro = true;
           break;
         }
@@ -3279,10 +3585,10 @@ struct BabelGraph{
       ReadMultiCyclicPoints(locant_path,LocalSSRS_data.path_size,atom_shares,buffer);
       
 #if MODERN
-      write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
+      write_locant(int_to_locant(path_size),buffer); // need to make the relative size
 #else
       buffer += ' ';
-      write_locant(INT_TO_LOCANT(path_size),buffer); // need to make the relative size
+      write_locant(int_to_locant(path_size),buffer); // need to make the relative size
 #endif
     }
 
@@ -3479,17 +3785,6 @@ struct BabelGraph{
 
 
 };
-
-
-#define wln_push(ch)        wln_out[wln_len++] = ch
-#define wln_pop()           wln_out[--wln_len] = '\0'
-#define wln_back()          wln_out[wln_len-1]
-#define wln_terminate()     wln_out[wln_len] = '\0'
-#define wln_length()        wln_len
-#define wln_at(n)           wln_out[n]
-#define wln_set(ch, n)      wln_out[n] = ch
-#define wln_ptr(n)          &wln_out[n]
-#define wln_end_ptr()       &wln_out[wln_len-1]
 
 
 /**********************************************************************
@@ -3788,8 +4083,7 @@ static void fold_carbon_chains()
   unsigned int naux = 0; 
 
   int start = -1; 
-  unsigned int chain_len;  
-  unsigned int folded = 0;
+  unsigned int chain_len = 0;  
   for (unsigned int i=0; i<wln_length(); i++) {
     unsigned char ch = wln_at(i); 
     if (ch == '1') {
@@ -3833,28 +4127,62 @@ bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
   seen = (bool*)malloc(graph_num_atoms(mol)); 
   memset(seen, 0, graph_num_atoms(mol)); 
 
-  /* find an atom that has only one bond, if not cyclic this must be true */
   char new_mol = 0; 
-  symbol_t *seed; 
-  graph_symbol_iter(s, mol) {
-    seed = &(*s); 
-    
-    /* from the seed atom, recursively build the branch */
-    if (!seen[symbol_get_id(s)] && symbol_get_degree(seed) == 1) {
-      if (new_mol) {
-        wln_push(' ');
-        wln_push('&');
-      }
+  bool is_cyclic = graph_num_cycles(mol) > 0; 
 
-      if (branch_recursive_write(mol, seed) != WLN_OK)
-        return false; 
-      new_mol = 1; 
+  if (!is_cyclic) {
+    /* find an atom that has only one bond, if not cyclic this must be true */
+    symbol_t *seed; 
+    graph_symbol_iter(s, mol) {
+      seed = &(*s); 
+      
+      /* from the seed atom, recursively build the branch */
+      if (!seen[symbol_get_id(s)] && symbol_get_degree(seed) == 1) {
+        if (new_mol) {
+          wln_push(' ');
+          wln_push('&');
+        }
+
+        if (branch_recursive_write(mol, seed) != WLN_OK)
+          return false; 
+        new_mol = 1; 
+      }
+    }  
+  }
+  else {
+#ifdef USING_OPENBABEL
+    /* 
+     * openbabel rings have an internal id assignement, 
+     * this is naughty, but stops the need for a address hash 
+     */
+    unsigned int nrings = 0; 
+    graph_ring_iter(r, mol) {
+      ring_t *ring = &(*r); 
+      ring->ring_id = nrings++; 
     }
-  }  
-  
+#endif
+
+    /* get the first cycle, and create ring */
+    graph_ring_iter(r, mol) {
+      ring_t *ring = &(*r); 
+      symbol_t *root = ring_get_first(ring, mol); 
+      if (!seen[symbol_get_id(root)]) {
+        seen[symbol_get_id(root)] = true; 
+        struct wln_ring *wln_ring = wln_ring_alloc(graph_num_atoms(mol));         
+        wln_ring_fill_sssr(wln_ring, mol, root);  
+        wln_ring_fill_locant_path(wln_ring, mol); 
+        wln_write_cycle(wln_ring, mol); 
+        free(wln_ring); 
+      }
+    }
+  }
+
+  if (wln_length() == 0)
+    return false; 
+
+  fold_carbon_chains(); 
   while (wln_back() == '&')
     wln_pop(); 
-  fold_carbon_chains(); 
   
   fprintf(stderr, "%s\n", wln_out); 
 
