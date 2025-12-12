@@ -137,7 +137,7 @@ process_cml(int argc, char *argv[])
     display_usage();
   }
 
-  if (fp) 
+  if (!fp) 
     fp = stdin; 
   return;
 }

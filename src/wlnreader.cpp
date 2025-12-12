@@ -441,8 +441,7 @@ graph_cleanup_hydrogens(graph_t *mol)
 
 
 // create a bond to a dummy atom type. allows bond modification without state hold 
-static edge_t* 
-edge_create(graph_t *mol, symbol_t *curr, symbol_t *prev)
+static edge_t* edge_create(graph_t *mol, symbol_t *curr, symbol_t *prev)
 {
   edge_t *bptr = (edge_t*)0;
 #ifdef USING_OPENBABEL
@@ -931,7 +930,6 @@ ring_parse_multi:
   ring = ring_create(mol, max_path_size+1); 
   ch = *wln_ptr; 
   switch (ch) {
-      case ' ': goto ring_parse_hetero; 
       case 'J': wln_ptr++ ; goto ring_parse_end;
 
       case '&':
@@ -939,6 +937,7 @@ ring_parse_multi:
       case 'T': 
         goto ring_parse_arom;
     
+      case ' ': 
       case 'B':
       case 'O':
       case 'S':
@@ -946,6 +945,7 @@ ring_parse_multi:
       case 'K':
       case 'M':
       case 'P':
+        ch = *wln_ptr++; 
         goto ring_parse_hetero; 
   }
 

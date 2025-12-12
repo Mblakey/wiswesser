@@ -106,7 +106,6 @@ using namespace OpenBabel;
 
 #endif
 
-
 #define int_to_locant(X) (X+64)
 #define locant_to_int(X) (X-64)
 
@@ -123,6 +122,10 @@ bool *seen;
 #define wln_set(ch, n)      wln_out[n] = ch
 #define wln_ptr(n)          &wln_out[n]
 #define wln_end_ptr()       &wln_out[wln_len-1]
+
+
+static int locant_recursive_write(struct wln_ring *wln_ring, graph_t *mol); 
+static int branch_recursive_write(graph_t *mol, symbol_t *atom); 
 
 
 static bool is_wln_V(symbol_t *atom)
@@ -372,43 +375,6 @@ static void wln_write_element_symbol(OBAtom* atom) {
 }
 
 
-static int branch_recursive_write(graph_t *mol, symbol_t *atom)
-{
-  seen[symbol_get_id(atom)] = true; 
-  wln_write_element_symbol(atom);
-  
-  unsigned int nbranch = 1; /* already came from one branch */ 
-  const unsigned int ndegree = symbol_get_degree(atom); 
-
-  symbol_nbor_iter(s, atom) {
-    symbol_t *nbor = &(*s); 
-    edge_t *edge = graph_get_edge(mol, nbor, atom);
-
-    if (!seen[symbol_get_id(nbor)]) {
-      nbranch++; 
-      for (unsigned int i=1; i < edge_get_order(edge); i++)
-        wln_push('U'); 
-
-      if (branch_recursive_write(mol, nbor) != WLN_OK)
-        return WLN_ERROR; 
-  
-      if (ndegree > 2) switch (wln_back()) {
-        case 'Q':
-        case 'E':
-        case 'F':
-        case 'G':
-        case 'I':
-        case 'Z':
-          break;
-        default:
-          if (nbranch != ndegree)
-            wln_push('&'); 
-      }
-    }
-  }  
-  return WLN_OK;
-}
-
 
 struct wln_ring {
   unsigned int size;
@@ -444,6 +410,17 @@ static void wln_ring_free(struct wln_ring *r)
 static void wln_ring_add_subcycle(struct wln_ring *r, ring_t *ring)
 {
   r->sssr[r->nsssr++] = ring; 
+}
+
+
+static unsigned int symbol_ring_share_count(struct wln_ring *r, symbol_t *s) 
+{
+  unsigned int memb = 0; 
+  for (unsigned int i=0; i<r->nsssr;i++) {
+    ring_t *ring = r->sssr[i]; 
+    memb += ring_symbol_member(ring, s); 
+  }
+  return memb; 
 }
 
 
@@ -483,17 +460,6 @@ static int walk_ring_recursive(struct wln_ring *wln_ring,
 }
 
 
-static unsigned int symbol_ring_share_count(struct wln_ring *r, symbol_t *s) 
-{
-  unsigned int memb = 0; 
-  for (unsigned int i=0; i<r->nsssr;i++) {
-    ring_t *ring = r->sssr[i]; 
-    memb += ring_symbol_member(ring, s); 
-  }
-  return memb; 
-}
-
-
 static void wln_ring_fill_sssr(struct wln_ring *wln_ring,
                                graph_t *mol,   
                                symbol_t *init_atom)
@@ -506,36 +472,15 @@ static void wln_ring_fill_sssr(struct wln_ring *wln_ring,
   wln_ring->locants[0] = init_atom;
   unsigned int size = walk_ring_recursive(wln_ring, mol, init_atom, added, 1); 
   wln_ring->size = size; 
+
+  for (unsigned int i=0; i<size; i++)
+    seen[symbol_get_id(wln_ring->locants[i])] = true; 
+
 #ifdef DEBUG
   fprintf(stderr, "WLN cycle: %lu atoms, %lu SSSR\n", size, wln_ring->nsssr); 
 #endif
 }
 
-
-static int locant_recursive_write(struct wln_ring *wln_ring, 
-                                  graph_t *mol)
-{
-  
-  for (unsigned int i=0; i<wln_ring->size; i++) {
-    symbol_t *locant = wln_ring->locants[i]; 
-    symbol_bond_iter(b, locant) {
-      edge_t *edge = &(*b); 
-      symbol_t *nbor = edge_get_nbor(edge, locant); 
-      if (!symbol_is_cyclic(nbor) && !seen[symbol_get_id(nbor)]) {
-        wln_push(' ');
-        wln_push((i + 'A'));
-
-        for (unsigned int b=1; b < edge_get_order(edge); b++)
-          wln_push('U'); 
-
-        if (branch_recursive_write(mol, nbor) != WLN_OK)
-          return WLN_ERROR; 
-      }
-    }
-  }
-
-  return WLN_OK; 
-}
 
 /*
 Fusion sums are a way of comparing two unique locant paths in order to provide a unique solution. 
@@ -578,7 +523,6 @@ static bool fusion_sum_traverse_recursive(struct wln_ring *r,
                                           bool *local_seen, 
                                           int id)
 {
-  bool ret = false;
   if (id == r->size) {
     /* score and copy path */
     unsigned int fsum = fusion_sum_score_path(r, path); 
@@ -596,7 +540,9 @@ static bool fusion_sum_traverse_recursive(struct wln_ring *r,
     return true; 
   }
 
+  bool ret = false;
   local_seen[symbol_get_id(parent)] = true; 
+
   symbol_nbor_iter(a, parent) {
     symbol_t *nbor = &(*a); 
     const unsigned int nid = symbol_get_id(nbor); 
@@ -604,7 +550,7 @@ static bool fusion_sum_traverse_recursive(struct wln_ring *r,
       local_seen[nid] = true;
       
       path[id++] = nbor;
-      ret |= fusion_sum_traverse_recursive(r, mol, nbor, path, shares, local_seen,id); 
+      ret |= fusion_sum_traverse_recursive(r, mol, nbor, path, shares, local_seen, id); 
       id--;  
       local_seen[nid] = false;
     }
@@ -620,9 +566,11 @@ static bool wln_ring_fill_locant_path(struct wln_ring *r,
   const unsigned int size = r->size;
   unsigned int *shares = (unsigned int*)malloc(sizeof(unsigned int)*size); 
   memset(shares, 0, sizeof(unsigned int)*size);  
+  
+  const unsigned int natoms = graph_num_atoms(mol); 
 
-  bool *local_seen = (bool*)malloc(size); 
-  memset(local_seen, false, size); 
+  bool *local_seen = (bool*)malloc(natoms); 
+  memset(local_seen, false, natoms); 
 
   symbol_t **ordered_path = (symbol_t**)malloc(sizeof(symbol_t*)*size); 
   
@@ -643,7 +591,7 @@ static bool wln_ring_fill_locant_path(struct wln_ring *r,
                                      shares, 
                                      local_seen, 1)) 
   {
-    fprintf(stderr, "Error: no locant path possible\n"); 
+    fprintf(stderr, "Error: no locant path possible for ring of size: %u\n", size); 
     return false; 
   }
   
@@ -742,6 +690,97 @@ static bool wln_write_cycle(struct wln_ring *r,
 }
 
 
+
+
+static int branch_recursive_write(graph_t *mol, symbol_t *atom)
+{
+  seen[symbol_get_id(atom)] = true; 
+  wln_write_element_symbol(atom);
+  
+  unsigned int nbranch = 1; /* already came from one branch */ 
+  const unsigned int ndegree = symbol_get_degree(atom); 
+
+  symbol_nbor_iter(s, atom) {
+    symbol_t *nbor = &(*s); 
+    edge_t *edge = graph_get_edge(mol, nbor, atom);
+
+    if (!seen[symbol_get_id(nbor)]) {
+      nbranch++; 
+      for (unsigned int o=1; o < edge_get_order(edge); o++)
+        wln_push('U'); 
+
+      if (symbol_is_cyclic(nbor)) {
+#if 1
+        wln_push('-'); 
+        wln_push(' '); 
+
+        struct wln_ring *wln_ring = wln_ring_alloc(graph_num_atoms(mol));         
+        wln_ring_fill_sssr(wln_ring, mol, nbor);  
+        if (!wln_ring_fill_locant_path(wln_ring, mol))
+          return WLN_ERROR; 
+        
+        for (unsigned l=0; l<wln_ring->size; l++) {
+          if (wln_ring->locants[l] == nbor) {
+            wln_push((l + 'A')); 
+            break; 
+          }
+        }
+
+        wln_write_cycle(wln_ring, mol); 
+        if (locant_recursive_write(wln_ring, mol) != WLN_OK)
+          return WLN_ERROR; 
+        wln_ring_free(wln_ring); 
+#endif 
+      }
+      else {
+        if (branch_recursive_write(mol, nbor) != WLN_OK)
+          return WLN_ERROR; 
+    
+        if (ndegree > 2) switch (wln_back()) {
+          case 'Q':
+          case 'E':
+          case 'F':
+          case 'G':
+          case 'I':
+          case 'Z':
+            break;
+          default:
+            if (nbranch != ndegree)
+              wln_push('&'); 
+        }
+      }
+    }
+  }  
+  return WLN_OK;
+}
+
+
+static int locant_recursive_write(struct wln_ring *wln_ring, 
+                                  graph_t *mol)
+{
+  
+  for (unsigned int i=0; i<wln_ring->size; i++) {
+    symbol_t *locant = wln_ring->locants[i]; 
+    symbol_bond_iter(b, locant) {
+      edge_t *edge = &(*b); 
+      symbol_t *nbor = edge_get_nbor(edge, locant); 
+      if (!symbol_is_cyclic(nbor) && !seen[symbol_get_id(nbor)]) {
+        wln_push(' ');
+        wln_push((i + 'A'));
+
+        for (unsigned int o=1; o < edge_get_order(edge); o++)
+          wln_push('U'); 
+
+        if (branch_recursive_write(mol, nbor) != WLN_OK)
+          return WLN_ERROR; 
+      }
+    }
+  }
+
+  return WLN_OK; 
+}
+
+
 /* all sequences of 1's can be folded into their singular numbers */
 static void fold_carbon_chains()
 {
@@ -835,8 +874,9 @@ bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
         seen[symbol_get_id(root)] = true; 
         struct wln_ring *wln_ring = wln_ring_alloc(graph_num_atoms(mol));         
         wln_ring_fill_sssr(wln_ring, mol, root);  
-        wln_ring_fill_locant_path(wln_ring, mol); 
-        wln_write_cycle(wln_ring, mol); 
+        if (!wln_ring_fill_locant_path(wln_ring, mol))
+          return false; 
+        wln_write_cycle(wln_ring, mol);
         if (locant_recursive_write(wln_ring, mol) != WLN_OK)
           return false; 
         wln_ring_free(wln_ring); 
