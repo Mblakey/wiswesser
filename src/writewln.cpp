@@ -119,10 +119,14 @@ process_cml(int argc, char *argv[])
     }
     else switch (j++) {
       case 0:
-        fp = fopen(ptr, "r"); 
-        if (!fp) {
-          fprintf(stderr, "Error: could not open file at %s\n", ptr); 
-          display_usage(); 
+        if (ptr[0] == '-' && !ptr[1])
+          fp = stdin;
+        else {
+          fp = fopen(ptr, "r"); 
+          if (!fp) {
+            fprintf(stderr, "Error: could not open file at %s\n", ptr); 
+            display_usage(); 
+          }
         }
         break;
     }
@@ -133,7 +137,8 @@ process_cml(int argc, char *argv[])
     display_usage();
   }
 
-  if (!j) fp = stdin; 
+  if (fp) 
+    fp = stdin; 
   return;
 }
 

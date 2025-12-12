@@ -3481,10 +3481,11 @@ struct BabelGraph{
 #define wln_pop()           wln_out[--wln_len] = '\0'
 #define wln_back()          wln_out[wln_len-1]
 #define wln_terminate()     wln_out[wln_len] = '\0'
-#define wln_set_length(n)   wln_len = n
 #define wln_length()        wln_len
 #define wln_at(n)           wln_out[n]
 #define wln_set(ch, n)      wln_out[n] = ch
+#define wln_ptr(n)          &wln_out[n]
+#define wln_end_ptr()       &wln_out[wln_len-1]
 
 
 /**********************************************************************
@@ -3718,7 +3719,8 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
 {
   seen[symbol_get_id(atom)] = true; 
   wln_write_element_symbol(atom);
-    
+  
+  unsigned int nbranch = 1; /* already came from one branch */ 
   const unsigned int ndegree = symbol_get_degree(atom); 
 
   symbol_nbor_iter(s, atom) {
@@ -3728,20 +3730,22 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
       wln_push('U'); 
 
     if (!seen[symbol_get_id(nbor)]) {
+      nbranch++; 
       if (branch_recursive_write(mol, nbor) != WLN_OK)
         return WLN_ERROR; 
-    }
   
-    if (ndegree > 2) switch (wln_back()) {
-      case 'Q':
-      case 'E':
-      case 'F':
-      case 'G':
-      case 'I':
-      case 'Z':
-        break;
-      default:
-        wln_push('&'); 
+      if (ndegree > 2) switch (wln_back()) {
+        case 'Q':
+        case 'E':
+        case 'F':
+        case 'G':
+        case 'I':
+        case 'Z':
+          break;
+        default:
+          if (nbranch != ndegree)
+            wln_push('&'); 
+      }
     }
   }  
   return WLN_OK;
@@ -3750,6 +3754,9 @@ static int branch_recursive_write(graph_t *mol, symbol_t *atom)
 /* all sequences of 1's can be folded into their singular numbers */
 static void fold_carbon_chains()
 {
+  char aux[4096]; 
+  unsigned int naux = 0; 
+
   int start = -1; 
   unsigned int chain_len;  
   unsigned int folded = 0;
@@ -3766,36 +3773,25 @@ static void fold_carbon_chains()
     else {
       if (start != -1) {
         while (chain_len > 0) {
-          unsigned char digit = (chain_len % 10) + '0';  // Get rightmost digit
-          wln_set(digit, start++);
-          chain_len = chain_len / 10;    // Remove rightmost digit
+          unsigned char digit = (chain_len % 10) + '0';  // get rightmost digit
+          aux[naux++] = digit; 
+          chain_len = chain_len / 10;    // remove rightmost digit
         }
-
-        unsigned int diff = wln_length() - i; 
-        memmove(wln_out+start, wln_out+i, diff); 
-        i -= diff; 
-        folded += diff; 
       }
+      aux[naux++] = ch;  
       start = -1;
     }
   }
 
-#if 0
-  if (chain_len) {
-    while (chain_len > 0) {
-      unsigned char digit = (chain_len % 10) + '0';  // Get rightmost digit
-      wln_set(digit, start++);
-      chain_len = chain_len / 10;    // Remove rightmost digit
-    }
-
-    unsigned int diff = wln_length() - start; 
-    memmove(wln_out+start, wln_out+wln_length(), diff); 
-    folded += diff; 
+  while (chain_len > 0) {
+    unsigned char digit = (chain_len % 10) + '0';  // get rightmost digit
+    aux[naux++] = digit; 
+    chain_len = chain_len / 10;    // remove rightmost digit
   }
-#endif
-
-  unsigned int len = wln_length() - folded;
-  wln_set_length(len); 
+  
+  memcpy(wln_out, aux, naux);
+  wln_length() = naux; 
+  wln_terminate(); 
 }
 
 
@@ -3829,6 +3825,8 @@ bool WriteWLN(char *buffer, unsigned int nbuffer, OBMol* mol)
   while (wln_back() == '&')
     wln_pop(); 
   fold_carbon_chains(); 
+  
+  fprintf(stderr, "%s\n", wln_out); 
 
   free(seen); 
   return true; 
