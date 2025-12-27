@@ -17,29 +17,95 @@
 
 unsigned char latty = 0;
 
-bool opt_match_option;  
+int opt_match_option;  
 bool opt_invert_match; 
 bool opt_count; 
 
 unsigned int matches = 0; 
 unsigned int lines_parsed = 0; 
 
-const char *inpath; 
+FILE *ifp; 
 
 struct fsm_state {
-  unsigned char final; 
+  bool final; 
   unsigned short jmp[256];
-} wln[512];
+};  
 
-static void create_wlnfsm() {
 
-#define FINAL(x)             wln[x].final = true
-#define TRANSITION(x, ch, y) wln[x].jmp[ch] = y
+static void make_accept(struct fsm_state *blk, unsigned int id)
+{
+  blk[id].final = true; 
+}
+
+
+static void add_transition(struct fsm_state *blk, 
+                           unsigned int dst_id, 
+                           unsigned int src_id, 
+                           unsigned char ch)
+{
+  blk[dst_id].jmp[ch] = src_id; 
+}
+
+
+static void add_non_cyclic_transitions(struct fsm_state *blk, 
+                                       unsigned int dst_id, 
+                                       unsigned int src_id)
+{
+  blk[dst_id].jmp['B'] = src_id; 
+  blk[dst_id].jmp['C'] = src_id; 
+  blk[dst_id].jmp['E'] = src_id; 
+  blk[dst_id].jmp['F'] = src_id; 
+  blk[dst_id].jmp['G'] = src_id; 
+  blk[dst_id].jmp['H'] = src_id; 
+  blk[dst_id].jmp['I'] = src_id; 
+  blk[dst_id].jmp['K'] = src_id; 
+  blk[dst_id].jmp['M'] = src_id; 
+  blk[dst_id].jmp['N'] = src_id; 
+  blk[dst_id].jmp['O'] = src_id; 
+  blk[dst_id].jmp['P'] = src_id; 
+  blk[dst_id].jmp['Q'] = src_id; 
+  blk[dst_id].jmp['R'] = src_id; 
+  blk[dst_id].jmp['S'] = src_id; 
+  blk[dst_id].jmp['U'] = src_id; 
+  blk[dst_id].jmp['V'] = src_id; 
+  blk[dst_id].jmp['W'] = src_id; 
+  blk[dst_id].jmp['X'] = src_id; 
+  blk[dst_id].jmp['Y'] = src_id; 
+  blk[dst_id].jmp['Z'] = src_id; 
+
+
+  for (unsigned char ch='0'; ch <= '9'; ch++)
+    blk[dst_id].jmp[ch] = src_id; 
+}
+
+
+static struct fsm_state* create_wlnfsm() 
+{
+  struct fsm_state *blk = (struct fsm_state*)malloc(sizeof(struct fsm_state)*64);
+  unsigned int nstates = 0; 
+  const unsigned int head = nstates++;  
+  const unsigned int non_cyclic = nstates++; 
+  const unsigned int cyclic = nstates++; 
   
-#include "wlnfsm.def"
+  make_accept(blk, non_cyclic); 
+  add_non_cyclic_transitions(blk, head, non_cyclic); 
+  add_non_cyclic_transitions(blk, non_cyclic, non_cyclic); 
+  add_transition(blk, non_cyclic, non_cyclic, '&'); 
+  
+  const unsigned int non_cyclic_dash_open  = nstates++; 
+  const unsigned int non_cyclic_dash_elem  = nstates++; 
+  const unsigned int non_cyclic_dash_close = nstates++; 
 
-#undef FINAL
-#undef TRANSITION
+  /* generic elemental characters */
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) {
+    add_transition(blk, non_cyclic_dash_elem, non_cyclic_dash_open, ch); 
+    add_transition(blk, non_cyclic_dash_close, non_cyclic_dash_elem, ch); 
+  }
+  
+  add_transition(blk, non_cyclic_dash_open, non_cyclic, '-'); 
+  add_transition(blk, non_cyclic, non_cyclic_dash_close, '-'); 
+
+  return blk; 
 }
 
 
@@ -91,13 +157,13 @@ static unsigned char readline(char *buffer,
 
 
 
-static bool match_buffer(char *buffer, 
+static bool match_buffer(struct fsm_state *wlnfsm,
+                         char *buffer, 
                          char *match_map,
-                         unsigned int len,
-                         struct fsm_state *fsm) 
+                         unsigned int len)
 {
   bool any_match = false;
-  fsm_state *root = &fsm[1]; 
+  fsm_state *root = &wlnfsm[0]; 
   fsm_state *head = root; 
 
   for (unsigned int i=0; i<len; i++) {
@@ -116,7 +182,7 @@ static bool match_buffer(char *buffer,
         break;
       }
       else {
-        head = &fsm[jmpid];
+        head = &wlnfsm[jmpid];
         match_map[j] = 1;
       }
     }
@@ -194,7 +260,7 @@ print_matches(char *buffer,
 }
 
 
-static bool process_file(FILE *fp, struct fsm_state *fsm)
+static bool process_file(struct fsm_state *wlnfsm, FILE *fp)
 {
   char buffer[4096];  
   char match_map[4096];  
@@ -203,14 +269,12 @@ static bool process_file(FILE *fp, struct fsm_state *fsm)
     lines_parsed++;
     len = strlen(buffer);
     memset(match_map, 0, 4096);
-    if (match_buffer(buffer, match_map, len, fsm)) {
-      
+    if (match_buffer(wlnfsm, buffer, match_map, len)) {
       switch (opt_match_option) {
         case LINE_MATCH: print_buffer(buffer, match_map, len, opt_invert_match); break;
         case MATCH_ONLY: print_matches(buffer, match_map, len, opt_invert_match); break; 
         case EXACT_MATCH: break; 
       }
-
     }
   }
   
@@ -236,8 +300,7 @@ static void display_usage()
 
 static void process_cml(int argc, char *argv[])
 {
-  const char *ptr = 0;
-  fp = NULL; 
+  const char *ptr;
   opt_count = 0; 
   opt_invert_match = 0; 
   opt_match_option = LINE_MATCH; 
@@ -247,7 +310,7 @@ static void process_cml(int argc, char *argv[])
   for (i = 1; i < argc; i++) {
     ptr = argv[i];
     if (ptr[0] == '-' && !ptr[1]) {
-      fp = stdin; 
+      ifp = stdin; 
       j++;
     }
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
@@ -273,15 +336,17 @@ static void process_cml(int argc, char *argv[])
     }
     else switch (j++) {
       case 0: 
-        fp = fopen(ptr, "r");  
-        if (!fp) {
+        ifp = fopen(ptr, "r");  
+        if (!ifp) {
           fprintf(stderr, "Error: could not open file at %s\n", ptr); 
           display_usage(); 
         }
         break; 
     }
   }
-
+  
+  if (!j)
+    ifp = stdin;
   return;
 }
 
@@ -295,12 +360,11 @@ int main(int argc, char* argv[])
   else 
     latty = 0x0; 
 
-#if 0
-  struct fsm_state *wlnfsm = wlnmatcher_alloc(); 
-  process_file(fp, wlnfsm);  
-  if (fp != stdin) 
-    fclose(fp); 
+  struct fsm_state *wlnfsm = create_wlnfsm(); 
+  process_file(wlnfsm, ifp);  
+  
   free(wlnfsm); 
-#endif
+  if (ifp != stdin) 
+    fclose(ifp); 
   return 0;
 }
