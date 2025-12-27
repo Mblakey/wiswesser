@@ -120,7 +120,7 @@ static unsigned char readline(char *buffer,
 
   ptr = buffer;
   do {
-    ch = getc_unlocked(fp); // this increments fp
+    ch = getc_unlocked(fp); 
     if (ch == '\n') {
       *ptr = '\0';
       return 1;
@@ -150,9 +150,8 @@ static unsigned char readline(char *buffer,
 
     *ptr++ = ch;
   } while (ptr < end);
-  *ptr = 0;
   
-  fprintf(stderr, "Error: line too long for buffer - %d\n", n);
+  fprintf(stderr, "Error: line too long for buffer\n"); 
   return 0;
 }
 
@@ -216,12 +215,14 @@ static void print_buffer(char *buffer,
       if (latty) printf(RED);  
       unsigned int match_end = i; 
       for (; match_end < buflen; match_end++) {
-        fputc(buffer[match_end], stdout); 
-        if (!match_map[match_end])
+        if (!match_map[match_end]) {
+          if (latty) printf(RESET);
+          fputc(buffer[match_end], stdout); 
           break;
+        }
+        fputc(buffer[match_end], stdout); 
       }
 
-      if (latty) printf(RESET);
       i = match_end; 
     }
     else 
