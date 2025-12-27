@@ -13,16 +13,14 @@
 
 #define LINE_MATCH  0
 #define MATCH_ONLY  1
-#define EXACT_MATCH 2
+#define EXACT_ONLY 2
+#define COUNT_ONLY  3
 
-unsigned char latty = 0;
 
 int opt_match_option;  
 bool opt_invert_match; 
-bool opt_count; 
-
 unsigned int matches = 0; 
-unsigned int lines_parsed = 0; 
+unsigned char latty = 0;
 
 FILE *ifp; 
 
@@ -82,7 +80,10 @@ static void add_non_cyclic_transitions(struct fsm_state *blk,
 static struct fsm_state* create_wlnfsm() 
 {
   struct fsm_state *blk = (struct fsm_state*)malloc(sizeof(struct fsm_state)*64);
+  memset(blk, 0, sizeof(struct fsm_state)*64); 
+
   unsigned int nstates = 0; 
+  const unsigned int neg_state = nstates++; /* allows the memset for false match */
   const unsigned int head = nstates++;  
   const unsigned int non_cyclic = nstates++; 
   const unsigned int cyclic = nstates++; 
@@ -157,104 +158,96 @@ static unsigned char readline(char *buffer,
 
 
 
-static bool match_buffer(struct fsm_state *wlnfsm,
-                         char *buffer, 
-                         char *match_map,
-                         unsigned int len)
+static unsigned int parse_buffer(struct fsm_state *wlnfsm,
+                                 char *buffer, 
+                                 unsigned int buflen,
+                                 char *match_map)
 {
-  bool any_match = false;
-  fsm_state *root = &wlnfsm[0]; 
+  fsm_state *root = &wlnfsm[1]; 
   fsm_state *head = root; 
+  unsigned int match_max = 0; 
 
-  for (unsigned int i=0; i<len; i++) {
+  for (unsigned int i = 0; i < buflen; i++) {
     unsigned char ch = buffer[i];
-    if (head->jmp[ch] != 0) for (unsigned int j=i;j<=len;j++) {
-      ch = buffer[j];
-      unsigned int jmpid = head->jmp[ch];
-      if (!jmpid) {
-        if (!head->final) 
-          memset(&match_map[i], 0, len-i); 
-        else {
-          i = j; // greedy match
-          any_match = true;
+    if (!ch) break; 
+
+    if (head->jmp[ch] != 0) {
+      head = root;
+      int match_start = i, match_end = i; 
+
+      for (unsigned int j = match_start; j < buflen;j++) { 
+        ch = buffer[j];
+        unsigned int jmpid = head->jmp[ch];
+        
+        if (jmpid) {
+          head = &wlnfsm[jmpid];
+          if (head->final) {
+            match_end = j;
+            match_max = match_end; 
+          }
         }
-        head = root; 
-        break;
-      }
-      else {
-        head = &wlnfsm[jmpid];
-        match_map[j] = 1;
+        else {
+          if (match_end > match_start) {
+            for (int m = match_start; m <= match_end; m++)
+              match_map[m] = 0xff; 
+            i = match_end; // start from next char
+            matches++; 
+          }
+          break;
+        }
       }
     }
   }
-  return any_match; 
+  
+  return match_max>0 ? match_max+1 : 0; // off by 1 on match
 }
 
 
 static void print_buffer(char *buffer, 
+                         unsigned int buflen, 
                          char *match_map,
-                         unsigned int len, 
                          unsigned char inverse) 
 {
-  char matching = 0; 
+  if (inverse) for (unsigned int i=0; i<buflen; i++) 
+    match_map[i] = ~match_map[i];  
 
-  if (!inverse) for (unsigned int i=0; i<len; i++) {
-    if (match_map[i]) { 
-      if (!matching) {
-        matching = 1;
-        if (latty) printf(RED);
+  for (unsigned int i=0; i<buflen; i++) {
+    if (match_map[i]) {
+      if (latty) printf(RED);  
+      unsigned int match_end = i; 
+      for (; match_end < buflen; match_end++) {
+        fputc(buffer[match_end], stdout); 
+        if (!match_map[match_end])
+          break;
       }
-    }
-    else if (matching) {
-      matching = 0; 
+
       if (latty) printf(RESET);
+      i = match_end; 
     }
-    fputc(buffer[i], stdout); 
+    else 
+      fputc(buffer[i], stdout); 
   }
-  else for (unsigned int i=0; i<len; i++) {
-    if (!match_map[i]) { 
-      if (!matching) {
-        matching = 1;
-        if (latty) printf(RED);
-      }
-    }
-    else if (matching) {
-      matching = 0; 
-      if (latty) printf(RESET);
-    }
-    fputc(buffer[i], stdout); 
-  }
-  fputc('\n', stdout); 
 }
 
 
-static void 
-print_matches(char *buffer, 
-              char *match_map,
-              unsigned int len, 
-              unsigned char inverse) 
+static void print_matches_only(char *buffer, 
+                               unsigned int buflen, 
+                               char *match_map,
+                               unsigned char inverse) 
 {
-  char matching = 0;
-  if (!inverse) for (unsigned int i=0; i<len; i++) {
+  if (inverse) for (unsigned int i=0; i<buflen; i++) 
+    match_map[i] = ~match_map[i];  
+
+  for (unsigned int i=0; i<buflen; i++) {
     if (match_map[i]) {
-      if (!matching)
-        matching = 1;
-      fputc(buffer[i], stdout); 
-    }
-    else if (matching) {
-      matching = 0;
+      unsigned int match_end = i; 
+      for (; match_end < buflen; match_end++) {
+        if (!match_map[match_end])
+          break;
+      }
+      fwrite(buffer+i, match_end-i, 1, stdout);
       fputc('\n', stdout); 
-    }
-  }
-  else for (unsigned int i=0; i<len; i++) {
-    if (!match_map[i]) {
-      if (!matching)
-        matching = 1;
-      fputc(buffer[i], stdout); 
-    }
-    else if (matching) {
-      matching = 0;
-      fputc('\n', stdout); 
+      i = match_end; 
     }
   }
 }
@@ -264,22 +257,18 @@ static bool process_file(struct fsm_state *wlnfsm, FILE *fp)
 {
   char buffer[4096];  
   char match_map[4096];  
-  unsigned int len; 
   while (readline(buffer, 4096, fp)) {
-    lines_parsed++;
-    len = strlen(buffer);
     memset(match_map, 0, 4096);
-    if (match_buffer(wlnfsm, buffer, match_map, len)) {
-      switch (opt_match_option) {
-        case LINE_MATCH: print_buffer(buffer, match_map, len, opt_invert_match); break;
-        case MATCH_ONLY: print_matches(buffer, match_map, len, opt_invert_match); break; 
-        case EXACT_MATCH: break; 
-      }
+    unsigned int long_match = parse_buffer(wlnfsm, buffer, sizeof(buffer), match_map); 
+
+    if (long_match) switch (opt_match_option) {
+      case LINE_MATCH: print_buffer(buffer, long_match, match_map, opt_invert_match); break;
+      case MATCH_ONLY: print_matches_only(buffer, long_match, match_map, opt_invert_match); break; 
+      case EXACT_ONLY: break; 
+      case COUNT_ONLY: printf("%d matches\n",matches); break; 
     }
   }
   
-  if(opt_count)
-    fprintf(stderr,"%d matches\n",matches);
   return true;
 }
 
@@ -289,9 +278,7 @@ static void display_usage()
   fprintf(stderr, "usage: wlngrep <options> <file>\n");
   fprintf(stderr, "options:\n");
   fprintf(stderr, "-c|--only-count        return number of matches instead of string\n");
-  fprintf(stderr, "-d|--dump              dump resultant machine to dot file\n");
   fprintf(stderr, "-o|--only-match        print only the matched parts of line\n");
-  fprintf(stderr, "-s|--string            interpret <file> as a string to match\n");
   fprintf(stderr, "-x|--exact-match       return string if whole line matches\n");
   fprintf(stderr, "-v|--invert-match      return string if whole line does not match\n");
   exit(1);
@@ -301,7 +288,6 @@ static void display_usage()
 static void process_cml(int argc, char *argv[])
 {
   const char *ptr;
-  opt_count = 0; 
   opt_invert_match = 0; 
   opt_match_option = LINE_MATCH; 
 
@@ -314,18 +300,18 @@ static void process_cml(int argc, char *argv[])
       j++;
     }
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
-      case 'c': opt_count = 1; break;
+      case 'c': opt_match_option = COUNT_ONLY; break;
       case 'o': opt_match_option = MATCH_ONLY; break;
-      case 'x': opt_match_option = EXACT_MATCH; break;
+      case 'x': opt_match_option = EXACT_ONLY; break;
       case 'v': opt_invert_match = 1; break;
 
       case '-':
         if (!strcmp(ptr,"--only-count"))
-          opt_count = 1;
+          opt_match_option = COUNT_ONLY;
         else if (!strcmp(ptr,"--only-match"))
-          opt_match_option = 1;
+          opt_match_option = MATCH_ONLY;
         else if (!strcmp(ptr,"--exact-match"))
-          opt_match_option = 2;
+          opt_match_option = EXACT_ONLY;
         else if (!strcmp(ptr,"--invert-match"))
           opt_invert_match = true;
         break;
@@ -353,12 +339,8 @@ static void process_cml(int argc, char *argv[])
 
 int main(int argc, char* argv[])
 {
+  latty = isatty(STDOUT_FILENO) ? 0xff:0x0; 
   process_cml(argc,argv); 
-
-  if (isatty(STDOUT_FILENO))
-    latty = 0xff;
-  else 
-    latty = 0x0; 
 
   struct fsm_state *wlnfsm = create_wlnfsm(); 
   process_file(wlnfsm, ifp);  
