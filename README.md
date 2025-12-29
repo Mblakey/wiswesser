@@ -5,14 +5,15 @@
 * WLN Conversion               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
 * WLN Extraction               - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
 
-These tools are currently only tested on Linux and MacOS. future update will include windows build.<br>
-Tools are designed to be piped together and therefore will take `stdin` by default. <br> 
+These tools are currently only tested on Linux and MacOS. Future update will include windows build. 
 
 <img src="./intro_wln.png" width="800">
 
 ## Requirements
 
-A chemical toolkit, either **OpenBabel** [see repo](https://github.com/openbabel/openbabel) or **RDKit** [see repo](https://github.com/rdkit/rdkit). These can be installed into $PATH, or one directory level up from this project if building from source without a global install. `readwln` and `writewln` are designed to be toolkit agnostic, and can be ported to any C/C++ chemical toolkit using macros, see Section **Porting**. 
+A chemical toolkit, either [OpenBabel](https://github.com/openbabel/openbabel) or [RDKit](https://github.com/rdkit/rdkit). These can be installed into $PATH, or one directory level up from this project if building from source without a global install. 
+
+Source code is labelled C++ for toolkit linking, but is actually written in C. `readwln` and `writewln` are designed to be toolkit agnostic, and can be ported to any C/C++ chemical toolkit using macros, see Section **Porting**. 
 
 ## Build
 
@@ -26,6 +27,7 @@ make
 
 # Converting between WLN and CLN Formats 
 
+Tools are designed to be piped together and therefore will take `stdin` by default. <br> 
 
 `readwln` - This takes WLN sequences and returns the desired format.  <br>
 `writewln` - This takes CLN sequences and returns WLN strings.  <br>
