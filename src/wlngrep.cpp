@@ -13,14 +13,11 @@
 
 #define LINE_MATCH  0
 #define MATCH_ONLY  1
-#define EXACT_ONLY 2
 #define COUNT_ONLY  3
 
-
 int opt_match_option;  
-bool opt_invert_match; 
-unsigned int matches = 0; 
-unsigned char latty = 0;
+unsigned char latty;
+unsigned long nmatches; 
 
 FILE *ifp; 
 
@@ -33,6 +30,12 @@ struct fsm_state {
 static void make_accept(struct fsm_state *blk, unsigned int id)
 {
   blk[id].final = true; 
+}
+
+
+static inline bool is_accept(struct fsm_state *state)
+{
+  return state->final; 
 }
 
 
@@ -110,164 +113,100 @@ static struct fsm_state* create_wlnfsm()
 }
 
 
-static unsigned char readline(char *buffer, 
-                              unsigned int n, 
-                              FILE *fp)
+static void handle_match(char *buffer, int match_end, int consumed)
 {
-  char *end = buffer+n;
-  char *ptr;
-  int ch;
+  switch (opt_match_option)  {
+    case LINE_MATCH:
+      if (latty) printf(RED); 
+      fwrite(buffer, match_end, 1, stdout); 
+      if (latty) printf(RESET); 
 
-  ptr = buffer;
-  do {
-    ch = getc_unlocked(fp); 
-    if (ch == '\n') {
-      *ptr = '\0';
-      return 1;
-    }
-    if (ch == '\f') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return 1;
-    }
+      if (consumed > match_end)
+        fwrite(buffer+match_end, consumed-match_end, 1, stdout); 
+      break; 
 
-    if (ch == '\r') {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      ch = getc_unlocked(fp);
-      if (ch != '\n') {
-        if (ch == -1)
-          return 0;
-        ungetc(ch,fp);
-      }
-      return 1;
-    }
-    if (ch == -1) {
-      *ptr++ = '\n';
-      *ptr = '\0';
-      return ptr-buffer > 1;
-    }
-
-    *ptr++ = ch;
-  } while (ptr < end);
-  
-  fprintf(stderr, "Error: line too long for buffer\n"); 
-  return 0;
-}
-
-
-
-static unsigned int parse_buffer(struct fsm_state *wlnfsm,
-                                 char *buffer, 
-                                 unsigned int buflen,
-                                 char *match_map)
-{
-  fsm_state *root = &wlnfsm[1]; 
-  fsm_state *head = root; 
-  unsigned int match_max = 0; 
-
-  for (unsigned int i = 0; i < buflen; i++) {
-    unsigned char ch = buffer[i];
-    if (!ch) break; 
-
-    if (head->jmp[ch] != 0) {
-      head = root;
-      int match_start = i, match_end = i; 
-
-      for (unsigned int j = match_start; j < buflen;j++) { 
-        ch = buffer[j];
-        unsigned int jmpid = head->jmp[ch];
-        
-        if (jmpid) {
-          head = &wlnfsm[jmpid];
-          if (head->final) {
-            match_end = j;
-            match_max = match_end; 
-          }
-        }
-        else {
-          if (match_end > match_start) {
-            for (int m = match_start; m <= match_end; m++)
-              match_map[m] = 0xff; 
-            i = match_end; // start from next char
-            matches++; 
-          }
-          break;
-        }
-      }
-    }
-  }
-  
-  return match_max>0 ? match_max+1 : 0; // off by 1 on match
-}
-
-
-static void print_buffer(char *buffer, 
-                         unsigned int buflen, 
-                         char *match_map,
-                         unsigned char inverse) 
-{
-  if (inverse) for (unsigned int i=0; i<buflen; i++) 
-    match_map[i] = ~match_map[i];  
-
-  for (unsigned int i=0; i<buflen; i++) {
-    if (match_map[i]) {
-      if (latty) printf(RED);  
-      unsigned int match_end = i; 
-      for (; match_end < buflen; match_end++) {
-        if (!match_map[match_end]) {
-          if (latty) printf(RESET);
-          fputc(buffer[match_end], stdout); 
-          break;
-        }
-        fputc(buffer[match_end], stdout); 
-      }
-
-      i = match_end; 
-    }
-    else 
-      fputc(buffer[i], stdout); 
-  }
-}
-
-
-static void print_matches_only(char *buffer, 
-                               unsigned int buflen, 
-                               char *match_map,
-                               unsigned char inverse) 
-{
-  if (inverse) for (unsigned int i=0; i<buflen; i++) 
-    match_map[i] = ~match_map[i];  
-
-  for (unsigned int i=0; i<buflen; i++) {
-    if (match_map[i]) {
-      unsigned int match_end = i; 
-      for (; match_end < buflen; match_end++) {
-        if (!match_map[match_end])
-          break;
-      }
-      fwrite(buffer+i, match_end-i, 1, stdout);
+    case MATCH_ONLY: 
+      fwrite(buffer, match_end, 1, stdout); 
       fputc('\n', stdout); 
-      i = match_end; 
-    }
+      break; 
+
+    case COUNT_ONLY: nmatches++; break; 
   }
 }
 
 
+/* uses goto to keep logic clean, nothing to be scared of */
 static bool process_file(struct fsm_state *wlnfsm, FILE *fp)
 {
-  char buffer[4096];  
-  char match_map[4096];  
-  while (readline(buffer, 4096, fp)) {
-    memset(match_map, 0, 4096);
-    unsigned int long_match = parse_buffer(wlnfsm, buffer, sizeof(buffer), match_map); 
+  const size_t bufsize = 16384; 
+  const size_t wlnbuf_size = 4096; 
 
-    if (long_match) switch (opt_match_option) {
-      case LINE_MATCH: print_buffer(buffer, long_match, match_map, opt_invert_match); break;
-      case MATCH_ONLY: print_matches_only(buffer, long_match, match_map, opt_invert_match); break; 
-      case EXACT_ONLY: break; 
-      case COUNT_ONLY: printf("%d matches\n",matches); break; 
+  char buffer[bufsize]; 
+  char wln_buf[wlnbuf_size]; 
+  unsigned int wlnlen = 0; 
+
+  fsm_state *root = &wlnfsm[1]; 
+  fsm_state *head = root; 
+  unsigned int jmpid; 
+  unsigned int match_end = 0; 
+
+  nmatches = 0; 
+  
+  while (true) {
+jmp_fetch_data:
+    size_t bytes = fread(buffer, 1, bufsize, fp); 
+    if (!bytes) {
+      if (match_end > 0) 
+        handle_match(wln_buf, match_end+1, wlnlen);  
+      return true;
     }
+
+    unsigned int i = 0; 
+
+    if (head != root)
+      goto jmp_matching; 
+
+jmp_not_matching:
+    for (; i < bytes; i++) {
+      unsigned char ch = buffer[i]; 
+      jmpid = head->jmp[ch]; 
+      if (jmpid) {
+        wlnlen    = 0; 
+        match_end = 0; 
+        head = &wlnfsm[jmpid]; 
+        wln_buf[wlnlen++] = ch; 
+        i++; // skip to next char
+        goto jmp_matching;
+      }
+      else if (opt_match_option == LINE_MATCH) 
+        fputc(ch, stdout);
+    }
+    goto jmp_fetch_data; 
+
+jmp_matching:
+    for (; i < bytes; i++) { 
+      unsigned char ch = buffer[i]; 
+      jmpid = head->jmp[ch]; 
+      if (!jmpid) {
+        head = root; 
+        if (match_end > 0) 
+          handle_match(wln_buf, match_end+1, wlnlen);  
+        match_end = 0; 
+        goto jmp_not_matching;
+      }
+      else if (wlnlen >= wlnbuf_size) {
+        fprintf(stderr, "Warning: WLN string too long!\n");
+        goto jmp_not_matching;
+      }
+      else {
+        head = &wlnfsm[jmpid]; 
+        wln_buf[wlnlen] = ch; 
+        if (is_accept(head))
+          match_end = wlnlen; 
+        wlnlen++; 
+      }
+    }
+    goto jmp_fetch_data; 
   }
   
   return true;
@@ -280,8 +219,6 @@ static void display_usage()
   fprintf(stderr, "options:\n");
   fprintf(stderr, "-c|--only-count        return number of matches instead of string\n");
   fprintf(stderr, "-o|--only-match        print only the matched parts of line\n");
-  fprintf(stderr, "-x|--exact-match       return string if whole line matches\n");
-  fprintf(stderr, "-v|--invert-match      return string if whole line does not match\n");
   exit(1);
 }
 
@@ -289,7 +226,6 @@ static void display_usage()
 static void process_cml(int argc, char *argv[])
 {
   const char *ptr;
-  opt_invert_match = 0; 
   opt_match_option = LINE_MATCH; 
 
   int i, j;
@@ -303,18 +239,16 @@ static void process_cml(int argc, char *argv[])
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
       case 'c': opt_match_option = COUNT_ONLY; break;
       case 'o': opt_match_option = MATCH_ONLY; break;
-      case 'x': opt_match_option = EXACT_ONLY; break;
-      case 'v': opt_invert_match = 1; break;
 
       case '-':
         if (!strcmp(ptr,"--only-count"))
           opt_match_option = COUNT_ONLY;
         else if (!strcmp(ptr,"--only-match"))
           opt_match_option = MATCH_ONLY;
-        else if (!strcmp(ptr,"--exact-match"))
-          opt_match_option = EXACT_ONLY;
-        else if (!strcmp(ptr,"--invert-match"))
-          opt_invert_match = true;
+        else {
+          fprintf(stderr, "Error: unrecognised input %s\n", ptr);
+          display_usage();
+        }
         break;
 
       default:
@@ -344,10 +278,15 @@ int main(int argc, char* argv[])
   process_cml(argc,argv); 
 
   struct fsm_state *wlnfsm = create_wlnfsm(); 
+
   process_file(wlnfsm, ifp);  
+  if (opt_match_option == COUNT_ONLY)
+    printf("%lu matches\n", nmatches); 
   
   free(wlnfsm); 
   if (ifp != stdin) 
     fclose(ifp); 
   return 0;
 }
+
+
