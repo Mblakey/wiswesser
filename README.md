@@ -1,19 +1,18 @@
-# Wiswesser Line Notation (WLN) Chemical Converter
+# Wiswesser Line Notation (WLN) Chemical Converter & Extractor
 
 **WARNING** This project is undergoing a complete rework, use branch <old> for stable (but slow) behaviour. 
 
-* WLN Parser               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
-* WLN FSM                  - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
+* WLN Conversion               - read and write WLN to/from smiles, inchi, mol files and other chemical line notations.  <br>
+* WLN Extraction               - extract chemical terms from documents, this machine uses greedy matching to return matched WLN sequences from documents.  <br>
 
-This is Linux and MacOS software only. <br>
+These tools are currently only tested on Linux and MacOS. future update will include windows build.<br>
 Tools are designed to be piped together and therefore will take `stdin` by default. <br> 
 
 <img src="./intro_wln.png" width="800">
 
 ## Requirements
 
-A chemical toolkit, either **OpenBabel** [see repo](https://github.com/openbabel/openbabel) or **RDKit** [see repo](https://github.com/rdkit/rdkit). These can be installed into $PATH, or one directory level up from this project if building from source without a global install. 
-
+A chemical toolkit, either **OpenBabel** [see repo](https://github.com/openbabel/openbabel) or **RDKit** [see repo](https://github.com/rdkit/rdkit). These can be installed into $PATH, or one directory level up from this project if building from source without a global install. `readwln` and `writewln` are designed to be toolkit agnostic, and can be ported to any C/C++ chemical toolkit using macros, see Section **Porting**. 
 
 ## Build
 
@@ -22,7 +21,7 @@ This project uses **cmake** and **make** for building. Standard CMake build appl
 mkdir build
 cd build
 cmake ..
-make -j10
+make
 ```
 
 # Converting between WLN and CLN Formats 
@@ -69,7 +68,7 @@ Please note that the "MANTRAP" rules, are not officialy given in either volume o
 
 # WLN Extraction 
 
-Grep-style tool for extracting WLN strings from text. 
+Grep-style tool for extracting WLN strings from text. This parses files and performs greedy matching to highlight/extract WLN strings from documents. The input format is expected to be a text document or pipe. To extract from pdfs, piping the output of a conversion tool is the currently accepted approach. 
 
 ```
 wlngrep <options> <filename>
@@ -79,5 +78,3 @@ wlngrep <options> <filename>
 
 `-c` - return number of matches instead of string <br>
 `-o` - print only the matched parts of line <br>
-`-x` - return string if whole line matches <br>
-`-v` - invert matching <br> 
