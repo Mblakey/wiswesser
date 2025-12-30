@@ -39,16 +39,9 @@ add_executable(benchwln
   ${CMAKE_SOURCE_DIR}/src/wlnreader.cpp
 )
 
+add_executable(wlngrep ${CMAKE_SOURCE_DIR}/src/wlngrep.cpp)
+
 target_link_libraries(readwln   ${OPENBABEL3_LIBRARIES})
 target_link_libraries(benchwln  ${OPENBABEL3_LIBRARIES})
 target_link_libraries(writewln  ${OPENBABEL3_LIBRARIES})
-
-message(WARNING "wlngrep will take a long time to build")
-
-add_custom_target(build_warning
-  COMMAND ${CMAKE_COMMAND} -E echo "Building wlngrep — this may take a while..."
-)
-
-add_executable(wlngrep ${CMAKE_SOURCE_DIR}/src/wlngrep.cpp)
-add_dependencies(wlngrep build_warning)
 
