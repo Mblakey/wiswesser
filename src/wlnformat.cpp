@@ -99,7 +99,7 @@ namespace OpenBabel
         "all of WLN is was supported at this time; however, about 76% of the WLN strings\n"
         "found in PubChem were interpretable.\n\n"
         
-        "Michael Blakey (University of Southampton) submitted a new reader to handle\n"
+        "Michael Blakey (NextMove Software) submitted a new reader to handle\n"
         "nearly all rules contained in Elbert G. Smith's rule book, with only exceptions\n"
         "being multipliers and WLN uncertainties, 98% of Pubchem WLN strings are now \n"
         "successfully converted, with greater than 200 WLN rules accounted for\n\n" 

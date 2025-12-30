@@ -34,14 +34,15 @@ add_executable(writewln
   ${CMAKE_SOURCE_DIR}/src/wlnwriter.cpp
 )
 
-add_executable(benchwln 
-  ${CMAKE_SOURCE_DIR}/src/benchwln.cpp 
+add_executable(testwln 
+  ${CMAKE_SOURCE_DIR}/src/testwln.cpp 
   ${CMAKE_SOURCE_DIR}/src/wlnreader.cpp
+  ${CMAKE_SOURCE_DIR}/src/wlnwriter.cpp
 )
 
 add_executable(wlngrep ${CMAKE_SOURCE_DIR}/src/wlngrep.cpp)
 
 target_link_libraries(readwln   ${OPENBABEL3_LIBRARIES})
-target_link_libraries(benchwln  ${OPENBABEL3_LIBRARIES})
 target_link_libraries(writewln  ${OPENBABEL3_LIBRARIES})
+target_link_libraries(testwln  ${OPENBABEL3_LIBRARIES})
 

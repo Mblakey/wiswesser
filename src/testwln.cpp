@@ -30,6 +30,10 @@ GNU General Public License for more details.
 
 bool opt_verbose; 
 bool opt_early_stop; 
+bool opt_read; 
+
+unsigned int n_reads;
+unsigned int n_writes;
 
 #define BENCH_N 417
 
@@ -876,9 +880,9 @@ const char *smiles_bench[BENCH_N] =
 };
 
 
-/* not fast, but will do the job */ 
-void run_benchmark() {
-  fprintf(stderr, "WLN Read Benchmark\n"); 
+static void run_wln_read_test() {
+  n_reads  = 0; 
+  fprintf(stderr, "WLN Read Test\n"); 
   
   std::string buffer; 
   OpenBabel::OBMol mol;
@@ -887,8 +891,6 @@ void run_benchmark() {
   conv.SetOutFormat("can");
   conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
   
-  unsigned int n_correct = 0; 
-
   struct timeval stop, start;
   gettimeofday(&start, NULL);
 
@@ -899,29 +901,69 @@ void run_benchmark() {
     if (opt_verbose)
       fprintf(stderr, "testing %s\n", ptr); 
 
-    fprintf(stdout,"%s\t", ptr);
+    printf("%s\t", ptr);
     if (!ReadWLN(ptr, &mol)) {
-      fprintf(stdout, "null read\t%s\n",smi); 
-      mol.Clear(); 
+      printf( "null read\t%s\n",smi); 
       if (opt_early_stop) return; 
     }
     else {
       buffer = conv.WriteString(&mol,true);
       if (strcmp(smiles_bench[i], buffer.c_str()) != 0) {
-        fprintf(stdout,"wrong\t%s\t%s\n", buffer.c_str(), smi); 
+        printf("wrong\t%s\t%s\n", buffer.c_str(), smi); 
         if (opt_early_stop) return; 
       }
       else {
-        fprintf(stdout,"correct\n"); 
-        n_correct++; 
+        printf("correct\n"); 
+        n_reads++; 
       }
-      mol.Clear(); 
     }
+    mol.Clear(); 
   }
 
   gettimeofday(&stop, NULL);
-  fprintf(stderr, "%d/%d compounds correct\n", n_correct, BENCH_N); 
-  fprintf(stderr, "benchmark took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
+  fprintf(stderr, "%d/%d compounds read\n", n_reads, BENCH_N); 
+  fprintf(stderr, "test took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
+  exit(0); 
+}
+
+
+static void run_wln_write_test() {
+  n_writes  = 0; 
+  fprintf(stderr, "WLN Write Test\n"); 
+  
+  char wln_buffer[1024]; 
+  std::string buffer; 
+  OpenBabel::OBMol mol;
+  OpenBabel::OBConversion conv;
+  
+  conv.SetInFormat("can");
+  conv.AddOption("h",OpenBabel::OBConversion::OUTOPTIONS);
+
+  
+  struct timeval stop, start;
+  gettimeofday(&start, NULL);
+
+  for (unsigned int i = 0; i < BENCH_N; i++) {
+    const char *smi = smiles_bench[i];
+
+    if (opt_verbose)
+      fprintf(stderr, "testing %s\n", smi); 
+
+    conv.ReadString(&mol, smi); 
+
+    printf("%s\t", smi);
+    if (!WriteWLN(wln_buffer, sizeof(wln_buffer), &mol)) {
+      printf( "null read\n"); 
+      if (opt_early_stop) return; 
+    }
+    else 
+      printf("%s\n", wln_buffer);  
+
+    mol.Clear(); 
+  }
+
+  gettimeofday(&stop, NULL);
+  fprintf(stderr, "test took %lu us\n", (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec);
   exit(0); 
 }
 
@@ -929,9 +971,11 @@ void run_benchmark() {
 static void 
 display_usage() {
   fprintf(stderr, "usage:\n"
-                  "  benchwln [-e]\n"
+                  "  testwln [-e] [-w|-r]\n"
                   "options:\n"
                   "  -e\tearly stop, if error, print string and early stop\n"
+                  "  -w\tperform the write test\n"
+                  "  -r\tperform the read test (default)\n"
       ); 
   exit(1); 
 }
@@ -944,12 +988,15 @@ process_cml(int argc, char *argv[])
   
   opt_verbose = false; 
   opt_early_stop = false; 
+  opt_read = true; 
 
   for (i = 1; i < argc; i++) {
     ptr = argv[i];
     if (ptr[0] == '-' && ptr[1]) switch (ptr[1]) {
       case 'e': opt_early_stop = true; break; 
       case 'v': opt_verbose    = true; break; 
+      case 'r': opt_read = true; break; 
+      case 'w': opt_read = false; break; 
       case 'h':
         display_usage(); 
 
@@ -964,7 +1011,7 @@ process_cml(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
   process_cml(argc, argv); 
-  run_benchmark(); 
+  opt_read ? run_wln_read_test() : run_wln_write_test(); 
   return 0; 
 }
 
