@@ -77,7 +77,6 @@ using namespace OpenBabel;
 #define graph_t    OBMol
 #define symbol_t   OBAtom
 #define edge_t     OBBond
-#define ring_t struct wlnpath
 
 #define symbol_get_id(s)            s->GetId()
 #define symbol_get_num(s)           s->GetAtomicNum()
@@ -116,8 +115,9 @@ using namespace OpenBabel;
 #endif
 
 static int start_wln_parse(graph_t *mol); 
-static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, ring_t *ring); 
-static int parse_ring_locants(graph_t *mol, ring_t *ring); 
+static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, struct wlnpath *ring); 
+static int parse_ring_locants(graph_t *mol, struct wlnpath *ring); 
+
 
 static symbol_t*  symbol_create(graph_t *mol, uint16_t atomic_num)
 {
@@ -422,7 +422,7 @@ symbol_safeset_hydrogens(symbol_t *s, char n)
 
 
 static void 
-graph_cleanup_hydrogens(graph_t *mol)
+graph_add_hydrogens(graph_t *mol)
 {
   graph_symbol_iter(a, mol) {
     symbol_t *s = &(*a); 
@@ -430,10 +430,24 @@ graph_cleanup_hydrogens(graph_t *mol)
     unsigned char valence  = symbol_get_valence(s); 
     unsigned char modifier = valence + arom;
     if (symbol_get_charge(s) == 0 && symbol_get_hydrogens(s) == 0) {
-      switch (a->GetAtomicNum()) {
-        case 6: symbol_safeset_hydrogens(s, 4 - modifier); break;
-        case 7: symbol_safeset_hydrogens(s, 3 - modifier); break;
-        case 8: symbol_safeset_hydrogens(s, 2 - modifier); break;
+      switch (symbol_get_num(s)) {
+        case CAR: symbol_safeset_hydrogens(s, 4 - modifier); break;
+        case NIT: symbol_safeset_hydrogens(s, 3 - modifier); break;
+        case OXY: symbol_safeset_hydrogens(s, 2 - modifier); break;
+
+        case SUL: 
+          while (valence % 2 != 0) {
+            symbol_incr_hydrogens(s);
+            valence++; 
+          }
+          break; 
+
+        case PHO: 
+          while (valence % 3 != 0) {
+            symbol_incr_hydrogens(s);
+            valence++; 
+          }
+          break; 
       }
     }
   }; 
@@ -495,24 +509,12 @@ static int add_dioxo(graph_t *mol, symbol_t *atom) {
 }
 
 
-static int is_locant_terminator(unsigned char ch)
-{
-  switch (ch) {
-    case 'T':
-    case '&':
-    case 'J':
-    case ' ':
-      return WLN_OK;
-  }
-  return WLN_ERROR; 
-}
-
-
 struct wlnlocant {
   symbol_t *s; 
   struct wlnlocant *lft; 
   struct wlnlocant *rgt; 
 };
+
 
 struct wlnsubcycle {
   unsigned int size;
@@ -520,53 +522,49 @@ struct wlnsubcycle {
   bool aromatic;
 }; 
 
+
 struct wlnpath {
+  wlnlocant path[WLN_MAX]; 
   uint64_t  bridge_mask;
   uint8_t   size; 
-  wlnlocant path[1]; 
 }; 
 
 
-static ring_t* ring_create(graph_t *mol, unsigned int size) 
+static bool ring_fill(graph_t *mol, struct wlnpath *ring, unsigned int size) 
 {
-  const size_t bytes = sizeof(struct wlnpath) + sizeof(struct wlnlocant) * (size-1); 
-  
-  struct wlnpath *ring = (struct wlnpath*)malloc(bytes); 
-  memset(ring, 0, bytes);  
-   
   ring->path[0].s = symbol_create(mol, CAR);
   for (uint16_t i = 1; i < size; i++) {
     struct wlnlocant *curr = &ring->path[i];
     struct wlnlocant *prev = &ring->path[i-1];
     curr->s = symbol_create(mol, CAR);
-    if (!edge_create(mol, curr->s, prev->s)) {
-      free(ring);
-      return NULL;
-    }
+    if (!edge_create(mol, curr->s, prev->s)) 
+      return false;
   }
   ring->size = size; 
-  return ring; 
+  return true; 
 }
 
 
-static ring_t* ring_create_benzene(graph_t *mol) 
+static bool ring_fill_benzene(graph_t *mol, struct wlnpath *ring) 
 {
-  wlnpath *benzene = ring_create(mol, 6);
-  edge_t *bond = edge_create(mol, benzene->path[0].s, benzene->path[5].s);
-  edge_set_aromatic(bond, true);
+  ring->path[0].s = symbol_create(mol, CAR);
+  ring->size = 6; 
 
   for (unsigned int i=1; i<6; i++) {
-    symbol_t *f = benzene->path[i].s;
-    symbol_t *p = benzene->path[i-1].s;
-
-    bond = graph_get_edge(mol, f, p);
-
-    symbol_set_aromatic(f, true);
-    symbol_set_aromatic(p, true);
+    struct wlnlocant *curr = &ring->path[i];
+    struct wlnlocant *prev = &ring->path[i-1];
+    curr->s = symbol_create(mol, CAR);
+    edge_t *bond = edge_create(mol, curr->s, prev->s); 
+    if (!bond)
+      return false;
+    symbol_set_aromatic(curr->s, true);
+    symbol_set_aromatic(prev->s, true);
     edge_set_aromatic(bond, true);
   }
 
-  return benzene;
+  edge_t *bond = edge_create(mol, ring->path[0].s, ring->path[5].s);
+  edge_set_aromatic(bond, true);
+  return true;
 }
 
 
@@ -585,7 +583,7 @@ static ring_t* ring_create_benzene(graph_t *mol)
  * of the fusion sum as mentioned in the manuals. 
 */
 static bool pathsolverIII_fast(graph_t *mol, 
-                               ring_t *r, 
+                               struct wlnpath *r, 
                                struct wlnsubcycle *SSSR, 
                                uint8_t nSSSR)
 {
@@ -707,7 +705,7 @@ static int pathsolver_recursive_floodfill(struct wlnpath *r,
  * easy pass through for pseudo locants defined in the ring parse 
 */
 static void pathsolverIII(graph_t *mol, 
-                          ring_t *r, 
+                          struct wlnpath *r, 
                           struct wlnsubcycle *SSSR, 
                           uint8_t nSSSR)
 {
@@ -811,7 +809,6 @@ static int parse_locant()
 static int cyclic_recursive_parse(graph_t *mol, edge_t *inline_edge, int inline_locant) 
 {
   bool seen_pseudo = false; 
-  struct wlnpath *ring = NULL; 
   edge_t *edge; 
 
   int locant_ch     = 0; 
@@ -820,6 +817,9 @@ static int cyclic_recursive_parse(graph_t *mol, edge_t *inline_edge, int inline_
   uint8_t nSSSR  = 0; 
   struct wlnsubcycle SSSR[WLN_MAX]; 
   uint8_t assignments = 0; 
+
+  struct wlnpath ring;
+  memset(&ring, 0, sizeof(struct wlnpath)); 
   
   unsigned char ch;   
   while (*wln_ptr) {
@@ -856,11 +856,11 @@ ring_parse_sssr:
 
       case '&':
       case 'T': 
-        ring = ring_create(mol, max_path_size); 
+        ring_fill(mol, &ring, max_path_size); 
         goto ring_parse_arom;
 
       case 'J': 
-        ring = ring_create(mol, max_path_size); 
+        ring_fill(mol, &ring, max_path_size); 
         goto ring_parse_end;
 
       case 'B':
@@ -877,7 +877,7 @@ ring_parse_sssr:
       case 'G':
       case 'I':
       case 'Q':
-        ring = ring_create(mol, max_path_size); 
+        ring_fill(mol, &ring, max_path_size); 
         goto ring_parse_hetero;
 
       default: return wln_error("invalid character in ring parse - %c\n", ch); 
@@ -898,16 +898,29 @@ fst_locant_jmp:
     case '9':
       goto ring_parse_sssr;
 
-    // bridge logic
+    // bridge logic, locant ch must of been a bridging atom
     case 'T':
-      ring = ring_create(mol, max_path_size); 
+      max_path_size--; 
+      ring_fill(mol, &ring, max_path_size); 
+      if (locant_ch >= ring.size)
+        return wln_error("bridge-atom assignment out of bounds - %c\n", locant_ch + 'A');
+      ring.bridge_mask |= (1 << locant_ch); 
+      locant_ch = 0; 
       goto ring_parse_arom;
 
     case 'J': 
-      ring = ring_create(mol, max_path_size); 
+      max_path_size--; 
+      ring_fill(mol, &ring, max_path_size); 
+      if (locant_ch >= ring.size)
+        return wln_error("bridge-atom assignment out of bounds - %c\n", locant_ch + 'A');
+      ring.bridge_mask |= (1 << locant_ch); 
+      locant_ch = 0; 
       goto ring_parse_end;
 
     case ' ':
+      max_path_size--; 
+      ring.bridge_mask |= (1 << locant_ch); 
+      locant_ch = 0; 
       goto ring_parse_sssr;
 
     case 'B':
@@ -924,7 +937,7 @@ fst_locant_jmp:
     case 'G':
     case 'I':
     case 'Q':
-      ring = ring_create(mol, max_path_size); 
+      ring_fill(mol, &ring, max_path_size); 
       goto ring_parse_hetero;
 
     default: return wln_error("invalid character in ring parse - %c\n", ch); 
@@ -940,7 +953,7 @@ ring_parse_multi:
   if (max_path_size == WLN_ERROR)
     return WLN_ERROR; 
   
-  ring = ring_create(mol, max_path_size+1); 
+  ring_fill(mol, &ring, max_path_size+1); 
   ch = *wln_ptr; 
   switch (ch) {
       case 'J': wln_ptr++ ; goto ring_parse_end;
@@ -976,34 +989,35 @@ ring_parse_hetero:
         if (*wln_ptr >= 'A' && *wln_ptr <= 'Z') {
           if ((locant_ch = parse_locant()) == WLN_ERROR)
             return WLN_ERROR; 
-          if (locant_ch >= ring->size)
+          if (locant_ch >= ring.size)
             return wln_error("hetero-atom assignment out of bounds - %c\n", locant_ch + 'A');
         }
         else 
           return WLN_ERROR; 
 
       case 'H': break;
-      case 'B': symbol_change(ring->path[locant_ch++].s, BOR); break;
+      case 'B': symbol_change(ring.path[locant_ch++].s, BOR); break;
 
       case 'K':
-        symbol_change(ring->path[locant_ch].s, NIT);
-        symbol_set_charge(ring->path[locant_ch++].s, +1);
+        symbol_change(ring.path[locant_ch].s, NIT);
+        symbol_set_charge(ring.path[locant_ch++].s, +1);
         break;
 
-      case 'N': symbol_change(ring->path[locant_ch++].s, NIT); break;
-      case 'M': symbol_change(ring->path[locant_ch++].s, NIT); break;
-      case 'O': symbol_change(ring->path[locant_ch++].s, OXY); break;
-      case 'P': symbol_change(ring->path[locant_ch++].s, PHO); break;
-      case 'S': symbol_change(ring->path[locant_ch++].s, SUL); break;
-      case 'V': if (add_oxy(mol, ring->path[locant_ch++].s) != WLN_OK) 
-                  return WLN_ERROR; 
-                else break; 
+      case 'N': symbol_change(ring.path[locant_ch++].s, NIT); break;
+      case 'M': symbol_change(ring.path[locant_ch++].s, NIT); break;
+      case 'O': symbol_change(ring.path[locant_ch++].s, OXY); break;
+      case 'P': symbol_change(ring.path[locant_ch++].s, PHO); break;
+      case 'S': symbol_change(ring.path[locant_ch++].s, SUL); break;
+      case 'V': 
+        if (add_oxy(mol, ring.path[locant_ch++].s) != WLN_OK) 
+          return WLN_ERROR; 
+        else break; 
       
       case 'U':
-        if (locant_ch >= ring->size - 1) 
+        if (locant_ch >= ring.size - 1) 
           return wln_error("could not unsaturate bond due - locant out of bounds\n");
-        edge = graph_get_edge(mol, ring->path[locant_ch].s, 
-                              ring->path[locant_ch+1].s);
+        edge = graph_get_edge(mol, ring.path[locant_ch].s, 
+                              ring.path[locant_ch+1].s);
         edge_unsaturate(edge);
         break;
 
@@ -1011,13 +1025,9 @@ ring_parse_hetero:
       case 'Y':
         break;
 
-      case '&':
-        goto ring_parse_arom;
-      case 'T': 
-        goto ring_parse_arom;
-
+      case '&': goto ring_parse_arom;
+      case 'T': goto ring_parse_arom;
       case 'J': goto ring_parse_end;
-
       default: return wln_error("invalid character in ring parse - %c\n", ch); 
     }
   }
@@ -1053,14 +1063,14 @@ ring_parse_arom:
 
 ring_parse_end:
   if (seen_pseudo)
-    pathsolverIII(mol, ring, SSSR, nSSSR);  
+    pathsolverIII(mol, &ring, SSSR, nSSSR);  
   else
-    pathsolverIII_fast(mol, ring, SSSR, nSSSR);  
+    pathsolverIII_fast(mol, &ring, SSSR, nSSSR);  
 
   if (inline_edge) {
     if (inline_locant >= max_path_size)
       return wln_error("inline locant out of bounds for ring\n"); 
-    symbol_t *inline_atom = ring->path[inline_locant].s;
+    symbol_t *inline_atom = ring.path[inline_locant].s;
     edge_bond(mol, inline_edge, inline_atom); 
   }
 
@@ -1068,20 +1078,18 @@ ring_parse_end:
     wln_ptr++; 
     if (*wln_ptr == '&') {
       wln_ptr++; 
-      free(ring); 
       return start_wln_parse(mol); 
     }
-    else if (parse_ring_locants(mol, ring) != WLN_OK)
+    else if (parse_ring_locants(mol, &ring) != WLN_OK)
       return WLN_ERROR; 
   }
 
-  free(ring); 
   return WLN_OK; 
 }
 
 
 /* this expects the entry character to be the character after the locant space */
-static int parse_ring_locants(graph_t *mol, ring_t *ring)
+static int parse_ring_locants(graph_t *mol, struct wlnpath *ring)
 {
   unsigned char ch = *wln_ptr; 
   if (!*wln_ptr)
@@ -1116,13 +1124,19 @@ static int parse_ring_locants(graph_t *mol, ring_t *ring)
           edge_bond(mol, curr_edge, methyl);  
         }
 
-        /* move to the next locant */
-        if (*wln_ptr == ' ')
-          wln_ptr++; 
         if (*wln_ptr == '&') {
           /* move out of the current ring */
           wln_ptr++; 
           return WLN_OK; 
+        }
+
+        /* move to the next locant */
+        if (*wln_ptr == ' ') {
+          wln_ptr++; 
+          if (*wln_ptr == '&') {
+            wln_ptr++; 
+            return start_wln_parse(mol); 
+          }
         }
         break; 
     }
@@ -1132,13 +1146,13 @@ static int parse_ring_locants(graph_t *mol, ring_t *ring)
 }
 
 
-static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, ring_t *ring)
+static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, struct wlnpath *ring)
 {
   int ret; 
   unsigned char ch = *wln_ptr; 
   edge_t *curr_edge = edge;
   symbol_t *curr_symbol = symbol;
-  ring_t *benzene; 
+  struct wlnpath benzene; 
   uint16_t counter   = 0; 
 
   if (!*wln_ptr)
@@ -1295,12 +1309,14 @@ static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, 
 
       // shorthand benzene 
       case 'R': 
-        benzene = ring_create_benzene(mol);
-        curr_symbol = benzene->path[0].s; 
+        memset(&benzene, 0, sizeof(struct wlnpath)); 
+        ring_fill_benzene(mol, &benzene);
+
+        curr_symbol = benzene.path[0].s; 
         edge_bond(mol, curr_edge, curr_symbol); 
         if (*wln_ptr == ' ') {
           wln_ptr++; 
-          return parse_ring_locants(mol, benzene); 
+          return parse_ring_locants(mol, &benzene); 
         }
         else
           curr_edge = edge_create(mol, curr_symbol); 
@@ -1512,7 +1528,7 @@ bool ReadWLN(const char *wln, graph_t *mol)
     return false; 
   }
 
-  graph_cleanup_hydrogens(mol);
+  graph_add_hydrogens(mol);
 
 #ifdef USING_OPENBABEL
   OBKekulize(mol); 
