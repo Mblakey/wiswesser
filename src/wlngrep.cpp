@@ -15,6 +15,8 @@
 #define MATCH_ONLY  1
 #define COUNT_ONLY  3
 
+#define NO_JMP 0xffff
+
 int opt_match_option;  
 unsigned char latty;
 unsigned long nmatches; 
@@ -23,93 +25,243 @@ FILE *ifp;
 
 struct fsm_state {
   bool final; 
-  unsigned short jmp[256];
+  unsigned short jmp[256]; 
 };  
 
+unsigned short nstates;
+struct fsm_state wlnfsm[64]; 
 
-static void make_accept(struct fsm_state *blk, unsigned int id)
+static unsigned short state_init()
 {
-  blk[id].final = true; 
+  wlnfsm[nstates].final = false; 
+  memset(wlnfsm[nstates].jmp, 0xff, sizeof(unsigned short)*256); 
+  return nstates++; 
+}
+
+#define is_accept(x) wlnfsm[x].final
+#define make_accept(x) wlnfsm[x].final = true
+#define make_jmp(dst,src,ch) wlnfsm[src].jmp[ch] = dst
+#define state_jmp(x,ch) wlnfsm[x].jmp[ch]
+
+
+static void make_symbol_transitions(unsigned int dst_id, unsigned int src_id)
+{
+	make_jmp(dst_id, src_id, 'B');
+	make_jmp(dst_id, src_id, 'C');
+	make_jmp(dst_id, src_id, 'E');
+	make_jmp(dst_id, src_id, 'F');
+	make_jmp(dst_id, src_id, 'G');
+	make_jmp(dst_id, src_id, 'H');
+	make_jmp(dst_id, src_id, 'I');
+	make_jmp(dst_id, src_id, 'K');
+	make_jmp(dst_id, src_id, 'M');
+	make_jmp(dst_id, src_id, 'N');
+	make_jmp(dst_id, src_id, 'O');
+	make_jmp(dst_id, src_id, 'P');
+	make_jmp(dst_id, src_id, 'Q');
+	make_jmp(dst_id, src_id, 'R');
+	make_jmp(dst_id, src_id, 'S');
+	make_jmp(dst_id, src_id, 'U');
+	make_jmp(dst_id, src_id, 'V');
+	make_jmp(dst_id, src_id, 'W');
+	make_jmp(dst_id, src_id, 'X');
+	make_jmp(dst_id, src_id, 'Y');
+	make_jmp(dst_id, src_id, 'Z');
 }
 
 
-static inline bool is_accept(struct fsm_state *state)
+static void init_wlnfsm() 
 {
-  return state->final; 
-}
+  nstates = 0; 
+  const unsigned int head        = state_init(); 
 
-
-static void add_transition(struct fsm_state *blk, 
-                           unsigned int dst_id, 
-                           unsigned int src_id, 
-                           unsigned char ch)
-{
-  blk[dst_id].jmp[ch] = src_id; 
-}
-
-
-static void add_non_cyclic_transitions(struct fsm_state *blk, 
-                                       unsigned int dst_id, 
-                                       unsigned int src_id)
-{
-  blk[dst_id].jmp['B'] = src_id; 
-  blk[dst_id].jmp['C'] = src_id; 
-  blk[dst_id].jmp['E'] = src_id; 
-  blk[dst_id].jmp['F'] = src_id; 
-  blk[dst_id].jmp['G'] = src_id; 
-  blk[dst_id].jmp['H'] = src_id; 
-  blk[dst_id].jmp['I'] = src_id; 
-  blk[dst_id].jmp['K'] = src_id; 
-  blk[dst_id].jmp['M'] = src_id; 
-  blk[dst_id].jmp['N'] = src_id; 
-  blk[dst_id].jmp['O'] = src_id; 
-  blk[dst_id].jmp['P'] = src_id; 
-  blk[dst_id].jmp['Q'] = src_id; 
-  blk[dst_id].jmp['R'] = src_id; 
-  blk[dst_id].jmp['S'] = src_id; 
-  blk[dst_id].jmp['U'] = src_id; 
-  blk[dst_id].jmp['V'] = src_id; 
-  blk[dst_id].jmp['W'] = src_id; 
-  blk[dst_id].jmp['X'] = src_id; 
-  blk[dst_id].jmp['Y'] = src_id; 
-  blk[dst_id].jmp['Z'] = src_id; 
-
-
-  for (unsigned char ch='0'; ch <= '9'; ch++)
-    blk[dst_id].jmp[ch] = src_id; 
-}
-
-
-static struct fsm_state* create_wlnfsm() 
-{
-  struct fsm_state *blk = (struct fsm_state*)malloc(sizeof(struct fsm_state)*64);
-  memset(blk, 0, sizeof(struct fsm_state)*64); 
-
-  unsigned int nstates = 0; 
-  const unsigned int neg_state = nstates++; /* allows the memset for false match */
-  const unsigned int head = nstates++;  
-  const unsigned int non_cyclic = nstates++; 
-  const unsigned int cyclic = nstates++; 
+  const unsigned int chain_open  = state_init(); 
+  const unsigned int locant_space = state_init(); 
   
-  make_accept(blk, non_cyclic); 
-  add_non_cyclic_transitions(blk, head, non_cyclic); 
-  add_non_cyclic_transitions(blk, non_cyclic, non_cyclic); 
-  add_transition(blk, non_cyclic, non_cyclic, '&'); 
+  make_accept(chain_open); 
+  make_symbol_transitions(chain_open, head); 
+  make_symbol_transitions(chain_open, chain_open); 
+
+  for (unsigned char ch='0'; ch <= '9'; ch++) {
+    make_jmp(chain_open, head, ch); 
+    make_jmp(chain_open, chain_open, ch); 
+  }
+
+  make_jmp(chain_open, chain_open, '&'); 
   
-  const unsigned int non_cyclic_dash_open  = nstates++; 
-  const unsigned int non_cyclic_dash_elem  = nstates++; 
-  const unsigned int non_cyclic_dash_close = nstates++; 
+  const unsigned int dash_open  = state_init();
+  const unsigned int dash_elem  = state_init();
+  const unsigned int dash_close = state_init();
 
   /* generic elemental characters */
   for (unsigned char ch = 'A'; ch <= 'Z'; ch++) {
-    add_transition(blk, non_cyclic_dash_elem, non_cyclic_dash_open, ch); 
-    add_transition(blk, non_cyclic_dash_close, non_cyclic_dash_elem, ch); 
+    make_jmp(dash_elem, dash_open, ch); 
+    make_jmp(dash_close, dash_elem, ch); 
   }
   
-  add_transition(blk, non_cyclic_dash_open, non_cyclic, '-'); 
-  add_transition(blk, non_cyclic, non_cyclic_dash_close, '-'); 
+  make_jmp(dash_open, head, '-'); 
+  make_jmp(dash_open, chain_open, '-'); 
+  make_jmp(chain_open, dash_close, '-'); 
 
-  return blk; 
+  /* cyclic internal block states */
+
+  const unsigned int ring_open   = state_init(); 
+  const unsigned int ring_close  = state_init(); 
+  const unsigned int ring_digits = state_init(); 
+
+  make_accept(ring_close); 
+
+  make_jmp(ring_open, head, 'L');  
+  make_jmp(ring_open, head, 'T');  
+
+  for (unsigned char ch = '0'; ch <= '9'; ch++) {
+    make_jmp(ring_digits, ring_open, ch);
+    make_jmp(ring_digits, ring_digits, ch);
+  }
+
+  make_jmp(ring_close, ring_digits, 'J'); 
+
+  const unsigned int digit_space  = state_init(); 
+  const unsigned int digit_locant = state_init(); 
+  
+  /* ring digit locants and bridge atoms */
+  make_jmp(digit_space, ring_open, ' '); 
+  make_jmp(digit_space, ring_digits, ' '); 
+  
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) 
+    make_jmp(digit_locant, digit_space, ch); 
+  make_jmp(digit_locant, digit_locant, '&'); 
+
+  make_jmp(digit_space, digit_locant, ' '); 
+
+  for (unsigned char ch = '0'; ch <= '9'; ch++) 
+    make_jmp(ring_digits,digit_locant, ch); 
+  
+  make_jmp(ring_close, digit_locant, 'J'); 
+
+  /* multicyclic ring block defintion */
+  // n, locants, space, size
+
+  const unsigned int multi_digit    = state_init(); 
+  const unsigned int multi_locants  = state_init(); 
+  const unsigned int multi_break    = state_init(); 
+  const unsigned int multi_size     = state_init(); 
+  for (unsigned char ch = '0'; ch <= '9'; ch++) {
+    make_jmp(multi_digit, digit_space, ch); 
+    make_jmp(multi_digit, multi_digit, ch); 
+  }
+
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) {
+    make_jmp(multi_locants, multi_digit, ch); 
+    make_jmp(multi_locants, multi_locants, ch); 
+  }
+  make_jmp(multi_locants, multi_locants, '&'); 
+  make_jmp(multi_break, multi_locants, ' '); 
+
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) 
+    make_jmp(multi_size, multi_break, ch); 
+  make_jmp(multi_size, multi_size, '&'); 
+  
+  make_jmp(ring_close, multi_size, 'J'); 
+
+  /* hetero element definitions */
+  const unsigned int ring_hetero        = state_init(); 
+  const unsigned int hetero_dash_open   = state_init(); 
+  const unsigned int hetero_dash_elem_a = state_init(); 
+  const unsigned int hetero_dash_elem_b = state_init(); 
+  const unsigned int hetero_dash_close  = state_init(); 
+  const unsigned int hetero_space       = state_init(); 
+  const unsigned int hetero_locant      = state_init(); 
+
+  make_symbol_transitions(ring_hetero, ring_digits); 
+  make_symbol_transitions(ring_hetero, digit_locant); 
+  make_symbol_transitions(ring_hetero, multi_size); 
+  make_symbol_transitions(ring_hetero, ring_hetero); 
+  make_symbol_transitions(ring_hetero, hetero_locant); 
+  make_symbol_transitions(ring_hetero, hetero_dash_close); 
+
+  make_jmp(hetero_dash_open, ring_digits, '-'); 
+  make_jmp(hetero_dash_open, digit_locant, '-'); 
+  make_jmp(hetero_dash_open, multi_size, '-'); 
+  make_jmp(hetero_dash_open, ring_hetero, '-'); 
+  make_jmp(hetero_dash_open, hetero_locant, '-'); 
+
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) {
+    make_jmp(hetero_dash_elem_a, hetero_dash_open, ch); 
+    make_jmp(hetero_dash_elem_b, hetero_dash_elem_a, ch); 
+  }
+  make_jmp(hetero_dash_close, hetero_dash_elem_b, '-'); 
+
+  make_jmp(hetero_space, multi_size, ' '); 
+  make_jmp(hetero_space, ring_hetero, ' '); 
+
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) 
+    make_jmp(hetero_locant, hetero_space, ch); 
+
+  make_jmp(ring_close, hetero_dash_close, 'J'); 
+  make_jmp(hetero_space, hetero_dash_close, ' '); 
+  make_jmp(ring_close, ring_hetero, 'J'); 
+
+  make_jmp(ring_close, ring_close, '&'); 
+  
+  /* aromaticity assignments */
+  const unsigned int aromacity  = state_init(); 
+  make_jmp(ring_close, aromacity, 'J'); 
+  make_jmp(aromacity, aromacity, 'T'); 
+  make_jmp(aromacity, aromacity, '&'); 
+  
+  make_jmp(aromacity, ring_digits, 'T'); 
+  make_jmp(aromacity, ring_digits, '&'); 
+
+  make_jmp(aromacity, digit_locant, 'T'); 
+  make_jmp(aromacity, digit_locant, '&'); 
+
+  make_jmp(aromacity, multi_size, 'T'); 
+  make_jmp(aromacity, multi_size, '-'); 
+
+  make_jmp(aromacity, ring_hetero, 'T'); 
+  make_jmp(aromacity, ring_hetero, '&'); 
+
+  make_jmp(aromacity, hetero_dash_close, 'T'); 
+  make_jmp(aromacity, hetero_dash_close, '&'); 
+
+  /* ring locant jump into specific blocks */ 
+  const unsigned int rgroup_locant = state_init(); 
+
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) 
+    make_jmp(rgroup_locant, locant_space, ch); 
+  make_jmp(rgroup_locant, rgroup_locant, '&'); 
+
+  make_symbol_transitions(chain_open, rgroup_locant); 
+  for (unsigned char ch='0'; ch <= '9'; ch++) 
+    make_jmp(chain_open, rgroup_locant, ch); 
+  make_jmp(dash_open, rgroup_locant, '-'); 
+  
+  make_jmp(locant_space, ring_close, ' '); 
+  make_jmp(locant_space, rgroup_locant, ' '); 
+  make_jmp(locant_space, chain_open, ' '); 
+
+  /* ions */
+  make_jmp(head, locant_space, '&'); 
+
+  /* inline ring defintions */
+  const unsigned int inline_ring_space  = state_init(); 
+  const unsigned int inline_ring_locant = state_init(); 
+  const unsigned int inline_spiro       = state_init(); 
+  
+  make_jmp(inline_ring_space, dash_open, ' '); 
+  for (unsigned char ch = 'A'; ch <= 'Z'; ch++) 
+    make_jmp(inline_ring_locant, inline_ring_space, ch); 
+  make_jmp(inline_ring_locant, inline_ring_locant, '&'); 
+
+  make_jmp(ring_open, inline_ring_locant, 'L');  
+  make_jmp(ring_open, inline_ring_locant, 'T');  
+
+  /* inline spiro definition */
+  make_jmp(inline_spiro, dash_open, '&');
+  make_jmp(inline_ring_space, inline_spiro, ' '); 
+
+  fprintf(stderr, "%u states\n", nstates); 
 }
 
 
@@ -136,7 +288,7 @@ static void handle_match(char *buffer, int match_end, int consumed)
 
 
 /* uses goto to keep logic clean, nothing to be scared of */
-static bool process_file(struct fsm_state *wlnfsm, FILE *fp)
+static bool process_file(FILE *fp)
 {
   const size_t bufsize = 16384; 
   const size_t wlnbuf_size = 4096; 
@@ -144,10 +296,11 @@ static bool process_file(struct fsm_state *wlnfsm, FILE *fp)
   char buffer[bufsize]; 
   char wln_buf[wlnbuf_size]; 
   unsigned int wlnlen = 0; 
-
-  fsm_state *root = &wlnfsm[1]; 
-  fsm_state *head = root; 
-  unsigned int jmpid; 
+  
+  const unsigned short root_id = 0; 
+  unsigned short curr_id = root_id; 
+  
+  unsigned int jmp_id; 
   unsigned int match_end = 0; 
 
   nmatches = 0; 
@@ -163,17 +316,17 @@ jmp_fetch_data:
 
     unsigned int i = 0; 
 
-    if (head != root)
+    if (curr_id)
       goto jmp_matching; 
 
 jmp_not_matching:
     for (; i < bytes; i++) {
       unsigned char ch = buffer[i]; 
-      jmpid = head->jmp[ch]; 
-      if (jmpid) {
+      jmp_id = state_jmp(curr_id, ch);  
+      if (jmp_id != NO_JMP) {
         wlnlen    = 0; 
         match_end = 0; 
-        head = &wlnfsm[jmpid]; 
+        curr_id = jmp_id; 
         wln_buf[wlnlen++] = ch; 
         i++; // skip to next char
         goto jmp_matching;
@@ -186,11 +339,13 @@ jmp_not_matching:
 jmp_matching:
     for (; i < bytes; i++) { 
       unsigned char ch = buffer[i]; 
-      jmpid = head->jmp[ch]; 
-      if (!jmpid) {
-        head = root; 
+      jmp_id = state_jmp(curr_id, ch);  
+      if (jmp_id == NO_JMP) {
+        curr_id = root_id; 
         if (match_end > 0) 
           handle_match(wln_buf, match_end+1, wlnlen);  
+        else if (opt_match_option == LINE_MATCH)
+          fwrite(wln_buf, wlnlen, 1, stdout); 
         match_end = 0; 
         goto jmp_not_matching;
       }
@@ -199,10 +354,9 @@ jmp_matching:
         goto jmp_not_matching;
       }
       else {
-        head = &wlnfsm[jmpid]; 
+        curr_id = jmp_id; 
         wln_buf[wlnlen] = ch; 
-        if (is_accept(head))
-          match_end = wlnlen; 
+        match_end = is_accept(curr_id) ? wlnlen : match_end; 
         wlnlen++; 
       }
     }
@@ -277,13 +431,12 @@ int main(int argc, char* argv[])
   latty = isatty(STDOUT_FILENO) ? 0xff:0x0; 
   process_cml(argc,argv); 
 
-  struct fsm_state *wlnfsm = create_wlnfsm(); 
+  init_wlnfsm(); 
 
-  process_file(wlnfsm, ifp);  
+  process_file(ifp);  
   if (opt_match_option == COUNT_ONLY)
     printf("%lu matches\n", nmatches); 
   
-  free(wlnfsm); 
   if (ifp != stdin) 
     fclose(ifp); 
   return 0;
