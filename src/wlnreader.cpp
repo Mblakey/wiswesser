@@ -97,6 +97,7 @@ using namespace OpenBabel;
 
 #define edge_set_begin(e, s)       e->SetBegin(s)
 #define edge_set_end(e, s)         e->SetEnd(s)
+#define edge_get_beg(e)            e->GetBeginAtom()
 #define edge_get_end(e)            e->GetEndAtom()
 
 #define graph_new_symbol(g)         g->NewAtom()
@@ -137,6 +138,7 @@ static edge_t* edge_create(graph_t *mol, symbol_t *parent) {
 
 static bool edge_bond(graph_t *mol, edge_t *bond, symbol_t *child)
 {
+  fprintf(stderr, "order: %d\n", bond->GetBondOrder()); 
   edge_set_end(bond, child); 
   graph_set_edge(mol, bond);
   return true; 
@@ -432,7 +434,10 @@ graph_add_hydrogens(graph_t *mol)
     if (symbol_get_charge(s) == 0 && symbol_get_hydrogens(s) == 0) {
       switch (symbol_get_num(s)) {
         case CAR: symbol_safeset_hydrogens(s, 4 - modifier); break;
-        case NIT: symbol_safeset_hydrogens(s, 3 - modifier); break;
+        case NIT: 
+            fprintf(stderr, "%d\n", modifier); 
+            symbol_safeset_hydrogens(s, 3 - modifier); 
+            break;
         case OXY: symbol_safeset_hydrogens(s, 2 - modifier); break;
 
         case SUL: 
@@ -1152,7 +1157,8 @@ static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, 
   unsigned char ch = *wln_ptr; 
   edge_t *curr_edge = edge;
   symbol_t *curr_symbol = symbol;
-  struct wlnpath benzene; 
+  symbol_t *prev_symbol;  
+  struct wlnpath *benzene; 
   uint16_t counter   = 0; 
 
   if (!*wln_ptr)
@@ -1204,7 +1210,33 @@ static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, 
         return WLN_OK; 
       
       case 'C':
-        return wln_error("WLN symbol C currently unhandled\n"); 
+        /* check the edge, if we can triple bond backwards, within chemical rules.
+         * Then do. If we can only double bond, take that forcing next bond to be double. 
+         * Otherwise single bond and force the next edge to be triple. */
+        curr_symbol = symbol_create(mol, CAR);
+        prev_symbol = edge_get_beg(curr_edge); 
+        switch (symbol_get_num(prev_symbol)) {
+          case DUM: 
+            return wln_error("WLN symbol requires a prefix symbol\n"); 
+
+          case NIT:
+            /* triple bond */
+            if (symbol_get_valence(prev_symbol) == 0) {
+              edge_set_order(curr_edge, 3); 
+              edge_bond(mol, curr_edge, curr_symbol); 
+              curr_edge = edge_create(mol, curr_symbol); 
+              break; 
+            }
+
+          default: 
+            /* X=C=X default behavior */
+            edge_set_order(curr_edge, 2); 
+            edge_bond(mol, curr_edge, curr_symbol); 
+            curr_edge = edge_create(mol, curr_symbol); 
+            edge_set_order(curr_edge, 2); 
+            break; 
+        }
+        break;
 
       // extrememly rare open chelate notation
       case 'D':
@@ -1309,17 +1341,25 @@ static int branch_recursive_parse(graph_t *mol, symbol_t *symbol, edge_t *edge, 
 
       // shorthand benzene 
       case 'R': 
-        memset(&benzene, 0, sizeof(struct wlnpath)); 
-        ring_fill_benzene(mol, &benzene);
+        benzene = (struct wlnpath*)malloc(sizeof(struct wlnpath)); 
+        memset(benzene, 0, sizeof(struct wlnpath)); 
+        if (!ring_fill_benzene(mol, benzene)) {
+          free(benzene); 
+          return WLN_ERROR; 
+        }
 
-        curr_symbol = benzene.path[0].s; 
+        curr_symbol = benzene->path[0].s; 
         edge_bond(mol, curr_edge, curr_symbol); 
         if (*wln_ptr == ' ') {
           wln_ptr++; 
-          return parse_ring_locants(mol, &benzene); 
+          ret = parse_ring_locants(mol, benzene);
+          free(benzene); 
+          return ret; 
         }
-        else
+        else {
           curr_edge = edge_create(mol, curr_symbol); 
+          free(benzene); // ptr should be saved (unsafe code)
+        }
         break;
 
       case 'S':

@@ -47,8 +47,17 @@ static unsigned short state_init()
 static void make_symbol_transitions(unsigned int dst_id, unsigned int src_id)
 {
 	make_jmp(dst_id, src_id, 'B');
-	make_jmp(dst_id, src_id, 'C');
-	make_jmp(dst_id, src_id, 'E');
+
+#ifdef WLN_C_MATCH
+  // The C symbol in WLN is rare, and adding C as a potential 
+  // match token directly conflicts with SMILES. e.g most normal 
+  // organic SMILES will match due to C chains. Omitting this token
+  // here as default, can be recompiled to match C symbols.
+	
+  make_jmp(dst_id, src_id, 'C');
+#endif
+	
+  make_jmp(dst_id, src_id, 'E');
 	make_jmp(dst_id, src_id, 'F');
 	make_jmp(dst_id, src_id, 'G');
 	make_jmp(dst_id, src_id, 'H');
